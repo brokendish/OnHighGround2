@@ -28,7 +28,20 @@
             padding: 15px 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-icon {
+            width: 88px;
+            height: 88px;
+            object-fit: contain;
+            flex-shrink: 0;
+        }
+
         header h1 {
             font-size: 24px;
             font-weight: 600;
@@ -277,13 +290,23 @@
                 width: 100%;
                 max-height: 30vh;
             }
+
+            .header-icon {
+                width: 64px;
+                height: 64px;
+            }
         }
     </style>
 </head>
 <body>
     <header>
-        <h1>🚨 避難ナビゲーション OnHighGround</h1>
-        <p>津波・高潮・洪水から身を守るための避難経路案内</p>
+        <div class="header-content">
+            <img class="header-icon" src="./icon.png" alt="OnHighGround アイコン">
+            <div class="header-text">
+                <h1>避難ナビゲーション OnHighGround</h1>
+                <p>津波・高潮・洪水から身を守るための避難経路案内</p>
+            </div>
+        </div>
     </header>
     
     <div class="container">
