@@ -72,14 +72,18 @@ source venv/bin/activate
 # 依存パッケージをインストール
 pip install -r requirements.txt
 
-# main.pyを編集してDEMファイルのパスを設定
-# DEM_PATH = "/path/to/your/output.tif"
+# backend/app.properties を編集して環境依存値を設定
+# 例:
+# dem.path=/path/to/your/output.tif
+# api.host=0.0.0.0
+# api.port=8000
 
 # サーバーを起動
 python main.py
 ```
 
-サーバーは `http://localhost:8000` で起動します。
+サーバーは `backend/app.properties` の `api.host` / `api.port` で起動します。
+デフォルト値では `http://localhost:8000` です。
 
 ### 3. フロントエンドの起動
 
@@ -278,5 +282,4 @@ const API_BASE_URL = 'http://localhost:8000/api';
 - [ ] 音声ナビゲーション
 - [ ] 多言語対応
 - [ ] リアルタイム災害情報の連携
-
 
