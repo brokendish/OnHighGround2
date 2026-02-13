@@ -275,7 +275,7 @@
             
             .sidebar {
                 width: 100%;
-                max-height: 50vh;
+                max-height: 30vh;
             }
         }
     </style>
@@ -363,6 +363,108 @@
     <script>
         // 設定
         const API_BASE_URL = 'http://localhost:8000/api';
+        
+        // Leaflet Routing Machine に ja ロケールが無い環境でも日本語案内を強制する
+        function ensureJapaneseRoutingLocalization() {
+            if (!L.Routing) {
+                return;
+            }
+            if (!L.Routing.Localization) {
+                L.Routing.Localization = {};
+            }
+            if (L.Routing.Localization.ja) {
+                return;
+            }
+            
+            L.Routing.Localization.ja = {
+                directions: {
+                    N: '北',
+                    NE: '北東',
+                    E: '東',
+                    SE: '南東',
+                    S: '南',
+                    SW: '南西',
+                    W: '西',
+                    NW: '北西'
+                },
+                instructions: {
+                    Head: ['{dir}へ進む', ' {road}'],
+                    Continue: ['{dir}へ直進', ' {road}'],
+                    SlightRight: ['やや右へ', ' {road}'],
+                    Right: ['右折', ' {road}'],
+                    SharpRight: ['鋭く右折', ' {road}'],
+                    TurnAround: ['Uターン', ''],
+                    SlightLeft: ['やや左へ', ' {road}'],
+                    Left: ['左折', ' {road}'],
+                    SharpLeft: ['鋭く左折', ' {road}'],
+                    WaypointReached: ['経由地に到着', ''],
+                    Roundabout: ['ロータリーを{exitStr}番目の出口へ', ' {road}'],
+                    DestinationReached: ['目的地に到着', '']
+                },
+                formatOrder: function(n) {
+                    return `${n}番目`;
+                },
+                ui: {
+                    startPlaceholder: '出発地',
+                    viaPlaceholder: '経由地',
+                    endPlaceholder: '目的地',
+                    addWaypoint: '経由地を追加',
+                    route: 'ルート検索'
+                },
+                units: {
+                    meters: 'm',
+                    kilometers: 'km',
+                    yards: 'yd',
+                    miles: 'mi',
+                    hours: '時間',
+                    minutes: '分',
+                    seconds: '秒'
+                }
+            };
+        }
+        
+        ensureJapaneseRoutingLocalization();
+        
+        function translateInstructionToJapanese(text) {
+            if (!text || typeof text !== 'string') {
+                return text;
+            }
+            
+            const replacements = [
+                [/\bHead north\b/gi, '北へ進む'],
+                [/\bHead northeast\b/gi, '北東へ進む'],
+                [/\bHead east\b/gi, '東へ進む'],
+                [/\bHead southeast\b/gi, '南東へ進む'],
+                [/\bHead south\b/gi, '南へ進む'],
+                [/\bHead southwest\b/gi, '南西へ進む'],
+                [/\bHead west\b/gi, '西へ進む'],
+                [/\bHead northwest\b/gi, '北西へ進む'],
+                [/\bContinue\b/gi, '直進'],
+                [/\bSlight right\b/gi, 'やや右へ'],
+                [/\bTurn right\b/gi, '右折'],
+                [/\bSharp right\b/gi, '鋭く右折'],
+                [/\bTurn around\b/gi, 'Uターン'],
+                [/\bSlight left\b/gi, 'やや左へ'],
+                [/\bTurn left\b/gi, '左折'],
+                [/\bSharp left\b/gi, '鋭く左折'],
+                [/\bWaypoint reached\b/gi, '経由地に到着'],
+                [/\bDestination reached\b/gi, '目的地に到着'],
+                [/\bonto\b/gi, 'へ'],
+                [/\bon\b/gi, 'を進む']
+            ];
+            
+            let translated = text;
+            replacements.forEach(([pattern, value]) => {
+                translated = translated.replace(pattern, value);
+            });
+            
+            translated = translated.replace(
+                /At the roundabout, take the (\d+)(st|nd|rd|th) exit/gi,
+                'ロータリーを$1番目の出口へ'
+            );
+            
+            return translated;
+        }
         
         // 地図の初期化
         const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初期位置
@@ -599,7 +701,7 @@
             
             // OSRM を使用してルートを表示
             // 注: 実運用では自前のOSRMサーバーを立てることを推奨
-            routingControl = L.Routing.control({
+            const routingOptions = {
                 waypoints: [
                     L.latLng(currentLocation.lat, currentLocation.lon),
                     L.latLng(destination.lat, destination.lon)
@@ -607,6 +709,7 @@
                 router: L.Routing.osrmv1({
                     serviceUrl: 'https://router.project-osrm.org/route/v1'
                 }),
+                language: 'ja',
                 lineOptions: {
                     styles: [{ color: '#ff9800', weight: 6, opacity: 0.8 }]
                 },
@@ -615,7 +718,40 @@
                 routeWhileDragging: false,
                 fitSelectedRoutes: true,
                 show: false  // ルート説明パネルを非表示
-            }).addTo(map);
+            };
+            
+            if (L.Routing && typeof L.Routing.Formatter === 'function') {
+                const formatter = new L.Routing.Formatter({
+                    language: 'ja',
+                    units: 'metric'
+                });
+                if (typeof formatter.formatInstruction === 'function') {
+                    const originalFormatInstruction = formatter.formatInstruction.bind(formatter);
+                    formatter.formatInstruction = function(instruction, i) {
+                        const message = originalFormatInstruction(instruction, i);
+                        return translateInstructionToJapanese(message);
+                    };
+                }
+                routingOptions.formatter = formatter;
+            }
+            
+            // 日本語フォーマッタが失敗しても、ルート線オーバーレイは必ず表示する
+            try {
+                routingControl = L.Routing.control(routingOptions).addTo(map);
+            } catch (error) {
+                console.error('Routing with formatter failed, retrying without formatter:', error);
+                
+                const fallbackOptions = { ...routingOptions };
+                delete fallbackOptions.formatter;
+                
+                try {
+                    routingControl = L.Routing.control(fallbackOptions).addTo(map);
+                } catch (error2) {
+                    console.error('Routing with ja localization failed, retrying without language:', error2);
+                    delete fallbackOptions.language;
+                    routingControl = L.Routing.control(fallbackOptions).addTo(map);
+                }
+            }
             
             // 選択した避難先のマーカーを強調
             destinationMarkers.forEach((marker, i) => {
