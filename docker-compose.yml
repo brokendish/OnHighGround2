@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: evacuation-navi-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # 標高データをマウント
+      - ./data:/app/data:ro
+      # 開発時のホットリロード用（本番では削除推奨）
+      - ./backend:/app
+    environment:
+      - DEM_FILE_PATH=/app/data/elevation.tif
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    image: nginx:alpine
+    container_name: evacuation-navi-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    name: evacuation-navi-network

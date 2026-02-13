@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>避難ナビゲーション OnHighGround - 津波・高潮・洪水対策</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        header p {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .sidebar {
+            width: 350px;
+            background: #f8f9fa;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+        }
+        
+        .control-group {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .control-group h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #333;
+            border-left: 4px solid #667eea;
+            padding-left: 10px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+        }
+        
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 5px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            margin-top: 10px;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        #map {
+            flex: 1;
+            position: relative;
+        }
+        
+        .current-location {
+            background: #e3f2fd;
+            padding: 12px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+        
+        .current-location strong {
+            color: #1976d2;
+        }
+        
+        .destinations {
+            margin-top: 20px;
+        }
+        
+        .destination-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border-left: 4px solid #4caf50;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+        }
+        
+        .destination-card:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .destination-card.selected {
+            border-left-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .destination-rank {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #4caf50;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        
+        .destination-info {
+            display: inline-block;
+            vertical-align: top;
+            width: calc(100% - 40px);
+        }
+        
+        .destination-info p {
+            margin: 3px 0;
+            font-size: 13px;
+        }
+        
+        .safety-score {
+            display: inline-block;
+            padding: 3px 10px;
+            background: #4caf50;
+            color: white;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+        
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 12px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+        
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        
+        .legend h4 {
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 12px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                max-height: 50vh;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🚨 避難ナビゲーション OnHighGround</h1>
+        <p>津波・高潮・洪水から身を守るための避難経路案内</p>
+    </header>
+    
+    <div class="container">
+        <div class="sidebar">
+            <!-- 設定パネル -->
+            <div class="control-group">
+                <h3>📍 現在地設定</h3>
+                <button class="btn btn-primary" id="getCurrentLocation">現在地を取得</button>
+                
+                <div class="current-location" id="currentLocationInfo" style="display: none;">
+                    <strong>現在地:</strong><br>
+                    緯度: <span id="currentLat">-</span><br>
+                    経度: <span id="currentLon">-</span><br>
+                    標高: <span id="currentElev">-</span> m
+                </div>
+            </div>
+            
+            <!-- 検索条件 -->
+            <div class="control-group">
+                <h3>⚙️ 検索条件</h3>
+                
+                <div class="form-group">
+                    <label for="transportMode">移動手段</label>
+                    <select id="transportMode">
+                        <option value="walking">徒歩</option>
+                        <option value="driving">車</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="maxDistance">最大移動距離 (m)</label>
+                    <input type="number" id="maxDistance" value="2000" min="100" max="10000" step="100">
+                </div>
+                
+                <div class="form-group">
+                    <label for="minElevationGain">必要な標高差 (m)</label>
+                    <input type="number" id="minElevationGain" value="10" min="1" max="100" step="1">
+                </div>
+                
+                <button class="btn btn-primary" id="searchDestinations" disabled>避難先を検索</button>
+                <button class="btn btn-secondary" id="clearMap">地図をクリア</button>
+            </div>
+            
+            <!-- 避難先リスト -->
+            <div class="control-group" id="destinationsPanel" style="display: none;">
+                <h3>🎯 避難先候補</h3>
+                <div id="destinationsList"></div>
+            </div>
+        </div>
+        
+        <!-- 地図エリア -->
+        <div id="map">
+            <div class="legend">
+                <h4>凡例</h4>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #2196f3;"></div>
+                    <span>現在地</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4caf50;"></div>
+                    <span>避難先候補</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff9800;"></div>
+                    <span>選択した避難先</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet Routing Machine -->
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    
+    <script>
+        // 設定
+        const API_BASE_URL = 'http://localhost:8000/api';
+        
+        // 地図の初期化
+        const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初期位置
+        
+        // OpenStreetMapタイル
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+        
+        // 状態管理
+        let currentLocation = null;
+        let currentMarker = null;
+        let destinationMarkers = [];
+        let routingControl = null;
+        let destinations = [];
+        
+        // 現在地取得
+        document.getElementById('getCurrentLocation').addEventListener('click', async () => {
+            const btn = document.getElementById('getCurrentLocation');
+            btn.disabled = true;
+            btn.textContent = '位置情報を取得中...';
+            
+            if (!navigator.geolocation) {
+                alert('お使いのブラウザは位置情報に対応していません');
+                btn.disabled = false;
+                btn.textContent = '現在地を取得';
+                return;
+            }
+            
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    
+                    currentLocation = { lat, lon };
+                    
+                    // 標高を取得
+                    try {
+                        const response = await fetch(
+                            `${API_BASE_URL}/elevation?lat=${lat}&lon=${lon}`
+                        );
+                        const data = await response.json();
+                        
+                        if (!response.ok) {
+                            throw new Error(data.detail || `HTTP ${response.status}`);
+                        }
+                        
+                        if (typeof data.elevation !== 'number') {
+                            throw new Error('標高レスポンス形式が不正です');
+                        }
+                        
+                        // 現在地情報を表示
+                        document.getElementById('currentLat').textContent = lat.toFixed(6);
+                        document.getElementById('currentLon').textContent = lon.toFixed(6);
+                        document.getElementById('currentElev').textContent = data.elevation.toFixed(1);
+                        document.getElementById('currentLocationInfo').style.display = 'block';
+                        
+                        // 地図に現在地をマーク
+                        if (currentMarker) {
+                            map.removeLayer(currentMarker);
+                        }
+                        
+                        currentMarker = L.circleMarker([lat, lon], {
+                            color: '#2196f3',
+                            fillColor: '#2196f3',
+                            fillOpacity: 0.8,
+                            radius: 10
+                        }).addTo(map);
+                        
+                        currentMarker.bindPopup(`
+                            <strong>現在地</strong><br>
+                            標高: ${data.elevation.toFixed(1)} m
+                        `).openPopup();
+                        
+                        map.setView([lat, lon], 15);
+                        
+                        // 検索ボタンを有効化
+                        document.getElementById('searchDestinations').disabled = false;
+                        
+                    } catch (error) {
+                        console.error('標高取得エラー:', error);
+                        alert(`標高データの取得に失敗しました: ${error.message}`);
+                    }
+                    
+                    btn.disabled = false;
+                    btn.textContent = '現在地を取得';
+                },
+                (error) => {
+                    console.error('位置情報取得エラー:', error);
+                    alert('位置情報の取得に失敗しました。設定を確認してください。');
+                    btn.disabled = false;
+                    btn.textContent = '現在地を取得';
+                }
+            );
+        });
+        
+        // 避難先検索
+        document.getElementById('searchDestinations').addEventListener('click', async () => {
+            if (!currentLocation) {
+                alert('先に現在地を取得してください');
+                return;
+            }
+            
+            const btn = document.getElementById('searchDestinations');
+            btn.disabled = true;
+            btn.textContent = '検索中...';
+            
+            // 既存のマーカーをクリア
+            clearDestinationMarkers();
+            
+            const transportMode = document.getElementById('transportMode').value;
+            const maxDistance = parseInt(document.getElementById('maxDistance').value);
+            const minElevationGain = parseFloat(document.getElementById('minElevationGain').value);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/evacuation`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        lat: currentLocation.lat,
+                        lon: currentLocation.lon,
+                        transport_mode: transportMode,
+                        max_distance: maxDistance,
+                        min_elevation_gain: minElevationGain
+                    })
+                });
+                
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || `HTTP ${response.status}`);
+                }
+                destinations = data.destinations || [];
+                
+                if (destinations.length === 0) {
+                    alert('指定条件で避難先が見つかりませんでした。条件を変更してください。');
+                } else {
+                    // 避難先を地図に表示
+                    displayDestinations(destinations);
+                    
+                    // リストに表示
+                    displayDestinationsList(destinations);
+                    
+                    document.getElementById('destinationsPanel').style.display = 'block';
+                }
+                
+            } catch (error) {
+                console.error('検索エラー:', error);
+                alert(`避難先の検索に失敗しました: ${error.message}`);
+            }
+            
+            btn.disabled = false;
+            btn.textContent = '避難先を検索';
+        });
+        
+        // 避難先を地図に表示
+        function displayDestinations(dests) {
+            dests.forEach((dest, index) => {
+                const marker = L.circleMarker([dest.lat, dest.lon], {
+                    color: '#4caf50',
+                    fillColor: '#4caf50',
+                    fillOpacity: 0.7,
+                    radius: 8
+                }).addTo(map);
+                
+                marker.bindPopup(`
+                    <strong>避難先候補 #${index + 1}</strong><br>
+                    標高: ${dest.elevation.toFixed(1)} m<br>
+                    標高差: +${dest.elevation_gain.toFixed(1)} m<br>
+                    距離: ${dest.distance.toFixed(0)} m<br>
+                    予想時間: ${dest.estimated_time_minutes.toFixed(0)} 分<br>
+                    安全スコア: ${dest.safety_score.toFixed(1)}
+                `);
+                
+                marker.on('click', () => {
+                    showRoute(dest, index);
+                });
+                
+                destinationMarkers.push(marker);
+            });
+            
+            // 地図の表示範囲を調整
+            const bounds = L.latLngBounds(
+                [currentLocation.lat, currentLocation.lon],
+                dests.map(d => [d.lat, d.lon])
+            );
+            map.fitBounds(bounds, { padding: [50, 50] });
+        }
+        
+        // 避難先リストを表示
+        function displayDestinationsList(dests) {
+            const listContainer = document.getElementById('destinationsList');
+            listContainer.innerHTML = '';
+            
+            dests.forEach((dest, index) => {
+                const card = document.createElement('div');
+                card.className = 'destination-card';
+                card.dataset.index = index;
+                
+                card.innerHTML = `
+                    <span class="destination-rank">${index + 1}</span>
+                    <div class="destination-info">
+                        <p>
+                            <strong>標高 ${dest.elevation.toFixed(1)}m</strong>
+                            <span class="safety-score">スコア ${dest.safety_score.toFixed(1)}</span>
+                        </p>
+                        <p>📏 距離: ${dest.distance.toFixed(0)}m | ⏱️ ${dest.estimated_time_minutes.toFixed(0)}分</p>
+                        <p>⬆️ 標高差: +${dest.elevation_gain.toFixed(1)}m</p>
+                    </div>
+                `;
+                
+                card.addEventListener('click', () => {
+                    showRoute(dest, index);
+                    
+                    // 選択状態を更新
+                    document.querySelectorAll('.destination-card').forEach(c => {
+                        c.classList.remove('selected');
+                    });
+                    card.classList.add('selected');
+                });
+                
+                listContainer.appendChild(card);
+            });
+        }
+        
+        // ルートを表示
+        function showRoute(destination, index) {
+            // 既存のルートを削除
+            if (routingControl) {
+                map.removeControl(routingControl);
+            }
+            
+            // OSRM を使用してルートを表示
+            // 注: 実運用では自前のOSRMサーバーを立てることを推奨
+            routingControl = L.Routing.control({
+                waypoints: [
+                    L.latLng(currentLocation.lat, currentLocation.lon),
+                    L.latLng(destination.lat, destination.lon)
+                ],
+                router: L.Routing.osrmv1({
+                    serviceUrl: 'https://router.project-osrm.org/route/v1'
+                }),
+                lineOptions: {
+                    styles: [{ color: '#ff9800', weight: 6, opacity: 0.8 }]
+                },
+                showAlternatives: false,
+                addWaypoints: false,
+                routeWhileDragging: false,
+                fitSelectedRoutes: true,
+                show: false  // ルート説明パネルを非表示
+            }).addTo(map);
+            
+            // 選択した避難先のマーカーを強調
+            destinationMarkers.forEach((marker, i) => {
+                if (i === index) {
+                    marker.setStyle({
+                        color: '#ff9800',
+                        fillColor: '#ff9800',
+                        radius: 10
+                    });
+                    marker.openPopup();
+                } else {
+                    marker.setStyle({
+                        color: '#4caf50',
+                        fillColor: '#4caf50',
+                        radius: 8
+                    });
+                }
+            });
+        }
+        
+        // 地図をクリア
+        document.getElementById('clearMap').addEventListener('click', () => {
+            clearDestinationMarkers();
+            
+            if (routingControl) {
+                map.removeControl(routingControl);
+                routingControl = null;
+            }
+            
+            document.getElementById('destinationsPanel').style.display = 'none';
+            destinations = [];
+        });
+        
+        function clearDestinationMarkers() {
+            destinationMarkers.forEach(marker => map.removeLayer(marker));
+            destinationMarkers = [];
+        }
+    </script>
+</body>
+</html>
