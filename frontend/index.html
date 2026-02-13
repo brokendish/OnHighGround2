@@ -343,7 +343,7 @@
                     <span>現在地</span>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-color" style="background: #4caf50;"></div>
+                    <div class="legend-color" style="background: #f44336;"></div>
                     <span>避難先候補</span>
                 </div>
                 <div class="legend-item">
@@ -626,8 +626,8 @@
         function displayDestinations(dests) {
             dests.forEach((dest, index) => {
                 const marker = L.circleMarker([dest.lat, dest.lon], {
-                    color: '#4caf50',
-                    fillColor: '#4caf50',
+                    color: '#f44336',
+                    fillColor: '#f44336',
                     fillOpacity: 0.7,
                     radius: 8
                 }).addTo(map);
@@ -764,8 +764,8 @@
                     marker.openPopup();
                 } else {
                     marker.setStyle({
-                        color: '#4caf50',
-                        fillColor: '#4caf50',
+                        color: '#f44336',
+                        fillColor: '#f44336',
                         radius: 8
                     });
                 }
