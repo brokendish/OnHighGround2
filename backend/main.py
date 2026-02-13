@@ -8,11 +8,66 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import logging
+import os
+from pathlib import Path
 
 from elevation_service import ElevationService
 
-# ロギング設定
-logging.basicConfig(level=logging.INFO)
+# 設定ファイル読み込み
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = BASE_DIR / "app.properties"
+
+
+def load_properties(config_path: Path) -> dict:
+    """Java .properties 形式の設定ファイルを読み込む"""
+    properties = {}
+
+    if not config_path.exists():
+        return properties
+
+    with config_path.open("r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            properties[key.strip()] = value.strip()
+
+    return properties
+
+
+def parse_bool(value: str, default: bool) -> bool:
+    """文字列設定値をboolへ変換"""
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in ("true", "1", "yes", "on"):
+        return True
+    if normalized in ("false", "0", "no", "off"):
+        return False
+    return default
+
+
+def parse_csv(value: str, default: List[str]) -> List[str]:
+    """カンマ区切り設定値を配列へ変換"""
+    if value is None:
+        return default
+
+    items = [item.strip() for item in value.split(",") if item.strip()]
+    return items if items else default
+
+
+raw_config_path = Path(os.getenv("APP_PROPERTIES_FILE", str(DEFAULT_CONFIG_PATH)))
+if not raw_config_path.is_absolute():
+    raw_config_path = BASE_DIR / raw_config_path
+CONFIG_PATH = raw_config_path.resolve()
+APP_CONFIG = load_properties(CONFIG_PATH)
+
+LOG_LEVEL = APP_CONFIG.get("log.level", "INFO").upper()
+logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
 logger = logging.getLogger(__name__)
 
 # FastAPIアプリケーション初期化
@@ -23,18 +78,38 @@ app = FastAPI(
 )
 
 # CORS設定（フロントエンドからのアクセスを許可）
+CORS_ALLOW_ORIGINS = parse_csv(APP_CONFIG.get("cors.allow_origins"), ["*"])
+CORS_ALLOW_METHODS = parse_csv(APP_CONFIG.get("cors.allow_methods"), ["*"])
+CORS_ALLOW_HEADERS = parse_csv(APP_CONFIG.get("cors.allow_headers"), ["*"])
+CORS_ALLOW_CREDENTIALS = parse_bool(
+    APP_CONFIG.get("cors.allow_credentials"),
+    True
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 本番環境では特定のオリジンのみ許可
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
+    allow_methods=CORS_ALLOW_METHODS,
+    allow_headers=CORS_ALLOW_HEADERS,
 )
 
 # 標高サービスの初期化
-# 注: 実際の運用では環境変数やコンフィグファイルからパスを取得
-DEM_PATH = "../output.tif"  # GeoTIFFファイルのパス
+dem_path_value = APP_CONFIG.get("dem.path", "../output.tif")
+dem_path = Path(dem_path_value)
+if not dem_path.is_absolute():
+    dem_path = BASE_DIR / dem_path
+DEM_PATH = str(dem_path.resolve())
 elevation_service = ElevationService(DEM_PATH)
+
+# APIサーバー設定
+API_HOST = APP_CONFIG.get("api.host", "0.0.0.0")
+try:
+    API_PORT = int(APP_CONFIG.get("api.port", "8000"))
+except ValueError:
+    API_PORT = 8000
+API_RELOAD = parse_bool(APP_CONFIG.get("api.reload"), True)
+API_LOG_LEVEL = APP_CONFIG.get("api.log_level", "info").lower()
 
 
 # リクエスト/レスポンスモデル
@@ -308,8 +383,8 @@ if __name__ == "__main__":
     # 開発サーバーの起動
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
+        host=API_HOST,
+        port=API_PORT,
+        reload=API_RELOAD,
+        log_level=API_LOG_LEVEL
     )
