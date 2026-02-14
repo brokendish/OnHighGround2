@@ -8,14 +8,12 @@ from rasterio.warp import transform
 from typing import List, Tuple, Optional, Dict
 import math
 from pathlib import Path
-import csv
-import json
 
 
 class ElevationService:
     """標高データを管理し、避難目的地を検索するサービス"""
     
-    def __init__(self, dem_path: str, evacuation_sites_path: Optional[str] = None):
+    def __init__(self, dem_path: str):
         """
         Args:
             dem_path: GeoTIFF形式の数値標高モデルのパス
@@ -24,14 +22,9 @@ class ElevationService:
         self.dataset = None
         self.elevation_data = None
         self.transform_matrix = None
-        self.evacuation_sites_path = Path(evacuation_sites_path) if evacuation_sites_path else None
-        self.evacuation_sites: List[Dict] = []
         
         if self.dem_path.exists():
             self._load_dem()
-
-        if self.evacuation_sites_path and self.evacuation_sites_path.exists():
-            self._load_evacuation_sites()
     
     def _load_dem(self):
         """標高データを読み込む"""
@@ -43,106 +36,6 @@ class ElevationService:
             print(f"データ範囲: {self.dataset.bounds}")
         except Exception as e:
             print(f"標高データ読み込みエラー: {e}")
-
-    def _load_evacuation_sites(self):
-        """自治体指定の避難施設データを読み込む"""
-        try:
-            suffix = self.evacuation_sites_path.suffix.lower()
-            if suffix == ".csv":
-                self.evacuation_sites = self._load_sites_from_csv(self.evacuation_sites_path)
-            elif suffix in {".geojson", ".json"}:
-                self.evacuation_sites = self._load_sites_from_geojson(self.evacuation_sites_path)
-            else:
-                print(f"未対応の避難施設データ形式です: {self.evacuation_sites_path}")
-                return
-
-            print(f"避難施設データ読み込み完了: {self.evacuation_sites_path} ({len(self.evacuation_sites)}件)")
-        except Exception as e:
-            print(f"避難施設データ読み込みエラー: {e}")
-
-    def _load_sites_from_csv(self, csv_path: Path) -> List[Dict]:
-        sites = []
-        with csv_path.open("r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                parsed = self._parse_site_record(row)
-                if parsed:
-                    sites.append(parsed)
-        return sites
-
-    def _load_sites_from_geojson(self, geojson_path: Path) -> List[Dict]:
-        sites = []
-        with geojson_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        for feature in data.get("features", []):
-            geometry = feature.get("geometry", {})
-            properties = feature.get("properties", {})
-
-            if geometry.get("type") != "Point":
-                continue
-
-            coordinates = geometry.get("coordinates", [])
-            if len(coordinates) < 2:
-                continue
-
-            raw = {
-                "name": properties.get("name") or properties.get("名称") or properties.get("施設名"),
-                "site_type": properties.get("site_type") or properties.get("区分") or properties.get("種別"),
-                "designation": properties.get("designation") or properties.get("指定区分") or properties.get("指定") or properties.get("site_designation"),
-                "lat": coordinates[1],
-                "lon": coordinates[0],
-            }
-
-            parsed = self._parse_site_record(raw)
-            if parsed:
-                sites.append(parsed)
-
-        return sites
-
-    def _parse_site_record(self, record: Dict) -> Optional[Dict]:
-        try:
-            lat = float(record.get("lat"))
-            lon = float(record.get("lon"))
-        except (TypeError, ValueError):
-            return None
-
-        designation = str(record.get("designation") or "").strip()
-        normalized = self._normalize_designation(designation)
-        if normalized is None:
-            return None
-
-        return {
-            "name": (record.get("name") or "名称不明").strip(),
-            "site_type": (record.get("site_type") or "未分類").strip(),
-            "designation": normalized,
-            "lat": lat,
-            "lon": lon,
-        }
-
-    def _normalize_designation(self, designation: str) -> Optional[str]:
-        """指定区分を正規化。対象外はNone。"""
-        value = designation.replace(" ", "")
-        if not value:
-            return None
-
-        emergency_labels = {
-            "緊急避難場所",
-            "指定緊急避難場所",
-            "emergencyevacuation",
-        }
-        shelter_labels = {
-            "指定避難所",
-            "designatedshelter",
-        }
-
-        lower_value = value.lower()
-        if value in emergency_labels or lower_value in emergency_labels:
-            return "緊急避難場所"
-        if value in shelter_labels or lower_value in shelter_labels:
-            return "指定避難所"
-
-        return None
 
     def _is_nodata(self, elevation: float) -> bool:
         """値がNoDataに該当するか判定"""
@@ -362,17 +255,6 @@ class ElevationService:
         search_radius_lon = max_distance * lon_per_meter
         
         candidates = []
-
-        # 自治体指定の避難施設を優先候補として評価
-        facility_candidates = self._find_designated_sites(
-            current_lat=current_lat,
-            current_lon=current_lon,
-            current_elevation=current_elevation,
-            target_elevation=target_elevation,
-            max_distance=max_distance,
-            transport_mode=transport_mode,
-        )
-        candidates.extend(facility_candidates)
         
         # グリッド検索
         for i in range(grid_size):
@@ -406,8 +288,7 @@ class ElevationService:
                             "estimated_time_minutes": estimated_time * 15,  # 分に変換
                             "safety_score": self._calculate_safety_score(
                                 elevation - current_elevation, distance
-                            ),
-                            "source": "elevation_grid"
+                            )
                         })
         
         # 安全性スコアでソート
@@ -417,52 +298,6 @@ class ElevationService:
         filtered_candidates = self._remove_nearby_duplicates(candidates, 100.0)
         
         return filtered_candidates[:10]  # 上位10件
-
-    def _find_designated_sites(
-        self,
-        current_lat: float,
-        current_lon: float,
-        current_elevation: float,
-        target_elevation: float,
-        max_distance: float,
-        transport_mode: str,
-    ) -> List[Dict]:
-        """自治体指定の緊急避難場所・指定避難所を候補化"""
-        results = []
-        if not self.evacuation_sites:
-            return results
-
-        for site in self.evacuation_sites:
-            distance = self.calculate_distance(current_lat, current_lon, site["lat"], site["lon"])
-            if distance > max_distance:
-                continue
-
-            elevation = self.get_elevation_interpolated(site["lat"], site["lon"])
-            if elevation is None or elevation < target_elevation:
-                continue
-
-            elevation_gain = elevation - current_elevation
-            time_factor = 1.0 if transport_mode == "driving" else 1.5
-            estimated_time = (distance / 1000.0) * time_factor
-
-            # 自治体指定施設は信頼性を加味してボーナス
-            score = min(self._calculate_safety_score(elevation_gain, distance) + 10, 100)
-
-            results.append({
-                "lat": site["lat"],
-                "lon": site["lon"],
-                "elevation": elevation,
-                "elevation_gain": elevation_gain,
-                "distance": distance,
-                "estimated_time_minutes": estimated_time * 15,
-                "safety_score": score,
-                "source": "designated_site",
-                "site_name": site["name"],
-                "site_type": site["site_type"],
-                "designation": site["designation"],
-            })
-
-        return results
     
     def _calculate_safety_score(self, elevation_gain: float, distance: float) -> float:
         """
