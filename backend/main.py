@@ -100,7 +100,15 @@ dem_path = Path(dem_path_value)
 if not dem_path.is_absolute():
     dem_path = BASE_DIR / dem_path
 DEM_PATH = str(dem_path.resolve())
-elevation_service = ElevationService(DEM_PATH)
+evacuation_sites_path_value = APP_CONFIG.get("evacuation.sites.path")
+evacuation_sites_path = None
+if evacuation_sites_path_value:
+    resolved_path = Path(evacuation_sites_path_value)
+    if not resolved_path.is_absolute():
+        resolved_path = BASE_DIR / resolved_path
+    evacuation_sites_path = str(resolved_path.resolve())
+
+elevation_service = ElevationService(DEM_PATH, evacuation_sites_path)
 
 # APIサーバー設定
 API_HOST = APP_CONFIG.get("api.host", "0.0.0.0")
@@ -149,6 +157,10 @@ class EvacuationDestination(BaseModel):
     distance: float
     estimated_time_minutes: float
     safety_score: float
+    source: Optional[str] = None
+    site_name: Optional[str] = None
+    site_type: Optional[str] = None
+    designation: Optional[str] = None
 
 
 class ElevationProfileRequest(BaseModel):
@@ -282,7 +294,11 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                     "elevation_gain": round(d["elevation_gain"], 2),
                     "distance": round(d["distance"], 2),
                     "estimated_time_minutes": round(d["estimated_time_minutes"], 1),
-                    "safety_score": round(d["safety_score"], 1)
+                    "safety_score": round(d["safety_score"], 1),
+                    "source": d.get("source"),
+                    "site_name": d.get("site_name"),
+                    "site_type": d.get("site_type"),
+                    "designation": d.get("designation")
                 }
                 for d in destinations
             ],
