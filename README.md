@@ -25,7 +25,8 @@ evacuation-navi/
 ├── frontend/            # Webフロントエンド
 │   └── index.html       # メインHTML（Leaflet.js使用)
 └── data_processing/     # データ処理スクリプト
-    └── convert_dem.py   # JPGIS → GeoTIFF変換
+    ├── convert_dem.py   # JPGIS → GeoTIFF変換
+    └── convert_evacuation_sites.py # 自治体避難施設データ変換
 ```
 
 ## セットアップ手順
@@ -54,6 +55,24 @@ python data_processing/convert_dem.py /path/to/xml/directory output.tif --merge
 ```
 
 変換後のGeoTIFFファイル（`output.tif`）をバックエンドで使用します。
+
+#### 避難施設オープンデータの変換（CSV/GeoJSON → 本システム用CSV）
+
+自治体オープンデータを本システムで利用するには、以下で形式変換してください。
+
+```bash
+# 例: 自治体のCSVを変換
+python data_processing/convert_evacuation_sites.py /path/to/municipality_sites.csv /path/to/evacuation_sites.csv
+
+# 例: 自治体のGeoJSONを変換
+python data_processing/convert_evacuation_sites.py /path/to/municipality_sites.geojson /path/to/evacuation_sites.csv
+```
+
+変換後に `backend/app.properties` の `evacuation.sites.path` へ出力CSVを設定します。
+
+- 出力列: `name,site_type,designation,lat,lon`
+- 対応する指定区分: `緊急避難場所` / `指定避難所`
+- 上記以外の区分や座標欠損レコードは自動で除外されます。
 
 ### 2. バックエンドのセットアップ
 
