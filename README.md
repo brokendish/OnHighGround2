@@ -9,7 +9,7 @@
 
 - 📍 **現在地取得**: ユーザーのデバイスから現在地を取得
 - 🗻 **標高データ参照**: 基盤地図情報（数値標高モデル）から標高を取得
-- 🎯 **避難先検索**: 現在地から標高の高い安全な避難先を検索
+- 🎯 **避難先検索**: 現在地から標高の高い場所に加え、自治体指定の緊急避難場所・指定避難所を優先検索
 - 🗺️ **経路表示**: OpenStreetMapを使用して避難経路をナビゲート
 - ⚡ **リアルタイム計算**: 距離、所要時間、安全スコアを計算
 - 📱 **レスポンシブ対応**: PC・スマホどちらでも利用可能
@@ -75,6 +75,7 @@ pip install -r requirements.txt
 # backend/app.properties を編集して環境依存値を設定
 # 例:
 # dem.path=/path/to/your/output.tif
+# evacuation.sites.path=/path/to/evacuation_sites.csv
 # api.host=0.0.0.0
 # api.port=8000
 
@@ -172,7 +173,11 @@ const API_BASE_URL = 'http://localhost:8000/api';
       "elevation_gain": 13.3,
       "distance": 850.0,
       "estimated_time_minutes": 12.5,
-      "safety_score": 85.2
+      "safety_score": 85.2,
+      "source": "designated_site",
+      "site_name": "○○小学校",
+      "site_type": "学校",
+      "designation": "指定避難所"
     }
   ]
 }
@@ -199,8 +204,16 @@ const API_BASE_URL = 'http://localhost:8000/api';
 `elevation_service.py` の以下のメソッドを編集：
 
 - `find_evacuation_destinations()`: 検索アルゴリズム
+- `_find_designated_sites()`: 自治体指定の緊急避難場所・指定避難所の絞り込み
 - `_calculate_safety_score()`: 安全スコアの計算式
 - `grid_size`: 検索グリッドの密度
+
+### 自治体指定避難施設データ形式
+
+`backend/app.properties` に `evacuation.sites.path` を指定すると、CSV または GeoJSON の施設データを読み込みます。
+
+- 対象指定区分: `緊急避難場所` / `指定避難所`
+- CSV 必須列: `name`, `site_type`, `designation`, `lat`, `lon`
 
 ### UIのカスタマイズ
 
