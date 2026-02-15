@@ -163,6 +163,29 @@
         .current-location strong {
             color: #1976d2;
         }
+
+        .manual-location-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .manual-location-toggle input {
+            width: auto;
+        }
+
+        .manual-location-hint {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #0d47a1;
+            background: #e3f2fd;
+            padding: 8px;
+            border-radius: 5px;
+            display: none;
+        }
         
         .destinations {
             margin-top: 20px;
@@ -224,6 +247,18 @@
             font-weight: bold;
             margin-left: 8px;
         }
+
+        .destination-number-label {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 700;
+            margin: 0;
+            pointer-events: none;
+            text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+        }
         
         .loading {
             text-align: center;
@@ -249,6 +284,24 @@
             border-radius: 5px;
             margin-top: 10px;
             font-size: 13px;
+        }
+
+        .search-message {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 5px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .search-message.info {
+            background: #fff8e1;
+            color: #8d6e63;
+        }
+
+        .search-message.error {
+            background: #ffebee;
+            color: #c62828;
         }
         
         .legend {
@@ -315,6 +368,18 @@
             <div class="control-group">
                 <h3>📍 現在地設定</h3>
                 <button class="btn btn-primary" id="getCurrentLocation">現在地を取得</button>
+
+                <label class="manual-location-toggle" for="manualLocationMode">
+                    <input type="checkbox" id="manualLocationMode">
+                    地図上から現在地を手動選択する
+                </label>
+                <label class="manual-location-toggle" for="autoRefreshOnManualUpdate">
+                    <input type="checkbox" id="autoRefreshOnManualUpdate" checked>
+                    手動で現在地変更時に自動で再検索する
+                </label>
+                <div class="manual-location-hint" id="manualLocationHint">
+                    手動選択モードON: 地図をクリックして現在地を設定してください。
+                </div>
                 
                 <div class="current-location" id="currentLocationInfo" style="display: none;">
                     <strong>現在地:</strong><br>
@@ -348,6 +413,7 @@
                 
                 <button class="btn btn-primary" id="searchDestinations" disabled>避難先を検索</button>
                 <button class="btn btn-secondary" id="clearMap">地図をクリア</button>
+                <div id="searchMessage" class="search-message" role="status" aria-live="polite"></div>
             </div>
             
             <!-- 避難先リスト -->
@@ -385,7 +451,47 @@
     
     <script>
         // 設定
-        const API_BASE_URL = 'http://localhost:8000/api';
+        const API_BASE_URL_CANDIDATES = [
+            `${window.location.origin}/api`,
+            `${window.location.protocol}//${window.location.hostname}:8000/api`,
+            'http://localhost:8000/api'
+        ].filter((url, index, arr) => arr.indexOf(url) === index);
+        const DEBUG_API_FETCH = true;
+
+        function logApiFetch(level, ...args) {
+            if (!DEBUG_API_FETCH) {
+                return;
+            }
+            console[level](...args);
+        }
+
+        async function apiFetch(path, options = {}) {
+            let lastError = null;
+
+            for (const baseUrl of API_BASE_URL_CANDIDATES) {
+                try {
+                    const response = await fetch(`${baseUrl}${path}`, options);
+                    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+                    // APIでないHTMLレスポンス（index.html等）をつかんだ場合は次候補へ
+                    if (!contentType.includes('application/json')) {
+                        logApiFetch('warn', `[apiFetch] rejected candidate: ${baseUrl}${path} (content-type: ${contentType || 'unknown'})`);
+                        lastError = new Error(
+                            `API候補 ${baseUrl} がJSONを返しませんでした (content-type: ${contentType || 'unknown'})`
+                        );
+                        continue;
+                    }
+
+                    logApiFetch('info', `[apiFetch] using candidate: ${baseUrl}${path}`);
+                    return response;
+                } catch (error) {
+                    logApiFetch('warn', `[apiFetch] candidate failed: ${baseUrl}${path}`, error);
+                    lastError = error;
+                }
+            }
+
+            throw lastError || new Error('APIに接続できませんでした');
+        }
         
         // Leaflet Routing Machine に ja ロケールが無い環境でも日本語案内を強制する
         function ensureJapaneseRoutingLocalization() {
@@ -504,6 +610,90 @@
         let destinationMarkers = [];
         let routingControl = null;
         let destinations = [];
+        let hasSearchedDestinations = false;
+        let isManualLocationMode = false;
+        let isAutoRefreshOnManualUpdate = true;
+
+        async function updateCurrentLocation(lat, lon, sourceLabel = '現在地') {
+            currentLocation = { lat, lon };
+
+            const response = await apiFetch(
+                `/elevation?lat=${lat}&lon=${lon}`
+            );
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || `HTTP ${response.status}`);
+            }
+
+            if (typeof data.elevation !== 'number') {
+                throw new Error('標高レスポンス形式が不正です');
+            }
+
+            document.getElementById('currentLat').textContent = lat.toFixed(6);
+            document.getElementById('currentLon').textContent = lon.toFixed(6);
+            document.getElementById('currentElev').textContent = data.elevation.toFixed(1);
+            document.getElementById('currentLocationInfo').style.display = 'block';
+
+            if (currentMarker) {
+                map.removeLayer(currentMarker);
+            }
+
+            currentMarker = L.circleMarker([lat, lon], {
+                color: '#2196f3',
+                fillColor: '#2196f3',
+                fillOpacity: 0.8,
+                radius: 10
+            }).addTo(map);
+
+            currentMarker.bindPopup(`
+                <strong>${sourceLabel}</strong><br>
+                標高: ${data.elevation.toFixed(1)} m
+            `).openPopup();
+
+            map.setView([lat, lon], 15);
+            document.getElementById('searchDestinations').disabled = false;
+        }
+
+        const manualLocationModeCheckbox = document.getElementById('manualLocationMode');
+        const manualLocationHint = document.getElementById('manualLocationHint');
+        const autoRefreshOnManualUpdateCheckbox = document.getElementById('autoRefreshOnManualUpdate');
+
+        manualLocationModeCheckbox.addEventListener('change', (event) => {
+            isManualLocationMode = event.target.checked;
+            manualLocationHint.style.display = isManualLocationMode ? 'block' : 'none';
+        });
+
+        autoRefreshOnManualUpdateCheckbox.addEventListener('change', (event) => {
+            isAutoRefreshOnManualUpdate = event.target.checked;
+        });
+
+        map.on('click', async (event) => {
+            if (!isManualLocationMode) {
+                return;
+            }
+
+            const { lat, lng } = event.latlng;
+            const shouldRefreshDestinations = hasSearchedDestinations;
+
+            try {
+                await updateCurrentLocation(lat, lng, '現在地（手動選択）');
+            } catch (error) {
+                console.error('手動選択位置の標高取得エラー:', error);
+                alert(`手動選択した地点の標高データ取得に失敗しました: ${error.message}`);
+                return;
+            }
+
+            if (shouldRefreshDestinations && isAutoRefreshOnManualUpdate) {
+                try {
+                    await searchDestinations(true);
+                } catch (error) {
+                    console.error('手動選択後の自動再検索エラー:', error);
+                }
+            } else if (shouldRefreshDestinations) {
+                clearSearchResults();
+            }
+        });
         
         // 現在地取得
         document.getElementById('getCurrentLocation').addEventListener('click', async () => {
@@ -512,7 +702,7 @@
             btn.textContent = '位置情報を取得中...';
             
             if (!navigator.geolocation) {
-                alert('お使いのブラウザは位置情報に対応していません');
+                alert('お使いのブラウザは位置情報に対応していません。手動選択モードをONにして地図から現在地を選択してください。');
                 btn.disabled = false;
                 btn.textContent = '現在地を取得';
                 return;
@@ -522,52 +712,9 @@
                 async (position) => {
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
-                    
-                    currentLocation = { lat, lon };
-                    
-                    // 標高を取得
+
                     try {
-                        const response = await fetch(
-                            `${API_BASE_URL}/elevation?lat=${lat}&lon=${lon}`
-                        );
-                        const data = await response.json();
-                        
-                        if (!response.ok) {
-                            throw new Error(data.detail || `HTTP ${response.status}`);
-                        }
-                        
-                        if (typeof data.elevation !== 'number') {
-                            throw new Error('標高レスポンス形式が不正です');
-                        }
-                        
-                        // 現在地情報を表示
-                        document.getElementById('currentLat').textContent = lat.toFixed(6);
-                        document.getElementById('currentLon').textContent = lon.toFixed(6);
-                        document.getElementById('currentElev').textContent = data.elevation.toFixed(1);
-                        document.getElementById('currentLocationInfo').style.display = 'block';
-                        
-                        // 地図に現在地をマーク
-                        if (currentMarker) {
-                            map.removeLayer(currentMarker);
-                        }
-                        
-                        currentMarker = L.circleMarker([lat, lon], {
-                            color: '#2196f3',
-                            fillColor: '#2196f3',
-                            fillOpacity: 0.8,
-                            radius: 10
-                        }).addTo(map);
-                        
-                        currentMarker.bindPopup(`
-                            <strong>現在地</strong><br>
-                            標高: ${data.elevation.toFixed(1)} m
-                        `).openPopup();
-                        
-                        map.setView([lat, lon], 15);
-                        
-                        // 検索ボタンを有効化
-                        document.getElementById('searchDestinations').disabled = false;
-                        
+                        await updateCurrentLocation(lat, lon, '現在地');
                     } catch (error) {
                         console.error('標高取得エラー:', error);
                         alert(`標高データの取得に失敗しました: ${error.message}`);
@@ -578,33 +725,41 @@
                 },
                 (error) => {
                     console.error('位置情報取得エラー:', error);
-                    alert('位置情報の取得に失敗しました。設定を確認してください。');
+                    alert('位置情報の取得に失敗しました。設定を確認するか、手動選択モードをONにして地図から現在地を選択してください。');
                     btn.disabled = false;
                     btn.textContent = '現在地を取得';
                 }
             );
         });
         
-        // 避難先検索
-        document.getElementById('searchDestinations').addEventListener('click', async () => {
+        async function searchDestinations(isAutoRefresh = false) {
             if (!currentLocation) {
-                alert('先に現在地を取得してください');
+                if (!isAutoRefresh) {
+                    alert('先に現在地を取得してください');
+                }
                 return;
             }
+
+            hideSearchMessage();
             
             const btn = document.getElementById('searchDestinations');
             btn.disabled = true;
-            btn.textContent = '検索中...';
+            btn.textContent = isAutoRefresh ? '再検索中...' : '検索中...';
             
             // 既存のマーカーをクリア
             clearDestinationMarkers();
+
+            if (routingControl) {
+                map.removeControl(routingControl);
+                routingControl = null;
+            }
             
             const transportMode = document.getElementById('transportMode').value;
             const maxDistance = parseInt(document.getElementById('maxDistance').value);
             const minElevationGain = parseFloat(document.getElementById('minElevationGain').value);
             
             try {
-                const response = await fetch(`${API_BASE_URL}/evacuation`, {
+                const response = await apiFetch(`/evacuation`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -623,9 +778,11 @@
                     throw new Error(data.detail || `HTTP ${response.status}`);
                 }
                 destinations = data.destinations || [];
+                hasSearchedDestinations = true;
                 
                 if (destinations.length === 0) {
-                    alert('指定条件で避難先が見つかりませんでした。条件を変更してください。');
+                    showSearchMessage('指定条件で避難先が見つかりませんでした。条件を変更してください。', 'info');
+                    document.getElementById('destinationsPanel').style.display = 'none';
                 } else {
                     // 避難先を地図に表示
                     displayDestinations(destinations);
@@ -634,15 +791,22 @@
                     displayDestinationsList(destinations);
                     
                     document.getElementById('destinationsPanel').style.display = 'block';
+                    hideSearchMessage();
                 }
                 
             } catch (error) {
                 console.error('検索エラー:', error);
+                showSearchMessage(`避難先の検索に失敗しました: ${error.message}`, 'error');
                 alert(`避難先の検索に失敗しました: ${error.message}`);
             }
             
             btn.disabled = false;
             btn.textContent = '避難先を検索';
+        }
+
+        // 避難先検索
+        document.getElementById('searchDestinations').addEventListener('click', async () => {
+            await searchDestinations(false);
         });
         
         // 避難先を地図に表示
@@ -652,7 +816,7 @@
                     color: '#f44336',
                     fillColor: '#f44336',
                     fillOpacity: 0.7,
-                    radius: 8
+                    radius: 10
                 }).addTo(map);
                 
                 marker.bindPopup(`
@@ -666,6 +830,12 @@
                 
                 marker.on('click', () => {
                     showRoute(dest, index);
+                });
+
+                marker.bindTooltip(String(index + 1), {
+                    permanent: true,
+                    direction: 'center',
+                    className: 'destination-number-label'
                 });
                 
                 destinationMarkers.push(marker);
@@ -782,14 +952,14 @@
                     marker.setStyle({
                         color: '#ff9800',
                         fillColor: '#ff9800',
-                        radius: 10
+                        radius: 12
                     });
                     marker.openPopup();
                 } else {
                     marker.setStyle({
                         color: '#f44336',
                         fillColor: '#f44336',
-                        radius: 8
+                        radius: 10
                     });
                 }
             });
@@ -797,6 +967,15 @@
         
         // 地図をクリア
         document.getElementById('clearMap').addEventListener('click', () => {
+            clearSearchResults();
+        });
+        
+        function clearDestinationMarkers() {
+            destinationMarkers.forEach(marker => map.removeLayer(marker));
+            destinationMarkers = [];
+        }
+
+        function clearSearchResults() {
             clearDestinationMarkers();
             
             if (routingControl) {
@@ -806,11 +985,22 @@
             
             document.getElementById('destinationsPanel').style.display = 'none';
             destinations = [];
-        });
-        
-        function clearDestinationMarkers() {
-            destinationMarkers.forEach(marker => map.removeLayer(marker));
-            destinationMarkers = [];
+            hasSearchedDestinations = false;
+            hideSearchMessage();
+        }
+
+        function showSearchMessage(message, type = 'info') {
+            const messageEl = document.getElementById('searchMessage');
+            messageEl.textContent = message;
+            messageEl.className = `search-message ${type}`;
+            messageEl.style.display = 'block';
+        }
+
+        function hideSearchMessage() {
+            const messageEl = document.getElementById('searchMessage');
+            messageEl.textContent = '';
+            messageEl.className = 'search-message';
+            messageEl.style.display = 'none';
         }
     </script>
 </body>

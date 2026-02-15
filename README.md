@@ -114,11 +114,8 @@ python -m http.server 8080
 
 ブラウザで `http://localhost:8080` にアクセスします。
 
-**注意**: フロントエンドの `index.html` でAPIのベースURLが正しく設定されているか確認してください：
-
-```javascript
-const API_BASE_URL = 'http://localhost:8000/api';
-```
+**注意**: フロントエンドはAPI接続先を自動判定します（`/api` → `http://<現在のホスト名>:8000/api` → `http://localhost:8000/api` の順に試行）。
+`Failed to fetch` が出る場合は、バックエンドが起動しているか（`http://localhost:8000/health`）を先に確認してください。
 
 ## 使い方
 
@@ -301,4 +298,3 @@ const API_BASE_URL = 'http://localhost:8000/api';
 - [ ] 音声ナビゲーション
 - [ ] 多言語対応
 - [ ] リアルタイム災害情報の連携
-
