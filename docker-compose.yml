@@ -1,6 +1,46 @@
-version: '3.8'
-
 services:
+  osrm-driving:
+    image: osrm/osrm-backend:latest
+    container_name: evacuation-navi-osrm-driving
+    ports:
+      - "5500:5000"
+    volumes:
+      - ./data:/data
+    command: >
+      sh -c "
+      mkdir -p /data/osrm/driving &&
+      if [ ! -f /data/osrm/driving/kanto-260214.osrm.datasource_names ]; then
+        rm -f /data/osrm/driving/kanto-260214.osrm* &&
+        cp /data/kanto-260214.osm.pbf /data/osrm/driving/kanto-260214.osm.pbf &&
+        osrm-extract -p /opt/car.lua /data/osrm/driving/kanto-260214.osm.pbf &&
+        osrm-partition /data/osrm/driving/kanto-260214.osrm &&
+        osrm-customize /data/osrm/driving/kanto-260214.osrm;
+      fi &&
+      osrm-routed --algorithm mld --port 5000 /data/osrm/driving/kanto-260214.osrm
+      "
+    restart: unless-stopped
+
+  osrm-walking:
+    image: osrm/osrm-backend:latest
+    container_name: evacuation-navi-osrm-walking
+    ports:
+      - "5501:5001"
+    volumes:
+      - ./data:/data
+    command: >
+      sh -c "
+      mkdir -p /data/osrm/walking &&
+      if [ ! -f /data/osrm/walking/kanto-260214.osrm.datasource_names ]; then
+        rm -f /data/osrm/walking/kanto-260214.osrm* &&
+        cp /data/kanto-260214.osm.pbf /data/osrm/walking/kanto-260214.osm.pbf &&
+        osrm-extract -p /opt/foot.lua /data/osrm/walking/kanto-260214.osm.pbf &&
+        osrm-partition /data/osrm/walking/kanto-260214.osrm &&
+        osrm-customize /data/osrm/walking/kanto-260214.osrm;
+      fi &&
+      osrm-routed --algorithm mld --port 5001 /data/osrm/walking/kanto-260214.osrm
+      "
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -11,6 +51,8 @@ services:
     volumes:
       # 標高データをマウント
       - ./data:/app/data:ro
+      # 避難場所データをマウント
+      - ./国土地理院避難所データ:/app/shelter_data:ro
       # 開発時のホットリロード用（本番では削除推奨）
       - ./backend:/app
     environment:
@@ -19,7 +61,7 @@ services:
       - API_PORT=8000
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -34,6 +76,8 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - backend
+      - osrm-driving
+      - osrm-walking
     restart: unless-stopped
 
 networks:

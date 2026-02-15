@@ -5,6 +5,13 @@
 
 津波・高潮・洪水から身を守るための避難経路案内システム。基盤地図情報（数値標高モデル）を使用して、現在地よりも標高の高い安全な避難先を検索し、経路をナビゲートします。
 
+## Docker起動の前提データ
+
+`docker compose up -d osrm-driving osrm-walking backend frontend` を実行する前に、以下を配置してください。
+
+- `data/elevation.tif`（標高GeoTIFF）
+- `data/kanto-260214.osm.pbf`（OSRM前処理用の道路データ）
+
 ## 機能
 
 - 📍 **現在地取得**: ユーザーのデバイスから現在地を取得
@@ -75,7 +82,43 @@ python data_processing/convert_evacuation_sites.py /path/to/municipality_sites.g
 - 対応する指定区分: `緊急避難場所` / `指定避難所`
 - 上記以外の区分や座標欠損レコードは自動で除外されます。
 
-### 2. バックエンドのセットアップ
+### 2. 起動方法（推奨: Docker Compose）
+
+`frontend` / `backend` / `osrm-driving` / `osrm-walking` をまとめて起動します。
+
+1. `data/` 配下に必要データを配置  
+標高GeoTIFF（例: `data/elevation.tif`）  
+OSM PBF（例: `data/kanto-260214.osm.pbf`）
+
+2. 起動
+
+```bash
+docker compose up -d osrm-driving osrm-walking backend frontend
+```
+
+3. アクセス  
+フロントエンド: `http://localhost:8080`  
+バックエンドヘルス: `http://localhost:8000/health`
+
+4. 停止
+
+```bash
+# 停止（コンテナは残す）
+docker compose stop
+
+# 停止してコンテナ/ネットワークを削除
+docker compose down
+```
+
+初回起動時は OSRM 前処理（`extract` / `partition` / `customize`）が走るため、しばらく時間がかかります。  
+フロントエンドは以下の自前OSRMを自動利用します。
+
+- 車: `http://<host>:5500/route/v1`
+- 徒歩: `http://<host>:5501/route/v1`
+
+### 3. ローカル個別起動（Dockerを使わない場合）
+
+#### バックエンド
 
 ```bash
 # ディレクトリに移動
@@ -94,8 +137,10 @@ pip install -r requirements.txt
 
 # backend/app.properties を編集して環境依存値を設定
 # 例:
-# dem.path=/path/to/your/output.tif
-# evacuation.sites.path=../国土地理院避難所データ/東京/13000_2/13000_2.csv
+# dem.path=data/elevation.tif  # Docker推奨（ホストの data/elevation.tif を参照）
+# dem.path=/path/to/your/output.tif  # ローカル実行時の例
+# evacuation.sites.path=shelter_data/東京/13000_2/13000_2.csv  # Docker推奨
+# evacuation.sites.path=../国土地理院避難所データ/東京/13000_2/13000_2.csv  # ローカル実行時の例
 # api.host=0.0.0.0
 # api.port=8000
 
@@ -106,7 +151,7 @@ python main.py
 サーバーは `backend/app.properties` の `api.host` / `api.port` で起動します。
 デフォルト値では `http://localhost:8000` です。
 
-### 3. フロントエンドの起動
+#### フロントエンド
 
 ```bash
 # シンプルなHTTPサーバーを起動（Python 3の場合）
@@ -116,7 +161,10 @@ python -m http.server 8080
 
 ブラウザで `http://localhost:8080` にアクセスします。
 
-**注意**: フロントエンドはAPI接続先を自動判定します（`/api` → `http://<現在のホスト名>:8000/api` → `http://localhost:8000/api` の順に試行）。
+**注意 1**: Dockerの`frontend`コンテナを起動している場合、`8080`はすでに使用中です。  
+その場合は `python -m http.server 8081` のように別ポートを使ってください。
+
+**注意 2**: フロントエンドはAPI接続先を自動判定します（`/api` → `http://<現在のホスト名>:8000/api` → `http://localhost:8000/api` の順に試行）。
 `Failed to fetch` が出る場合は、バックエンドが起動しているか（`http://localhost:8000/health`）を先に確認してください。
 
 ## 使い方
@@ -319,7 +367,7 @@ python -m http.server 8080
 ## 今後の拡張案
 
 - [ ] 浸水想定区域データとの連携
-- [ ] 指定避難所データベースの統合
+- [🔵(東京のみ)] 指定避難所データベースの統合
 - [ ] 複数の避難経路の比較表示
 - [ ] 標高プロファイルグラフの表示
 - [ ] 音声ナビゲーション
