@@ -6,10 +6,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import logging
 import os
 from pathlib import Path
+import csv
 
 from elevation_service import ElevationService
 
@@ -102,6 +103,98 @@ if not dem_path.is_absolute():
 DEM_PATH = str(dem_path.resolve())
 elevation_service = ElevationService(DEM_PATH)
 
+
+def parse_float(value: Any) -> Optional[float]:
+    """文字列/数値をfloatに変換（失敗時はNone）"""
+    if value is None:
+        return None
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
+    """避難場所CSVの設定値をPath配列へ変換"""
+    default_path = BASE_DIR.parent / "国土地理院避難所データ" / "東京" / "13000_2" / "13000_2.csv"
+    if not path_config:
+        return [default_path]
+
+    result: List[Path] = []
+    for raw_item in path_config.split(","):
+        item = raw_item.strip()
+        if not item:
+            continue
+        path = Path(item)
+        if not path.is_absolute():
+            path = (BASE_DIR / path).resolve()
+        result.append(path)
+
+    return result if result else [default_path]
+
+
+def load_emergency_shelters(paths: List[Path]) -> List[Dict[str, Any]]:
+    """指定されたCSV群から指定緊急避難場所を読み込む"""
+    shelters: List[Dict[str, Any]] = []
+    seen = set()
+
+    for path in paths:
+        if path.is_dir():
+            csv_paths = sorted(path.rglob("*.csv"))
+        else:
+            csv_paths = [path]
+
+        for csv_path in csv_paths:
+            if not csv_path.exists():
+                logger.warning(f"避難場所CSVが見つかりません: {csv_path}")
+                continue
+
+            try:
+                with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        name = (
+                            row.get("施設・場所名")
+                            or row.get("name")
+                            or row.get("名称")
+                            or row.get("施設名")
+                            or ""
+                        ).strip()
+                        address = (row.get("住所") or row.get("address") or "").strip()
+                        lat = parse_float(row.get("緯度") or row.get("lat"))
+                        lon = parse_float(row.get("経度") or row.get("lon"))
+
+                        if lat is None or lon is None:
+                            continue
+
+                        # 変換済みCSVは指定区分を参照、国土地理院の元CSVは本データ種別として採用
+                        designation = (row.get("designation") or "指定緊急避難場所").strip()
+                        if designation and designation not in ("指定緊急避難場所", "緊急避難場所"):
+                            continue
+
+                        key = (name, round(lat, 7), round(lon, 7), designation)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+
+                        shelters.append({
+                            "name": name or "名称未設定",
+                            "address": address,
+                            "lat": lat,
+                            "lon": lon,
+                            "designation": designation or "指定緊急避難場所",
+                            "source_file": str(csv_path.relative_to(BASE_DIR.parent)) if csv_path.is_relative_to(BASE_DIR.parent) else str(csv_path)
+                        })
+            except Exception as e:
+                logger.error(f"避難場所CSVの読み込みに失敗しました: {csv_path} error={e}")
+
+    logger.info(f"避難場所データ読み込み件数: {len(shelters)}")
+    return shelters
+
+
+SHELTER_CSV_PATHS = parse_shelter_paths(APP_CONFIG.get("evacuation.sites.path"))
+EMERGENCY_SHELTERS = load_emergency_shelters(SHELTER_CSV_PATHS)
+
 # APIサーバー設定
 API_HOST = APP_CONFIG.get("api.host", "0.0.0.0")
 try:
@@ -171,7 +264,8 @@ async def root():
             "health": "/health",
             "elevation": "/api/elevation",
             "evacuation": "/api/evacuation",
-            "profile": "/api/elevation-profile"
+            "profile": "/api/elevation-profile",
+            "emergency_shelters": "/api/emergency-shelters"
         }
     }
 
@@ -374,6 +468,47 @@ async def get_statistics():
             "height": elevation_service.dataset.height
         },
         "crs": str(elevation_service.dataset.crs)
+    }
+
+
+@app.get("/api/emergency-shelters")
+async def get_emergency_shelters(
+    south: Optional[float] = Query(default=None, ge=-90, le=90),
+    west: Optional[float] = Query(default=None, ge=-180, le=180),
+    north: Optional[float] = Query(default=None, ge=-90, le=90),
+    east: Optional[float] = Query(default=None, ge=-180, le=180),
+    limit: int = Query(default=5000, ge=1, le=20000)
+):
+    """
+    指定緊急避難場所を取得
+
+    bbox（south/west/north/east）指定時は範囲内データのみ返却
+    """
+    if not EMERGENCY_SHELTERS:
+        return {
+            "count": 0,
+            "data": [],
+            "message": "避難場所データが読み込まれていません。evacuation.sites.path を確認してください。"
+        }
+
+    has_bbox = all(v is not None for v in (south, west, north, east))
+    if has_bbox and (south > north or west > east):
+        raise HTTPException(status_code=400, detail="bboxの指定が不正です")
+
+    if has_bbox:
+        filtered = [
+            s for s in EMERGENCY_SHELTERS
+            if south <= s["lat"] <= north and west <= s["lon"] <= east
+        ]
+    else:
+        filtered = EMERGENCY_SHELTERS
+
+    data = filtered[:limit]
+
+    return {
+        "count": len(data),
+        "total_count": len(filtered),
+        "data": data
     }
 
 

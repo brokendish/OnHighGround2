@@ -11,6 +11,7 @@
 - 🗻 **標高データ参照**: 基盤地図情報（数値標高モデル）から標高を取得
 - 🎯 **避難先検索**: 現在地から標高の高い安全な避難先を検索
 - 🗺️ **経路表示**: OpenStreetMapを使用して避難経路をナビゲート
+- 🏫 **指定緊急避難場所表示**: 国土地理院データを地図上に重ねて表示
 - ⚡ **リアルタイム計算**: 距離、所要時間、安全スコアを計算
 - 📱 **レスポンシブ対応**: PC・スマホどちらでも利用可能
 
@@ -94,6 +95,7 @@ pip install -r requirements.txt
 # backend/app.properties を編集して環境依存値を設定
 # 例:
 # dem.path=/path/to/your/output.tif
+# evacuation.sites.path=../国土地理院避難所データ/東京/13000_2/13000_2.csv
 # api.host=0.0.0.0
 # api.port=8000
 
@@ -205,6 +207,31 @@ python -m http.server 8080
   "end_lat": 35.6800,
   "end_lon": 139.6550,
   "num_points": 50
+}
+```
+
+#### `GET /api/emergency-shelters`
+指定緊急避難場所を取得（bboxによる範囲絞り込み対応）
+
+**パラメータ（任意）:**
+- `south`, `west`, `north`, `east`: 表示範囲
+- `limit`: 最大返却件数（デフォルト5000）
+
+**レスポンス例:**
+```json
+{
+  "count": 120,
+  "total_count": 120,
+  "data": [
+    {
+      "name": "増戸会館",
+      "address": "東京都あきる野市伊奈1157-5",
+      "lat": 35.72746011,
+      "lon": 139.2476138,
+      "designation": "指定緊急避難場所",
+      "source_file": "国土地理院避難所データ/東京/13000_2/13000_2.csv"
+    }
+  ]
 }
 ```
 
