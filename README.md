@@ -9,8 +9,9 @@
 
 `docker compose up -d osrm-driving osrm-walking backend frontend` を実行する前に、以下を配置してください。
 
-- `data/elevation.tif`（標高GeoTIFF）
+- `data/elevation.tif`（標高GeoTIFF (convert_dem.pyにて複数のXMLからtifに変換したもの)）
 - `data/kanto-260214.osm.pbf`（OSRM前処理用の道路データ）
+- `国土地理院避難所データ` (緊急避難場所 または 指定避難所データ)
 
 ## 機能
 
@@ -64,23 +65,8 @@ python data_processing/convert_dem.py /path/to/xml/directory output.tif --merge
 
 変換後のGeoTIFFファイル（`output.tif`）をバックエンドで使用します。
 
-#### 避難施設オープンデータの変換（CSV/GeoJSON → 本システム用CSV）
+#### 国土地理院 緊急避難場所データ
 
-自治体オープンデータを本システムで利用するには、以下で形式変換してください。
-
-```bash
-# 例: 自治体のCSVを変換
-python data_processing/convert_evacuation_sites.py /path/to/municipality_sites.csv /path/to/evacuation_sites.csv
-
-# 例: 自治体のGeoJSONを変換
-python data_processing/convert_evacuation_sites.py /path/to/municipality_sites.geojson /path/to/evacuation_sites.csv
-```
-
-変換後に `backend/app.properties` の `evacuation.sites.path` へ出力CSVを設定します。
-
-- 出力列: `name,site_type,designation,lat,lon`
-- 対応する指定区分: `緊急避難場所` / `指定避難所`
-- 上記以外の区分や座標欠損レコードは自動で除外されます。
 
 ### 2. 起動方法（推奨: Docker Compose）
 
