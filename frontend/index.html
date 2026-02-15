@@ -491,6 +491,10 @@
             `${window.location.protocol}//${window.location.hostname}:8000/api`,
             'http://localhost:8000/api'
         ].filter((url, index, arr) => arr.indexOf(url) === index);
+        const OSRM_SERVICE_URLS = {
+            driving: `${window.location.protocol}//${window.location.hostname}:5500/route/v1`,
+            walking: `${window.location.protocol}//${window.location.hostname}:5501/route/v1`
+        };
         const DEBUG_API_FETCH = true;
 
         function logApiFetch(level, ...args) {
@@ -951,6 +955,7 @@
 
             const transportMode = document.getElementById('transportMode').value;
             const routeProfile = transportMode === 'walking' ? 'walking' : 'driving';
+            const serviceUrl = OSRM_SERVICE_URLS[routeProfile];
 
             // 既存のルートを削除
             if (routingControl) {
@@ -964,10 +969,6 @@
                     L.latLng(currentLocation.lat, currentLocation.lon),
                     L.latLng(lat, lon)
                 ],
-                router: L.Routing.osrmv1({
-                    serviceUrl: 'https://router.project-osrm.org/route/v1',
-                    profile: routeProfile
-                }),
                 language: 'ja',
                 lineOptions: {
                     styles: [{ color: '#ff9800', weight: 6, opacity: 0.8 }]
@@ -993,23 +994,19 @@
                 }
                 routingOptions.formatter = formatter;
             }
-            
-            // 日本語フォーマッタが失敗しても、ルート線オーバーレイは必ず表示する
+
             try {
-                routingControl = L.Routing.control(routingOptions).addTo(map);
+                const optionsWithRouter = {
+                    ...routingOptions,
+                    router: L.Routing.osrmv1({
+                        serviceUrl,
+                        profile: routeProfile
+                    })
+                };
+                routingControl = L.Routing.control(optionsWithRouter).addTo(map);
             } catch (error) {
-                console.error('Routing with formatter failed, retrying without formatter:', error);
-                
-                const fallbackOptions = { ...routingOptions };
-                delete fallbackOptions.formatter;
-                
-                try {
-                    routingControl = L.Routing.control(fallbackOptions).addTo(map);
-                } catch (error2) {
-                    console.error('Routing with ja localization failed, retrying without language:', error2);
-                    delete fallbackOptions.language;
-                    routingControl = L.Routing.control(fallbackOptions).addTo(map);
-                }
+                console.error(`Routing control initialization failed (serviceUrl=${serviceUrl}):`, error);
+                return false;
             }
 
             if (options.onRouteSummary && routingControl && typeof routingControl.on === 'function') {

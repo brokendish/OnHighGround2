@@ -5,6 +5,7 @@ WORKDIR /app
 
 # システムパッケージのインストール
 RUN apt-get update && apt-get install -y \
+    build-essential \
     gdal-bin \
     libgdal-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -12,8 +13,12 @@ RUN apt-get update && apt-get install -y \
 # Pythonパッケージの依存関係をコピー
 COPY requirements.txt .
 
+# ビルド補助ツールを先に更新（pkg_resources を必要とする依存のビルド対策）
+RUN pip install --no-cache-dir --upgrade pip "setuptools<81" wheel
+RUN pip install --no-cache-dir "Cython<3.1" "numpy>=1.26,<2"
+
 # 依存関係をインストール
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --no-build-isolation -r requirements.txt
 
 # アプリケーションコードをコピー
 COPY . .
