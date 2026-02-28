@@ -23,6 +23,7 @@ data/
 *.swp
 *.swo
 *~
+OnHighGround2.code-workspace
 
 # OS
 .DS_Store
