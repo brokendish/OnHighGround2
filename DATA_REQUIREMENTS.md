@@ -11,6 +11,11 @@ OnHighGround2は避難ナビゲーションシステムで、以下の3種類の
 | 標高データ | 標高計算・避難先検索 | `data/elevation.tif` | GeoTIFF形式の数値標高モデル |
 | 道路データ | ルート検索（運転・徒歩） | `data/kanto-260214.osm.pbf` | OpenStreetMapの PBF形式 |
 | 避難施設データ | 避難先の表示・検索 | `backend/shelter_data/` | CSV形式の緊急避難場所リスト |
+| 　避難施設データは、リポジトリ直下の 国土地理院避難所データ 配下にあります。主なCSVはここです。
+| 　国土地理院避難所データ/東京/13000_2/13000_2.csv
+| 　国土地理院避難所データ/東京/13000_1/13000_1.csv
+| 　国土地理院避難所データ/全国/mergeFromCity_2/mergeFromCity_2.csv
+| 　補足: docker-compose.yml ではこのフォルダをコンテナ内 /app/shelter_data にマウントしています。
 
 ---
 
