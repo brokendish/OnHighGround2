@@ -378,6 +378,7 @@ python -m http.server 8080
 - 入力ファイル（変換後GeoJSON）: `data/hazard/A40-23_13/A40-23_13.geojson`
 - フロント配信用ファイル: `frontend/hazard/tsunami_tokyo.geojson`
 - 神奈川県を追加する場合: `frontend/hazard/tsunami_kanagawa.geojson`
+- 千葉県を追加する場合: `frontend/hazard/tsunami_chiba.geojson`
 
 ### 反映方法
 ```bash
@@ -398,6 +399,12 @@ curl -I http://localhost:8080/hazard/tsunami_tokyo.geojson
 curl -I http://localhost:8080/hazard/tsunami_kanagawa.geojson
 ```
 
+千葉県を追加した場合:
+
+```bash
+curl -I http://localhost:8080/hazard/tsunami_chiba.geojson
+```
+
 ### 他エリアの追加方法（神奈川県など）
 1. 国土数値情報（A40）から対象都県のデータを取得し、GeoJSONを用意する
 2. `frontend/hazard/` に `tsunami_<area>.geojson` で配置する
@@ -408,4 +415,9 @@ curl -I http://localhost:8080/hazard/tsunami_kanagawa.geojson
 - `path`: `/hazard/tsunami_kanagawa.geojson`
 - `checkboxId`: `showTsunamiHazardKanagawa`
 
-このプロジェクトは現在、東京都・神奈川県のトグルを実装済みです。神奈川県ファイル未配置時はチェックボックスが自動で無効化されます。
+例（千葉県）:
+- `name`: `津波浸水想定（千葉県）`
+- `path`: `/hazard/tsunami_chiba.geojson`
+- `checkboxId`: `showTsunamiHazardChiba`
+
+このプロジェクトは現在、東京都・神奈川県・千葉県のトグルを実装済みです。未配置ファイルのチェックボックスは自動で無効化されます。

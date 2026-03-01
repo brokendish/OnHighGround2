@@ -530,6 +530,7 @@
                     <input type="checkbox" id="showEmergencyShelters" checked>
                     指定緊急避難場所を地図に表示する
                 </label>
+                <div class="shelter-status" id="shelterStatus">避難場所データを読み込み中...</div>
                 <label class="manual-location-toggle" for="showTsunamiHazardTokyo">
                     <input type="checkbox" id="showTsunamiHazardTokyo">
                     津波浸水想定（東京都）
@@ -538,7 +539,10 @@
                     <input type="checkbox" id="showTsunamiHazardKanagawa">
                     津波浸水想定（神奈川県）
                 </label>
-                <div class="shelter-status" id="shelterStatus">避難場所データを読み込み中...</div>
+                <label class="manual-location-toggle" for="showTsunamiHazardChiba">
+                    <input type="checkbox" id="showTsunamiHazardChiba">
+                    津波浸水想定（千葉県）
+                </label>
                 <div class="shelter-status" id="hazardStatus">津波浸水想定レイヤー: OFF</div>
                 
                 <div class="current-location" id="currentLocationInfo" style="display: none;">
@@ -828,6 +832,15 @@
                 name: "津波浸水想定（神奈川県）",
                 path: "/hazard/tsunami_kanagawa.geojson",
                 checkboxId: "showTsunamiHazardKanagawa",
+                layer: null,
+                loaded: false,
+                visible: false,
+                rawData: null
+            },
+            tsunami_chiba: {
+                name: "津波浸水想定（千葉県）",
+                path: "/hazard/tsunami_chiba.geojson",
+                checkboxId: "showTsunamiHazardChiba",
                 layer: null,
                 loaded: false,
                 visible: false,
