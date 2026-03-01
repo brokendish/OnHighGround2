@@ -530,7 +530,16 @@
                     <input type="checkbox" id="showEmergencyShelters" checked>
                     指定緊急避難場所を地図に表示する
                 </label>
+                <label class="manual-location-toggle" for="showTsunamiHazardTokyo">
+                    <input type="checkbox" id="showTsunamiHazardTokyo">
+                    津波浸水想定（東京都）
+                </label>
+                <label class="manual-location-toggle" for="showTsunamiHazardKanagawa">
+                    <input type="checkbox" id="showTsunamiHazardKanagawa">
+                    津波浸水想定（神奈川県）
+                </label>
                 <div class="shelter-status" id="shelterStatus">避難場所データを読み込み中...</div>
+                <div class="shelter-status" id="hazardStatus">津波浸水想定レイヤー: OFF</div>
                 
                 <div class="current-location" id="currentLocationInfo" style="display: none;">
                     <strong>現在地:</strong><br>
@@ -805,6 +814,220 @@
         let routeCandidateLayers = [];
         let routeStepFocusMarker = null;
         const ROUTE_COLOR_PALETTE = ['#ff9800', '#1e88e5', '#43a047', '#8e24aa', '#fb8c00'];
+        const HAZARD_LAYERS = {
+            tsunami_tokyo: {
+                name: "津波浸水想定（東京都）",
+                path: "/hazard/tsunami_tokyo.geojson",
+                checkboxId: "showTsunamiHazardTokyo",
+                layer: null,
+                loaded: false,
+                visible: false,
+                rawData: null
+            },
+            tsunami_kanagawa: {
+                name: "津波浸水想定（神奈川県）",
+                path: "/hazard/tsunami_kanagawa.geojson",
+                checkboxId: "showTsunamiHazardKanagawa",
+                layer: null,
+                loaded: false,
+                visible: false,
+                rawData: null
+            }
+        };
+
+        function normalizeToFeatureCollection(geojson) {
+            if (!geojson || typeof geojson !== 'object') {
+                return { type: 'FeatureCollection', features: [] };
+            }
+
+            if (geojson.type === 'FeatureCollection') {
+                return {
+                    type: 'FeatureCollection',
+                    features: Array.isArray(geojson.features) ? geojson.features : []
+                };
+            }
+
+            if (geojson.type === 'Feature') {
+                return { type: 'FeatureCollection', features: [geojson] };
+            }
+
+            if (Array.isArray(geojson.features)) {
+                return { type: 'FeatureCollection', features: geojson.features };
+            }
+
+            if (Array.isArray(geojson)) {
+                return { type: 'FeatureCollection', features: geojson };
+            }
+
+            if (geojson.type && geojson.coordinates) {
+                return {
+                    type: 'FeatureCollection',
+                    features: [{ type: 'Feature', geometry: geojson, properties: {} }]
+                };
+            }
+
+            return { type: 'FeatureCollection', features: [] };
+        }
+
+        function detectDepthPropertyKey(featureCollection) {
+            const sampleFeatures = (featureCollection.features || [])
+                .filter((feature) => feature && feature.properties && typeof feature.properties === 'object')
+                .slice(0, 40);
+            if (sampleFeatures.length === 0) {
+                return null;
+            }
+
+            const keys = Object.keys(sampleFeatures[0].properties || {});
+            const preferredTokens = ['depth', '浸水', '水深', 'rank', 'level', 'a40_003'];
+            let bestKey = null;
+            let bestScore = -1;
+
+            for (const key of keys) {
+                let score = 0;
+                const keyLower = key.toLowerCase();
+
+                preferredTokens.forEach((token, index) => {
+                    if (keyLower.includes(token.toLowerCase())) {
+                        score += 20 - index;
+                    }
+                });
+
+                if (/a40_\d{3}/i.test(key)) {
+                    score += 8;
+                }
+
+                let parseableCount = 0;
+                sampleFeatures.forEach((feature) => {
+                    if (parseDepthValue(feature.properties[key]) !== null) {
+                        parseableCount += 1;
+                    }
+                });
+                score += parseableCount;
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestKey = key;
+                }
+            }
+
+            return bestScore > 0 ? bestKey : null;
+        }
+
+        function parseDepthValue(rawValue) {
+            if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+                return rawValue;
+            }
+            if (typeof rawValue === 'string') {
+                const match = rawValue.match(/-?\d+(?:\.\d+)?/);
+                if (!match) {
+                    return null;
+                }
+                const parsed = Number.parseFloat(match[0]);
+                return Number.isFinite(parsed) ? parsed : null;
+            }
+            return null;
+        }
+
+        function getDepthColor(depthMeters) {
+            if (depthMeters <= 0.5) return '#ffe082';
+            if (depthMeters <= 1.0) return '#ffca28';
+            if (depthMeters <= 3.0) return '#ff8f00';
+            if (depthMeters <= 5.0) return '#f4511e';
+            return '#b71c1c';
+        }
+
+        function getTsunamiFeatureStyle(feature, depthKey) {
+            const defaultStyle = {
+                color: '#b71c1c',
+                weight: 1,
+                opacity: 0.9,
+                fillColor: '#f44336',
+                fillOpacity: 0.35
+            };
+
+            if (!depthKey) {
+                return defaultStyle;
+            }
+
+            const rawValue = feature?.properties?.[depthKey];
+            const depthMeters = parseDepthValue(rawValue);
+            if (depthMeters === null) {
+                return defaultStyle;
+            }
+
+            return {
+                color: '#8e0000',
+                weight: 1,
+                opacity: 0.9,
+                fillColor: getDepthColor(depthMeters),
+                fillOpacity: 0.42
+            };
+        }
+
+        async function loadHazardLayer(layerKey) {
+            const hazard = HAZARD_LAYERS[layerKey];
+            if (!hazard) {
+                throw new Error(`未知のハザードレイヤーです: ${layerKey}`);
+            }
+            if (hazard.loaded && hazard.layer) {
+                return hazard.layer;
+            }
+
+            const response = await fetch(hazard.path, { cache: 'no-cache' });
+            if (!response.ok) {
+                throw new Error(`${hazard.name}データの取得に失敗しました (HTTP ${response.status})`);
+            }
+
+            const rawGeoJson = await response.json();
+            const featureCollection = normalizeToFeatureCollection(rawGeoJson);
+            const depthKey = detectDepthPropertyKey(featureCollection);
+
+            hazard.rawData = featureCollection;
+            hazard.layer = L.geoJSON(featureCollection, {
+                renderer: L.canvas(),
+                style: (feature) => getTsunamiFeatureStyle(feature, depthKey)
+            });
+            hazard.loaded = true;
+            return hazard.layer;
+        }
+
+        async function setHazardLayerVisibility(layerKey, visible) {
+            const hazard = HAZARD_LAYERS[layerKey];
+            if (!hazard) {
+                return;
+            }
+
+            hazard.visible = visible;
+
+            if (!visible) {
+                if (hazard.layer && map.hasLayer(hazard.layer)) {
+                    map.removeLayer(hazard.layer);
+                }
+                updateHazardStatusSummary();
+                return;
+            }
+
+            const layer = await loadHazardLayer(layerKey);
+            if (!map.hasLayer(layer)) {
+                layer.addTo(map);
+            }
+            if (typeof layer.bringToFront === 'function') {
+                layer.bringToFront();
+            }
+
+            const hazardBounds = layer.getBounds?.();
+            if (hazardBounds && hazardBounds.isValid()) {
+                const isInCurrentView = map.getBounds().intersects(hazardBounds);
+                if (!isInCurrentView) {
+                    map.fitBounds(hazardBounds.pad(0.02), { maxZoom: 9, animate: true });
+                    setHazardStatus(`${hazard.name}: ON（現在表示範囲にデータがないため、データ範囲へ移動しました）`);
+                } else {
+                    updateHazardStatusSummary();
+                }
+            } else {
+                updateHazardStatusSummary();
+            }
+        }
 
         async function updateCurrentLocation(lat, lon, sourceLabel = '現在地') {
             currentLocation = { lat, lon };
@@ -845,6 +1068,73 @@
 
             map.setView([lat, lon], 15);
             document.getElementById('searchDestinations').disabled = false;
+        }
+
+        async function hazardDataExists(path) {
+            try {
+                const response = await fetch(path, { method: 'HEAD', cache: 'no-cache' });
+                return response.ok;
+            } catch (error) {
+                console.warn('ハザードデータ存在確認に失敗:', path, error);
+                return false;
+            }
+        }
+
+        function attachHazardToggle(checkbox, layerKey) {
+            checkbox.addEventListener('change', async (event) => {
+                try {
+                    await setHazardLayerVisibility(layerKey, event.target.checked);
+                } catch (error) {
+                    console.error(`${HAZARD_LAYERS[layerKey].name}レイヤーの処理エラー:`, error);
+                    alert(`${HAZARD_LAYERS[layerKey].name}の表示に失敗しました: ${error.message}`);
+                    event.target.checked = false;
+                    HAZARD_LAYERS[layerKey].visible = false;
+                }
+            });
+        }
+
+        async function initializeHazardToggles() {
+            const availabilityChecks = await Promise.all(
+                Object.entries(HAZARD_LAYERS).map(async ([layerKey, hazard]) => {
+                    const checkbox = document.getElementById(hazard.checkboxId);
+                    if (!checkbox) {
+                        return { layerKey, enabled: false, reason: 'checkbox-not-found' };
+                    }
+                    attachHazardToggle(checkbox, layerKey);
+
+                    const exists = await hazardDataExists(hazard.path);
+                    if (!exists) {
+                        checkbox.disabled = true;
+                        checkbox.checked = false;
+                        checkbox.title = `${hazard.path} が見つかりません`;
+                        return { layerKey, enabled: false, reason: 'data-not-found' };
+                    }
+
+                    checkbox.disabled = false;
+                    checkbox.title = '';
+                    return { layerKey, enabled: true, reason: 'ok' };
+                })
+            );
+
+            const enabledLayers = availabilityChecks.filter((item) => item.enabled);
+            if (enabledLayers.length === 0) {
+                setHazardStatus('津波浸水想定レイヤー: 利用可能なデータがありません');
+                return;
+            }
+
+            const enabledNames = enabledLayers.map((item) => HAZARD_LAYERS[item.layerKey].name);
+            setHazardStatus(`津波浸水想定レイヤー: OFF（利用可能: ${enabledNames.join(' / ')}）`);
+        }
+
+        function updateHazardStatusSummary() {
+            const visibleNames = Object.values(HAZARD_LAYERS)
+                .filter((hazard) => hazard.visible)
+                .map((hazard) => hazard.name);
+            if (visibleNames.length === 0) {
+                setHazardStatus('津波浸水想定レイヤー: OFF');
+                return;
+            }
+            setHazardStatus(`津波浸水想定レイヤー: ON（${visibleNames.join(' / ')}）`);
         }
 
         const manualLocationModeCheckbox = document.getElementById('manualLocationMode');
@@ -1879,6 +2169,10 @@
             document.getElementById('shelterStatus').textContent = message;
         }
 
+        function setHazardStatus(message) {
+            document.getElementById('hazardStatus').textContent = message;
+        }
+
         function scheduleEmergencyShelterRefresh() {
             if (shelterRefreshTimer) {
                 clearTimeout(shelterRefreshTimer);
@@ -1938,6 +2232,7 @@
         }
 
         scheduleEmergencyShelterRefresh();
+        initializeHazardToggles();
     </script>
 </body>
 </html>

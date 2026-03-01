@@ -173,6 +173,11 @@ python -m http.server 8080
    - リストまたは地図上のマーカーをクリック
    - 現在地から避難先までの経路が表示されます
 
+5. **津波浸水想定（東京都）レイヤーを表示**
+   - 左側パネルの「津波浸水想定（東京都）」をONにすると、浸水想定ポリゴンを地図に重ねて表示します
+   - 現在の地図範囲にデータがない場合は、レイヤー範囲へ自動で地図移動します
+   - OFFにするとレイヤーのみ非表示になります（データは再利用されるため再ONは高速）
+
 ## API仕様
 
 ### エンドポイント
@@ -359,3 +364,48 @@ python -m http.server 8080
 - [ ] 音声ナビゲーション
 - [ ] 多言語対応
 - [ ] リアルタイム災害情報の連携
+
+## 津波浸水想定データ（東京都 + 他エリア拡張）
+
+表示専用の津波ハザードレイヤーとして、GeoJSONをフロントエンドから直接読み込みます。
+
+### データ取得元
+- 国土数値情報ダウンロードサービス（津波浸水想定）
+- https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A40-2024.html
+- 例: `A40-23_13_GML.zip`
+
+### 配置場所
+- 入力ファイル（変換後GeoJSON）: `data/hazard/A40-23_13/A40-23_13.geojson`
+- フロント配信用ファイル: `frontend/hazard/tsunami_tokyo.geojson`
+- 神奈川県を追加する場合: `frontend/hazard/tsunami_kanagawa.geojson`
+
+### 反映方法
+```bash
+mkdir -p frontend/hazard
+cp data/hazard/A40-23_13/A40-23_13.geojson frontend/hazard/tsunami_tokyo.geojson
+```
+
+### 配信確認
+`frontend` コンテナ起動後、以下が `200` を返すことを確認:
+
+```bash
+curl -I http://localhost:8080/hazard/tsunami_tokyo.geojson
+```
+
+神奈川県を追加した場合:
+
+```bash
+curl -I http://localhost:8080/hazard/tsunami_kanagawa.geojson
+```
+
+### 他エリアの追加方法（神奈川県など）
+1. 国土数値情報（A40）から対象都県のデータを取得し、GeoJSONを用意する
+2. `frontend/hazard/` に `tsunami_<area>.geojson` で配置する
+3. `frontend/index.html` の `HAZARD_LAYERS` にエントリを追加する
+
+例（神奈川県）:
+- `name`: `津波浸水想定（神奈川県）`
+- `path`: `/hazard/tsunami_kanagawa.geojson`
+- `checkboxId`: `showTsunamiHazardKanagawa`
+
+このプロジェクトは現在、東京都・神奈川県のトグルを実装済みです。神奈川県ファイル未配置時はチェックボックスが自動で無効化されます。
