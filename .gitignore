@@ -35,3 +35,5 @@ Thumbs.db
 # 環境変数
 .env
 .env.local
+# ---- Large generated shelter datasets (do not track in git) ----
+国土地理院避難所データ/全国/mergeFromCity_*.geojson
