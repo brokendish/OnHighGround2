@@ -9,7 +9,7 @@ services:
     command: >
       sh -c "
       mkdir -p /data/osrm/driving &&
-      if [ ! -f /data/osrm/driving/kanto-260214.osrm.datasource_names ]; then
+      if [ ! -f /data/osrm/driving/kanto-260214.osrm ]; then
         rm -f /data/osrm/driving/kanto-260214.osrm* &&
         cp /data/kanto-260214.osm.pbf /data/osrm/driving/kanto-260214.osm.pbf &&
         osrm-extract -p /opt/car.lua /data/osrm/driving/kanto-260214.osm.pbf &&
@@ -30,14 +30,14 @@ services:
     command: >
       sh -c "
       mkdir -p /data/osrm/walking &&
-      if [ ! -f /data/osrm/walking/kanto-260214.osrm.datasource_names ]; then
-        rm -f /data/osrm/walking/kanto-260214.osrm* &&
-        cp /data/kanto-260214.osm.pbf /data/osrm/walking/kanto-260214.osm.pbf &&
-        osrm-extract -p /opt/foot.lua /data/osrm/walking/kanto-260214.osm.pbf &&
-        osrm-partition /data/osrm/walking/kanto-260214.osrm &&
-        osrm-customize /data/osrm/walking/kanto-260214.osrm;
+      if [ ! -f /data/osrm/walking/kanto-260214.osrm ]; then
+       rm -f /data/osrm/walking/kanto-260214.osrm* &&
+       cp /data/kanto-260214.osm.pbf /data/osrm/walking/kanto-260214.osm.pbf &&
+       osrm-extract -p /opt/foot.lua /data/osrm/walking/kanto-260214.osm.pbf &&
+       osrm-partition /data/osrm/walking/kanto-260214.osrm &&
+       osrm-customize /data/osrm/walking/kanto-260214.osrm;
       fi &&
-      osrm-routed --algorithm mld --port 5001 /data/osrm/walking/kanto-260214.osrm
+       osrm-routed --algorithm mld --port 5001 /data/osrm/walking/kanto-260214.osrm
       "
     restart: unless-stopped
 

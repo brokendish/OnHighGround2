@@ -636,8 +636,10 @@
             'http://localhost:8000/api'
         ].filter((url, index, arr) => arr.indexOf(url) === index);
         const OSRM_SERVICE_URLS = {
-            driving: `${window.location.protocol}//${window.location.hostname}:5500/route/v1`,
-            walking: `${window.location.protocol}//${window.location.hostname}:5501/route/v1`
+            //driving: `${window.location.protocol}//${window.location.hostname}:5500/route/v1`,
+            //walking: `${window.location.protocol}//${window.location.hostname}:5501/route/v1`
+	    driving: 'https://osrm.brokendish.org/route/v1',
+            walking: 'https://osrm.brokendish.org/route/v1'
         };
         const DEBUG_API_FETCH = true;
 
