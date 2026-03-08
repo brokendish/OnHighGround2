@@ -82,6 +82,14 @@ services:
       - osrm-walking
     restart: unless-stopped
 
+  martin:
+    image: ghcr.io/maplibre/martin:latest
+    container_name: evacuation-navi-martin
+    volumes:
+      - ./tiles:/tiles:ro
+    command: /tiles
+    restart: unless-stopped
+
 networks:
   default:
     name: evacuation-navi-network

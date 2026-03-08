@@ -640,6 +640,9 @@
     
     <!-- Leaflet Routing Machine -->
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+    <!-- Leaflet VectorGrid: MVT ベクタータイル描画プラグイン -->
+    <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
     
     <script>
         // 設定
@@ -846,6 +849,23 @@
             }
         };
 
+        // Martin から配信されるベクタータイルソースの定義
+        // キー: HAZARD_LAYERS と同じ、値: タイルセット ID と source-layer 名の配列
+        // source-layer 名は tippecanoe の --layer オプションで指定した名前（= MBTiles ファイル名の stem）
+        const VECTOR_TILE_SOURCES = {
+            tsunami_tokyo: [
+                { tilesetId: 'tokyo_tsunami_A40-23_13', sourceLayer: 'tokyo_tsunami_A40-23_13' }
+            ],
+            tsunami_kanagawa: [
+                { tilesetId: 'kanagawa_tsunami_A40-16_14', sourceLayer: 'kanagawa_tsunami_A40-16_14' },
+                { tilesetId: 'kanagawa_tsunami_A40-20_14', sourceLayer: 'kanagawa_tsunami_A40-20_14' }
+            ],
+            tsunami_chiba: [
+                { tilesetId: 'chiba_tsunami_A40-18_12', sourceLayer: 'chiba_tsunami_A40-18_12' }
+            ]
+        };
+        let useMartinTiles = false;
+
         function normalizeToFeatureCollection(geojson) {
             if (!geojson || typeof geojson !== 'object') {
                 return { type: 'FeatureCollection', features: [] };
@@ -975,12 +995,62 @@
             };
         }
 
+        // Martin が利用可能かどうかを確認する
+        async function checkMartinAvailable() {
+            try {
+                const response = await fetch('/tiles/catalog', { cache: 'no-cache' });
+                return response.ok;
+            } catch {
+                return false;
+            }
+        }
+
+        // Martin ベクタータイル用の L.vectorGrid.protobuf レイヤーを生成する
+        function createVectorTileLayer(tilesetId, sourceLayer) {
+            const url = `/tiles/${tilesetId}/{z}/{x}/{y}`;
+            const depthKeys = ['a40_003', 'A40_003', 'depth', 'rank', 'level'];
+            return L.vectorGrid.protobuf(url, {
+                vectorTileLayerStyles: {
+                    [sourceLayer]: function(properties) {
+                        let depthColor = '#f44336';
+                        for (const key of depthKeys) {
+                            const val = parseDepthValue(properties[key]);
+                            if (val !== null) {
+                                depthColor = getDepthColor(val);
+                                break;
+                            }
+                        }
+                        return {
+                            fill: true,
+                            fillColor: depthColor,
+                            fillOpacity: 0.42,
+                            weight: 1,
+                            color: '#8e0000',
+                            opacity: 0.9
+                        };
+                    }
+                },
+                interactive: false,
+                maxNativeZoom: 14  // タイルリクエストを z=14 までに制限（それ以上はオーバーズーム描画）
+            });
+        }
+
         async function loadHazardLayer(layerKey) {
             const hazard = HAZARD_LAYERS[layerKey];
             if (!hazard) {
                 throw new Error(`未知のハザードレイヤーです: ${layerKey}`);
             }
             if (hazard.loaded && hazard.layer) {
+                return hazard.layer;
+            }
+
+            // Martin が利用可能な場合はベクタータイルを使用する
+            if (useMartinTiles && VECTOR_TILE_SOURCES[layerKey]) {
+                const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer }) =>
+                    createVectorTileLayer(tilesetId, sourceLayer)
+                );
+                hazard.layer = L.layerGroup(vtLayers);
+                hazard.loaded = true;
                 return hazard.layer;
             }
 
@@ -1105,6 +1175,9 @@
         }
 
         async function initializeHazardToggles() {
+            useMartinTiles = await checkMartinAvailable();
+            console.info('Martin タイルサーバー:', useMartinTiles ? '利用可能（ベクタータイル使用）' : '利用不可（GeoJSON フォールバック）');
+
             const availabilityChecks = await Promise.all(
                 Object.entries(HAZARD_LAYERS).map(async ([layerKey, hazard]) => {
                     const checkbox = document.getElementById(hazard.checkboxId);
@@ -1113,11 +1186,19 @@
                     }
                     attachHazardToggle(checkbox, layerKey);
 
-                    const exists = await hazardDataExists(hazard.path);
+                    let checkPath;
+                    if (useMartinTiles && VECTOR_TILE_SOURCES[layerKey]) {
+                        const firstTileset = VECTOR_TILE_SOURCES[layerKey][0];
+                        checkPath = `/tiles/${firstTileset.tilesetId}`;
+                    } else {
+                        checkPath = hazard.path;
+                    }
+
+                    const exists = await hazardDataExists(checkPath);
                     if (!exists) {
                         checkbox.disabled = true;
                         checkbox.checked = false;
-                        checkbox.title = `${hazard.path} が見つかりません`;
+                        checkbox.title = `${checkPath} が見つかりません`;
                         return { layerKey, enabled: false, reason: 'data-not-found' };
                     }
 

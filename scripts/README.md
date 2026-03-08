@@ -171,5 +171,77 @@ scripts/
 - tippecanoe はローカルにインストールする必要があります（Docker 環境には含まれません）。
 - GeoJSON ファイルは EPSG:4326（WGS84）を使用していることを前提としています。これは日本の政府ハザードデータセットの標準形式です。
 - `.mbtiles` 形式はローカルでの使用やテストに適しています。
-  本番環境でのタイル配信には、[PMTiles](https://protomaps.com/docs/pmtiles) への変換や、
-  [Martin](https://github.com/maplibre/martin) などのタイルサーバーの利用を検討してください。
+
+---
+
+## Martin タイルサーバー
+
+`tiles/` に生成した `.mbtiles` ファイルは、Docker Compose に含まれる
+[Martin](https://github.com/maplibre/martin) タイルサーバーで配信されます。
+
+### 起動方法
+
+```bash
+docker compose up martin
+```
+
+または他のサービスと一括起動:
+
+```bash
+docker compose up
+```
+
+### MBTiles の自動検出
+
+Martin は起動時に `/tiles` ディレクトリ（`docker-compose.yml` で `./tiles:/tiles:ro` にマウント）
+内のすべての `.mbtiles` ファイルを自動検出します。
+設定ファイルは不要です。コマンド引数にディレクトリを渡すだけで動作します。
+
+### タイルエンドポイントの確認
+
+Martin が起動したら、以下の URL で動作を確認できます（nginx プロキシ経由）:
+
+```bash
+# タイルセット一覧
+curl http://localhost:8080/tiles/catalog
+
+# 東京タイルセットの TileJSON
+curl http://localhost:8080/tiles/tokyo_tsunami_A40-23_13
+
+# タイルリクエストの例（ズームレベル 10、xy 座標指定）
+curl http://localhost:8080/tiles/tokyo_tsunami_A40-23_13/10/909/403
+```
+
+### タイルセット ID と source-layer 名
+
+MBTiles ファイル名の stem がタイルセット ID になります。
+tippecanoe の `--layer` オプションで指定した名前が source-layer 名です
+（`build_tiles.py` では `--layer dataset` で dataset = ファイル名 stem）。
+
+| 都県 | タイルセット ID | source-layer 名 |
+|------|----------------|-----------------|
+| 東京都 | `tokyo_tsunami_A40-23_13` | `tokyo_tsunami_A40-23_13` |
+| 神奈川県 (1) | `kanagawa_tsunami_A40-16_14` | `kanagawa_tsunami_A40-16_14` |
+| 神奈川県 (2) | `kanagawa_tsunami_A40-20_14` | `kanagawa_tsunami_A40-20_14` |
+| 千葉県 | `chiba_tsunami_A40-18_12` | `chiba_tsunami_A40-18_12` |
+
+### フロントエンドでの使用
+
+`frontend/index.html` の `VECTOR_TILE_SOURCES` に上記の ID と source-layer 名が定義されています。
+
+フロントエンド起動時に `/tiles/catalog` へのリクエストで Martin の可用性を自動確認します。
+
+- Martin が起動している場合: ベクタータイルを使用（`L.vectorGrid.protobuf`）
+- Martin が起動していない場合: GeoJSON ファイルへフォールバック（`/hazard/*.geojson`）
+
+### フロントエンドでのベクタータイル描画確認
+
+1. `docker compose up` でサービスを起動する
+2. ブラウザで `http://localhost:8080` を開く
+3. ブラウザの DevTools コンソールで以下のログを確認する:
+
+   ```text
+   Martin タイルサーバー: 利用可能（ベクタータイル使用）
+   ```
+
+4. 津波ハザードレイヤーのチェックボックスを ON にしてタイルが描画されることを確認する

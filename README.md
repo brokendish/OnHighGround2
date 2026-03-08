@@ -79,7 +79,11 @@ OSM PBF（例: `data/kanto-260214.osm.pbf`）
 2. 起動
 
 ```bash
+# 基本サービス（標高・ルーティング・フロントエンド）
 docker compose up -d osrm-driving osrm-walking backend frontend
+
+# 津波タイル配信を有効にする場合は martin も追加
+docker compose up -d osrm-driving osrm-walking backend frontend martin
 ```
 
 3. アクセス  
@@ -357,7 +361,7 @@ python -m http.server 8080
 
 ## 今後の拡張案
 
-- [ ] 浸水想定区域データとの連携
+- [x] 津波浸水想定区域データとの連携（MBTiles + Martin + Leaflet.VectorGrid によるタイル配信・表示）
 - [🔵(東京のみ)] 指定避難所データベースの統合
 - [ ] 複数の避難経路の比較表示
 - [ ] 標高プロファイルグラフの表示
@@ -365,59 +369,71 @@ python -m http.server 8080
 - [ ] 多言語対応
 - [ ] リアルタイム災害情報の連携
 
-## 津波浸水想定データ（東京都 + 他エリア拡張）
+## 津波浸水想定データ（東京都・神奈川県・千葉県）
 
-表示専用の津波ハザードレイヤーとして、GeoJSONをフロントエンドから直接読み込みます。
+津波ハザードレイヤーは **MBTiles + Martin + Leaflet.VectorGrid** によるベクタータイル配信で表示します。
+GeoJSON ファイル（`frontend/hazard/`）への直接読み込みはフォールバックとして残っています。
+
+### データフロー
+
+```text
+国土数値情報（A40 GML）
+  └─ data/processed/hazard/*.geojson   ← 処理済み GeoJSON（正規ソース）
+       └─ scripts/build_tiles.py        ← tippecanoe でタイル化
+            └─ tiles/*.mbtiles          ← ベクタータイル
+                 └─ Martin（Docker）    ← タイル配信（/tiles/...）
+                      └─ Leaflet.VectorGrid  ← フロントエンド表示
+```
 
 ### データ取得元
-- 国土数値情報ダウンロードサービス（津波浸水想定）
-- https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A40-2024.html
-- 例: `A40-23_13_GML.zip`
 
-### 配置場所
-- 入力ファイル（変換後GeoJSON）: `data/hazard/A40-23_13/A40-23_13.geojson`
-- フロント配信用ファイル: `frontend/hazard/tsunami_tokyo.geojson`
-- 神奈川県を追加する場合: `frontend/hazard/tsunami_kanagawa.geojson`
-- 千葉県を追加する場合: `frontend/hazard/tsunami_chiba.geojson`
+- 国土数値情報ダウンロードサービス（津波浸水想定 A40）
+- <https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A40-2024.html>
 
-### 反映方法
-```bash
-mkdir -p frontend/hazard
-cp data/hazard/A40-23_13/A40-23_13.geojson frontend/hazard/tsunami_tokyo.geojson
-```
-
-### 配信確認
-`frontend` コンテナ起動後、以下が `200` を返すことを確認:
+### タイル生成
 
 ```bash
-curl -I http://localhost:8080/hazard/tsunami_tokyo.geojson
+# GeoJSON を tiles/*.mbtiles に変換（要 tippecanoe）
+python scripts/build_tiles.py
+
+# 暫定: frontend/hazard/ の GeoJSON を使う場合
+python scripts/build_tiles.py --input frontend/hazard
 ```
 
-神奈川県を追加した場合:
+詳細は `scripts/README.md` を参照してください。
+
+### タイル配信サービスの起動
 
 ```bash
-curl -I http://localhost:8080/hazard/tsunami_kanagawa.geojson
+docker compose up -d martin
 ```
 
-千葉県を追加した場合:
+Martin は `tiles/` ディレクトリの `.mbtiles` ファイルを自動検出します。
+
+### 動作確認
 
 ```bash
-curl -I http://localhost:8080/hazard/tsunami_chiba.geojson
+# タイルセット一覧（Martin が起動していれば応答あり）
+curl http://localhost:8080/tiles/catalog
+
+# 東京タイルセットの TileJSON
+curl http://localhost:8080/tiles/tokyo_tsunami_A40-23_13
 ```
 
-### 他エリアの追加方法（神奈川県など）
-1. 国土数値情報（A40）から対象都県のデータを取得し、GeoJSONを用意する
-2. `frontend/hazard/` に `tsunami_<area>.geojson` で配置する
-3. `frontend/index.html` の `HAZARD_LAYERS` にエントリを追加する
+### フロントエンドの動作
 
-例（神奈川県）:
-- `name`: `津波浸水想定（神奈川県）`
-- `path`: `/hazard/tsunami_kanagawa.geojson`
-- `checkboxId`: `showTsunamiHazardKanagawa`
+フロントエンドは起動時に Martin の可用性を自動確認します。
 
-例（千葉県）:
-- `name`: `津波浸水想定（千葉県）`
-- `path`: `/hazard/tsunami_chiba.geojson`
-- `checkboxId`: `showTsunamiHazardChiba`
+- **Martin が起動中**: ベクタータイル（MBTiles）で表示
+- **Martin が停止中**: GeoJSON ファイル（`/hazard/*.geojson`）でフォールバック表示
 
-このプロジェクトは現在、東京都・神奈川県・千葉県のトグルを実装済みです。未配置ファイルのチェックボックスは自動で無効化されます。
+チェックボックスの有効/無効もデータ有無に応じて自動で切り替わります。
+
+### 現在のタイルセット
+
+| 都県 | タイルセット ID | MBTiles ファイル |
+| --- | --- | --- |
+| 東京都 | `tokyo_tsunami_A40-23_13` | `tiles/tokyo_tsunami_A40-23_13.mbtiles` |
+| 神奈川県 (1) | `kanagawa_tsunami_A40-16_14` | `tiles/kanagawa_tsunami_A40-16_14.mbtiles` |
+| 神奈川県 (2) | `kanagawa_tsunami_A40-20_14` | `tiles/kanagawa_tsunami_A40-20_14.mbtiles` |
+| 千葉県 | `chiba_tsunami_A40-18_12` | `tiles/chiba_tsunami_A40-18_12.mbtiles` |
