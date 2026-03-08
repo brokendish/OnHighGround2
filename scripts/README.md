@@ -1,13 +1,12 @@
-# scripts/ — Tile Generation Pipeline
+# scripts/ — タイル生成パイプライン
 
-This directory contains scripts for converting hazard GeoJSON data into
-vector tiles.
+このディレクトリには、ハザード GeoJSON データをベクタータイルに変換するスクリプトが含まれています。
 
 ---
 
-## Prerequisites
+## 前提条件
 
-### Install tippecanoe
+### tippecanoe のインストール
 
 **macOS (Homebrew):**
 ```bash
@@ -19,12 +18,12 @@ brew install tippecanoe
 sudo apt install tippecanoe
 ```
 
-**Build from source:**
+**ソースからビルド:**
 ```
 https://github.com/felt/tippecanoe
 ```
 
-Verify installation:
+インストール確認:
 ```bash
 tippecanoe --version
 ```
@@ -33,122 +32,119 @@ tippecanoe --version
 
 ## build_tiles.py
 
-Converts all `.geojson` files found in the input directory into
-`.mbtiles` vector tile files using tippecanoe.
+入力ディレクトリ内のすべての `.geojson` ファイルを、tippecanoe を使って
+`.mbtiles` ベクタータイルファイルに変換します。
 
-### Basic usage
+### 基本的な使い方
 
 ```bash
 python scripts/build_tiles.py
 ```
 
-This reads GeoJSON files from `data/processed/hazard/` (the canonical
-source location) and outputs `.mbtiles` files to `tiles/`.
+`data/processed/hazard/`（正規のソースディレクトリ）から GeoJSON ファイルを読み込み、
+`.mbtiles` ファイルを `tiles/` に出力します。
 
-### Options
+### オプション
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--minzoom` | 5 | Minimum zoom level |
-| `--maxzoom` | 14 | Maximum zoom level |
-| `--input DIR` | `data/processed/hazard` | Directory containing GeoJSON files |
-| `--output DIR` | `tiles` | Output directory for .mbtiles files |
-| `--dry-run` | — | Print commands without executing |
+| オプション | デフォルト | 説明 |
+| --------- | --------- | ---- |
+| `--minzoom` | 5 | 最小ズームレベル |
+| `--maxzoom` | 14 | 最大ズームレベル |
+| `--input DIR` | `data/processed/hazard` | GeoJSON ファイルが置かれたディレクトリ |
+| `--output DIR` | `tiles` | .mbtiles ファイルの出力ディレクトリ |
+| `--dry-run` | — | コマンドを実行せずに表示のみ行う |
 
-### Examples
+### 実行例
 
 ```bash
-# Default run (reads from data/processed/hazard/)
+# デフォルト実行（data/processed/hazard/ から読み込み）
 python scripts/build_tiles.py
 
-# Custom zoom range
+# ズーム範囲をカスタム指定
 python scripts/build_tiles.py --minzoom 8 --maxzoom 16
 
-# Temporary: use frontend/hazard/ as input (legacy location)
+# 暫定: frontend/hazard/ を入力として使用（レガシーの場所）
 python scripts/build_tiles.py --input frontend/hazard
 
-# Preview without executing
+# 実行せずにプレビューのみ
 python scripts/build_tiles.py --dry-run
 ```
 
 ---
 
-## Current directory structure
+## 現在のディレクトリ構成
 
 ```
 data/
-  hazard/                  ← Raw source data (GML, Shapefile) — do not edit
+  hazard/                  ← 生のソースデータ（GML、Shapefile）— 直接編集しないこと
     A40-16-14/
     A40-18-12/
     ...
   processed/
-    hazard/                ← Canonical GeoJSON location (input for tile generation)
+    hazard/                ← 正規の GeoJSON 置き場（タイル生成の入力元）
       tsunami_tokyo.geojson
       tsunami_kanagawa.geojson
       tsunami_chiba.geojson
 
-frontend/hazard/           ← LEGACY / TEMPORARY: GeoJSON copies used by the current frontend
-                             Do NOT treat this as the long-term source location.
-                             Files here can still be used via --input frontend/hazard.
+frontend/hazard/           ← レガシー / 暫定: 現フロントエンドが使用する GeoJSON のコピー
+                             長期的なソースの置き場としては使用しないこと。
+                             --input frontend/hazard で引き続き使用可能。
 
-tiles/                     ← Generated .mbtiles output (gitignored)
+tiles/                     ← 生成された .mbtiles 出力（gitignore 対象）
   tsunami_tokyo.mbtiles
   tsunami_kanagawa.mbtiles
   tsunami_chiba.mbtiles
 
 scripts/
-  build_tiles.py           ← This script
-  README.md                ← This file
+  build_tiles.py           ← このスクリプト
+  README.md                ← このファイル
 ```
 
-> **Note:** `data/` is gitignored in this repository. Files under
-> `data/processed/hazard/` exist only locally and must be generated or
-> copied manually. This is intentional — hazard GeoJSON files are large
-> and are derived from the raw source data under `data/hazard/`.
+> **注意:** `data/` はこのリポジトリで gitignore されています。`data/processed/hazard/` 以下のファイルは
+> ローカルにのみ存在し、手動で生成またはコピーする必要があります。これは意図的な設計です —
+> ハザード GeoJSON ファイルはサイズが大きく、`data/hazard/` 以下の生のソースデータから生成されるものであるためです。
 
 ---
 
-## Adding a new hazard dataset
+## 新しいハザードデータセットを追加する
 
-1. Place the processed GeoJSON file into `data/processed/hazard/`:
+1. 処理済みの GeoJSON ファイルを `data/processed/hazard/` に配置します:
 
    ```
    data/processed/hazard/flood_tokyo.geojson
    ```
 
-2. Run the tile generation script:
+2. タイル生成スクリプトを実行します:
 
    ```bash
    python scripts/build_tiles.py
    ```
 
-   The script automatically discovers all `.geojson` files in the input
-   directory. No code changes are needed.
+   スクリプトは入力ディレクトリ内のすべての `.geojson` ファイルを自動的に検出します。
+   コードの変更は不要です。
 
-### Temporary: using frontend/hazard/ as input
+### 暫定: frontend/hazard/ を入力として使用する
 
-Until GeoJSON files have been migrated to `data/processed/hazard/`, you
-can use the legacy location:
+GeoJSON ファイルを `data/processed/hazard/` に移行するまでの間は、
+レガシーの場所を使用できます:
 
 ```bash
 python scripts/build_tiles.py --input frontend/hazard
 ```
 
-`frontend/hazard/` is kept for frontend rendering compatibility but
-**should not be the canonical storage location** for hazard GeoJSON source
-data going forward.
+`frontend/hazard/` はフロントエンドの描画互換性のために残していますが、
+今後はハザード GeoJSON ソースデータの**正規の保存場所としては使用しないでください**。
 
 ---
 
-## Intended future directory structure
+## 将来のディレクトリ構成（予定）
 
-As the project expands to cover more regions and hazard types, the
-recommended long-term layout is:
+プロジェクトがより多くの地域・ハザード種別に対応するにつれ、推奨される長期的なレイアウトは以下の通りです:
 
 ```
 data/
-  raw/                     ← Original source data (GML, Shapefile, etc.)
-  processed/               ← Cleaned and normalized GeoJSON
+  raw/                     ← オリジナルのソースデータ（GML、Shapefile 等）
+  processed/               ← クリーニング・正規化済みの GeoJSON
 
 tiles/
   japan/
@@ -162,21 +158,18 @@ tiles/
         tsunami_kanagawa.mbtiles
 
 scripts/
-  build_tiles.py           ← Tile generation (update --input/--output paths)
+  build_tiles.py           ← タイル生成（--input/--output パスを更新して使用）
 ```
 
-The current flat layout (`tiles/{dataset}.mbtiles`) is intentional for
-simplicity at this stage. Migration to the region-aware layout can be done
-incrementally when the number of datasets grows.
+現在のフラットなレイアウト（`tiles/{dataset}.mbtiles`）は、この段階でのシンプルさを優先した意図的な設計です。
+データセット数が増えた時点で、地域対応レイアウトへの移行を段階的に行うことができます。
 
 ---
 
-## Assumptions and limitations
+## 前提事項と制限
 
-- tippecanoe must be installed locally (not included in Docker setup).
-- GeoJSON files are assumed to use EPSG:4326 (WGS84), which is standard
-  for Japanese government hazard datasets.
-- The `.mbtiles` format is suitable for local use and testing.
-  For production tile serving, consider converting to
-  [PMTiles](https://protomaps.com/docs/pmtiles) or serving via a tile
-  server such as [Martin](https://github.com/maplibre/martin).
+- tippecanoe はローカルにインストールする必要があります（Docker 環境には含まれません）。
+- GeoJSON ファイルは EPSG:4326（WGS84）を使用していることを前提としています。これは日本の政府ハザードデータセットの標準形式です。
+- `.mbtiles` 形式はローカルでの使用やテストに適しています。
+  本番環境でのタイル配信には、[PMTiles](https://protomaps.com/docs/pmtiles) への変換や、
+  [Martin](https://github.com/maplibre/martin) などのタイルサーバーの利用を検討してください。
