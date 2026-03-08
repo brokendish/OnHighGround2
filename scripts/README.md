@@ -218,12 +218,20 @@ MBTiles ファイル名の stem がタイルセット ID になります。
 tippecanoe の `--layer` オプションで指定した名前が source-layer 名です
 （`build_tiles.py` では `--layer dataset` で dataset = ファイル名 stem）。
 
-| 都県 | タイルセット ID | source-layer 名 |
-|------|----------------|-----------------|
-| 東京都 | `tokyo_tsunami_A40-23_13` | `tokyo_tsunami_A40-23_13` |
-| 神奈川県 (1) | `kanagawa_tsunami_A40-16_14` | `kanagawa_tsunami_A40-16_14` |
-| 神奈川県 (2) | `kanagawa_tsunami_A40-20_14` | `kanagawa_tsunami_A40-20_14` |
-| 千葉県 | `chiba_tsunami_A40-18_12` | `chiba_tsunami_A40-18_12` |
+#### 津波浸水想定
+
+| 都県         | タイルセット ID                  | source-layer 名                  |
+|--------------|----------------------------------|----------------------------------|
+| 東京都       | `tokyo_tsunami_A40-23_13`        | `tokyo_tsunami_A40-23_13`        |
+| 神奈川県 (1) | `kanagawa_tsunami_A40-16_14`     | `kanagawa_tsunami_A40-16_14`     |
+| 神奈川県 (2) | `kanagawa_tsunami_A40-20_14`     | `kanagawa_tsunami_A40-20_14`     |
+| 千葉県       | `chiba_tsunami_A40-18_12`        | `chiba_tsunami_A40-18_12`        |
+
+#### 洪水浸水想定（想定最大規模）
+
+| 都県   | タイルセット ID   | source-layer 名   |
+|--------|-------------------|-------------------|
+| 東京都 | `tokyo_flood_max` | `tokyo_flood_max` |
 
 ### フロントエンドでの使用
 

@@ -433,6 +433,61 @@
             color: #555;
         }
 
+        .hazard-group {
+            margin-top: 12px;
+        }
+
+        .hazard-group-summary {
+            font-size: 13px;
+            color: #333;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .hazard-group-summary::-webkit-details-marker { display: none; }
+        .hazard-group-summary::marker { display: none; }
+
+        .hazard-group-summary::before {
+            content: '▶';
+            font-size: 9px;
+            color: #666;
+            transition: transform 0.15s;
+            flex-shrink: 0;
+        }
+
+        .hazard-group[open] > .hazard-group-summary::before {
+            transform: rotate(90deg);
+        }
+
+        .hazard-group .manual-location-toggle {
+            margin-left: 18px;
+        }
+
+        .hazard-legend {
+            margin-top: 8px;
+            margin-left: 18px;
+            font-size: 11px;
+            color: #444;
+        }
+
+        .hazard-legend-entry {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 3px;
+        }
+
+        .hazard-legend-swatch {
+            width: 13px;
+            height: 13px;
+            border-radius: 2px;
+            border: 1px solid rgba(0,0,0,0.2);
+            flex-shrink: 0;
+        }
+
         .selected-shelter-info {
             background: #e8f5e9;
             border-left: 4px solid #2e7d32;
@@ -531,19 +586,44 @@
                     指定緊急避難場所を地図に表示する
                 </label>
                 <div class="shelter-status" id="shelterStatus">避難場所データを読み込み中...</div>
-                <label class="manual-location-toggle" for="showTsunamiHazardTokyo">
-                    <input type="checkbox" id="showTsunamiHazardTokyo">
-                    津波浸水想定（東京都）
-                </label>
-                <label class="manual-location-toggle" for="showTsunamiHazardKanagawa">
-                    <input type="checkbox" id="showTsunamiHazardKanagawa">
-                    津波浸水想定（神奈川県）
-                </label>
-                <label class="manual-location-toggle" for="showTsunamiHazardChiba">
-                    <input type="checkbox" id="showTsunamiHazardChiba">
-                    津波浸水想定（千葉県）
-                </label>
+                <details class="hazard-group" open>
+                    <summary class="hazard-group-summary">津波浸水想定</summary>
+                    <label class="manual-location-toggle" for="showTsunamiHazardTokyo">
+                        <input type="checkbox" id="showTsunamiHazardTokyo">
+                        東京都
+                    </label>
+                    <label class="manual-location-toggle" for="showTsunamiHazardKanagawa">
+                        <input type="checkbox" id="showTsunamiHazardKanagawa">
+                        神奈川県
+                    </label>
+                    <label class="manual-location-toggle" for="showTsunamiHazardChiba">
+                        <input type="checkbox" id="showTsunamiHazardChiba">
+                        千葉県
+                    </label>
+                    <div id="hazardLegend" class="hazard-legend" style="display:none;">
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#ffe082;"></span>〜0.5m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#ffca28;"></span>0.5〜1m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#ff8f00;"></span>1〜3m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#f4511e;"></span>3〜5m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#b71c1c;"></span>5m超</div>
+                    </div>
+                </details>
                 <div class="shelter-status" id="hazardStatus">津波浸水想定レイヤー: OFF</div>
+                <details class="hazard-group">
+                    <summary class="hazard-group-summary">洪水浸水想定</summary>
+                    <label class="manual-location-toggle" for="showFloodTokyoMax">
+                        <input type="checkbox" id="showFloodTokyoMax">
+                        東京都（想定最大規模）
+                    </label>
+                    <div id="floodLegend" class="hazard-legend" style="display:none;">
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#ffe082;"></span>0.5m未満</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#ffca28;"></span>0.5〜3m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#ff8f00;"></span>3〜5m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#f4511e;"></span>5〜10m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#b71c1c;"></span>10m以上</div>
+                    </div>
+                </details>
+                <div class="shelter-status" id="floodStatus">洪水浸水想定レイヤー: OFF</div>
                 
                 <div class="current-location" id="currentLocationInfo" style="display: none;">
                     <strong>現在地:</strong><br>
@@ -827,7 +907,8 @@
                 layer: null,
                 loaded: false,
                 visible: false,
-                rawData: null
+                rawData: null,
+                type: 'tsunami'
             },
             tsunami_kanagawa: {
                 name: "津波浸水想定（神奈川県）",
@@ -836,7 +917,8 @@
                 layer: null,
                 loaded: false,
                 visible: false,
-                rawData: null
+                rawData: null,
+                type: 'tsunami'
             },
             tsunami_chiba: {
                 name: "津波浸水想定（千葉県）",
@@ -845,7 +927,18 @@
                 layer: null,
                 loaded: false,
                 visible: false,
-                rawData: null
+                rawData: null,
+                type: 'tsunami'
+            },
+            flood_tokyo_max: {
+                name: "洪水浸水想定（東京都・想定最大規模）",
+                path: "/hazard/tokyo_flood_max.geojson",
+                checkboxId: "showFloodTokyoMax",
+                layer: null,
+                loaded: false,
+                visible: false,
+                rawData: null,
+                type: 'flood'
             }
         };
 
@@ -862,6 +955,13 @@
             ],
             tsunami_chiba: [
                 { tilesetId: 'chiba_tsunami_A40-18_12', sourceLayer: 'chiba_tsunami_A40-18_12' }
+            ],
+            flood_tokyo_max: [
+                {
+                    tilesetId: 'tokyo_flood_max',
+                    sourceLayer: 'tokyo_flood_max',
+                    colorFn: (props) => getFloodRankColor(props['A31a_205'])
+                }
             ]
         };
         let useMartinTiles = false;
@@ -967,6 +1067,13 @@
             return '#b71c1c';
         }
 
+        // 洪水浸水想定 A31a_205 ランク（1〜5）→ 表示色
+        // 1: 0.5m未満 / 2: 0.5〜3m / 3: 3〜5m / 4: 5〜10m / 5: 10m以上
+        function getFloodRankColor(rank) {
+            const colors = { 1: '#ffe082', 2: '#ffca28', 3: '#ff8f00', 4: '#f4511e', 5: '#b71c1c' };
+            return colors[rank] || '#f44336';
+        }
+
         function getTsunamiFeatureStyle(feature, depthKey) {
             const defaultStyle = {
                 color: '#b71c1c',
@@ -1006,18 +1113,24 @@
         }
 
         // Martin ベクタータイル用の L.vectorGrid.protobuf レイヤーを生成する
-        function createVectorTileLayer(tilesetId, sourceLayer) {
+        // colorFn: (properties) => colorString  省略時は津波デフォルト（深度テキスト解析）
+        function createVectorTileLayer(tilesetId, sourceLayer, colorFn) {
             const url = `/tiles/${tilesetId}/{z}/{x}/{y}`;
             const depthKeys = ['a40_003', 'A40_003', 'depth', 'rank', 'level'];
             return L.vectorGrid.protobuf(url, {
                 vectorTileLayerStyles: {
                     [sourceLayer]: function(properties) {
-                        let depthColor = '#f44336';
-                        for (const key of depthKeys) {
-                            const val = parseDepthValue(properties[key]);
-                            if (val !== null) {
-                                depthColor = getDepthColor(val);
-                                break;
+                        let depthColor;
+                        if (colorFn) {
+                            depthColor = colorFn(properties);
+                        } else {
+                            depthColor = '#f44336';
+                            for (const key of depthKeys) {
+                                const val = parseDepthValue(properties[key]);
+                                if (val !== null) {
+                                    depthColor = getDepthColor(val);
+                                    break;
+                                }
                             }
                         }
                         return {
@@ -1046,8 +1159,8 @@
 
             // Martin が利用可能な場合はベクタータイルを使用する
             if (useMartinTiles && VECTOR_TILE_SOURCES[layerKey]) {
-                const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer }) =>
-                    createVectorTileLayer(tilesetId, sourceLayer)
+                const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer, colorFn }) =>
+                    createVectorTileLayer(tilesetId, sourceLayer, colorFn)
                 );
                 hazard.layer = L.layerGroup(vtLayers);
                 hazard.loaded = true;
@@ -1101,7 +1214,9 @@
                 const isInCurrentView = map.getBounds().intersects(hazardBounds);
                 if (!isInCurrentView) {
                     map.fitBounds(hazardBounds.pad(0.02), { maxZoom: 9, animate: true });
-                    setHazardStatus(`${hazard.name}: ON（現在表示範囲にデータがないため、データ範囲へ移動しました）`);
+                    const statusMsg = `${hazard.name}: ON（現在表示範囲にデータがないため、データ範囲へ移動しました）`;
+                    if (hazard.type === 'flood') setFloodStatus(statusMsg);
+                    else setHazardStatus(statusMsg);
                 } else {
                     updateHazardStatusSummary();
                 }
@@ -1209,24 +1324,37 @@
             );
 
             const enabledLayers = availabilityChecks.filter((item) => item.enabled);
+            updateHazardStatusSummary();
             if (enabledLayers.length === 0) {
-                setHazardStatus('津波浸水想定レイヤー: 利用可能なデータがありません');
                 return;
             }
-
-            const enabledNames = enabledLayers.map((item) => HAZARD_LAYERS[item.layerKey].name);
-            setHazardStatus(`津波浸水想定レイヤー: OFF（利用可能: ${enabledNames.join(' / ')}）`);
         }
 
         function updateHazardStatusSummary() {
-            const visibleNames = Object.values(HAZARD_LAYERS)
-                .filter((hazard) => hazard.visible)
-                .map((hazard) => hazard.name);
-            if (visibleNames.length === 0) {
+            const tsunamiVisible = Object.values(HAZARD_LAYERS)
+                .filter((h) => h.type === 'tsunami' && h.visible)
+                .map((h) => h.name);
+            const floodVisible = Object.values(HAZARD_LAYERS)
+                .filter((h) => h.type === 'flood' && h.visible)
+                .map((h) => h.name);
+
+            const tsunamiLegend = document.getElementById('hazardLegend');
+            if (tsunamiVisible.length === 0) {
                 setHazardStatus('津波浸水想定レイヤー: OFF');
-                return;
+                if (tsunamiLegend) tsunamiLegend.style.display = 'none';
+            } else {
+                setHazardStatus(`津波浸水想定レイヤー: ON（${tsunamiVisible.join(' / ')}）`);
+                if (tsunamiLegend) tsunamiLegend.style.display = 'block';
             }
-            setHazardStatus(`津波浸水想定レイヤー: ON（${visibleNames.join(' / ')}）`);
+
+            const floodLegend = document.getElementById('floodLegend');
+            if (floodVisible.length === 0) {
+                setFloodStatus('洪水浸水想定レイヤー: OFF');
+                if (floodLegend) floodLegend.style.display = 'none';
+            } else {
+                setFloodStatus(`洪水浸水想定レイヤー: ON（${floodVisible.join(' / ')}）`);
+                if (floodLegend) floodLegend.style.display = 'block';
+            }
         }
 
         const manualLocationModeCheckbox = document.getElementById('manualLocationMode');
@@ -2263,6 +2391,11 @@
 
         function setHazardStatus(message) {
             document.getElementById('hazardStatus').textContent = message;
+        }
+
+        function setFloodStatus(message) {
+            const el = document.getElementById('floodStatus');
+            if (el) el.textContent = message;
         }
 
         function scheduleEmergencyShelterRefresh() {

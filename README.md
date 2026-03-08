@@ -362,6 +362,7 @@ python -m http.server 8080
 ## 今後の拡張案
 
 - [x] 津波浸水想定区域データとの連携（MBTiles + Martin + Leaflet.VectorGrid によるタイル配信・表示）
+- [x] 洪水浸水想定区域データとの連携（東京都・想定最大規模、A31a-2024）
 - [🔵(東京のみ)] 指定避難所データベースの統合
 - [ ] 複数の避難経路の比較表示
 - [ ] 標高プロファイルグラフの表示
@@ -431,9 +432,23 @@ curl http://localhost:8080/tiles/tokyo_tsunami_A40-23_13
 
 ### 現在のタイルセット
 
+#### 津波浸水想定
+
 | 都県 | タイルセット ID | MBTiles ファイル |
 | --- | --- | --- |
 | 東京都 | `tokyo_tsunami_A40-23_13` | `tiles/tokyo_tsunami_A40-23_13.mbtiles` |
 | 神奈川県 (1) | `kanagawa_tsunami_A40-16_14` | `tiles/kanagawa_tsunami_A40-16_14.mbtiles` |
 | 神奈川県 (2) | `kanagawa_tsunami_A40-20_14` | `tiles/kanagawa_tsunami_A40-20_14.mbtiles` |
 | 千葉県 | `chiba_tsunami_A40-18_12` | `tiles/chiba_tsunami_A40-18_12.mbtiles` |
+
+#### 洪水浸水想定（想定最大規模）
+
+| 都県 | タイルセット ID | MBTiles ファイル |
+| --- | --- | --- |
+| 東京都 | `tokyo_flood_max` | `tiles/tokyo_flood_max.mbtiles` |
+
+洪水データのソース: 国土地理院「洪水浸水想定区域（洪水予報河川）」A31a-2024
+（`国土地理院洪水予報河川データ/A31a-24_13_10_GeoJSON/20_想定最大規模/`）
+
+`scripts/merge_flood_geojson.py` で複数の河川別 GeoJSON を結合して
+`data/processed/hazard/tokyo_flood_max.geojson` を生成します。
