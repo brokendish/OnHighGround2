@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 """
-build_tiles.py — Hazard GeoJSON → Vector Tiles (MBTiles)
+build_tiles.py — ハザード GeoJSON → ベクタータイル (MBTiles)
 
-Converts hazard GeoJSON files into vector tiles using tippecanoe.
+tippecanoe を使ってハザード GeoJSON ファイルをベクタータイルに変換します。
 
 Usage:
     python scripts/build_tiles.py [options]
 
 Options:
-    --minzoom INT     Minimum zoom level (default: 5)
-    --maxzoom INT     Maximum zoom level (default: 14)
-    --input DIR       Directory containing GeoJSON files (default: data/processed/hazard)
-    --output DIR      Directory for .mbtiles output (default: tiles)
-    --dry-run         Print commands without executing
+    --minzoom INT     最小ズームレベル (デフォルト: 5)
+    --maxzoom INT     最大ズームレベル (デフォルト: 14)
+    --input DIR       GeoJSON ファイルが置かれたディレクトリ (デフォルト: data/processed/hazard)
+    --output DIR      .mbtiles 出力ディレクトリ (デフォルト: tiles)
+    --dry-run         実行せずにコマンドを表示のみ
 
-NOTE on input directory:
-    Default:    data/processed/hazard/   ← canonical GeoJSON source location
-    Temporary:  frontend/hazard/         ← use --input frontend/hazard while migrating
-    frontend/hazard/ should NOT be treated as the long-term source location.
-    See scripts/README.md for the intended data pipeline direction.
+入力ディレクトリについて:
+    デフォルト: data/processed/hazard/   ← 正規の GeoJSON ソースの場所
+    暫定:       frontend/hazard/         ← 移行中は --input frontend/hazard で使用
+    frontend/hazard/ は長期的なソースの置き場として使用しないこと。
+    データパイプラインの方針については scripts/README.md を参照。
 
-NOTE on output directory structure:
-    Current:  tiles/{dataset}.mbtiles
-    Future:   tiles/{region}/{hazard_type}/{dataset}.mbtiles
-              e.g. tiles/japan/tokyo/tsunami/tsunami_tokyo.mbtiles
-    The long-term layout is documented in scripts/README.md.
+出力ディレクトリ構成について:
+    現在:   tiles/{dataset}.mbtiles
+    将来:   tiles/{region}/{hazard_type}/{dataset}.mbtiles
+            例: tiles/japan/tokyo/tsunami/tsunami_tokyo.mbtiles
+    長期的なレイアウトは scripts/README.md に記載。
 """
 
 import argparse
@@ -48,7 +48,7 @@ def build_tiles(
     maxzoom: int,
     dry_run: bool,
 ) -> bool:
-    dataset = geojson_path.stem  # e.g. "tsunami_tokyo"
+    dataset = geojson_path.stem  # 例: "tsunami_tokyo"
     output_path = output_dir / f"{dataset}.mbtiles"
 
     cmd = [
@@ -56,7 +56,7 @@ def build_tiles(
         f"--minimum-zoom={minzoom}",
         f"--maximum-zoom={maxzoom}",
         "--output", str(output_path),
-        "--force",              # overwrite existing output
+        "--force",              # 既存の出力を上書き
         "--no-tile-compression",
         "--layer", dataset,
         str(geojson_path),
@@ -80,32 +80,32 @@ def build_tiles(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build vector tiles from hazard GeoJSON files.")
+    parser = argparse.ArgumentParser(description="ハザード GeoJSON ファイルからベクタータイルを生成します。")
     parser.add_argument("--minzoom", type=int, default=5)
     parser.add_argument("--maxzoom", type=int, default=14)
     parser.add_argument(
         "--input",
         type=Path,
         default=ROOT / "data" / "processed" / "hazard",
-        help="Directory containing GeoJSON files (default: data/processed/hazard)",
+        help="GeoJSON ファイルが置かれたディレクトリ (デフォルト: data/processed/hazard)",
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=ROOT / "tiles",
-        help="Output directory for .mbtiles files",
+        help=".mbtiles ファイルの出力ディレクトリ",
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    # Check tippecanoe (skip in dry-run so the pipeline can be validated without it)
+    # tippecanoe の存在確認（dry-run 時はスキップし、インストールなしでもパイプラインを検証できるようにする）
     if not args.dry_run and not shutil.which("tippecanoe"):
         print(
-            "ERROR: tippecanoe is not installed or not in PATH.\n"
-            "Install it with:\n"
+            "ERROR: tippecanoe がインストールされていないか、PATH に含まれていません。\n"
+            "インストール方法:\n"
             "  macOS:  brew install tippecanoe\n"
             "  Ubuntu: sudo apt install tippecanoe\n"
-            "  or build from source: https://github.com/felt/tippecanoe",
+            "  またはソースからビルド: https://github.com/felt/tippecanoe",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -122,13 +122,13 @@ def main():
     geojson_files = find_geojson_files(input_dir)
     if not geojson_files:
         msg = f"No .geojson files found in {input_dir.relative_to(ROOT)}"
-        # Give a helpful hint if the user is still using the old location
+        # 旧来の場所を使用している場合はヒントを表示
         fallback = ROOT / "frontend" / "hazard"
         if fallback.exists() and list(fallback.glob("*.geojson")):
             msg += (
-                f"\n\nHint: GeoJSON files were found in frontend/hazard/ (legacy location)."
-                f"\n  To use them now:    python scripts/build_tiles.py --input frontend/hazard"
-                f"\n  Recommended action: copy or move them to data/processed/hazard/"
+                "\n\nヒント: frontend/hazard/ に GeoJSON ファイルが見つかりました（レガシーの場所）。"
+                "\n  今すぐ使用する場合:  python scripts/build_tiles.py --input frontend/hazard"
+                "\n  推奨対応:           data/processed/hazard/ にコピーまたは移動してください"
             )
         print(msg, file=sys.stderr)
         sys.exit(1)
