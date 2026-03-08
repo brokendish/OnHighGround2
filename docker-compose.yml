@@ -1,6 +1,7 @@
 services:
   osrm-driving:
     image: osrm/osrm-backend:latest
+    platform: linux/amd64
     container_name: evacuation-navi-osrm-driving
     ports:
       - "5500:5000"
@@ -22,6 +23,7 @@ services:
 
   osrm-walking:
     image: osrm/osrm-backend:latest
+    platform: linux/amd64
     container_name: evacuation-navi-osrm-walking
     ports:
       - "5501:5001"
