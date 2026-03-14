@@ -52,13 +52,13 @@ services:
       - "8000:8000"
     volumes:
       # data_lake を正本としてマウント
-      - ./data_lake:/app/data_lake:ro
+      - ./data_lake:/data_lake:ro
       # legacy shelter fallback 用
       - ./国土地理院避難所データ:/app/shelter_data:ro
       # 開発時のホットリロード用
       - ./backend:/app
     environment:
-      - DEM_FILE_PATH=/app/data_lake/validated/tokyo/dem/elevation.tif
+      - DEM_FILE_PATH=/data_lake/validated/tokyo/dem/elevation.tif
       - API_HOST=0.0.0.0
       - API_PORT=8000
     restart: unless-stopped
@@ -86,8 +86,8 @@ services:
     image: ghcr.io/maplibre/martin:latest
     container_name: evacuation-navi-martin
     volumes:
-      - ./data_lake/tiles/tokyo:/tiles:ro
-    command: /tiles
+      - ./data_lake/tiles:/tiles:ro
+    command: /tiles/tokyo/flood /tiles/tokyo/tsunami /tiles/tokyo/storm_surge /tiles/tokyo/urban_flood
     restart: unless-stopped
 
 networks:

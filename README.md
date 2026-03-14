@@ -494,7 +494,8 @@ python scripts/build_tiles.py --input data/processed/hazard
 docker compose up -d martin
 ```
 
-Martin は `data_lake/tiles/tokyo/` を直接マウントして参照します。
+Martin は `data_lake/tiles/` をマウントし、`tokyo/flood` や `tokyo/tsunami` などの
+配信用カテゴリを個別に公開します。
 repo 直下 `tiles/` は移行期間の legacy 配置先で、将来的な縮退対象です。
 
 ### 動作確認

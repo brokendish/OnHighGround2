@@ -244,8 +244,9 @@ docker compose up
 ### MBTiles の自動検出
 
 Martin は起動時に `/tiles` ディレクトリを見ます。現在の Docker Compose では
-`./data_lake/tiles/tokyo:/tiles:ro` をマウントしているため、配信用正本を直接参照します。
-設定ファイルは不要です。コマンド引数にディレクトリを渡すだけで動作します。
+`./data_lake/tiles:/tiles:ro` をマウントし、`/tiles/tokyo/flood` や `/tiles/tokyo/tsunami`
+を公開対象として渡しています。設定ファイルは不要です。コマンド引数にディレクトリを
+渡すだけで動作します。
 
 ### タイルエンドポイントの確認
 

@@ -166,3 +166,7 @@ Caddyfile の `osrm.brokendish.org` 設定を確認する。
 curl -sSI -H "Origin: https://ohg.brokendish.org" \
   "https://osrm.brokendish.org/route/v1/walking/139.7671,35.6812;139.7600,35.6850?overview=false"
 ```
+Docker Compose では backend に `./data_lake:/data_lake:ro` をマウントし、
+DEM 正本 `data_lake/validated/tokyo/dem/elevation.tif` を直接参照します。
+Martin は `./data_lake/tiles:/tiles:ro` をマウントし、`/tiles/tokyo/*` 配下の
+MBTiles を配信します。
