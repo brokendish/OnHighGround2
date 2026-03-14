@@ -42,6 +42,7 @@ evacuation-navi/
 
 東京版のハザードデータ統合基盤として、`data_lake/` と責務別スクリプト群を追加しています。
 このフェーズでは、ハザード解析本体ではなく、取得・正規化・検証・配信に向けた骨格の整備を優先しています。
+今後の正本は `data_lake/` に一本化し、`data/` は移行期間中の旧構造として残します。
 
 ### 対象データ
 
@@ -58,16 +59,35 @@ evacuation-navi/
 
 ```
 data_lake/
-  registry/
   raw/
+    tokyo/
+      dem/
+      flood/
+      tsunami/
+      storm_surge/
+      urban_flood/
+      shelter/
+      boundary/
+      osm/
   normalized/
   validated/
   tiles/
+  registry/
   logs/
 ```
 
-`raw` は元データ、`normalized` は標準化後、`validated` は検証通過後、`tiles` は配信用成果物です。
+`raw` は元データ正本、`normalized` は内部処理正本、`validated` は backend 参照正本、`tiles` は frontend / 配信正本です。
 空白を安全扱いしない前提で、coverage と validation を段階的に扱える構成にしています。
+
+### 新旧構造の扱い
+
+- `data_lake/raw/...` が元データ正本
+- `data_lake/normalized/...` が内部処理正本
+- `data_lake/validated/...` が backend 参照正本
+- `data_lake/tiles/...` が frontend / 配信正本
+- `data/`, `tiles/`, `frontend/hazard/` は移行期間中の legacy 互換置き場
+
+旧構造はこのフェーズでは削除しません。互換確認が終わるまで残します。
 
 ### 東京版パイプラインの最小実行
 
@@ -86,6 +106,16 @@ data_lake/
 
 生成物は `data_lake/raw/`, `data_lake/normalized/`, `data_lake/validated/` に出力され、`.gitignore` で除外されています。
 ただし `data_lake/registry/` は追跡対象です。
+
+### 既存データの移行
+
+既存の `data/`, `tiles/`, `frontend/hazard/` にある主要データを `data_lake/` へ集約するには、以下を実行します。
+
+```bash
+./scripts/migrate/migrate_to_data_lake.sh
+```
+
+このスクリプトは最初はコピー優先で動作し、既存ファイルは上書きしません。
 
 ## セットアップ手順
 
@@ -123,9 +153,10 @@ python data_processing/convert_dem.py /path/to/xml/directory output.tif --merge
 ### 2. 起動方法（推奨: Docker Compose）
 
 `frontend` / `backend` / `osrm-driving` / `osrm-walking` をまとめて起動します。
+移行期間中は旧 `data/` 構造でも起動できますが、正本方針は `data_lake/` です。
 
 1. `data/` 配下に必要データを配置  
-標高GeoTIFF（例: `data/elevation.tif`）  
+標高GeoTIFF（legacy 例: `data/elevation.tif`、canonical 例: `data_lake/validated/tokyo/dem/elevation.tif`）  
 OSM PBF（例: `data/kanto-260214.osm.pbf`）
 
 2. 起動
@@ -179,7 +210,8 @@ pip install -r requirements.txt
 
 # backend/app.properties を編集して環境依存値を設定
 # 例:
-# dem.path=data/elevation.tif  # Docker推奨（ホストの data/elevation.tif を参照）
+# dem.path=../data_lake/validated/tokyo/dem/elevation.tif  # Canonical
+# dem.path=data/elevation.tif  # Legacy fallback
 # dem.path=/path/to/your/output.tif  # ローカル実行時の例
 # evacuation.sites.path=shelter_data/東京/13000_2/13000_2.csv  # Docker推奨
 # evacuation.sites.path=../国土地理院避難所データ/東京/13000_2/13000_2.csv  # ローカル実行時の例
@@ -426,6 +458,7 @@ python -m http.server 8080
 
 津波ハザードレイヤーは **MBTiles + Martin + Leaflet.VectorGrid** によるベクタータイル配信で表示します。
 GeoJSON ファイル（`frontend/hazard/`）への直接読み込みはフォールバックとして残っています。
+配信用正本は今後 `data_lake/tiles/` に寄せ、`frontend/hazard/` は互換用同期先として扱います。
 
 ### データフロー
 

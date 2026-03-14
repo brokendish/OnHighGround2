@@ -28,6 +28,16 @@
 
 このステップでは、ダウンロード・正規化・検証の責務分離と、`registry` の整合確認が主目的です。
 
+### 既存データを data_lake に寄せる
+
+旧 `data/`, `tiles/`, `frontend/hazard/` を data_lake 中心に整理する場合は、以下を実行します。
+
+```bash
+./scripts/migrate/migrate_to_data_lake.sh
+```
+
+この移行はコピー優先で、旧構造はそのまま残ります。
+
 ### 1. データの準備（サンプル用）
 
 開発・テスト用に小さな範囲のデータを準備します。
@@ -94,8 +104,10 @@ python -m http.server 8080
 # データディレクトリを作成
 mkdir -p data
 
-# 変換済みのGeoTIFFファイルをdataディレクトリに配置
+# 変換済みのGeoTIFFファイルをlegacy dataまたはcanonical data_lakeに配置
 cp /path/to/elevation.tif data/
+# または
+cp /path/to/elevation.tif data_lake/validated/tokyo/dem/elevation.tif
 
 # Docker Composeで起動
 docker-compose up -d

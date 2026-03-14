@@ -19,6 +19,7 @@ OnHighGround2は避難ナビゲーションシステムで、以下の3種類の
 
 東京版データ基盤 v1 では、上記に加えて `data_lake/` を導入しています。
 これは配信データの保存場所ではなく、元データ・正規化データ・検証済みデータを責務分離して管理するための基盤です。
+`data/` はこのフェーズでは削除せず、legacy 扱いで互換用に残します。
 
 ### 東京版データレイクの役割
 
@@ -43,6 +44,19 @@ OnHighGround2は避難ナビゲーションシステムで、以下の3種類の
 - 道路ネットワーク（OSM）
 
 台帳本体は `data_lake/registry/tokyo_hazard_registry.csv` です。
+
+### 新旧ディレクトリの対応方針
+
+| 旧構造 | 新しい正本 |
+|--------|------------|
+| `data/elevation.tif` | `data_lake/validated/tokyo/dem/elevation.tif` |
+| `data/hazard/` | `data_lake/raw/tokyo/tsunami/` |
+| `data/processed/hazard/*flood*.geojson` | `data_lake/normalized/tokyo/flood/` |
+| `data/processed/hazard/*tsunami*.geojson` | `data_lake/normalized/tokyo/tsunami/` |
+| `data/kanto-260214.osm.pbf` | `data_lake/raw/tokyo/osm/` |
+| `data/osrm/driving`, `data/osrm/walking` | `data_lake/validated/tokyo/osm/` |
+| `tiles/` | `data_lake/tiles/tokyo/` |
+| `frontend/hazard/` | 当面は互換用同期先、正本は `data_lake/tiles/tokyo/` |
 
 ---
 
@@ -257,11 +271,11 @@ ls -lh backend/shelter_data/*/      # 避難施設CSV（1ファイル以上）
 ### チェック項目
 
 - [ ] `data/` ディレクトリ存在
-- [ ] `data/elevation.tif` が存在（GeoTIFF形式であることを確認）
+- [ ] `data_lake/validated/tokyo/dem/elevation.tif` が存在、または移行期間中は `data/elevation.tif` が存在
 - [ ] `data/kanto-260214.osm.pbf` が存在（整合性: 数百MB以上）
 - [ ] `backend/shelter_data/` ディレクトリ構造が存在
 - [ ] 少なくとも1つの避難施設CSV が配置されている
-- [ ] `backend/app.properties` の `dem.path` が正しいパスを指している
+- [ ] `backend/app.properties` の `dem.path` が `data_lake/validated/tokyo/dem` を指している
 - [ ] `backend/app.properties` の `evacuation.sites.path` が正しいパスを指している
 
 ### 起動コマンド

@@ -7,6 +7,7 @@ mkdir -p \
   "${PROJECT_ROOT}/scripts/common" \
   "${PROJECT_ROOT}/scripts/registry" \
   "${PROJECT_ROOT}/scripts/download" \
+  "${PROJECT_ROOT}/scripts/migrate" \
   "${PROJECT_ROOT}/scripts/extract" \
   "${PROJECT_ROOT}/scripts/normalize" \
   "${PROJECT_ROOT}/scripts/validate" \

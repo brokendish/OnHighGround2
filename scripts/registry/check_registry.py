@@ -33,6 +33,17 @@ REQUIRED_COLUMNS = [
     "remarks",
 ]
 
+ALLOWED_HAZARD_TYPES = {
+    "dem",
+    "flood",
+    "tsunami",
+    "storm_surge",
+    "urban_flood",
+    "shelter",
+    "boundary",
+    "osm",
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate the Tokyo hazard registry CSV.")
@@ -81,6 +92,19 @@ def main() -> int:
                 if row[column] is None or row[column].strip() == "":
                     print(f"Row {index}: {column} is empty.", file=sys.stderr)
                     return 1
+
+            hazard_type = row["hazard_type"].strip()
+            if hazard_type not in ALLOWED_HAZARD_TYPES:
+                print(f"Row {index}: unsupported hazard_type {hazard_type}.", file=sys.stderr)
+                return 1
+
+            frontend_layer_name = row["frontend_layer_name"].strip()
+            if frontend_layer_name != hazard_type:
+                print(
+                    f"Row {index}: frontend_layer_name must match hazard_type for the canonical naming policy.",
+                    file=sys.stderr,
+                )
+                return 1
 
     print(f"Registry check passed: {registry_path} ({len(rows)} records)")
     return 0

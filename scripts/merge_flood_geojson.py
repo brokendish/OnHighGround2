@@ -10,7 +10,7 @@ merge_flood_geojson.py — 洪水浸水想定 GeoJSON の結合
 
 オプション:
     --input DIR    入力ディレクトリ（デフォルト: 国土地理院洪水予報河川データ/A31a-24_13_10_GeoJSON/20_想定最大規模）
-    --output FILE  出力 GeoJSON ファイル（デフォルト: data/processed/hazard/tokyo_flood_max.geojson）
+    --output FILE  出力 GeoJSON ファイル（デフォルト: data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson）
     --dry-run      ファイルを書き込まず件数のみ表示
 
 プロパティについて:
@@ -25,8 +25,7 @@ merge_flood_geojson.py — 洪水浸水想定 GeoJSON の結合
                4: 5〜10m未満
                5: 10m以上
 
-出力ファイルはタイル生成スクリプト（scripts/build_tiles.py）の入力として使用します:
-    python scripts/build_tiles.py --input data/processed/hazard
+出力ファイルは data_lake の normalized 領域に配置し、後続の validate/tile build へ渡します。
 """
 
 import argparse
@@ -42,7 +41,7 @@ DEFAULT_INPUT = (
     / "A31a-24_13_10_GeoJSON"
     / "20_想定最大規模"
 )
-DEFAULT_OUTPUT = ROOT / "data" / "processed" / "hazard" / "tokyo_flood_max.geojson"
+DEFAULT_OUTPUT = ROOT / "data_lake" / "normalized" / "tokyo" / "flood" / "tokyo_flood_max.geojson"
 
 
 def merge(input_dir: Path, output_path: Path, dry_run: bool) -> None:
@@ -96,7 +95,7 @@ def main() -> None:
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
-        help="出力 GeoJSON ファイル（デフォルト: data/processed/hazard/tokyo_flood_max.geojson）",
+        help="出力 GeoJSON ファイル（デフォルト: data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson）",
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()

@@ -71,6 +71,27 @@ LOG_LEVEL = APP_CONFIG.get("log.level", "INFO").upper()
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
 logger = logging.getLogger(__name__)
 
+
+def resolve_existing_path(path_value: str, legacy_candidates: List[Path]) -> Path:
+    """正本候補を優先しつつ、移行期間は legacy をフォールバックにする"""
+    path = Path(path_value)
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    resolved = path.resolve()
+    if resolved.exists():
+        return resolved
+
+    for candidate in legacy_candidates:
+        legacy_path = candidate.resolve()
+        if legacy_path.exists():
+            logger.warning(
+                "Canonical data_lake path not found. Falling back to legacy path: %s",
+                legacy_path,
+            )
+            return legacy_path
+
+    return resolved
+
 # FastAPIアプリケーション初期化
 app = FastAPI(
     title="避難ナビゲーションAPI",
@@ -96,11 +117,12 @@ app.add_middleware(
 )
 
 # 標高サービスの初期化
-dem_path_value = APP_CONFIG.get("dem.path", "../output.tif")
-dem_path = Path(dem_path_value)
-if not dem_path.is_absolute():
-    dem_path = BASE_DIR / dem_path
-DEM_PATH = str(dem_path.resolve())
+dem_path_value = APP_CONFIG.get("dem.path", "../data_lake/validated/tokyo/dem/elevation.tif")
+dem_path = resolve_existing_path(
+    dem_path_value,
+    legacy_candidates=[BASE_DIR.parent / "data" / "elevation.tif", BASE_DIR / "elevation.tif"],
+)
+DEM_PATH = str(dem_path)
 elevation_service = ElevationService(DEM_PATH)
 
 

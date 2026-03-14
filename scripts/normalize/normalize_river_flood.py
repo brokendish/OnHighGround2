@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Legacy filename retained for compatibility. Canonical data category is flood.
 import argparse
 import json
 import sys
@@ -6,11 +7,11 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Normalize river flood data to GeoJSON.")
+    parser = argparse.ArgumentParser(description="Normalize flood data to GeoJSON.")
     parser.add_argument("--input", required=False, help="Input dataset path.")
     parser.add_argument(
         "--output",
-        default="data_lake/normalized/tokyo/river_flood/river_flood.geojson",
+        default="data_lake/normalized/tokyo/flood/flood.geojson",
         help="Output GeoJSON path.",
     )
     return parser.parse_args()
@@ -29,14 +30,14 @@ def main() -> int:
 
     feature_collection = {
         "type": "FeatureCollection",
-        "name": "tokyo_river_flood_placeholder",
+        "name": "tokyo_flood_placeholder",
         "features": [],
     }
     output_path.write_text(
         json.dumps(feature_collection, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"Wrote normalized river flood placeholder to {output_path}")
+    print(f"Wrote normalized flood placeholder to {output_path}")
     return 0
 
 

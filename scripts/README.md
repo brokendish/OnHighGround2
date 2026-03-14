@@ -20,6 +20,7 @@ scripts/
   common/
   registry/
   download/
+  migrate/
   extract/
   normalize/
   validate/
@@ -38,7 +39,17 @@ scripts/
 ```
 
 現在の最小 E2E は shelter データだけを対象にしています。
-将来的に river flood, tsunami, storm surge, urban flood, boundary, road network を同じ責務分離で拡張する想定です。
+将来的に flood, tsunami, storm_surge, urban_flood, boundary, osm を同じ責務分離で拡張する想定です。
+
+### 移行スクリプト
+
+旧 `data/`, `tiles/`, `frontend/hazard/` から `data_lake/` へ集約するための互換移行は以下で行います。
+
+```bash
+./scripts/migrate/migrate_to_data_lake.sh
+```
+
+このスクリプトはコピー優先で、旧構造を削除しません。
 
 ---
 
@@ -81,8 +92,8 @@ tippecanoe --version
 python scripts/build_tiles.py
 ```
 
-`data/processed/hazard/`（正規のソースディレクトリ）から GeoJSON ファイルを読み込み、
-`.mbtiles` ファイルを `tiles/` に出力します。
+`data_lake/validated/tokyo/` を標準入力として再帰的に GeoJSON を読み込み、
+`.mbtiles` ファイルを `data_lake/tiles/tokyo/` に出力します。
 
 ### オプション
 
@@ -90,21 +101,21 @@ python scripts/build_tiles.py
 | --------- | --------- | ---- |
 | `--minzoom` | 5 | 最小ズームレベル |
 | `--maxzoom` | 14 | 最大ズームレベル |
-| `--input DIR` | `data/processed/hazard` | GeoJSON ファイルが置かれたディレクトリ |
-| `--output DIR` | `tiles` | .mbtiles ファイルの出力ディレクトリ |
+| `--input DIR` | `data_lake/validated/tokyo` | GeoJSON ファイルが置かれたディレクトリ |
+| `--output DIR` | `data_lake/tiles/tokyo` | .mbtiles ファイルの出力ディレクトリ |
 | `--dry-run` | — | コマンドを実行せずに表示のみ行う |
 
 ### 実行例
 
 ```bash
-# デフォルト実行（data/processed/hazard/ から読み込み）
+# デフォルト実行（data_lake/validated/tokyo/ から再帰読み込み）
 python scripts/build_tiles.py
 
 # ズーム範囲をカスタム指定
 python scripts/build_tiles.py --minzoom 8 --maxzoom 16
 
-# 暫定: frontend/hazard/ を入力として使用（レガシーの場所）
-python scripts/build_tiles.py --input frontend/hazard
+# 旧処理済み GeoJSON を一時入力として使用
+python scripts/build_tiles.py --input data/processed/hazard
 
 # 実行せずにプレビューのみ
 python scripts/build_tiles.py --dry-run
@@ -115,43 +126,40 @@ python scripts/build_tiles.py --dry-run
 ## 現在のディレクトリ構成
 
 ```
-data/
-  hazard/                  ← 生のソースデータ（GML、Shapefile）— 直接編集しないこと
-    A40-16-14/
-    A40-18-12/
-    ...
-  processed/
-    hazard/                ← 正規の GeoJSON 置き場（タイル生成の入力元）
-      tsunami_tokyo.geojson
-      tsunami_kanagawa.geojson
-      tsunami_chiba.geojson
+data_lake/
+  validated/
+    tokyo/
+      flood/
+        tokyo_flood_max.geojson
+      tsunami/
+        tokyo_tsunami_A40-23_13.geojson
+  tiles/
+    tokyo/
+      flood/
+        tokyo_flood_max.mbtiles
+      tsunami/
+        tokyo_tsunami_A40-23_13.mbtiles
 
-frontend/hazard/           ← レガシー / 暫定: 現フロントエンドが使用する GeoJSON のコピー
-                             長期的なソースの置き場としては使用しないこと。
-                             --input frontend/hazard で引き続き使用可能。
-
-tiles/                     ← 生成された .mbtiles 出力（gitignore 対象）
-  tsunami_tokyo.mbtiles
-  tsunami_kanagawa.mbtiles
-  tsunami_chiba.mbtiles
+data/processed/hazard/     ← 旧処理済み GeoJSON 置き場（legacy）
+frontend/hazard/           ← 旧フロント直読場所（legacy）
+tiles/                     ← 旧 MBTiles 置き場（legacy）
 
 scripts/
   build_tiles.py           ← このスクリプト
   README.md                ← このファイル
 ```
 
-> **注意:** `data/` はこのリポジトリで gitignore されています。`data/processed/hazard/` 以下のファイルは
-> ローカルにのみ存在し、手動で生成またはコピーする必要があります。これは意図的な設計です —
-> ハザード GeoJSON ファイルはサイズが大きく、`data/hazard/` 以下の生のソースデータから生成されるものであるためです。
+> **注意:** 正本は `data_lake/` です。`data/processed/hazard/`、`frontend/hazard/`、`tiles/` は
+> 互換確認のために残している legacy 置き場です。移行は `./scripts/migrate/migrate_to_data_lake.sh` を使ってください。
 
 ---
 
 ## 新しいハザードデータセットを追加する
 
-1. 処理済みの GeoJSON ファイルを `data/processed/hazard/` に配置します:
+1. 検証済みの GeoJSON ファイルを `data_lake/validated/tokyo/<hazard>/` に配置します:
 
    ```
-   data/processed/hazard/flood_tokyo.geojson
+   data_lake/validated/tokyo/flood/flood_tokyo.geojson
    ```
 
 2. タイル生成スクリプトを実行します:
@@ -163,17 +171,14 @@ scripts/
    スクリプトは入力ディレクトリ内のすべての `.geojson` ファイルを自動的に検出します。
    コードの変更は不要です。
 
-### 暫定: frontend/hazard/ を入力として使用する
-
-GeoJSON ファイルを `data/processed/hazard/` に移行するまでの間は、
-レガシーの場所を使用できます:
+### 旧構造を一時入力として使用する
 
 ```bash
-python scripts/build_tiles.py --input frontend/hazard
+python scripts/build_tiles.py --input data/processed/hazard
 ```
 
 `frontend/hazard/` はフロントエンドの描画互換性のために残していますが、
-今後はハザード GeoJSON ソースデータの**正規の保存場所としては使用しないでください**。
+今後は**正規の保存場所としては使用しないでください**。配信用正本は `data_lake/tiles/` です。
 
 ---
 

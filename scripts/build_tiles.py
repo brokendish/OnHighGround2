@@ -10,20 +10,20 @@ Usage:
 Options:
     --minzoom INT     最小ズームレベル (デフォルト: 5)
     --maxzoom INT     最大ズームレベル (デフォルト: 14)
-    --input DIR       GeoJSON ファイルが置かれたディレクトリ (デフォルト: data/processed/hazard)
-    --output DIR      .mbtiles 出力ディレクトリ (デフォルト: tiles)
+    --input DIR       GeoJSON ファイルが置かれたディレクトリ (デフォルト: data_lake/validated/tokyo)
+    --output DIR      .mbtiles 出力ディレクトリ (デフォルト: data_lake/tiles/tokyo)
     --dry-run         実行せずにコマンドを表示のみ
 
 入力ディレクトリについて:
-    デフォルト: data/processed/hazard/   ← 正規の GeoJSON ソースの場所
-    暫定:       frontend/hazard/         ← 移行中は --input frontend/hazard で使用
+    デフォルト: data_lake/validated/tokyo/   ← backend 参照後の正規データ
+    互換:       data/processed/hazard/        ← 旧処理済み GeoJSON
+    暫定:       frontend/hazard/              ← 旧フロント直読場所
     frontend/hazard/ は長期的なソースの置き場として使用しないこと。
     データパイプラインの方針については scripts/README.md を参照。
 
 出力ディレクトリ構成について:
-    現在:   tiles/{dataset}.mbtiles
-    将来:   tiles/{region}/{hazard_type}/{dataset}.mbtiles
-            例: tiles/japan/tokyo/tsunami/tsunami_tokyo.mbtiles
+    現在:   data_lake/tiles/tokyo/{hazard_type}/{dataset}.mbtiles
+    互換:   tiles/{dataset}.mbtiles は縮退対象
     長期的なレイアウトは scripts/README.md に記載。
 """
 
@@ -38,18 +38,21 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def find_geojson_files(input_dir: Path) -> list[Path]:
-    return sorted(input_dir.glob("*.geojson"))
+    return sorted(input_dir.rglob("*.geojson"))
 
 
 def build_tiles(
     geojson_path: Path,
+    input_dir: Path,
     output_dir: Path,
     minzoom: int,
     maxzoom: int,
     dry_run: bool,
 ) -> bool:
     dataset = geojson_path.stem  # 例: "tsunami_tokyo"
-    output_path = output_dir / f"{dataset}.mbtiles"
+    relative_parent = geojson_path.parent.relative_to(input_dir)
+    output_path = output_dir / relative_parent / f"{dataset}.mbtiles"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         "tippecanoe",
@@ -86,13 +89,13 @@ def main():
     parser.add_argument(
         "--input",
         type=Path,
-        default=ROOT / "data" / "processed" / "hazard",
-        help="GeoJSON ファイルが置かれたディレクトリ (デフォルト: data/processed/hazard)",
+        default=ROOT / "data_lake" / "validated" / "tokyo",
+        help="GeoJSON ファイルが置かれたディレクトリ (デフォルト: data_lake/validated/tokyo)",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "tiles",
+        default=ROOT / "data_lake" / "tiles" / "tokyo",
         help=".mbtiles ファイルの出力ディレクトリ",
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -122,13 +125,19 @@ def main():
     geojson_files = find_geojson_files(input_dir)
     if not geojson_files:
         msg = f"No .geojson files found in {input_dir.relative_to(ROOT)}"
-        # 旧来の場所を使用している場合はヒントを表示
+        legacy_processed = ROOT / "data" / "processed" / "hazard"
         fallback = ROOT / "frontend" / "hazard"
-        if fallback.exists() and list(fallback.glob("*.geojson")):
+        if legacy_processed.exists() and list(legacy_processed.glob("*.geojson")):
+            msg += (
+                "\n\nヒント: data/processed/hazard/ に GeoJSON ファイルが見つかりました（旧処理済み置き場）。"
+                "\n  移行スクリプト:      ./scripts/migrate/migrate_to_data_lake.sh"
+                "\n  一時的に使用する場合: python scripts/build_tiles.py --input data/processed/hazard"
+            )
+        elif fallback.exists() and list(fallback.glob("*.geojson")):
             msg += (
                 "\n\nヒント: frontend/hazard/ に GeoJSON ファイルが見つかりました（レガシーの場所）。"
                 "\n  今すぐ使用する場合:  python scripts/build_tiles.py --input frontend/hazard"
-                "\n  推奨対応:           data/processed/hazard/ にコピーまたは移動してください"
+                "\n  推奨対応:           ./scripts/migrate/migrate_to_data_lake.sh で data_lake に集約してください"
             )
         print(msg, file=sys.stderr)
         sys.exit(1)
@@ -140,7 +149,7 @@ def main():
 
     results = []
     for geojson_path in geojson_files:
-        ok = build_tiles(geojson_path, output_dir, args.minzoom, args.maxzoom, args.dry_run)
+        ok = build_tiles(geojson_path, input_dir, output_dir, args.minzoom, args.maxzoom, args.dry_run)
         results.append((geojson_path.name, ok))
 
     print("\n--- Summary ---")
