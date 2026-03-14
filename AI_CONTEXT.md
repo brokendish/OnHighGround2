@@ -130,6 +130,25 @@ Hazard layers may include:
 These layers should be designed as modular data components
 that can be enabled or disabled depending on the region.
 
+Current implementation direction:
+
+- Tokyo-first
+- data-lake based ingestion pipeline
+- clear separation between raw, normalized, validated, and delivery artifacts
+- avoid treating missing hazard coverage as safe
+
+The current scaffold introduces:
+
+- `data_lake/registry/` for registry metadata
+- `data_lake/raw/` for original source data
+- `data_lake/normalized/` for standardization outputs
+- `data_lake/validated/` for validation-passed outputs
+- `data_lake/tiles/` for delivery artifacts
+
+The first end-to-end pipeline is intentionally minimal:
+
+`registry check -> shelter ingest -> shelter normalize -> geometry validate`
+
 ---
 
 # AI Development Guidance

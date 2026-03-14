@@ -10,6 +10,24 @@
 
 ## 5分でスタート
 
+## 東京版データ基盤を先に試す
+
+今回追加した東京版 v1 のデータ基盤は、避難所データだけで最小 E2E を確認できます。
+
+```bash
+./init_data_lake.sh
+./init_scripts.sh
+./scripts/run_tokyo_pipeline.sh
+```
+
+成功すると以下が生成されます。
+
+- `data_lake/raw/tokyo/shelter/tokyo_shelter.geojson`
+- `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson`
+- `data_lake/validated/tokyo/shelter/tokyo_shelter.geojson`
+
+このステップでは、ダウンロード・正規化・検証の責務分離と、`registry` の整合確認が主目的です。
+
 ### 1. データの準備（サンプル用）
 
 開発・テスト用に小さな範囲のデータを準備します。
@@ -118,9 +136,10 @@ docker-compose down
 動作確認ができたら、以下を試してみてください：
 
 1. より広い範囲のデータを追加
-2. 避難施設データと連携
-3. PWA化してオフライン対応
-4. 浸水想定区域データの統合
+2. `scripts/download/` と `scripts/normalize/` を使って東京版データレイクを拡張
+3. 避難施設データと連携
+4. PWA化してオフライン対応
+5. 浸水想定区域データの統合
 
 詳細は `README.md` を参照してください。
 

@@ -1,6 +1,6 @@
 # OnHighGround2 VPS 運用メモ
 
-最終更新: 2026-03-01
+最終更新: 2026-03-14
 
 ---
 
@@ -15,6 +15,10 @@
 ---
 
 ## 1. サービス構成概要
+
+注記:
+東京版データ基盤 v1 の `data_lake/` は、現時点ではローカル開発用の取得・正規化・検証基盤です。
+この運用メモにある VPS 構成には、まだ `data_lake` パイプラインの定期実行や配信同期は組み込まれていません。
 
 ### 🌐 公開ドメイン
 
@@ -162,4 +166,3 @@ Caddyfile の `osrm.brokendish.org` 設定を確認する。
 curl -sSI -H "Origin: https://ohg.brokendish.org" \
   "https://osrm.brokendish.org/route/v1/walking/139.7671,35.6812;139.7600,35.6850?overview=false"
 ```
-

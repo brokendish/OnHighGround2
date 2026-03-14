@@ -1,6 +1,44 @@
-# scripts/ — タイル生成パイプライン
+# scripts/ — データ処理スクリプト
 
-このディレクトリには、ハザード GeoJSON データをベクタータイルに変換するスクリプトが含まれています。
+このディレクトリには、既存のタイル生成スクリプトに加えて、東京版ハザードデータ基盤 v1 の責務別スクリプト群が含まれています。
+
+## 東京版データ基盤 v1
+
+新しく追加したスクリプトは、以下の責務分離を前提にしています。
+
+- `download` は変換しない
+- `normalize` は検証しない
+- `validate` は修正しない
+- `derive` は正本を上書きしない
+- `tile_build` は `validated/derived` のみを見る
+- `publish` は frontend への同期だけ行う
+
+### 主要ディレクトリ
+
+```
+scripts/
+  common/
+  registry/
+  download/
+  extract/
+  normalize/
+  validate/
+  derive/
+  tile_build/
+  publish/
+  run_tokyo_pipeline.sh
+```
+
+### 最小パイプラインの実行
+
+```bash
+./init_data_lake.sh
+./init_scripts.sh
+./scripts/run_tokyo_pipeline.sh
+```
+
+現在の最小 E2E は shelter データだけを対象にしています。
+将来的に river flood, tsunami, storm surge, urban flood, boundary, road network を同じ責務分離で拡張する想定です。
 
 ---
 
@@ -31,6 +69,8 @@ tippecanoe --version
 ---
 
 ## build_tiles.py
+
+以下は既存のレガシー寄りタイル生成フローです。東京版 v1 の基盤スクリプトとは独立しており、移行期間中は両方が存在します。
 
 入力ディレクトリ内のすべての `.geojson` ファイルを、tippecanoe を使って
 `.mbtiles` ベクタータイルファイルに変換します。

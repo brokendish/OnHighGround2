@@ -68,6 +68,7 @@ Elevation + hazard analysis
 - DEM elevation data
 - Hazard layers (tsunami, flood, storm surge, landslide)
 - OSM road network
+- Tokyo data lake scaffold (`data_lake/registry`, `raw`, `normalized`, `validated`, `tiles`)
 
 -----
 
@@ -81,6 +82,19 @@ Hazard layers are **modular** — they can be enabled or disabled per region:
 - `landslide`
 
 Each layer should be an independent data component.
+
+Current implementation policy is Tokyo-first.
+National roll-out is deferred until the ingestion and validation architecture is stable.
+
+The current scaffold separates:
+
+- source ingestion
+- normalization
+- validation
+- derived outputs
+- delivery artifacts
+
+Do not assume a blank area is safe. Missing coverage and safe areas must remain distinct in data handling.
 
 -----
 
@@ -110,6 +124,17 @@ Each layer should be an independent data component.
 - Over-engineering
 
 Focus on **incremental development**.
+
+For hazard data work, prefer extending the new scripts layout:
+
+- `scripts/download/`
+- `scripts/normalize/`
+- `scripts/validate/`
+- `scripts/derive/`
+- `scripts/tile_build/`
+- `scripts/publish/`
+
+The current minimal orchestrator is `scripts/run_tokyo_pipeline.sh`.
 
 -----
 

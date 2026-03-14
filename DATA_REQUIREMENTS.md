@@ -17,6 +17,33 @@ OnHighGround2は避難ナビゲーションシステムで、以下の3種類の
 | 　国土地理院避難所データ/全国/mergeFromCity_2/mergeFromCity_2.csv
 | 　補足: docker-compose.yml ではこのフォルダをコンテナ内 /app/shelter_data にマウントしています。
 
+東京版データ基盤 v1 では、上記に加えて `data_lake/` を導入しています。
+これは配信データの保存場所ではなく、元データ・正規化データ・検証済みデータを責務分離して管理するための基盤です。
+
+### 東京版データレイクの役割
+
+| レイヤ | 役割 | Git管理 |
+|--------|------|---------|
+| `data_lake/registry/` | データ台帳、マッピング、メタ情報 | 管理対象 |
+| `data_lake/raw/` | 取得直後の元データ | `.gitignore` |
+| `data_lake/normalized/` | CRS・属性を揃えた標準化データ | `.gitignore` |
+| `data_lake/validated/` | geometry・属性・coverage確認後のデータ | `.gitignore` |
+| `data_lake/tiles/` | 配信向け成果物 | `.gitignore` |
+| `data_lake/logs/` | ダウンロード・変換・検証ログ | `.gitignore` |
+
+### 東京版で管理対象にしているデータ
+
+- DEM
+- 河川洪水
+- 津波
+- 高潮
+- 内水
+- 避難所
+- 行政界
+- 道路ネットワーク（OSM）
+
+台帳本体は `data_lake/registry/tokyo_hazard_registry.csv` です。
+
 ---
 
 ## 1. 標高データ（数値標高モデル）
@@ -203,6 +230,16 @@ backend/shelter_data/
 # 複数地域の場合はカンマ区切り
 evacuation.sites.path=shelter_data/東京/13000_2/13000_2.csv,shelter_data/神奈川/14000_2/14000_2.csv
 ```
+
+### 東京版データ基盤での扱い
+
+東京版 v1 の最小パイプラインでは、GeoJSON を以下のように処理します。
+
+1. `scripts/download/download_shelter.sh` が raw 領域へ配置
+2. `scripts/normalize/normalize_shelter.py` が標準化 GeoJSON を作成
+3. `scripts/validate/validate_geometry.py` が validated 領域へ昇格
+
+将来的には属性必須チェックと coverage 判定も `validate/` に追加していきます。
 
 ---
 

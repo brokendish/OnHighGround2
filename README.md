@@ -38,6 +38,55 @@ evacuation-navi/
     └── convert_evacuation_sites.py # 自治体避難施設データ変換
 ```
 
+## 東京版データ基盤 v1
+
+東京版のハザードデータ統合基盤として、`data_lake/` と責務別スクリプト群を追加しています。
+このフェーズでは、ハザード解析本体ではなく、取得・正規化・検証・配信に向けた骨格の整備を優先しています。
+
+### 対象データ
+
+- DEM
+- 河川洪水
+- 津波
+- 高潮
+- 内水
+- 避難所
+- 行政界
+- 道路ネットワーク（OSM）
+
+### データレイク構造
+
+```
+data_lake/
+  registry/
+  raw/
+  normalized/
+  validated/
+  tiles/
+  logs/
+```
+
+`raw` は元データ、`normalized` は標準化後、`validated` は検証通過後、`tiles` は配信用成果物です。
+空白を安全扱いしない前提で、coverage と validation を段階的に扱える構成にしています。
+
+### 東京版パイプラインの最小実行
+
+```bash
+./init_data_lake.sh
+./init_scripts.sh
+./scripts/run_tokyo_pipeline.sh
+```
+
+現時点の最小 E2E は以下です。
+
+1. registry チェック
+2. shelter データの取り込み
+3. shelter の normalize
+4. shelter の geometry validate
+
+生成物は `data_lake/raw/`, `data_lake/normalized/`, `data_lake/validated/` に出力され、`.gitignore` で除外されています。
+ただし `data_lake/registry/` は追跡対象です。
+
 ## セットアップ手順
 
 ### 1. データの準備
@@ -66,6 +115,9 @@ python data_processing/convert_dem.py /path/to/xml/directory output.tif --merge
 変換後のGeoTIFFファイル（`output.tif`）をバックエンドで使用します。
 
 #### 国土地理院 緊急避難場所データ
+
+東京版データ基盤の最小パイプラインでは、リポジトリ内の `国土地理院避難所データ/東京/13000_1/13000_1.geojson` を raw 取り込み元として使用します。
+将来的には `scripts/download/download_shelter.sh` を正式な取得処理に置き換える想定です。
 
 
 ### 2. 起動方法（推奨: Docker Compose）
