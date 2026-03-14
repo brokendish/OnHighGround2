@@ -44,3 +44,10 @@ frontend/hazard/*.geojson
 国土地理院避難所データ/全国/
 国土地理院津波データ/*
 国土地理院洪水予報河川データ/*
+
+# ---- Tokyo data lake generated artifacts ----
+data_lake/raw/
+data_lake/normalized/
+data_lake/validated/
+data_lake/tiles/
+data_lake/logs/
