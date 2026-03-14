@@ -72,7 +72,7 @@ cd ../backend
 pip install -r requirements.txt
 
 # main.pyを編集してDEMパスを設定
-# DEM_PATH = "../data/elevation.tif" に変更
+# DEM_PATH = "../data_lake/validated/tokyo/dem/elevation.tif" に変更
 
 # サーバー起動
 python main.py

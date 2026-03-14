@@ -182,32 +182,37 @@ python scripts/build_tiles.py --input data/processed/hazard
 
 ---
 
-## 将来のディレクトリ構成（予定）
+## 現在の推奨ディレクトリ構成
 
 プロジェクトがより多くの地域・ハザード種別に対応するにつれ、推奨される長期的なレイアウトは以下の通りです:
 
 ```
-data/
-  raw/                     ← オリジナルのソースデータ（GML、Shapefile 等）
-  processed/               ← クリーニング・正規化済みの GeoJSON
-
-tiles/
-  japan/
+data_lake/
+  raw/
     tokyo/
       tsunami/
-        tsunami_tokyo.mbtiles
       flood/
-        flood_tokyo.mbtiles
-    kanagawa/
+      osm/
+  normalized/
+    tokyo/
       tsunami/
-        tsunami_kanagawa.mbtiles
+      flood/
+  validated/
+    tokyo/
+      tsunami/
+      flood/
+      shelter/
+      dem/
+  tiles/
+    tokyo/
+      tsunami/
+      flood/
 
 scripts/
   build_tiles.py           ← タイル生成（--input/--output パスを更新して使用）
 ```
 
-現在のフラットなレイアウト（`tiles/{dataset}.mbtiles`）は、この段階でのシンプルさを優先した意図的な設計です。
-データセット数が増えた時点で、地域対応レイアウトへの移行を段階的に行うことができます。
+repo 直下の `tiles/` は legacy です。正本は `data_lake/tiles/` に固定します。
 
 ---
 
@@ -221,7 +226,7 @@ scripts/
 
 ## Martin タイルサーバー
 
-`tiles/` に生成した `.mbtiles` ファイルは、Docker Compose に含まれる
+`data_lake/tiles/` に生成した `.mbtiles` ファイルが配信用正本です。現状の Docker Compose に含まれる
 [Martin](https://github.com/maplibre/martin) タイルサーバーで配信されます。
 
 ### 起動方法
@@ -238,8 +243,8 @@ docker compose up
 
 ### MBTiles の自動検出
 
-Martin は起動時に `/tiles` ディレクトリ（`docker-compose.yml` で `./tiles:/tiles:ro` にマウント）
-内のすべての `.mbtiles` ファイルを自動検出します。
+Martin は起動時に `/tiles` ディレクトリを見ます。現状は legacy の `./tiles:/tiles:ro` マウント前提なので、
+`data_lake/tiles/` を正本としつつ、必要に応じて publish / 同期で bridged する運用です。
 設定ファイルは不要です。コマンド引数にディレクトリを渡すだけで動作します。
 
 ### タイルエンドポイントの確認

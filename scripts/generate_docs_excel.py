@@ -133,10 +133,7 @@ def sheet_directory(wb):
         ("nginx.conf", "CONF", "Nginx リバースプロキシ設定", "✓", "-", "ポート 8080 でリクエスト受付"),
         ("frontend/", "DIR", "Web フロントエンド（SPA）", "✓", "README.md", "-"),
         ("frontend/index.html", "HTML", "地図 UI のメインファイル（単一ファイル SPA）", "✓", "README.md", "Leaflet.js + Leaflet Routing Machine"),
-        ("frontend/hazard/", "DIR", "【フロントエンド配信用】nginx が /hazard/ として静的配信するディレクトリ。フロントエンドが fetch() で直接読み込む。タイル生成の正規ソースではない。", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "手動配置が必要"),
-        ("frontend/hazard/tsunami_tokyo.geojson", "GeoJSON", "東京都 津波浸水想定区域", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "国土数値情報 A40 から変換"),
-        ("frontend/hazard/tsunami_kanagawa.geojson", "GeoJSON", "神奈川県 津波浸水想定区域", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "同上"),
-        ("frontend/hazard/tsunami_chiba.geojson", "GeoJSON", "千葉県 津波浸水想定区域", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "同上"),
+        ("frontend/hazard/", "DIR", "【legacy 互換先】frontend が暫定参照する同期先。正本ではなく、publish による一時配置先。", "✗ (gitignore)", "README.md / scripts/README.md", "縮退対象"),
         ("backend/", "DIR", "FastAPI バックエンド", "✓", "README.md / AI_CONTEXT.md", "-"),
         ("backend/main.py", "PY", "FastAPI メインアプリ（API エンドポイント定義）", "✓", "-", "526行"),
         ("backend/elevation_service.py", "PY", "標高データ処理サービス（rasterio 使用）", "✓", "-", "-"),
@@ -148,13 +145,16 @@ def sheet_directory(wb):
         ("scripts/README.md", "MD", "タイル生成パイプラインの詳細説明", "✓", "scripts/README.md", "-"),
         ("data_processing/", "DIR", "DEM データ変換スクリプト", "✓", "DATA_REQUIREMENTS.md", "-"),
         ("data_processing/convert_dem.py", "PY", "国土地理院 XML → GeoTIFF 変換スクリプト", "✓", "DATA_REQUIREMENTS.md", "rasterio / numpy 使用"),
-        ("data/", "DIR", "大容量データファイル（gitignore）", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "手動で配置が必要"),
-        ("data/elevation.tif", "TIF", "標高 GeoTIFF（関東地方 DEM）", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "数百MB / OSRM 起動前提"),
-        ("data/kanto-260214.osm.pbf", "PBF", "OSM 道路ネットワーク（関東地方）", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "数百MB〜1GB"),
-        ("data/osrm/driving/", "DIR", "OSRM 車ルーティング処理済みデータ", "✗ (gitignore)", "QUICKSTART.md", "Docker 起動時に自動生成"),
-        ("data/osrm/walking/", "DIR", "OSRM 徒歩ルーティング処理済みデータ", "✗ (gitignore)", "QUICKSTART.md", "Docker 起動時に自動生成"),
-        ("data/processed/hazard/", "DIR", "【タイル生成用の正規ソース】build_tiles.py の入力元。frontend/hazard/ とは別管理。将来的にはこちらを唯一の正規 GeoJSON 置き場とする。", "✗ (gitignore)", "DATA_REQUIREMENTS.md / scripts/README.md", "将来的な正規ソース"),
-        ("tiles/", "DIR", "生成済みベクタータイル（MBTiles）", "✗ (gitignore)", "scripts/README.md", "build_tiles.py で生成"),
+        ("data_lake/", "DIR", "データ基盤の正本。raw / normalized / validated / tiles / registry / logs を含む。", "一部 ✓", "README.md / DATA_REQUIREMENTS.md", "現行正本"),
+        ("data_lake/validated/tokyo/dem/elevation.tif", "TIF", "標高 GeoTIFF の canonical 参照先", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "backend が優先して参照"),
+        ("data_lake/validated/tokyo/shelter/tokyo_shelter.geojson", "GeoJSON", "避難所データの canonical 参照先", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "backend が優先して参照"),
+        ("data_lake/raw/tokyo/osm/kanto-260214.osm.pbf", "PBF", "OSM 道路ネットワーク元データの canonical 参照先", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "数百MB〜1GB"),
+        ("data_lake/validated/tokyo/osm/driving/", "DIR", "OSRM 車ルーティング処理済みデータ", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "validated 正本"),
+        ("data_lake/validated/tokyo/osm/walking/", "DIR", "OSRM 徒歩ルーティング処理済みデータ", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "validated 正本"),
+        ("data_lake/validated/tokyo/", "DIR", "build_tiles.py の正規入力元", "✗ (gitignore)", "scripts/README.md", "validated 正本"),
+        ("data_lake/tiles/tokyo/", "DIR", "生成済みベクタータイル（MBTiles）の正本", "✗ (gitignore)", "scripts/README.md", "frontend / 配信用正本"),
+        ("data/", "DIR", "legacy データ置き場", "✗ (gitignore)", "DATA_REQUIREMENTS.md", "縮退対象"),
+        ("tiles/", "DIR", "legacy MBTiles 置き場", "✗ (gitignore)", "scripts/README.md", "縮退対象"),
         ("国土地理院避難所データ/", "DIR", "緊急避難場所 CSV データ", "一部 ✓", "DATA_REQUIREMENTS.md", "国土地理院配布"),
     ]
 
@@ -187,7 +187,7 @@ def sheet_data_requirements(wb):
 
     # 注記
     ws.merge_cells("A2:G2")
-    note = ws.cell(2, 1, "⚠️  data/ ディレクトリは .gitignore により Git 管理対象外です。以下のファイルは初回セットアップ時に手動でダウンロード・変換・配置してください。")
+    note = ws.cell(2, 1, "⚠️  現在の正本は data_lake/ です。legacy の data/ は互換確認用で、以下は canonical 配置先を基準に記載しています。")
     note.font = Font(name="游ゴシック", bold=True, size=10, color="7B2A00")
     note.fill = PatternFill("solid", fgColor="FFF3CD")
     note.alignment = Alignment(wrap_text=True)
@@ -199,7 +199,7 @@ def sheet_data_requirements(wb):
     data = [
         (
             "★ 必須",
-            "data/kanto-260214.osm.pbf",
+            "data_lake/raw/tokyo/osm/kanto-260214.osm.pbf",
             "OSRM 道路ルーティング用 OSM データ\n（車・徒歩ルート計算の基盤）",
             "Geofabrik: download.geofabrik.de\n→ Asia > Japan > Kanto\nまたは BBBike.org でカスタム抽出",
             "ダウンロードしてそのまま配置\n（変換不要）\ndocker compose up 時に OSRM が自動前処理",
@@ -208,38 +208,38 @@ def sheet_data_requirements(wb):
         ),
         (
             "★ 必須",
-            "data/elevation.tif",
+            "data_lake/validated/tokyo/dem/elevation.tif",
             "標高計算・避難先評価用 DEM\n（標高差フィルタ・プロファイル表示）",
             "国土地理院 基盤地図情報ダウンロードサービス\nhttps://fgd.gsi.go.jp/download/\n→ 数値標高モデル 5m メッシュ（DEM5A/B）推奨",
-            "1. 対象地域の XML ファイルを複数ダウンロード\n2. 以下で GeoTIFF に変換・マージ:\n   python data_processing/convert_dem.py \\\n     /path/to/xml/dir data/elevation.tif --merge",
+            "1. 対象地域の XML ファイルを複数ダウンロード\n2. 以下で GeoTIFF に変換・マージ:\n   python data_processing/convert_dem.py \\\n     /path/to/xml/dir data_lake/validated/tokyo/dem/elevation.tif --merge",
             "数百MB（関東全域）",
             "DATA_REQUIREMENTS.md",
         ),
         (
             "★ 必須",
-            "frontend/hazard/\ntsunami_tokyo.geojson\ntsunami_kanagawa.geojson\ntsunami_chiba.geojson",
-            "フロントエンドで直接描画するハザード GeoJSON\n（津波浸水想定区域の表示）",
+            "data_lake/validated/tokyo/tsunami/\n*.geojson\n(互換同期先: frontend/hazard/)",
+            "validated を経由して配信される津波データ\n（津波浸水想定区域の表示）",
             "国土数値情報ダウンロードサービス\nhttps://nlftp.mlit.go.jp/ksj/\n→ A40: 津波浸水想定\n（GML または Shapefile 形式）",
-            "1. 国土数値情報から A40 データをダウンロード\n2. GeoJSON に変換（QGIS / ogr2ogr 等を使用）\n3. frontend/hazard/ に配置",
+            "1. 国土数値情報から A40 データをダウンロード\n2. GeoJSON に変換\n3. data_lake/normalized または validated に配置\n4. 必要なら publish で frontend/hazard に同期",
             "数十MB / ファイル",
             "DATA_REQUIREMENTS.md\nscripts/README.md",
         ),
         (
             "推奨",
-            "国土地理院避難所データ/\n（CSV ファイル群）",
+            "data_lake/validated/tokyo/shelter/\n（GeoJSON 正本）",
             "緊急避難場所の表示・検索\n（/api/emergency-shelters エンドポイント）",
             "国土地理院 緊急避難場所データ\nhttps://hinanbasho.gsi.go.jp/\nまたは各自治体のオープンデータポータル",
-            "CSV をダウンロードして配置\n（変換不要）\nカラム必須: 施設名 / 住所 / 緯度 / 経度 / 指定区分",
+            "download / normalize / validate を通して data_lake/validated/tokyo/shelter に配置",
             "小〜中",
             "DATA_REQUIREMENTS.md",
         ),
         (
             "オプション",
-            "data/processed/hazard/\n*.geojson",
-            "タイル生成（MBTiles）の正規入力ソース\n（フロントエンド配信用とは別管理）",
-            "frontend/hazard/ の GeoJSON をコピー\nまたは直接変換して配置",
-            "cp frontend/hazard/*.geojson \\\n   data/processed/hazard/\nその後 python scripts/build_tiles.py で変換",
-            "frontend/hazard/ と同じ",
+            "data_lake/validated/tokyo/\n**/*.geojson",
+            "タイル生成（MBTiles）の正規入力ソース",
+            "normalize / validate を通した GeoJSON を配置",
+            "python scripts/build_tiles.py\n# デフォルトで data_lake/validated/tokyo を参照",
+            "validated と同じ",
             "scripts/README.md",
         ),
     ]
@@ -282,13 +282,13 @@ def sheet_startup(wb):
          "git clone https://github.com/brokendish/OnHighGround2.git\ncd OnHighGround2",
          "QUICKSTART.md"),
         ("【初回】2", "OSM データを配置\n（★必須）",
-         "# Geofabrik から関東地方 PBF をダウンロード\nmkdir -p data\nmv kanto-260214.osm.pbf data/",
+         "# Geofabrik から関東地方 PBF をダウンロード\nmkdir -p data_lake/raw/tokyo/osm\nmv kanto-260214.osm.pbf data_lake/raw/tokyo/osm/",
          "DATA_REQUIREMENTS.md"),
         ("【初回】3", "DEM 標高データを変換・配置\n（★必須）",
-         "# 国土地理院 XML をダウンロード後\npython data_processing/convert_dem.py \\\n  /path/to/xml/dir data/elevation.tif --merge",
+         "# 国土地理院 XML をダウンロード後\npython data_processing/convert_dem.py \\\n  /path/to/xml/dir data_lake/validated/tokyo/dem/elevation.tif --merge",
          "DATA_REQUIREMENTS.md"),
         ("【初回】4", "ハザード GeoJSON を配置\n（★必須）",
-         "# 国土数値情報から変換した GeoJSON を配置\nmkdir -p frontend/hazard\ncp tsunami_*.geojson frontend/hazard/",
+         "# 既存データを data_lake へ集約\n./init_data_lake.sh\n./scripts/migrate/migrate_to_data_lake.sh",
          "DATA_REQUIREMENTS.md"),
         ("【初回】5", "Docker Compose でサービス起動\n（初回は OSRM 前処理で時間がかかる）",
          "docker compose up -d\n# OSRM 初回処理: 数分〜数十分",
@@ -314,7 +314,7 @@ def sheet_startup(wb):
          "# macOS\nbrew install tippecanoe\n# 生成実行\npython scripts/build_tiles.py",
          "scripts/README.md"),
         ("【タイル】12", "特定の入力ディレクトリを指定してタイル生成",
-         "python scripts/build_tiles.py --input frontend/hazard --minzoom 8 --maxzoom 16",
+         "python scripts/build_tiles.py --input data_lake/validated/tokyo/tsunami --minzoom 8 --maxzoom 16",
          "scripts/README.md"),
         ("【タイル】13", "タイル生成のドライラン（実行確認）",
          "python scripts/build_tiles.py --dry-run",
@@ -362,32 +362,32 @@ def sheet_hazard(wb):
     hazards = [
         ("津波浸水想定\n（東京都）", "実装済み ✓",
          "tsunami_tokyo.geojson",
-         "frontend/hazard/\ndata/processed/hazard/ (タイル生成用)",
+         "data_lake/validated/tokyo/tsunami/\n(互換同期先: frontend/hazard/)",
          "国土数値情報\nA40: 津波浸水想定\n（東京都）",
-         "1. MLIT 国土数値情報からダウンロード\n2. ogr2ogr または QGIS で GeoJSON 変換\n3. EPSG:4326 (WGS84) であることを確認\n4. frontend/hazard/ に配置"),
+         "1. MLIT 国土数値情報からダウンロード\n2. ogr2ogr または QGIS で GeoJSON 変換\n3. validated に配置\n4. 必要なら publish で同期"),
         ("津波浸水想定\n（神奈川県）", "実装済み ✓",
          "tsunami_kanagawa.geojson",
-         "frontend/hazard/\ndata/processed/hazard/ (タイル生成用)",
+         "data_lake/validated/tokyo/tsunami/\n(互換同期先: frontend/hazard/)",
          "国土数値情報\nA40: 津波浸水想定\n（神奈川県）",
          "同上（神奈川県分）"),
         ("津波浸水想定\n（千葉県）", "実装済み ✓",
          "tsunami_chiba.geojson",
-         "frontend/hazard/\ndata/processed/hazard/ (タイル生成用)",
+         "data_lake/validated/tokyo/tsunami/\n(互換同期先: frontend/hazard/)",
          "国土数値情報\nA40: 津波浸水想定\n（千葉県）",
          "同上（千葉県分）"),
         ("洪水浸水想定", "未実装 (将来対応)",
          "flood_{prefecture}.geojson",
-         "frontend/hazard/\ndata/processed/hazard/",
+         "data_lake/validated/tokyo/flood/\ndata_lake/tiles/tokyo/flood/",
          "国土数値情報\nA31: 洪水浸水想定区域",
          "同様の手順で GeoJSON に変換して配置\nフロントエンドのトグル追加が必要"),
         ("高潮浸水想定", "未実装 (将来対応)",
          "storm_surge_{prefecture}.geojson",
-         "frontend/hazard/\ndata/processed/hazard/",
+         "data_lake/validated/tokyo/storm_surge/\ndata_lake/tiles/tokyo/storm_surge/",
          "国土数値情報\nA35: 高潮浸水想定区域",
          "同様の手順で GeoJSON に変換して配置"),
         ("土砂災害警戒区域", "未実装 (将来対応)",
          "landslide_{prefecture}.geojson",
-         "frontend/hazard/\ndata/processed/hazard/",
+         "data_lake/validated/tokyo/urban_flood/\ndata_lake/tiles/tokyo/urban_flood/",
          "国土数値情報\nA33: 土砂災害警戒区域",
          "同様の手順で GeoJSON に変換して配置"),
     ]
@@ -409,10 +409,9 @@ def sheet_hazard(wb):
     # タイル化 現在地と将来方針
     ws.merge_cells("A10:F10")
     tile_note = ws.cell(10, 1,
-        "【タイル化 現在地と将来方針】"
-        " 現在は frontend/hazard/ の GeoJSON をフロントエンドが直接読み込む方式（軽量・シンプル）。"
-        " 将来は data/processed/hazard/ を正規ソースとして build_tiles.py で MBTiles を生成し、"
-        " PMTiles または Martin タイルサーバー経由で配信するアーキテクチャへ段階移行する予定。"
+        "【タイル化 現在地と方針】"
+        " 現在の正本は data_lake/validated から生成される data_lake/tiles です。"
+        " frontend/hazard/ は移行期間の互換同期先で、将来的には data_lake/tiles への直接配信へ寄せます。"
     )
     tile_note.font = Font(name="游ゴシック", size=10, bold=False, color="1A3A5C")
     tile_note.fill = PatternFill("solid", fgColor="EBF2FF")
@@ -425,10 +424,10 @@ def sheet_hazard(wb):
 
     ws.merge_cells("A13:F13")
     nginx_note = ws.cell(13, 1,
-        "frontend/hazard/*.geojson は nginx によって /hazard/ パスで静的配信されます。\n"
+        "frontend/hazard/*.geojson は互換用途として nginx によって /hazard/ パスで静的配信されます。\n"
         "Content-Type: application/geo+json\n"
         "CORS: Access-Control-Allow-Origin: * (全許可)\n"
-        "フロントエンドは fetch('/hazard/tsunami_tokyo.geojson') で読み込みます。"
+        "正本は data_lake/tiles/ で、frontend/hazard は publish による一時同期先です。"
     )
     nginx_note.font = Font(name="游ゴシック", size=10)
     nginx_note.fill = PatternFill("solid", fgColor="F0F8FF")
@@ -462,7 +461,7 @@ def sheet_dataflow(wb):
             "道路ネットワーク\n(OSM PBF)",
             "Geofabrik\ndownload.geofabrik.de\n関東地方 PBF",
             "変換不要\n（配置のみ）\ndocker compose up 時に\nosrm-extract → osrm-partition\n→ osrm-customize を自動実行",
-            f"data/kanto-260214.osm.pbf\n{arrow}\ndata/osrm/driving/\ndata/osrm/walking/",
+            f"data_lake/raw/tokyo/osm/kanto-260214.osm.pbf\n{arrow}\ndata_lake/validated/tokyo/osm/driving/\ndata_lake/validated/tokyo/osm/walking/",
             "OSRM コンテナ\n(osrm-driving:5000)\n(osrm-walking:5001)",
             "車・徒歩の\nルート計算\n（nginx 経由でフロントに提供）",
             "稼働中 ✓",
@@ -471,7 +470,7 @@ def sheet_dataflow(wb):
             "標高データ\n(DEM GeoTIFF)",
             "国土地理院\n基盤地図情報\n5m メッシュ DEM\n(XML 形式)",
             "data_processing/convert_dem.py\n--merge オプションで\n複数 XML を結合し\nGeoTIFF に変換",
-            f"data/elevation.tif",
+            f"data_lake/validated/tokyo/dem/elevation.tif",
             "backend\n(elevation_service.py\n/ rasterio)",
             "標高値取得 API\n避難先標高フィルタ\n標高プロファイル API",
             "稼働中 ✓",
@@ -480,34 +479,34 @@ def sheet_dataflow(wb):
             "ハザード GeoJSON\n【フロント描画用】\n(津波浸水想定区域)",
             "国土数値情報\nnlftp.mlit.go.jp\nA40: 津波浸水想定\n(GML / Shapefile)",
             "QGIS または ogr2ogr で\nGeoJSON に変換\nEPSG:4326 (WGS84) を確認",
-            f"frontend/hazard/\ntsunami_tokyo.geojson\ntsunami_kanagawa.geojson\ntsunami_chiba.geojson",
-            "nginx\n(/hazard/ として静的配信)\n↓\nフロントエンド\n(Leaflet GeoJSON レイヤー)",
+            f"data_lake/validated/tokyo/tsunami/\n*.geojson\n(互換同期先: frontend/hazard/)",
+            "tile_build / publish\n↓\nnginx 互換配信 または\n将来のタイル配信",
             "地図上への\nハザードレイヤー\n描画・表示",
             "稼働中 ✓",
         ),
         (
             "ハザード GeoJSON\n【タイル生成用】\n(正規ソース)",
-            "frontend/hazard/ から\nコピーまたは直接変換",
-            "配置のみ\n（変換済みを流用可）\ncp frontend/hazard/*.geojson \\\n  data/processed/hazard/",
-            f"data/processed/hazard/\ntsunami_*.geojson",
+            "normalize / validate を通過した GeoJSON",
+            "build_tiles.py が validated を再帰走査",
+            f"data_lake/validated/tokyo/\n**/*.geojson",
             "scripts/build_tiles.py\n(tippecanoe)",
-            "→ tiles/*.mbtiles\n（現在は手動生成）\n将来: タイルサーバー配信",
+            "→ data_lake/tiles/**/*.mbtiles\n現在の配信正本",
             "手動実行 △\n（将来自動化）",
         ),
         (
             "ベクタータイル\n(MBTiles)",
-            "上記\ndata/processed/hazard/\nの GeoJSON",
-            "scripts/build_tiles.py\n--input data/processed/hazard\n--minzoom 5 --maxzoom 14",
-            f"tiles/\ntsunami_tokyo.mbtiles\ntsunami_kanagawa.mbtiles\ntsunami_chiba.mbtiles",
+            "上記\ndata_lake/validated/tokyo/\nの GeoJSON",
+            "scripts/build_tiles.py\n--input data_lake/validated/tokyo\n--minzoom 5 --maxzoom 14",
+            f"data_lake/tiles/tokyo/\n<hazard>/*.mbtiles",
             "【将来】\nPMTiles\nまたは Martin\nタイルサーバー",
             "【将来】\n高パフォーマンスな\nベクタータイル配信\n（大規模・本番向け）",
             "未実装\n（将来対応）",
         ),
         (
-            "緊急避難場所\n(CSV)",
+            "緊急避難場所\n(GeoJSON / CSV)",
             "国土地理院\n緊急避難場所データ\nhinanbasho.gsi.go.jp\nまたは各自治体",
-            "変換不要\n（CSV のまま配置）\nカラム必須:\n施設名 / 住所 / 緯度 / 経度",
-            f"国土地理院避難所データ/\n（複数 CSV）",
+            "download / normalize / validate を通過\nbackend は validated を優先",
+            f"data_lake/validated/tokyo/shelter/\nlegacy: 国土地理院避難所データ/",
             "backend\n(main.py / startup)\n起動時に全件メモリ読込",
             "避難場所一覧 API\n(/api/emergency-shelters)\nバウンディングボックス\nフィルタ対応",
             "稼働中 ✓",
@@ -539,11 +538,10 @@ def sheet_dataflow(wb):
     ws.merge_cells("A11:G11")
     diagram = ws.cell(11, 1,
         "外部データ入手 → ローカル変換・配置 → Docker サービス起動 → ブラウザでアクセス\n\n"
-        "  [Geofabrik PBF] ─────────────→ data/ ──→ OSRM コンテナ ─────────────────────────────→ ルート表示\n"
-        "  [国土地理院 DEM XML] → 変換 →  data/ ──→ backend(FastAPI) ──→ /api/elevation 等 ──→ 標高情報\n"
-        "  [国土数値情報 GML] → 変換 → frontend/hazard/ ──→ nginx → /hazard/*.geojson ──────→ ハザード描画\n"
-        "  [同上] → コピー → data/processed/hazard/ ──→ build_tiles.py → tiles/*.mbtiles ──→ [将来] タイル配信\n"
-        "  [避難場所 CSV] ─────────────→ 国土地理院避難所データ/ → backend → /api/shelters → 避難場所表示"
+        "  [Geofabrik PBF] ─→ data_lake/raw/tokyo/osm/ ─→ data_lake/validated/tokyo/osm/ ─→ OSRM ─→ ルート表示\n"
+        "  [国土地理院 DEM XML] → 変換 → data_lake/validated/tokyo/dem/ ─→ backend(FastAPI) ─→ /api/elevation 等\n"
+        "  [ハザード元データ] → raw/normalized/validated ─→ build_tiles.py ─→ data_lake/tiles/ ─→ [互換] frontend/hazard または [将来] タイル配信\n"
+        "  [避難所データ] ─────────→ data_lake/validated/tokyo/shelter/ ─→ backend → /api/shelters → 避難場所表示"
     )
     diagram.font = Font(name="Courier New", size=9, color="1A3A5C")
     diagram.fill = PatternFill("solid", fgColor="F8F8F8")

@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 import csv
+import json
 
 from elevation_service import ElevationService
 
@@ -137,10 +138,14 @@ def parse_float(value: Any) -> Optional[float]:
 
 
 def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
-    """避難場所CSVの設定値をPath配列へ変換"""
-    default_path = BASE_DIR.parent / "国土地理院避難所データ" / "東京" / "13000_2" / "13000_2.csv"
+    """避難場所データの設定値をPath配列へ変換"""
+    default_path = BASE_DIR.parent / "data_lake" / "validated" / "tokyo" / "shelter"
+    legacy_default_path = BASE_DIR.parent / "国土地理院避難所データ" / "東京" / "13000_2" / "13000_2.csv"
     if not path_config:
-        return [default_path]
+        if default_path.exists():
+            return [default_path]
+        # TODO: data_lake/validated/tokyo/shelter への移行完了後に legacy fallback を削除する。
+        return [legacy_default_path]
 
     result: List[Path] = []
     for raw_item in path_config.split(","):
@@ -150,65 +155,140 @@ def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
         path = Path(item)
         if not path.is_absolute():
             path = (BASE_DIR / path).resolve()
+        if path.exists():
+            result.append(path)
+            continue
+
+        if path == default_path and legacy_default_path.exists():
+            logger.warning(
+                "Canonical shelter path not found. Falling back to legacy path: %s",
+                legacy_default_path,
+            )
+            result.append(legacy_default_path)
+            continue
+
         result.append(path)
 
-    return result if result else [default_path]
+    return result if result else ([default_path] if default_path.exists() else [legacy_default_path])
+
+
+def load_emergency_shelters_from_csv(csv_path: Path, shelters: List[Dict[str, Any]], seen: set) -> None:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = (
+                row.get("施設・場所名")
+                or row.get("name")
+                or row.get("名称")
+                or row.get("施設名")
+                or ""
+            ).strip()
+            address = (row.get("住所") or row.get("address") or "").strip()
+            lat = parse_float(row.get("緯度") or row.get("lat"))
+            lon = parse_float(row.get("経度") or row.get("lon"))
+
+            if lat is None or lon is None:
+                continue
+
+            designation = (row.get("designation") or "指定緊急避難場所").strip()
+            if designation and designation not in ("指定緊急避難場所", "緊急避難場所"):
+                continue
+
+            key = (name, round(lat, 7), round(lon, 7), designation)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            shelters.append({
+                "name": name or "名称未設定",
+                "address": address,
+                "lat": lat,
+                "lon": lon,
+                "designation": designation or "指定緊急避難場所",
+                "source_file": str(csv_path.relative_to(BASE_DIR.parent)) if csv_path.is_relative_to(BASE_DIR.parent) else str(csv_path)
+            })
+
+
+def load_emergency_shelters_from_geojson(geojson_path: Path, shelters: List[Dict[str, Any]], seen: set) -> None:
+    with geojson_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if data.get("type") != "FeatureCollection":
+        logger.warning("GeoJSON shelter source is not a FeatureCollection: %s", geojson_path)
+        return
+
+    for feature in data.get("features", []):
+        properties = feature.get("properties", {}) or {}
+        geometry = feature.get("geometry", {}) or {}
+        coordinates = geometry.get("coordinates")
+        if geometry.get("type") != "Point" or not isinstance(coordinates, list) or len(coordinates) < 2:
+            continue
+
+        lon = parse_float(coordinates[0])
+        lat = parse_float(coordinates[1])
+        if lat is None or lon is None:
+            continue
+
+        name = (
+            properties.get("施設・場所名")
+            or properties.get("name")
+            or properties.get("名称")
+            or properties.get("施設名")
+            or "名称未設定"
+        ).strip()
+        address = (
+            properties.get("住所")
+            or properties.get("address")
+            or properties.get("所在地")
+            or ""
+        ).strip()
+        designation = (
+            properties.get("designation")
+            or properties.get("指定区分")
+            or "指定緊急避難場所"
+        ).strip()
+
+        if designation and designation not in ("指定緊急避難場所", "緊急避難場所"):
+            continue
+
+        key = (name, round(lat, 7), round(lon, 7), designation)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        shelters.append({
+            "name": name,
+            "address": address,
+            "lat": lat,
+            "lon": lon,
+            "designation": designation or "指定緊急避難場所",
+            "source_file": str(geojson_path.relative_to(BASE_DIR.parent)) if geojson_path.is_relative_to(BASE_DIR.parent) else str(geojson_path)
+        })
 
 
 def load_emergency_shelters(paths: List[Path]) -> List[Dict[str, Any]]:
-    """指定されたCSV群から指定緊急避難場所を読み込む"""
+    """指定された CSV / GeoJSON 群から指定緊急避難場所を読み込む"""
     shelters: List[Dict[str, Any]] = []
     seen = set()
 
     for path in paths:
         if path.is_dir():
-            csv_paths = sorted(path.rglob("*.csv"))
+            data_paths = sorted(list(path.rglob("*.geojson")) + list(path.rglob("*.csv")))
         else:
-            csv_paths = [path]
+            data_paths = [path]
 
-        for csv_path in csv_paths:
-            if not csv_path.exists():
-                logger.warning(f"避難場所CSVが見つかりません: {csv_path}")
+        for data_path in data_paths:
+            if not data_path.exists():
+                logger.warning(f"避難場所データが見つかりません: {data_path}")
                 continue
 
             try:
-                with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        name = (
-                            row.get("施設・場所名")
-                            or row.get("name")
-                            or row.get("名称")
-                            or row.get("施設名")
-                            or ""
-                        ).strip()
-                        address = (row.get("住所") or row.get("address") or "").strip()
-                        lat = parse_float(row.get("緯度") or row.get("lat"))
-                        lon = parse_float(row.get("経度") or row.get("lon"))
-
-                        if lat is None or lon is None:
-                            continue
-
-                        # 変換済みCSVは指定区分を参照、国土地理院の元CSVは本データ種別として採用
-                        designation = (row.get("designation") or "指定緊急避難場所").strip()
-                        if designation and designation not in ("指定緊急避難場所", "緊急避難場所"):
-                            continue
-
-                        key = (name, round(lat, 7), round(lon, 7), designation)
-                        if key in seen:
-                            continue
-                        seen.add(key)
-
-                        shelters.append({
-                            "name": name or "名称未設定",
-                            "address": address,
-                            "lat": lat,
-                            "lon": lon,
-                            "designation": designation or "指定緊急避難場所",
-                            "source_file": str(csv_path.relative_to(BASE_DIR.parent)) if csv_path.is_relative_to(BASE_DIR.parent) else str(csv_path)
-                        })
+                if data_path.suffix.lower() == ".csv":
+                    load_emergency_shelters_from_csv(data_path, shelters, seen)
+                elif data_path.suffix.lower() == ".geojson":
+                    load_emergency_shelters_from_geojson(data_path, shelters, seen)
             except Exception as e:
-                logger.error(f"避難場所CSVの読み込みに失敗しました: {csv_path} error={e}")
+                logger.error(f"避難場所データの読み込みに失敗しました: {data_path} error={e}")
 
     logger.info(f"避難場所データ読み込み件数: {len(shelters)}")
     return shelters

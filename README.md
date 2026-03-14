@@ -457,18 +457,18 @@ python -m http.server 8080
 ## 津波浸水想定データ（東京都・神奈川県・千葉県）
 
 津波ハザードレイヤーは **MBTiles + Martin + Leaflet.VectorGrid** によるベクタータイル配信で表示します。
-GeoJSON ファイル（`frontend/hazard/`）への直接読み込みはフォールバックとして残っています。
-配信用正本は今後 `data_lake/tiles/` に寄せ、`frontend/hazard/` は互換用同期先として扱います。
+現在の配信用正本は `data_lake/tiles/` です。
+GeoJSON ファイル（`frontend/hazard/`）への直接読み込みは互換フォールバックとしてのみ残しています。
 
 ### データフロー
 
 ```text
 国土数値情報（A40 GML）
-  └─ data/processed/hazard/*.geojson   ← 処理済み GeoJSON（正規ソース）
-       └─ scripts/build_tiles.py        ← tippecanoe でタイル化
-            └─ tiles/*.mbtiles          ← ベクタータイル
-                 └─ Martin（Docker）    ← タイル配信（/tiles/...）
-                      └─ Leaflet.VectorGrid  ← フロントエンド表示
+  └─ data_lake/validated/tokyo/tsunami/*.geojson   ← 検証済み GeoJSON（正規ソース）
+       └─ scripts/build_tiles.py                    ← tippecanoe でタイル化
+            └─ data_lake/tiles/tokyo/tsunami/*.mbtiles  ← ベクタータイル正本
+                 └─ Martin（Docker）               ← タイル配信（/tiles/...）
+                      └─ Leaflet.VectorGrid        ← フロントエンド表示
 ```
 
 ### データ取得元
@@ -479,11 +479,11 @@ GeoJSON ファイル（`frontend/hazard/`）への直接読み込みはフォー
 ### タイル生成
 
 ```bash
-# GeoJSON を tiles/*.mbtiles に変換（要 tippecanoe）
+# GeoJSON を data_lake/tiles/**/*.mbtiles に変換（要 tippecanoe）
 python scripts/build_tiles.py
 
-# 暫定: frontend/hazard/ の GeoJSON を使う場合
-python scripts/build_tiles.py --input frontend/hazard
+# legacy 処理済み GeoJSON を一時入力に使う場合
+python scripts/build_tiles.py --input data/processed/hazard
 ```
 
 詳細は `scripts/README.md` を参照してください。
@@ -494,7 +494,8 @@ python scripts/build_tiles.py --input frontend/hazard
 docker compose up -d martin
 ```
 
-Martin は `tiles/` ディレクトリの `.mbtiles` ファイルを自動検出します。
+Martin は現在 `tiles/` を見ていますが、正本は `data_lake/tiles/` です。
+`tiles/` は移行期間の legacy 配置先で、将来的な縮退対象です。
 
 ### 動作確認
 
@@ -521,19 +522,19 @@ curl http://localhost:8080/tiles/tokyo_tsunami_A40-23_13
 
 | 都県 | タイルセット ID | MBTiles ファイル |
 | --- | --- | --- |
-| 東京都 | `tokyo_tsunami_A40-23_13` | `tiles/tokyo_tsunami_A40-23_13.mbtiles` |
-| 神奈川県 (1) | `kanagawa_tsunami_A40-16_14` | `tiles/kanagawa_tsunami_A40-16_14.mbtiles` |
-| 神奈川県 (2) | `kanagawa_tsunami_A40-20_14` | `tiles/kanagawa_tsunami_A40-20_14.mbtiles` |
-| 千葉県 | `chiba_tsunami_A40-18_12` | `tiles/chiba_tsunami_A40-18_12.mbtiles` |
+| 東京都 | `tokyo_tsunami_A40-23_13` | `data_lake/tiles/tokyo/tsunami/tokyo_tsunami_A40-23_13.mbtiles` |
+| 神奈川県 (1) | `kanagawa_tsunami_A40-16_14` | `data_lake/tiles/tokyo/tsunami/kanagawa_tsunami_A40-16_14.mbtiles` |
+| 神奈川県 (2) | `kanagawa_tsunami_A40-20_14` | `data_lake/tiles/tokyo/tsunami/kanagawa_tsunami_A40-20_14.mbtiles` |
+| 千葉県 | `chiba_tsunami_A40-18_12` | `data_lake/tiles/tokyo/tsunami/chiba_tsunami_A40-18_12.mbtiles` |
 
 #### 洪水浸水想定（想定最大規模）
 
 | 都県 | タイルセット ID | MBTiles ファイル |
 | --- | --- | --- |
-| 東京都 | `tokyo_flood_max` | `tiles/tokyo_flood_max.mbtiles` |
+| 東京都 | `tokyo_flood_max` | `data_lake/tiles/tokyo/flood/tokyo_flood_max.mbtiles` |
 
 洪水データのソース: 国土地理院「洪水浸水想定区域（洪水予報河川）」A31a-2024
 （`国土地理院洪水予報河川データ/A31a-24_13_10_GeoJSON/20_想定最大規模/`）
 
 `scripts/merge_flood_geojson.py` で複数の河川別 GeoJSON を結合して
-`data/processed/hazard/tokyo_flood_max.geojson` を生成します。
+`data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` を生成します。
