@@ -399,26 +399,41 @@ async def get_elevation(
         標高情報
     """
     try:
+        if not elevation_service.is_loaded():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "DEM is not loaded. Canonical source is "
+                    "data_lake/validated/tokyo/dem/elevation.tif"
+                ),
+            )
+
+        if not elevation_service.contains(lat, lon):
+            raise HTTPException(
+                status_code=400,
+                detail="指定座標は DEM の対象範囲外です",
+            )
+
         elevation = elevation_service.get_elevation_interpolated(lat, lon)
-        
+
         if elevation is None:
             raise HTTPException(
-                status_code=404,
-                detail="指定座標の標高データが見つかりません"
+                status_code=400,
+                detail="指定座標の標高データを取得できませんでした"
             )
-        
+
         return {
             "lat": lat,
             "lon": lon,
             "elevation": round(elevation, 2),
-            "unit": "meters"
+            "unit": "m"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"標高取得エラー: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="標高取得中に内部エラーが発生しました")
 
 
 @app.post("/api/evacuation")

@@ -25,6 +25,10 @@ class ElevationService:
         
         if self.dem_path.exists():
             self._load_dem()
+
+    def is_loaded(self) -> bool:
+        """DEM がロード済みか返す"""
+        return self.dataset is not None and self.elevation_data is not None
     
     def _load_dem(self):
         """標高データを読み込む"""
@@ -55,6 +59,14 @@ class ElevationService:
         """座標がラスタ範囲内にあるか判定"""
         bounds = self.dataset.bounds
         return bounds.left <= x <= bounds.right and bounds.bottom <= y <= bounds.top
+
+    def contains(self, lat: float, lon: float) -> bool:
+        """WGS84 座標が DEM 範囲内にあるか判定"""
+        if self.dataset is None:
+            return False
+
+        x, y = self._to_dataset_xy(lat, lon)
+        return self._coord_in_bounds(x, y)
 
     def _to_dataset_xy(self, lat: float, lon: float) -> Tuple[float, float]:
         """
