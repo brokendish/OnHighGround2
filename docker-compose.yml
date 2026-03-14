@@ -6,18 +6,18 @@ services:
     ports:
       - "5500:5000"
     volumes:
-      - ./data:/data
+      - ./data_lake:/data_lake
     command: >
       sh -c "
-      mkdir -p /data/osrm/driving &&
-      if [ ! -f /data/osrm/driving/kanto-260214.osrm ]; then
-        rm -f /data/osrm/driving/kanto-260214.osrm* &&
-        cp /data/kanto-260214.osm.pbf /data/osrm/driving/kanto-260214.osm.pbf &&
-        osrm-extract -p /opt/car.lua /data/osrm/driving/kanto-260214.osm.pbf &&
-        osrm-partition /data/osrm/driving/kanto-260214.osrm &&
-        osrm-customize /data/osrm/driving/kanto-260214.osrm;
+      mkdir -p /data_lake/validated/tokyo/osm/driving &&
+      if [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm ]; then
+        rm -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm* &&
+        cp /data_lake/raw/tokyo/osm/kanto-260214.osm.pbf /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf &&
+        osrm-extract -p /opt/car.lua /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf &&
+        osrm-partition /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm &&
+        osrm-customize /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm;
       fi &&
-      osrm-routed --algorithm mld --port 5000 /data/osrm/driving/kanto-260214.osrm
+      osrm-routed --algorithm mld --port 5000 /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm
       "
     restart: unless-stopped
 
@@ -28,18 +28,18 @@ services:
     ports:
       - "5501:5001"
     volumes:
-      - ./data:/data
+      - ./data_lake:/data_lake
     command: >
       sh -c "
-      mkdir -p /data/osrm/walking &&
-      if [ ! -f /data/osrm/walking/kanto-260214.osrm ]; then
-       rm -f /data/osrm/walking/kanto-260214.osrm* &&
-       cp /data/kanto-260214.osm.pbf /data/osrm/walking/kanto-260214.osm.pbf &&
-       osrm-extract -p /opt/foot.lua /data/osrm/walking/kanto-260214.osm.pbf &&
-       osrm-partition /data/osrm/walking/kanto-260214.osrm &&
-       osrm-customize /data/osrm/walking/kanto-260214.osrm;
+      mkdir -p /data_lake/validated/tokyo/osm/walking &&
+      if [ ! -f /data_lake/validated/tokyo/osm/walking/kanto-260214.osrm ]; then
+       rm -f /data_lake/validated/tokyo/osm/walking/kanto-260214.osrm* &&
+       cp /data_lake/raw/tokyo/osm/kanto-260214.osm.pbf /data_lake/validated/tokyo/osm/walking/kanto-260214.osm.pbf &&
+       osrm-extract -p /opt/foot.lua /data_lake/validated/tokyo/osm/walking/kanto-260214.osm.pbf &&
+       osrm-partition /data_lake/validated/tokyo/osm/walking/kanto-260214.osrm &&
+       osrm-customize /data_lake/validated/tokyo/osm/walking/kanto-260214.osrm;
       fi &&
-       osrm-routed --algorithm mld --port 5001 /data/osrm/walking/kanto-260214.osrm
+       osrm-routed --algorithm mld --port 5001 /data_lake/validated/tokyo/osm/walking/kanto-260214.osrm
       "
     restart: unless-stopped
 
@@ -51,14 +51,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # 標高データをマウント
-      - ./data:/app/data:ro
-      # 避難場所データをマウント
+      # data_lake を正本としてマウント
+      - ./data_lake:/app/data_lake:ro
+      # legacy shelter fallback 用
       - ./国土地理院避難所データ:/app/shelter_data:ro
-      # 開発時のホットリロード用（本番では削除推奨）
+      # 開発時のホットリロード用
       - ./backend:/app
     environment:
-      - DEM_FILE_PATH=/app/data/elevation.tif
+      - DEM_FILE_PATH=/app/data_lake/validated/tokyo/dem/elevation.tif
       - API_HOST=0.0.0.0
       - API_PORT=8000
     restart: unless-stopped
@@ -86,7 +86,7 @@ services:
     image: ghcr.io/maplibre/martin:latest
     container_name: evacuation-navi-martin
     volumes:
-      - ./tiles:/tiles:ro
+      - ./data_lake/tiles/tokyo:/tiles:ro
     command: /tiles
     restart: unless-stopped
 

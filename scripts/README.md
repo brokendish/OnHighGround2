@@ -226,7 +226,7 @@ repo 直下の `tiles/` は legacy です。正本は `data_lake/tiles/` に固�
 
 ## Martin タイルサーバー
 
-`data_lake/tiles/` に生成した `.mbtiles` ファイルが配信用正本です。現状の Docker Compose に含まれる
+`data_lake/tiles/` に生成した `.mbtiles` ファイルが配信用正本です。Docker Compose に含まれる
 [Martin](https://github.com/maplibre/martin) タイルサーバーで配信されます。
 
 ### 起動方法
@@ -243,8 +243,8 @@ docker compose up
 
 ### MBTiles の自動検出
 
-Martin は起動時に `/tiles` ディレクトリを見ます。現状は legacy の `./tiles:/tiles:ro` マウント前提なので、
-`data_lake/tiles/` を正本としつつ、必要に応じて publish / 同期で bridged する運用です。
+Martin は起動時に `/tiles` ディレクトリを見ます。現在の Docker Compose では
+`./data_lake/tiles/tokyo:/tiles:ro` をマウントしているため、配信用正本を直接参照します。
 設定ファイルは不要です。コマンド引数にディレクトリを渡すだけで動作します。
 
 ### タイルエンドポイントの確認

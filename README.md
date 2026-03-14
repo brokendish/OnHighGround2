@@ -494,8 +494,8 @@ python scripts/build_tiles.py --input data/processed/hazard
 docker compose up -d martin
 ```
 
-Martin は現在 `tiles/` を見ていますが、正本は `data_lake/tiles/` です。
-`tiles/` は移行期間の legacy 配置先で、将来的な縮退対象です。
+Martin は `data_lake/tiles/tokyo/` を直接マウントして参照します。
+repo 直下 `tiles/` は移行期間の legacy 配置先で、将来的な縮退対象です。
 
 ### 動作確認
 

@@ -108,8 +108,8 @@ docker compose restart frontend
 OSMデータを更新した場合は `.osrm` ファイルを削除して再生成する。
 
 ```bash
-rm -rf ./data/osrm/walking/*
-rm -rf ./data/osrm/driving/*
+rm -rf ./data_lake/validated/tokyo/osm/walking/*
+rm -rf ./data_lake/validated/tokyo/osm/driving/*
 docker compose up -d --build
 ```
 
