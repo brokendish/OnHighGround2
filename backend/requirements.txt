@@ -4,3 +4,5 @@ rasterio==1.4.3
 numpy>=1.26,<2
 python-multipart==0.0.6
 pydantic==2.5.0
+shapely>=2.0,<3
+pyproj>=3.6,<4

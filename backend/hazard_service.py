@@ -264,6 +264,10 @@ class HazardService:
         """ロード済みのハザードタイプ一覧"""
         return [k for k, v in self._polygons.items() if v]
 
+    def get_polygon_store(self) -> Dict[str, List[dict]]:
+        """内部ポリゴンストア全体を返す（RSA 計算などで使用）。"""
+        return self._polygons
+
     def loaded_sources(self, hazard_type: str) -> List[str]:
         """指定ハザードタイプにロードされたファイルのステム一覧 (例: ["tsunami_tokyo"])"""
         return list(self._sources.get(hazard_type, []))

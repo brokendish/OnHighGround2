@@ -17,6 +17,7 @@ import math
 
 from elevation_service import ElevationService
 from hazard_service import HazardService, derive_hazard_safe
+from geometry_utils import calc_reachable_safe_area
 
 # 設定ファイル読み込み
 BASE_DIR = Path(__file__).resolve().parent
@@ -463,11 +464,58 @@ try:
 except (TypeError, ValueError):
     TSUNAMI_SPEED_KMH = 30.0
 
+# ── Reachable Safe Area (RSA) 設定 ──────────────────────────────────────────
+ENABLE_RSA: bool = parse_bool(
+    APP_CONFIG.get("evacuation.enable_reachable_safe_area"), True
+)
+try:
+    WALKING_SPEED_MPS: float = float(APP_CONFIG.get("evacuation.walking_speed_mps", "1.3"))
+except (TypeError, ValueError):
+    WALKING_SPEED_MPS = 1.3
+
 # Time Margin スコア補正値（既存の hazard_safe 補正に加算）
 TIME_MARGIN_SAFE_BONUS    =  20.0   # margin >= 5 min: 余裕あり → ボーナス
 TIME_MARGIN_TIGHT_BONUS   =   0.0   # 0 <= margin < 5 min: ギリギリ → 中立
 TIME_MARGIN_DANGER_PENALTY=  80.0   # margin < 0 min: 間に合わない → 大幅減点
 TIME_MARGIN_UNKNOWN_PENALTY=  10.0  # TTI 算定不能 → 軽微減点
+
+
+def _calc_rsa(user_lat: float, user_lon: float, tti_minutes: float) -> dict:
+    """
+    Reachable Safe Area を計算する。
+
+    Args:
+        user_lat: ユーザー緯度
+        user_lon: ユーザー経度
+        tti_minutes: 津波到達時間（分）— 到達可能半径の計算に使用
+
+    Returns:
+        {
+            "enabled": bool,
+            "radius_m": float,
+            "time_to_impact_minutes": float,
+            "walking_speed_mps": float,
+            "area_m2": float,
+            "exists": bool,
+            "geometry": dict | None
+        }
+    """
+    radius_m = WALKING_SPEED_MPS * tti_minutes * 60.0
+    result = calc_reachable_safe_area(
+        user_lat=user_lat,
+        user_lon=user_lon,
+        radius_m=radius_m,
+        hazard_polygon_store=hazard_service.get_polygon_store(),
+    )
+    return {
+        "enabled": True,
+        "radius_m": result["radius_m"],
+        "time_to_impact_minutes": round(tti_minutes, 1),
+        "walking_speed_mps": WALKING_SPEED_MPS,
+        "area_m2": result["area_m2"],
+        "exists": result["exists"],
+        "geometry": result.get("geometry"),
+    }
 
 
 def _calc_tti_minutes(lat: float, lon: float) -> Optional[float]:
@@ -948,6 +996,20 @@ async def find_evacuation_destinations(request: EvacuationRequest):
         else:
             logger.debug("TTI: not in tsunami polygon or data not loaded — time margin disabled")
 
+        # Reachable Safe Area: TTI がある場合のみ算出
+        if ENABLE_RSA and tti_minutes is not None:
+            rsa_result = _calc_rsa(request.lat, request.lon, tti_minutes)
+        else:
+            rsa_result = {
+                "enabled": ENABLE_RSA,
+                "radius_m": None,
+                "time_to_impact_minutes": round(tti_minutes, 1) if tti_minutes is not None else None,
+                "walking_speed_mps": WALKING_SPEED_MPS,
+                "area_m2": None,
+                "exists": None,
+                "geometry": None,
+            }
+
         # 避難候補を検索
         # 避難所データがあれば shelter ベース、なければグリッドフォールバック
         if EMERGENCY_SHELTERS:
@@ -1008,6 +1070,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 },
                 "hazard_status": hazard_status,
                 "recommended": None,
+                "reachable_safe_area": rsa_result,
                 "destinations": [],
                 "search_parameters": {
                     "transport_mode": request.transport_mode,
@@ -1048,6 +1111,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             },
             "hazard_status": hazard_status,
             "recommended": recommended,
+            "reachable_safe_area": rsa_result,
             "recommendation_meta": {
                 "selected_tier": selected_tier,        # "safe" | "unknown" | "unsafe"
                 "safe_candidates_found": safe_count,

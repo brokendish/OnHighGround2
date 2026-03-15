@@ -862,6 +862,21 @@
             letter-spacing: 0.4px;
         }
 
+        /* Reachable Safe Area (RSA) パネル */
+        #rsaPanel .rsa-info { font-size: 12px; line-height: 1.8; }
+        .rsa-stat { display: flex; justify-content: space-between; padding: 2px 0; }
+        .rsa-stat-label { color: #546e7a; }
+        .rsa-stat-value { font-weight: 600; }
+        .rsa-exists-badge {
+            display: inline-block; margin-top: 4px;
+            padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;
+        }
+        .rsa-exists-badge.yes { background: #e8f5e9; color: #2e7d32; }
+        .rsa-exists-badge.no  { background: #ffebee; color: #c62828; }
+        .rsa-not-available { color: #78909c; font-size: 12px; font-style: italic; }
+        .rsa-warning { background: #fff8e1; border-left: 4px solid #f9a825; padding: 6px 8px;
+            border-radius: 3px; font-size: 12px; margin-top: 6px; color: #5d4037; }
+
         /* Time Margin: 津波到達時間と避難時間の余裕表示 */
         .time-margin {
             margin-top: 5px;
@@ -873,7 +888,7 @@
         }
         .time-margin.safe    { border-left: 3px solid #2e7d32; }
         .time-margin.tight   { border-left: 3px solid #f9a825; }
-        .time-margin.danger  { border-left: 3px solid #c62828; }
+        .time-margin.danger  { border-left: 5px solid #c62828; background: #ffebee; }
         .time-margin.unknown { border-left: 3px solid #9e9e9e; }
         .time-margin .tm-icon-label { font-weight: 700; }
         .time-margin.safe    .tm-icon-label { color: #2e7d32; }
@@ -881,6 +896,9 @@
         .time-margin.danger  .tm-icon-label { color: #c62828; }
         .time-margin.unknown .tm-icon-label { color: #9e9e9e; }
         .tm-detail { font-size: 10px; color: #757575; margin-top: 1px; }
+        .time-margin.danger .tm-warning { font-weight: 700; color: #b71c1c; font-size: 13px; }
+        .time-margin.danger .tm-detail  { color: #b71c1c; }
+        .recommended-warning { background: #ffcdd2; color: #b71c1c; font-weight: 700; padding: 6px; margin-bottom: 6px; border-radius: 4px; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -1013,6 +1031,12 @@
                 <div id="recommendedCard"></div>
             </div>
 
+            <!-- 避難可能エリア (RSA) -->
+            <div class="control-group" id="rsaPanel" style="display: none;">
+                <h3>🟢 避難可能エリア</h3>
+                <div id="rsaInfo" class="rsa-info"></div>
+            </div>
+
             <!-- 避難先リスト -->
             <div class="control-group" id="destinationsPanel" style="display: none;">
                 <h3>🎯 避難先候補一覧</h3>
@@ -1051,6 +1075,10 @@
                 <div class="legend-item">
                     <div class="legend-color" style="background: #2e7d32;"></div>
                     <span>指定緊急避難場所</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #66bb6a; opacity: 0.5; border: 2px solid #2e7d32;"></div>
+                    <span>避難可能エリア (RSA)</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-line" style="border-top-color: #ff9800;"></div>
@@ -1256,6 +1284,7 @@
         let selectedRouteHighlightLayers = [];
         let routeCandidateLayers = [];
         let routeStepFocusMarker = null;
+        let reachableSafeAreaLayer = null;
         const ROUTE_COLOR_PALETTE = ['#ff9800', '#1e88e5', '#43a047', '#8e24aa', '#fb8c00'];
         const HAZARD_LAYERS = {
             tsunami_tokyo: {
@@ -1899,10 +1928,14 @@
                     displayHazardStatus(evacuationHazardStatus);
                 }
 
+                // 避難可能エリア (RSA) を表示
+                displayRsa(data.reachable_safe_area || null);
+
                 if (destinations.length === 0) {
                     showSearchMessage('指定条件で避難先が見つかりませんでした。条件を変更してください。', 'info');
                     document.getElementById('destinationsPanel').style.display = 'none';
                     document.getElementById('recommendedPanel').style.display = 'none';
+                    document.getElementById('rsaPanel').style.display = 'none';
                 } else {
                     // 避難先を地図に表示
                     displayDestinations(destinations, evacuationRecommended);
@@ -2007,11 +2040,20 @@
             const tti = dest.time_to_impact_minutes;
             const et  = dest.evacuation_time_minutes;
 
+            if (status === 'danger') {
+                const detail = (tti != null && et != null)
+                    ? `<div class="tm-detail">余裕時間: ${tm?.toFixed(1)}分<br>⏱ 津波到達: ${tti.toFixed(1)}分<br>🚶 避難時間: ${et.toFixed(1)}分</div>`
+                    : '';
+                return `<div class="time-margin danger">
+                    <div class="tm-warning">🚨 避難が間に合わない可能性</div>
+                    ${detail}
+                </div>`;
+            }
+
             let iconLabel;
-            if      (status === 'safe')   iconLabel = `🟢 余裕: +${tm?.toFixed(1)}分`;
-            else if (status === 'tight')  iconLabel = `🟡 余裕: +${tm?.toFixed(1)}分`;
-            else if (status === 'danger') iconLabel = `🔴 間に合わない可能性 (${tm?.toFixed(1)}分)`;
-            else                          iconLabel = '⚪ 時間余裕: 未判定';
+            if      (status === 'safe')  iconLabel = `🟢 余裕: +${tm?.toFixed(1)}分`;
+            else if (status === 'tight') iconLabel = `🟡 余裕: +${tm?.toFixed(1)}分`;
+            else                         iconLabel = '⚪ 時間余裕: 未判定';
 
             const detail = (tti != null && et != null)
                 ? `<div class="tm-detail">⏱ 津波到達: ${tti.toFixed(1)}分 ／ 🚶 避難時間: ${et.toFixed(1)}分</div>`
@@ -2038,11 +2080,20 @@
             const colors = { safe: '#2e7d32', tight: '#f57f17', danger: '#c62828', unknown: '#9e9e9e' };
             const color = colors[status] || '#9e9e9e';
 
+            if (status === 'danger') {
+                const detail = (tti != null && et != null)
+                    ? `<div style="font-size:10px;color:#b71c1c;margin-top:2px;">余裕時間: ${tm?.toFixed(1)}分 ／ ⏱ 津波: ${tti.toFixed(1)}分 ／ 🚶 避難: ${et.toFixed(1)}分</div>`
+                    : '';
+                return `<div style="margin-top:5px;padding:5px 7px;border-top:1px solid #e0e0e0;border-left:4px solid #c62828;background:#ffebee;border-radius:3px;font-size:11px;">
+                    <span style="font-weight:700;color:#b71c1c;">🚨 避難が間に合わない可能性</span>
+                    ${detail}
+                </div>`;
+            }
+
             let label;
-            if      (status === 'safe')   label = `🟢 余裕: +${tm?.toFixed(1)}分`;
-            else if (status === 'tight')  label = `🟡 余裕: +${tm?.toFixed(1)}分`;
-            else if (status === 'danger') label = `🔴 間に合わない可能性 (${tm?.toFixed(1)}分)`;
-            else                          label = '⚪ 時間余裕: 未判定';
+            if      (status === 'safe')  label = `🟢 余裕: +${tm?.toFixed(1)}分`;
+            else if (status === 'tight') label = `🟡 余裕: +${tm?.toFixed(1)}分`;
+            else                         label = '⚪ 時間余裕: 未判定';
 
             const detail = (tti != null && et != null)
                 ? `<br><span style="font-size:10px;color:#757575;">⏱ 津波: ${tti.toFixed(1)}分 ／ 🚶 避難: ${et.toFixed(1)}分</span>`
@@ -2286,10 +2337,15 @@
                 ? '<span class="recommended-provisional-label">暫定推奨</span>'
                 : '';
 
+            const dangerWarningBanner = rec.time_margin_status === 'danger'
+                ? `<div class="recommended-warning">🚨 津波到達前に避難が完了しない可能性があります</div>`
+                : '';
+
             card.innerHTML = `
                 <div class="recommended-card ${cardStateClass}">
                     <div class="recommended-name">📍 ${rec.name}${provisionalLabel}</div>
                     <div class="recommended-type">${typeLabel} ${hazardBadge}</div>
+                    ${dangerWarningBanner}
                     <div class="recommended-stats">
                         <span>⬆️ 標高差: +${rec.elevation_gain.toFixed(1)}m</span>
                         <span>🏔️ 標高: ${rec.elevation.toFixed(1)}m</span>
@@ -3120,6 +3176,64 @@
             destinationMarkerBaseStyles = [];
         }
 
+        const RSA_STYLE = {
+            color: '#2e7d32',
+            weight: 2,
+            opacity: 0.8,
+            fillColor: '#66bb6a',
+            fillOpacity: 0.25,
+        };
+
+        function clearRsaLayer() {
+            if (reachableSafeAreaLayer) {
+                map.removeLayer(reachableSafeAreaLayer);
+                reachableSafeAreaLayer = null;
+            }
+        }
+
+        function displayRsa(rsa) {
+            const panel = document.getElementById('rsaPanel');
+            const info  = document.getElementById('rsaInfo');
+
+            clearRsaLayer();
+
+            // RSA が無効（津波ポリゴン外など）
+            if (!rsa || !rsa.enabled || rsa.exists === null) {
+                panel.style.display = 'none';
+                return;
+            }
+
+            panel.style.display = 'block';
+
+            const areaKm2 = rsa.area_m2 != null ? (rsa.area_m2 / 1_000_000).toFixed(2) : null;
+            const existsBadge = rsa.exists
+                ? '<span class="rsa-exists-badge yes">✅ 避難可能エリアあり</span>'
+                : '<span class="rsa-exists-badge no">❌ 避難可能エリアなし</span>';
+
+            const warningBlock = !rsa.exists
+                ? `<div class="rsa-warning">
+                    🚨 現在地からの水平避難が難しい可能性があります。<br>
+                    近隣の高い建物への垂直避難も検討してください。
+                   </div>`
+                : '';
+
+            info.innerHTML = `
+                ${existsBadge}
+                <div class="rsa-stat"><span class="rsa-stat-label">到達可能半径</span><span class="rsa-stat-value">約${rsa.radius_m != null ? Math.round(rsa.radius_m) : '—'} m</span></div>
+                <div class="rsa-stat"><span class="rsa-stat-label">津波到達まで</span><span class="rsa-stat-value">${rsa.time_to_impact_minutes != null ? rsa.time_to_impact_minutes.toFixed(1) : '—'} 分</span></div>
+                <div class="rsa-stat"><span class="rsa-stat-label">歩行速度</span><span class="rsa-stat-value">${rsa.walking_speed_mps} m/s</span></div>
+                ${areaKm2 != null ? `<div class="rsa-stat"><span class="rsa-stat-label">安全エリア面積</span><span class="rsa-stat-value">約${areaKm2} km²</span></div>` : ''}
+                ${warningBlock}
+            `;
+
+            // 地図に RSA ポリゴンを描画
+            if (rsa.exists && rsa.geometry) {
+                reachableSafeAreaLayer = L.geoJSON(rsa.geometry, { style: RSA_STYLE }).addTo(map);
+                // ハザードレイヤーより下に表示されるよう最背面に移動
+                reachableSafeAreaLayer.bringToBack();
+            }
+        }
+
         function clearEmergencyShelterMarkers() {
             emergencyShelterMarkers.forEach(marker => map.removeLayer(marker));
             emergencyShelterMarkers = [];
@@ -3153,6 +3267,8 @@
 
         function clearSearchResults() {
             clearDestinationMarkers();
+            clearRsaLayer();
+            document.getElementById('rsaPanel').style.display = 'none';
 
             if (routingControl) {
                 map.removeControl(routingControl);
