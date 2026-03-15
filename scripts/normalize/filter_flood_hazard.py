@@ -3,14 +3,14 @@
 洪水浸水想定区域 ハザード判定用フィルタスクリプト
 
 入力: data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson (全ランク、666K フィーチャ)
-出力: data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl (rank >= 2 のみ、GeoJSONL 形式)
+出力: data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl (全ランク、GeoJSONL 形式)
 
 GeoJSONL = 1行に1 Feature JSON。
 バックエンドが load_geojsonl() で1行ずつストリーミング読み込みするため
 大容量データでもピークメモリを最小限に抑えられる。
 
-除外基準:
-  rank 1 (0.5m未満) → ハザード判定から省略（軽微な浸水深）
+デフォルト (--min-rank 1): rank 1-5 すべてを含む（全浸水深を判定対象とする）
+  rank 1 (0.5m未満) → 含む（浸水深が浅くても避難判断に必要）
   rank 2 (0.5〜3m)  → 含む
   rank 3 以上        → 含む
 """
@@ -23,7 +23,7 @@ from pathlib import Path
 
 IN_DEFAULT  = "data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson"
 OUT_DEFAULT = "data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl"
-MIN_RANK    = 2
+MIN_RANK    = 1
 
 
 def parse_args() -> argparse.Namespace:

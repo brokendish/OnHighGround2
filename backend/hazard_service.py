@@ -133,6 +133,12 @@ class HazardService:
         # -> True
     """
 
+    # 洪水浸水想定データはシミュレーション格子（約50m）ごとのポリゴンで構成されており、
+    # 隣接格子間に小さなギャップが生じる。マップ表示（ベクタータイル）は
+    # 隣接ポリゴンを結合して描画するため、格子間のギャップでも視覚的に浸水域に見える。
+    # 判定時にギャップを埋めるバッファを設定する（単位: 度、約25m）。
+    FLOOD_PROXIMITY_BUFFER_DEG: float = 0.000225
+
     def __init__(self) -> None:
         # hazard_type -> list of {"bbox": (s, w, n, e), "coords": [[lon, lat], ...]}
         self._polygons: Dict[str, List[dict]] = {}
@@ -384,12 +390,29 @@ class HazardService:
             True = 危険エリア内 / False = 範囲外 or データ未ロード
         """
         polygons = self._polygons.get(hazard_type, [])
+
+        # --- 1次判定: 厳密なポリゴン内外判定 ---
         for poly in polygons:
             s, w, n, e = poly["bbox"]
             if not (s <= lat <= n and w <= lon <= e):
                 continue
             if _point_in_polygon(lat, lon, poly["coords"]):
                 return True
+
+        # --- 2次判定（flood のみ）: 近傍バッファ判定 ---
+        # 洪水浸水想定データは約50m格子単位のポリゴンで構成されており、
+        # 隣接格子間に小さなギャップが生じる。ベクタータイル表示では隣接
+        # ポリゴンを結合して描画するため、格子間でも視覚的に浸水域に見える。
+        # ギャップを埋めるため、bbox を FLOOD_PROXIMITY_BUFFER_DEG だけ
+        # 拡張してバッファ判定を行う（1次判定でヒットしなかった場合のみ）。
+        if hazard_type == "flood":
+            buf = self.FLOOD_PROXIMITY_BUFFER_DEG
+            for poly in polygons:
+                s, w, n, e = poly["bbox"]
+                if s - buf <= lat <= n + buf and w - buf <= lon <= e + buf:
+                    # 点は bbox バッファ内（厳密な polygon 外）→ 近傍と判定
+                    return True
+
         return False
 
     def check_point_assessment(
