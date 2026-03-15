@@ -13,7 +13,10 @@ from pathlib import Path
 import csv
 import json
 
+import math
+
 from elevation_service import ElevationService
+from hazard_service import HazardService
 
 # 設定ファイル読み込み
 BASE_DIR = Path(__file__).resolve().parent
@@ -297,6 +300,19 @@ def load_emergency_shelters(paths: List[Path]) -> List[Dict[str, Any]]:
 SHELTER_CSV_PATHS = parse_shelter_paths(APP_CONFIG.get("evacuation.sites.path"))
 EMERGENCY_SHELTERS = load_emergency_shelters(SHELTER_CSV_PATHS)
 
+# ハザードサービスの初期化
+hazard_service = HazardService()
+
+_flood_path_value = APP_CONFIG.get(
+    "hazard.flood.path",
+    "../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson",
+)
+_flood_path = resolve_existing_path(
+    _flood_path_value,
+    legacy_candidates=[BASE_DIR.parent / "frontend" / "hazard" / "tokyo_flood_max.geojson"],
+)
+hazard_service.load("flood", _flood_path)
+
 # APIサーバー設定
 API_HOST = APP_CONFIG.get("api.host", "0.0.0.0")
 try:
@@ -337,6 +353,8 @@ class EvacuationRequest(BaseModel):
 
 class EvacuationDestination(BaseModel):
     """避難目的地"""
+    name: str
+    type: str
     lat: float
     lon: float
     elevation: float
@@ -344,6 +362,28 @@ class EvacuationDestination(BaseModel):
     distance: float
     estimated_time_minutes: float
     safety_score: float
+    hazard_safe: bool
+
+
+class HazardStatus(BaseModel):
+    """現在地のハザード状況"""
+    is_danger: bool
+    hazards: List[str]
+
+
+class RecommendedDestination(BaseModel):
+    """推奨避難先（destinations[0] に reason を付与）"""
+    name: str
+    type: str
+    lat: float
+    lon: float
+    elevation: float
+    elevation_gain: float
+    distance: float
+    estimated_time_minutes: float
+    safety_score: float
+    hazard_safe: bool
+    reason: str
 
 
 class ElevationProfileRequest(BaseModel):
@@ -353,6 +393,199 @@ class ElevationProfileRequest(BaseModel):
     end_lat: float
     end_lon: float
     num_points: int = Field(default=50, ge=10, le=200)
+
+
+# ------------------------------------------------------------------
+# 避難目的地検索ヘルパー
+# ------------------------------------------------------------------
+
+def _calc_estimated_time(distance: float, transport_mode: str) -> float:
+    """移動距離と手段から所要時間（分）を計算"""
+    time_factor = 1.0 if transport_mode == "driving" else 1.5
+    return (distance / 1000.0) * time_factor * 15
+
+
+# hazard_safe=False の場合に適用するスコア減点値。
+# 基礎スコア上限が 100 点のため、-100 で確実に安全候補より下位になる。
+HAZARD_UNSAFE_PENALTY = 100.0
+
+
+def _calc_safety_score(
+    elevation_gain: float,
+    distance: float,
+    max_distance: float,
+    hazard_safe: bool,
+) -> float:
+    """
+    安全性スコア計算 (基礎 0-100、hazard_unsafe 時は -100 減点)。
+
+    - elevation_score: 標高差が 30m 以上で満点 50pt
+    - distance_score:  距離が短いほど高スコア、max_distance で 0pt
+    - hazard penalty:  hazard_safe=False の場合 -100pt（安全候補を必ず上位にする）
+    """
+    elevation_score = min(elevation_gain / 30.0 * 50, 50)
+    distance_score = max(50 - (distance / max_distance * 50), 0)
+    base_score = elevation_score + distance_score
+    penalty = 0.0 if hazard_safe else HAZARD_UNSAFE_PENALTY
+    return base_score - penalty
+
+
+def _select_recommended(candidates: List[Dict[str, Any]]) -> tuple:
+    """
+    推奨候補を選定する。
+
+    優先順位:
+      1. hazard_safe=True の候補群の中で safety_score 最大
+      2. hazard_safe=True が 0 件の場合のみ、全候補から safety_score 最大
+
+    Returns:
+        (recommended_candidate, used_hazard_safe_filter: bool, safe_count: int)
+    """
+    safe_candidates = [c for c in candidates if c["hazard_safe"]]
+    if safe_candidates:
+        best = max(safe_candidates, key=lambda x: x["safety_score"])
+        return best, True, len(safe_candidates)
+    else:
+        best = max(candidates, key=lambda x: x["safety_score"])
+        return best, False, 0
+
+
+def _build_reason(dest: dict, used_hazard_safe_filter: bool) -> str:
+    """推奨理由の文字列を組み立てる"""
+    if not used_hazard_safe_filter:
+        # すべての候補が危険区域内だった場合
+        parts = [
+            "危険区域外の候補が見つからなかったため",
+            f"到達可能な候補の中で最も条件が良い地点（現在地より{dest['elevation_gain']:.0f}m高い）を返している",
+        ]
+        return "、".join(parts)
+
+    parts = ["危険区域外"]
+    if dest["elevation_gain"] >= 10:
+        parts.append(f"現在地より{dest['elevation_gain']:.0f}m高い")
+    if dest["distance"] <= 1000:
+        parts.append("徒歩10分圏内")
+    parts.append("安全候補の中で最も安全性スコアが高い")
+    return "、".join(parts)
+
+
+def search_shelter_destinations(
+    current_lat: float,
+    current_lon: float,
+    current_elevation: float,
+    shelters: List[Dict[str, Any]],
+    elev_service: ElevationService,
+    haz_service: HazardService,
+    min_elevation_gain: float,
+    max_distance: float,
+    transport_mode: str,
+) -> List[Dict[str, Any]]:
+    """
+    避難所ベースで避難候補を検索する。
+
+    各避難所に対して:
+    - 距離フィルタ
+    - DEM から標高取得・標高差フィルタ
+    - 安全性スコア算出
+    - ハザード安全判定 (flood)
+
+    Returns:
+        安全性スコア降順で最大10件
+    """
+    # 粗フィルタ用マージン（max_distance の 1.2倍）
+    lat_per_meter = 1.0 / 111000.0
+    lon_per_meter = 1.0 / (111000.0 * math.cos(math.radians(current_lat)))
+    lat_margin = max_distance * lat_per_meter * 1.2
+    lon_margin = max_distance * lon_per_meter * 1.2
+
+    candidates: List[Dict[str, Any]] = []
+
+    for shelter in shelters:
+        slat = shelter["lat"]
+        slon = shelter["lon"]
+
+        # バウンディングボックスによる粗フィルタ（高速）
+        if not (
+            current_lat - lat_margin <= slat <= current_lat + lat_margin
+            and current_lon - lon_margin <= slon <= current_lon + lon_margin
+        ):
+            continue
+
+        distance = elev_service.calculate_distance(current_lat, current_lon, slat, slon)
+        if distance > max_distance:
+            continue
+
+        shelter_elevation = elev_service.get_elevation_interpolated(slat, slon)
+        if shelter_elevation is None:
+            continue
+
+        elevation_gain = shelter_elevation - current_elevation
+        if elevation_gain < min_elevation_gain:
+            continue
+
+        hazard_safe = not haz_service.check_point(slat, slon, "flood")
+        safety_score = _calc_safety_score(elevation_gain, distance, max_distance, hazard_safe)
+
+        candidates.append({
+            "name": shelter["name"],
+            "type": "emergency_shelter",
+            "lat": slat,
+            "lon": slon,
+            "elevation": shelter_elevation,
+            "elevation_gain": elevation_gain,
+            "distance": distance,
+            "estimated_time_minutes": _calc_estimated_time(distance, transport_mode),
+            "safety_score": safety_score,
+            "hazard_safe": hazard_safe,
+        })
+
+    candidates.sort(key=lambda x: x["safety_score"], reverse=True)
+    return candidates[:10]
+
+
+def search_grid_destinations(
+    current_lat: float,
+    current_lon: float,
+    current_elevation: float,
+    elev_service: ElevationService,
+    haz_service: HazardService,
+    min_elevation_gain: float,
+    max_distance: float,
+    transport_mode: str,
+) -> List[Dict[str, Any]]:
+    """
+    グリッド探索ベースで避難候補を検索（避難所データがない場合のフォールバック）。
+
+    候補に名称はないため type = "safe_high_ground_candidate" を付与する。
+    """
+    raw = elev_service.find_evacuation_destinations(
+        current_lat=current_lat,
+        current_lon=current_lon,
+        min_elevation_gain=min_elevation_gain,
+        max_distance=max_distance,
+        transport_mode=transport_mode,
+    )
+
+    results: List[Dict[str, Any]] = []
+    for d in raw:
+        hazard_safe = not haz_service.check_point(d["lat"], d["lon"], "flood")
+        safety_score = _calc_safety_score(
+            d["elevation_gain"], d["distance"], max_distance, hazard_safe
+        )
+        results.append({
+            "name": "高台候補地点",
+            "type": "safe_high_ground_candidate",
+            "lat": d["lat"],
+            "lon": d["lon"],
+            "elevation": d["elevation"],
+            "elevation_gain": d["elevation_gain"],
+            "distance": d["distance"],
+            "estimated_time_minutes": d["estimated_time_minutes"],
+            "safety_score": safety_score,
+            "hazard_safe": hazard_safe,
+        })
+    results.sort(key=lambda x: x["safety_score"], reverse=True)
+    return results
 
 
 # エンドポイント
@@ -439,71 +672,128 @@ async def get_elevation(
 @app.post("/api/evacuation")
 async def find_evacuation_destinations(request: EvacuationRequest):
     """
-    避難目的地を検索
-    
+    避難目的地を検索（hazard_status・recommended 付き強化版）
+
     Args:
         request: 避難目的地検索リクエスト
-        
+
     Returns:
-        避難目的地候補のリスト
+        hazard_status / recommended / destinations / search_parameters
     """
     try:
         # 現在地の標高を確認
         current_elevation = elevation_service.get_elevation_interpolated(
             request.lat, request.lon
         )
-        
+
         if current_elevation is None:
             raise HTTPException(
                 status_code=404,
-                detail="現在地の標高データが見つかりません"
+                detail="現在地の標高データが見つかりません",
             )
-        
-        # 避難目的地を検索
-        destinations = elevation_service.find_evacuation_destinations(
-            current_lat=request.lat,
-            current_lon=request.lon,
-            min_elevation_gain=request.min_elevation_gain,
-            max_distance=request.max_distance,
-            transport_mode=request.transport_mode
-        )
-        
+
+        # 現在地のハザード判定
+        hazard_status = hazard_service.check_hazards(request.lat, request.lon)
+
+        # 避難候補を検索
+        # 避難所データがあれば shelter ベース、なければグリッドフォールバック
+        if EMERGENCY_SHELTERS:
+            raw_destinations = search_shelter_destinations(
+                current_lat=request.lat,
+                current_lon=request.lon,
+                current_elevation=current_elevation,
+                shelters=EMERGENCY_SHELTERS,
+                elev_service=elevation_service,
+                haz_service=hazard_service,
+                min_elevation_gain=request.min_elevation_gain,
+                max_distance=request.max_distance,
+                transport_mode=request.transport_mode,
+            )
+        else:
+            raw_destinations = search_grid_destinations(
+                current_lat=request.lat,
+                current_lon=request.lon,
+                current_elevation=current_elevation,
+                elev_service=elevation_service,
+                haz_service=hazard_service,
+                min_elevation_gain=request.min_elevation_gain,
+                max_distance=request.max_distance,
+                transport_mode=request.transport_mode,
+            )
+
+        # レスポンス整形
+        destinations = [
+            {
+                "name": d["name"],
+                "type": d["type"],
+                "lat": d["lat"],
+                "lon": d["lon"],
+                "elevation": round(d["elevation"], 2),
+                "elevation_gain": round(d["elevation_gain"], 2),
+                "distance": round(d["distance"], 2),
+                "estimated_time_minutes": round(d["estimated_time_minutes"], 1),
+                "safety_score": round(d["safety_score"], 1),
+                "hazard_safe": d["hazard_safe"],
+            }
+            for d in raw_destinations
+        ]
+
         if not destinations:
             return {
                 "current_location": {
                     "lat": request.lat,
                     "lon": request.lon,
-                    "elevation": round(current_elevation, 2)
+                    "elevation": round(current_elevation, 2),
                 },
+                "hazard_status": hazard_status,
+                "recommended": None,
                 "destinations": [],
-                "message": "指定条件で避難目的地が見つかりませんでした"
+                "search_parameters": {
+                    "transport_mode": request.transport_mode,
+                    "max_distance": request.max_distance,
+                    "min_elevation_gain": request.min_elevation_gain,
+                },
+                "message": "指定条件で避難目的地が見つかりませんでした",
             }
-        
+
+        # 推奨候補を選定（hazard_safe=True 優先）
+        best_raw, used_hazard_safe_filter, safe_count = _select_recommended(raw_destinations)
+        # destinations はスコア降順（hazard 減点済み）のまま返す
+        recommended = {
+            "name": best_raw["name"],
+            "type": best_raw["type"],
+            "lat": best_raw["lat"],
+            "lon": best_raw["lon"],
+            "elevation": round(best_raw["elevation"], 2),
+            "elevation_gain": round(best_raw["elevation_gain"], 2),
+            "distance": round(best_raw["distance"], 2),
+            "estimated_time_minutes": round(best_raw["estimated_time_minutes"], 1),
+            "safety_score": round(best_raw["safety_score"], 1),
+            "hazard_safe": best_raw["hazard_safe"],
+            "reason": _build_reason(best_raw, used_hazard_safe_filter),
+        }
+
         return {
             "current_location": {
                 "lat": request.lat,
                 "lon": request.lon,
-                "elevation": round(current_elevation, 2)
+                "elevation": round(current_elevation, 2),
             },
-            "destinations": [
-                {
-                    "lat": d["lat"],
-                    "lon": d["lon"],
-                    "elevation": round(d["elevation"], 2),
-                    "elevation_gain": round(d["elevation_gain"], 2),
-                    "distance": round(d["distance"], 2),
-                    "estimated_time_minutes": round(d["estimated_time_minutes"], 1),
-                    "safety_score": round(d["safety_score"], 1)
-                }
-                for d in destinations
-            ],
+            "hazard_status": hazard_status,
+            "recommended": recommended,
+            "recommendation_meta": {
+                "used_hazard_safe_filter": used_hazard_safe_filter,
+                "safe_candidates_found": safe_count,
+                "total_candidates_found": len(raw_destinations),
+            },
+            "destinations": destinations,
             "search_parameters": {
                 "transport_mode": request.transport_mode,
                 "max_distance": request.max_distance,
-                "min_elevation_gain": request.min_elevation_gain
-            }
+                "min_elevation_gain": request.min_elevation_gain,
+            },
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
