@@ -60,7 +60,7 @@ GeoJSONL を生成するスクリプト。
 python scripts/normalize/filter_flood_hazard.py
 ```
 
-- 入力: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（666,833 フィーチャ）
+- 入力: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（925,958 フィーチャ）
 - 出力: `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl`（1行1Feature、GeoJSONL 形式）
 - デフォルト: rank 1〜5 すべてを含む（`--min-rank 1`）
 

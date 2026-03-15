@@ -1,6 +1,6 @@
 # OnHighGround2 VPS 運用メモ
 
-最終更新: 2026-03-15
+最終更新: 2026-03-16
 
 ---
 
@@ -194,7 +194,7 @@ curl https://api.brokendish.org/health
 {
   "status": "ok",
   "hazard_loaded": ["flood", "tsunami"],
-  "hazard_polygon_counts": { "flood": 666833, "tsunami": 33124 },
+  "hazard_polygon_counts": { "flood": 925958, "tsunami": 33124 },
   "hazard_sources": {
     "flood": ["tokyo_flood_max"],
     "tsunami": ["tsunami_tokyo"]

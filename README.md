@@ -622,7 +622,7 @@ curl http://localhost:8080/tiles/tokyo_tsunami_A40-23_13
 （`国土地理院洪水予報河川データ/A31a-24_13_10_GeoJSON/20_想定最大規模/`）
 
 `scripts/normalize/normalize_flood.py` で複数の河川別 GML/GeoJSON を結合・正規化して
-`data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（666,833 ポリゴン、東京都15河川）を生成します。
+`data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（925,958 ポリゴン、A31a 15河川 + A31b 国管理河川 2データセット）を生成します。
 
 バックエンドが参照する判定用ファイルは GeoJSONL 形式の
 `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` です。

@@ -11,7 +11,7 @@ OnHighGround2は避難ナビゲーションシステムで、以下の外部デ�
 | 標高データ | 標高計算・避難先検索 | `data_lake/validated/tokyo/dem/elevation.tif` | GeoTIFF形式の数値標高モデル |
 | 道路データ | ルート検索（運転・徒歩） | `data/kanto-260214.osm.pbf` | OpenStreetMapの PBF形式 |
 | 避難施設データ | 避難先の表示・検索 | `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` | GeoJSON形式の指定緊急避難場所 |
-| 洪水浸水想定 | ハザード判定（現在地・候補地） | `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` | GeoJSON形式（想定最大規模、約58,539ポリゴン） |
+| 洪水浸水想定 | ハザード判定（現在地・候補地） | `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` | GeoJSON形式（想定最大規模、925,958ポリゴン） |
 | 津波浸水想定 | ハザード判定（現在地・候補地） | `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` | GeoJSON形式（東京都、約33,124ポリゴン） |
 | 　避難施設データは、リポジトリ直下の 国土地理院避難所データ 配下にあります。主なCSVはここです。
 | 　国土地理院避難所データ/東京/13000_2/13000_2.csv
@@ -177,11 +177,11 @@ osrm-customize data/kanto-260214.osrm
 
 | ファイル | 用途 | 形式 | サイズ |
 | ------- | ---- | ---- | ------ |
-| `tokyo_flood_max.geojson` | フロントエンド表示（ベクタータイル生成元） | GeoJSON | 約 124 MB（666,833 ポリゴン） |
-| `tokyo_flood_check.geojsonl` | バックエンド API ハザード判定 | GeoJSONL（1行1Feature） | 約 360 MB（666,833 行） |
+| `tokyo_flood_max.geojson` | フロントエンド表示（ベクタータイル生成元） | GeoJSON | 約 477 MB（925,958 ポリゴン） |
+| `tokyo_flood_check.geojsonl` | バックエンド API ハザード判定 | GeoJSONL（1行1Feature） | 約 477 MB（925,958 行） |
 
-- **データソース**: A31a（中小河川）＋ A31b（国管理河川: 荒川等）、東京都内 15 河川
-- **バックエンドでの使用（判定用）**: `load_geojsonl()` で1行ずつストリーミング読み込みし OOM を回避。バウンディングボックス事前フィルタ＋Ray casting でポイント判定。洪水判定には約 25m のグリッドギャップ補正バッファを適用。
+- **データソース**: A31a（中小河川: 15河川）＋ A31b（国管理河川: 荒川等、2データセット）
+- **バックエンドでの使用（判定用）**: `load_geojsonl(..., bbox_only=True)` で1行ずつストリーミング読み込みし OOM を回避。洪水グリッドは矩形のため `coords` を省略して bbox のみ保持（メモリ約 360MB）。bbox 事前フィルタ＋約 25m のグリッドギャップ補正バッファでポイント判定。
 
 ### 入手方法・生成方法
 
@@ -493,4 +493,4 @@ grep evacuation.sites.path backend/app.properties
 
 ---
 
-最終更新: 2026年3月15日
+最終更新: 2026年3月16日
