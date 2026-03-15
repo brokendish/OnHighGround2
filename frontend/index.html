@@ -723,6 +723,21 @@
             background: #fff3e0;
             color: #e65100;
         }
+        .hazard-safe-badge.unknown {
+            background: #eceff1;
+            color: #546e7a;
+        }
+        /* 推奨カード内: 安全性未判定の警告ボックス */
+        .recommended-unknown-warning {
+            font-size: 12px;
+            color: #37474f;
+            background: #eceff1;
+            border-left: 3px solid #78909c;
+            padding: 6px 8px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
 
         /* ── 候補リスト拡張 ───────────────────────────── */
         .dest-name {
@@ -912,7 +927,7 @@
                 </div>
                 <div class="legend-item">
                     <div class="legend-color" style="background: #78909c;"></div>
-                    <span>避難先（ハザード情報なし）</span>
+                    <span>避難先（安全性未判定）</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-color" style="background: #4caf50; border: 3px solid #fff; box-shadow: 0 0 0 2px #4caf50;"></div>
@@ -1802,13 +1817,16 @@
 
                 const hazardLabel = dest.hazard_safe === true ? '✅ 危険区域外'
                     : dest.hazard_safe === false ? '⚠️ 危険区域内'
+                    : '❓ 安全性未判定';
+                const hazardNote = (dest.hazard_safe == null)
+                    ? '<br><span style="font-size:11px;color:#546e7a;">ハザードデータが利用できないため安全性は未判定です</span>'
                     : '';
                 const nameLabel = dest.name ? `<strong>${dest.name}</strong>` : `<strong>避難先候補 #${index + 1}</strong>`;
                 const recLabel = isRecommended ? '<br><span style="color:#e65100;font-weight:700;">⭐ 推奨避難先</span>' : '';
 
                 marker.bindPopup(`
                     ${nameLabel}${recLabel}<br>
-                    ${hazardLabel ? hazardLabel + '<br>' : ''}
+                    ${hazardLabel}${hazardNote}<br>
                     標高: ${dest.elevation.toFixed(1)} m（差: +${dest.elevation_gain.toFixed(1)} m）<br>
                     距離: ${dest.distance.toFixed(0)} m | 約${dest.estimated_time_minutes.toFixed(0)}分<br>
                     安全スコア: ${dest.safety_score.toFixed(1)}
@@ -1857,7 +1875,10 @@
                     ? '<span class="hazard-safe-badge safe">危険区域外</span>'
                     : dest.hazard_safe === false
                         ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
-                        : '';
+                        : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
+                const unknownNote = (dest.hazard_safe == null)
+                    ? '<p style="font-size:11px;color:#546e7a;margin:2px 0 0;">ハザードデータが利用できないため安全性は未判定です</p>'
+                    : '';
                 const nameText = dest.name || `候補 #${index + 1}`;
                 const typeBadge = dest.type === 'emergency_shelter'
                     ? '<span class="dest-type-badge">指定避難所</span>'
@@ -1881,6 +1902,7 @@
                         </p>
                         <p>📏 ${dest.distance.toFixed(0)}m | ⏱️ ${dest.estimated_time_minutes.toFixed(0)}分</p>
                         <p>⬆️ +${dest.elevation_gain.toFixed(1)}m（標高 ${dest.elevation.toFixed(1)}m）</p>
+                        ${unknownNote}
                         <button class="${guideBtnClass}" data-dest-index="${index}">${guideBtnText}</button>
                     </div>
                     <div class="route-guidance" data-route-guidance></div>
@@ -1944,7 +1966,12 @@
 
             const hazardBadge = rec.hazard_safe === true
                 ? '<span class="hazard-safe-badge safe">✅ 危険区域外</span>'
-                : '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>';
+                : rec.hazard_safe === false
+                    ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
+                    : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
+            const unknownWarning = (rec.hazard_safe == null)
+                ? `<div class="recommended-unknown-warning">⚠️ ハザードデータが利用できないため、この候補の安全性は未判定です。避難前に現地の状況を確認してください。</div>`
+                : '';
 
             const typeLabel = rec.type === 'emergency_shelter' ? '指定緊急避難場所'
                 : rec.type === 'safe_high_ground_candidate' ? '高台候補地点'
@@ -1970,6 +1997,7 @@
                         <span>⏱️ 約${rec.estimated_time_minutes.toFixed(0)}分</span>
                         <span>スコア: ${rec.safety_score.toFixed(1)}</span>
                     </div>
+                    ${unknownWarning}
                     ${rec.reason ? `<div class="recommended-reason">💬 ${rec.reason}</div>` : ''}
                     <button class="recommended-btn" id="recommendedRouteBtn">🚶 今すぐ案内</button>
                 </div>
