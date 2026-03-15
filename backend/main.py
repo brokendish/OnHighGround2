@@ -325,7 +325,7 @@ if FLOOD_ENABLED:
         "../data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl",
     )
     _flood_check_path = resolve_existing_path(_flood_check_path_value, legacy_candidates=[])
-    hazard_service.load_geojsonl("flood", _flood_check_path)
+    hazard_service.load_geojsonl("flood", _flood_check_path, bbox_only=True)
 else:
     logger.info("洪水ハザード判定は無効（hazard.flood.enabled=false）")
 

@@ -233,6 +233,7 @@ class HazardService:
         geojsonl_path: Path,
         min_rank_prop: str = "",
         min_rank: int = 0,
+        bbox_only: bool = False,
     ) -> None:
         """
         GeoJSONL（1行1フィーチャ）をストリーミングで読み込む。
@@ -245,6 +246,9 @@ class HazardService:
             geojsonl_path: GeoJSONL ファイルのパス（.geojsonl）
             min_rank_prop: ランクフィルタに使うプロパティ名（空文字でフィルタなし）
             min_rank:      このランク以上のフィーチャのみロード（0でフィルタなし）
+            bbox_only:     True の場合 bbox のみ保持し coords を省略する。
+                           洪水グリッド（矩形ポリゴン群）のように bbox ≒ ポリゴン形状
+                           の場合に使用してメモリを大幅に削減できる。
         """
         if not geojsonl_path.exists():
             logger.warning(
@@ -297,7 +301,10 @@ class HazardService:
                         lons = [c[0] for c in ring]
                         lats = [c[1] for c in ring]
                         bbox = (min(lats), min(lons), max(lats), max(lons))
-                        new_polygons.append({"bbox": bbox, "coords": ring})
+                        if bbox_only:
+                            new_polygons.append({"bbox": bbox})
+                        else:
+                            new_polygons.append({"bbox": bbox, "coords": ring})
 
             existing = self._polygons.get(hazard_type, [])
             existing.extend(new_polygons)
@@ -402,7 +409,11 @@ class HazardService:
             s, w, n, e = poly["bbox"]
             if not (s <= lat <= n and w <= lon <= e):
                 continue
-            if _point_in_polygon(lat, lon, poly["coords"]):
+            coords = poly.get("coords")
+            if coords is None:
+                # bbox_only モード（洪水グリッドなど矩形ポリゴン）: bbox 一致 = inside
+                return True
+            if _point_in_polygon(lat, lon, coords):
                 return True
 
         # --- 2次判定（flood のみ）: 近傍バッファ判定 ---
