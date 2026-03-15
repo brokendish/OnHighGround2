@@ -82,20 +82,26 @@ Elevation + hazard analysis
 
 Main components:
 
-Frontend
-- Map display
-- Hazard layer visualization
-- Route display
+Frontend (`frontend/index.html`)
 
-Backend
-- Route calculation API
-- Elevation analysis
-- Hazard data processing
+- Map display (Leaflet.js)
+- Hazard layer visualization (tsunami / flood — MBTiles via Martin or GeoJSON fallback)
+- Route display (Leaflet Routing Machine + OSRM)
+- Evacuation result panel: danger status, recommended destination, candidate list
 
-Data
-- DEM elevation data
-- Hazard layers
-- OSM road network
+Backend (`backend/`)
+
+- `main.py` — FastAPI server, all endpoints, shelter loading, search orchestration
+- `elevation_service.py` — DEM loading, elevation lookup, grid-based candidate search (fallback)
+- `hazard_service.py` — Hazard polygon loading (GeoJSON), point-in-polygon判定（Ray casting）
+
+Data (`data_lake/`)
+
+- DEM: `validated/tokyo/dem/elevation.tif`
+- Shelter: `normalized/tokyo/shelter/tokyo_shelter.geojson`
+- Flood hazard: `normalized/tokyo/flood/tokyo_flood_max.geojson`（58,539 polygons, 90 MB）
+- Tsunami hazard: `normalized/tokyo/tsunami/*.geojson`
+- MBTiles（frontend tile delivery）: `tiles/tokyo/`
 
 ---
 

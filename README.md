@@ -17,25 +17,35 @@
 
 - 📍 **現在地取得**: ユーザーのデバイスから現在地を取得
 - 🗻 **標高データ参照**: 基盤地図情報（数値標高モデル）から標高を取得
-- 🎯 **避難先検索**: 現在地から標高の高い安全な避難先を検索
-- 🗺️ **経路表示**: OpenStreetMapを使用して避難経路をナビゲート
+- ⚠️ **危険判定**: 現在地が洪水・津波等の危険区域内かを自動判定（hazard_status）
+- 🏃 **推奨避難先**: 危険区域外の候補を優先して最適な避難先を1件推薦（recommended + reason）
+- 🎯 **避難先候補一覧**: 指定緊急避難場所を対象に、安全スコア順で最大10件を返却
+- 🗺️ **経路表示**: OpenStreetMapを使用して避難経路をナビゲート（複数ルート候補・経路案内付き）
 - 🏫 **指定緊急避難場所表示**: 国土地理院データを地図上に重ねて表示
+- 🟡 **マーカー色分け**: 推奨候補（金）・安全候補（緑）・危険区域内候補（オレンジ）で識別
 - ⚡ **リアルタイム計算**: 距離、所要時間、安全スコアを計算
 - 📱 **レスポンシブ対応**: PC・スマホどちらでも利用可能
 
 ## システム構成
 
 ```
-evacuation-navi/
-├── backend/              # Python FastAPI バックエンド
-│   ├── main.py          # APIサーバー
-│   ├── elevation_service.py  # 標高データ処理
-│   └── requirements.txt # 依存パッケージ
-├── frontend/            # Webフロントエンド
-│   └── index.html       # メインHTML（Leaflet.js使用)
-└── data_processing/     # データ処理スクリプト
-    ├── convert_dem.py   # JPGIS → GeoTIFF変換
-    └── convert_evacuation_sites.py # 自治体避難施設データ変換
+OnHighGround2/
+├── backend/                    # Python FastAPI バックエンド
+│   ├── main.py                 # APIサーバー・全エンドポイント定義
+│   ├── elevation_service.py    # 標高データ処理（DEM読み込み・避難先グリッド探索）
+│   ├── hazard_service.py       # ハザード判定（洪水等のポリゴン内外判定）
+│   ├── app.properties          # サーバー・データパス設定
+│   └── requirements.txt        # 依存パッケージ
+├── frontend/                   # Webフロントエンド
+│   └── index.html              # メインHTML（Leaflet.js・経路案内・ハザード表示）
+├── data_lake/                  # データ基盤（raw/normalized/validated/tiles）
+│   └── normalized/tokyo/
+│       ├── flood/tokyo_flood_max.geojson   # 洪水ハザードポリゴン（backend参照）
+│       ├── shelter/tokyo_shelter.geojson   # 避難所正本（backend参照）
+│       └── tsunami/                        # 津波ハザードGeoJSON
+└── data_processing/            # データ処理スクリプト
+    ├── convert_dem.py          # JPGIS → GeoTIFF変換
+    └── convert_evacuation_sites.py
 ```
 
 ## 東京版データ基盤 v1
@@ -288,7 +298,7 @@ python -m http.server 8080
 ```
 
 #### `POST /api/evacuation`
-避難目的地を検索
+避難目的地を検索（危険判定・推奨避難先付き）
 
 **リクエストボディ:**
 ```json
@@ -309,19 +319,56 @@ python -m http.server 8080
     "lon": 139.6503,
     "elevation": 5.2
   },
+  "hazard_status": {
+    "is_danger": true,
+    "hazards": ["flood"]
+  },
+  "recommended": {
+    "name": "○○小学校体育館",
+    "type": "emergency_shelter",
+    "lat": 35.6800,
+    "lon": 139.6550,
+    "elevation": 29.2,
+    "elevation_gain": 24.0,
+    "distance": 688.9,
+    "estimated_time_minutes": 15.5,
+    "safety_score": 65.3,
+    "hazard_safe": true,
+    "reason": "危険区域外、現在地より24m高い、徒歩10分圏内、安全候補の中で最も安全性スコアが高い"
+  },
+  "recommendation_meta": {
+    "used_hazard_safe_filter": true,
+    "safe_candidates_found": 5,
+    "total_candidates_found": 8
+  },
   "destinations": [
     {
+      "name": "○○小学校体育館",
+      "type": "emergency_shelter",
       "lat": 35.6800,
       "lon": 139.6550,
-      "elevation": 18.5,
-      "elevation_gain": 13.3,
-      "distance": 850.0,
-      "estimated_time_minutes": 12.5,
-      "safety_score": 85.2
+      "elevation": 29.2,
+      "elevation_gain": 24.0,
+      "distance": 688.9,
+      "estimated_time_minutes": 15.5,
+      "safety_score": 65.3,
+      "hazard_safe": true
     }
-  ]
+  ],
+  "search_parameters": {
+    "transport_mode": "walking",
+    "max_distance": 2000.0,
+    "min_elevation_gain": 10.0
+  }
 }
 ```
+
+**スコアリングルール:**
+
+- `safety_score` = 標高差スコア（最大50pt）＋ 距離スコア（最大50pt）
+- `hazard_safe=false` の候補には **-100pt** のペナルティを適用
+- `recommended` は `hazard_safe=true` の候補の中から最高スコアを選定
+- `hazard_safe=true` が0件の場合のみ全候補から選定し、`reason` にその旨を記載
 
 #### `POST /api/elevation-profile`
 2点間の標高プロファイルを取得
@@ -366,11 +413,14 @@ python -m http.server 8080
 
 ### 避難先選定ロジックの調整
 
-`elevation_service.py` の以下のメソッドを編集：
+`backend/main.py` の以下の定数・関数を編集：
 
-- `find_evacuation_destinations()`: 検索アルゴリズム
-- `_calculate_safety_score()`: 安全スコアの計算式
-- `grid_size`: 検索グリッドの密度
+- `HAZARD_UNSAFE_PENALTY`: `hazard_safe=false` の減点値（デフォルト100）
+- `_calc_safety_score()`: 安全スコアの計算式
+- `search_shelter_destinations()`: 避難所ベースの候補検索
+- `_select_recommended()`: 推奨候補の選定ロジック
+
+ハザード判定の設定は `backend/app.properties` の `hazard.flood.path` で変更できます。
 
 ### UIのカスタマイズ
 
@@ -447,8 +497,13 @@ python -m http.server 8080
 
 - [x] 津波浸水想定区域データとの連携（MBTiles + Martin + Leaflet.VectorGrid によるタイル配信・表示）
 - [x] 洪水浸水想定区域データとの連携（東京都・想定最大規模、A31a-2024）
-- [🔵(東京のみ)] 指定避難所データベースの統合
+- [x] 指定避難所データベースの統合（東京都、shelter-based 避難先検索）
+- [x] 現在地の危険判定 API（hazard_status: flood 対応済み）
+- [x] 推奨避難先 API（recommended + reason、hazard_safe 優先ロジック）
+- [x] フロントエンドへの危険判定・推奨先表示（パネル・マーカー色分け）
+- [ ] tsunami / storm_surge / urban_flood の hazard 判定追加
 - [ ] 複数の避難経路の比較表示
+- [ ] spatial index（R-tree）によるハザード判定の高速化
 - [ ] 標高プロファイルグラフの表示
 - [ ] 音声ナビゲーション
 - [ ] 多言語対応

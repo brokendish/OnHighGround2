@@ -4,13 +4,14 @@
 
 ## 概要
 
-OnHighGround2は避難ナビゲーションシステムで、以下の3種類の外部データが必須です：
+OnHighGround2は避難ナビゲーションシステムで、以下の外部データが必要です：
 
 | データ種類 | 用途 | 格納場所 | 説明 |
 |-----------|------|---------|------|
 | 標高データ | 標高計算・避難先検索 | `data_lake/validated/tokyo/dem/elevation.tif` | GeoTIFF形式の数値標高モデル |
 | 道路データ | ルート検索（運転・徒歩） | `data/kanto-260214.osm.pbf` | OpenStreetMapの PBF形式 |
-| 避難施設データ | 避難先の表示・検索 | `data_lake/validated/tokyo/shelter/` | GeoJSON / CSV の避難場所データ |
+| 避難施設データ | 避難先の表示・検索 | `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` | GeoJSON形式の指定緊急避難場所 |
+| 洪水浸水想定 | ハザード判定（現在地・候補地） | `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` | GeoJSON形式（想定最大規模、約58,539ポリゴン） |
 | 　避難施設データは、リポジトリ直下の 国土地理院避難所データ 配下にあります。主なCSVはここです。
 | 　国土地理院避難所データ/東京/13000_2/13000_2.csv
 | 　国土地理院避難所データ/東京/13000_1/13000_1.csv
@@ -167,7 +168,33 @@ osrm-customize data/kanto-260214.osrm
 
 ---
 
-## 3. 避難施設データ
+## 3. 洪水浸水想定データ
+
+### 概要
+
+- **用途**: 現在地および避難先候補がハザードエリア内かをリアルタイム判定（`hazard_service.py`）
+- **形式**: GeoJSON（FeatureCollection、Polygon / MultiPolygon）
+- **格納場所**: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`
+- **ファイルサイズ**: 東京都版で約 90 MB（58,539 ポリゴン）
+- **バックエンドでの使用**: 起動時にメモリ展開。バウンディングボックス事前フィルタ＋Ray casting でポイント判定。
+
+### 入手方法
+
+- [国土交通省 重ねるハザードマップ（洪水浸水想定区域）](https://disaportal.gsi.go.jp/)
+- 各都道府県の治水情報サイト（東京都: [東京都建設局 洪水ハザードマップ](https://www.kensetsu.metro.tokyo.lg.jp/)）
+- GML/Shapefile 形式を GeoJSON に変換してから配置してください。
+
+### app.properties での設定
+
+```properties
+hazard.flood.path=../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
+```
+
+ファイルが存在しない場合、バックエンドは起動しますが全地点を「安全」として扱います（ログに `Hazard data not found` と出力されます）。
+
+---
+
+## 4. 避難施設データ
 
 ### 概要
 - **用途**: 指定緊急避難場所の地図表示、検索対象
@@ -259,7 +286,7 @@ evacuation.sites.path=../data_lake/validated/tokyo/shelter
 
 ---
 
-## 4. Docker起動前のチェックリスト
+## 5. Docker起動前のチェックリスト
 
 システムを起動する前に、以下のファイルが配置されていることを確認してください：
 
@@ -274,9 +301,11 @@ ls -lh data_lake/validated/tokyo/shelter/
 
 - [ ] `data_lake/validated/tokyo/dem/elevation.tif` が存在、または移行期間中は `data/elevation.tif` が存在
 - [ ] `data_lake/raw/tokyo/osm/kanto-260214.osm.pbf` が存在（整合性: 数百MB以上）
-- [ ] `data_lake/validated/tokyo/shelter/` に少なくとも1つの避難施設データがある
+- [ ] `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` が存在する
+- [ ] `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在する（任意だが推奨）
 - [ ] `backend/app.properties` の `dem.path` が `data_lake/validated/tokyo/dem` を指している
-- [ ] `backend/app.properties` の `evacuation.sites.path` が `data_lake/validated/tokyo/shelter` を指している
+- [ ] `backend/app.properties` の `evacuation.sites.path` が `data_lake/normalized/tokyo/shelter` を指している
+- [ ] `backend/app.properties` の `hazard.flood.path` が `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` を指している
 
 ### 起動コマンド
 
@@ -286,7 +315,7 @@ docker compose up -d osrm-driving osrm-walking backend frontend
 
 ---
 
-## 5. 開発環境のセットアップ（Docker不使用）
+## 6. 開発環境のセットアップ（Docker不使用）
 
 ### 必要なシステムツール
 
@@ -331,7 +360,7 @@ pip install rasterio numpy
 
 ---
 
-## 6. トラブルシューティング
+## 7. トラブルシューティング
 
 ### 「標高データが見つかりません」エラー
 
@@ -405,4 +434,4 @@ grep evacuation.sites.path backend/app.properties
 
 ---
 
-最終更新: 2026年2月15日
+最終更新: 2026年3月14日
