@@ -18,8 +18,9 @@ hazard_safe 決定ルール:
 """
 import json
 import logging
+import math
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,30 @@ def _point_in_polygon(lat: float, lon: float, ring: List[List[float]]) -> bool:
                 inside = not inside
         j = i
     return inside
+
+
+def _centroid_of_ring(ring: List[List[float]]) -> Tuple[float, float]:
+    """
+    GeoJSON 外環 [[lon, lat], ...] の算術重心 (centroid_lat, centroid_lon) を返す。
+
+    閉じたリング（最終点 == 先頭点）を想定し、重複する末尾点を除いて計算する。
+    """
+    n = len(ring) - 1  # 末尾の重複点を除く
+    if n <= 0:
+        return ring[0][1], ring[0][0]
+    centroid_lon = sum(c[0] for c in ring[:n]) / n
+    centroid_lat = sum(c[1] for c in ring[:n]) / n
+    return centroid_lat, centroid_lon
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """2点間の球面距離をメートルで返す（Haversine 公式）。"""
+    R = 6_371_000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lam = math.radians(lon2 - lon1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
 
 def derive_hazard_safe(assessment: Dict[str, HazardResult]) -> Optional[bool]:
@@ -313,6 +338,36 @@ class HazardService:
         for hazard_type in loaded:
             assessment[hazard_type] = self.check_point_assessment(lat, lon, hazard_type)
         return assessment
+
+    def get_tsunami_centroid_distance_m(
+        self, lat: float, lon: float
+    ) -> Optional[float]:
+        """
+        現在地が津波浸水想定ポリゴン内にある場合、
+        そのポリゴン重心までの距離をメートルで返す。
+
+        用途:
+            Time Margin v1 の TTI（津波到達時間）近似計算の入力。
+            距離 / 津波速度 ≈ 到達時間の近似値として使う。
+
+        採用方式（v1 案A）:
+            現在地が入っているポリゴンの算術重心を「津波の起点」とみなし、
+            そこまでの距離を TTI の入力値とする。
+            ポリゴン外縁に近いほど距離が大きく（余裕あり）、
+            重心に近いほど距離が小さい（余裕なし）という性質を持つ。
+
+        Returns:
+            float: 重心までの距離（m）。現在地がポリゴン外 / データ未ロードの場合は None。
+        """
+        polygons = self._polygons.get("tsunami", [])
+        for poly in polygons:
+            s, w, n, e = poly["bbox"]
+            if not (s <= lat <= n and w <= lon <= e):
+                continue
+            if _point_in_polygon(lat, lon, poly["coords"]):
+                centroid_lat, centroid_lon = _centroid_of_ring(poly["coords"])
+                return _haversine_m(lat, lon, centroid_lat, centroid_lon)
+        return None
 
     def check_hazards(self, lat: float, lon: float) -> Dict:
         """

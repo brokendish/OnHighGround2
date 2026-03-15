@@ -452,22 +452,88 @@ EXCLUDE_UNSAFE_CANDIDATES: bool = parse_bool(
     APP_CONFIG.get("evacuation.exclude_unsafe_candidates"), False
 )
 
+# ── Time Margin 設定 ──────────────────────────────────────────────────
+# Time Margin = 津波到達時間(TTI) - 避難所到達時間(ET)
+# v1 対象: tsunami のみ。flood は今後。
+ENABLE_TIME_MARGIN: bool = parse_bool(
+    APP_CONFIG.get("evacuation.enable_time_margin"), True
+)
+try:
+    TSUNAMI_SPEED_KMH: float = float(APP_CONFIG.get("evacuation.tsunami_speed_kmh", "30"))
+except (TypeError, ValueError):
+    TSUNAMI_SPEED_KMH = 30.0
+
+# Time Margin スコア補正値（既存の hazard_safe 補正に加算）
+TIME_MARGIN_SAFE_BONUS    =  20.0   # margin >= 5 min: 余裕あり → ボーナス
+TIME_MARGIN_TIGHT_BONUS   =   0.0   # 0 <= margin < 5 min: ギリギリ → 中立
+TIME_MARGIN_DANGER_PENALTY=  80.0   # margin < 0 min: 間に合わない → 大幅減点
+TIME_MARGIN_UNKNOWN_PENALTY=  10.0  # TTI 算定不能 → 軽微減点
+
+
+def _calc_tti_minutes(lat: float, lon: float) -> Optional[float]:
+    """
+    現在地の津波到達時間（分）を近似計算する。
+
+    計算方法（v1 案A）:
+      現在地が入っている津波ポリゴンの重心を「危険源」とみなし、
+      そこまでの距離を津波速度で割って TTI（分）を算出する。
+      ポリゴン外縁に近いほど TTI は長く（余裕あり）、
+      重心に近いほど TTI は短い（余裕なし）。
+
+    現在地が津波ポリゴン外、またはデータ未ロード / ENABLE_TIME_MARGIN=false の場合は None。
+    """
+    if not ENABLE_TIME_MARGIN:
+        return None
+    dist_m = hazard_service.get_tsunami_centroid_distance_m(lat, lon)
+    if dist_m is None:
+        return None
+    speed_m_per_min = TSUNAMI_SPEED_KMH * 1000.0 / 60.0
+    return dist_m / speed_m_per_min
+
+
+def _classify_time_margin(time_margin: Optional[float]) -> str:
+    """time_margin_minutes から time_margin_status を決定する。"""
+    if time_margin is None:
+        return "unknown"
+    if time_margin >= 5.0:
+        return "safe"
+    if time_margin >= 0.0:
+        return "tight"
+    return "danger"
+
+
+def _time_margin_score_bonus(status: str) -> float:
+    """time_margin_status からスコア補正値を返す（正 = ボーナス、負 = ペナルティ）。"""
+    if status == "safe":
+        return TIME_MARGIN_SAFE_BONUS
+    if status == "tight":
+        return TIME_MARGIN_TIGHT_BONUS
+    if status == "danger":
+        return -TIME_MARGIN_DANGER_PENALTY
+    return -TIME_MARGIN_UNKNOWN_PENALTY  # "unknown"
+
 
 def _calc_safety_score(
     elevation_gain: float,
     distance: float,
     max_distance: float,
     hazard_safe: Optional[bool],
+    time_margin_status: str = "unknown",
 ) -> float:
     """
-    安全性スコア計算 (基礎 0-100、hazard_safe に応じて減点)。
+    安全性スコア計算 (基礎 0-100、hazard_safe + time_margin に応じて補正)。
 
-    - elevation_score: 標高差が 30m 以上で満点 50pt
-    - distance_score:  距離が短いほど高スコア、max_distance で 0pt
+    - elevation_score:    標高差が 30m 以上で満点 50pt
+    - distance_score:     距離が短いほど高スコア、max_distance で 0pt
     - hazard penalty:
         True  → 0pt    (安全確定)
         None  → -20pt  (未判定)
         False → -100pt (危険確定、安全候補を必ず上位にする)
+    - time_margin bonus:
+        safe    → +20pt  (余裕あり)
+        tight   →   0pt  (ギリギリ・中立)
+        danger  → -80pt  (間に合わない)
+        unknown → -10pt  (算定不能・軽微減点)
     """
     elevation_score = min(elevation_gain / 30.0 * 50, 50)
     distance_score = max(50 - (distance / max_distance * 50), 0)
@@ -478,7 +544,8 @@ def _calc_safety_score(
         penalty = HAZARD_UNSAFE_PENALTY
     else:
         penalty = HAZARD_UNKNOWN_PENALTY
-    return base_score - penalty
+    time_bonus = _time_margin_score_bonus(time_margin_status)
+    return base_score - penalty + time_bonus
 
 
 def _select_recommended(candidates: List[Dict[str, Any]]) -> tuple:
@@ -508,7 +575,11 @@ def _select_recommended(candidates: List[Dict[str, Any]]) -> tuple:
     return best, "unsafe", 0
 
 
-def _build_reason(dest: dict, selected_tier: str) -> str:
+def _build_reason(
+    dest: dict,
+    selected_tier: str,
+    time_margin_status: str = "unknown",
+) -> str:
     """
     推奨理由の文字列を組み立てる。
 
@@ -516,9 +587,23 @@ def _build_reason(dest: dict, selected_tier: str) -> str:
       "safe"    → ハザード判定上安全な候補から選定
       "unknown" → 安全候補ゼロのため未判定候補から選定
       "unsafe"  → 安全・未判定ともにゼロのため危険区域内候補から選定（fallback）
+
+    time_margin_status:
+      "safe"    → 津波到達まで余裕あり
+      "tight"   → ギリギリ間に合う可能性、迅速な行動が必要
+      "danger"  → 現在の移動時間では間に合わない可能性
+      "unknown" → TTI 算定不能（津波ポリゴン外 or データなし）
     """
     gain = dest["elevation_gain"]
     dist = dest["distance"]
+
+    # Time margin の付記文（status ごと）
+    time_notes = {
+        "safe":    "津波到達までの余裕時間が十分ある",
+        "tight":   "到達は可能だが余裕時間は限定的、迅速な避難が必要",
+        "danger":  "現在の移動時間では津波到達に間に合わない可能性がある",
+    }
+    time_note = time_notes.get(time_margin_status)  # "unknown" → None
 
     if selected_tier == "safe":
         parts = ["危険区域外で、ハザード判定上安全な候補"]
@@ -527,6 +612,8 @@ def _build_reason(dest: dict, selected_tier: str) -> str:
         if dist <= 1000:
             parts.append("徒歩10分圏内")
         parts.append("標高差と到達性のバランスが最も良い地点")
+        if time_note:
+            parts.append(time_note)
         return "、".join(parts)
 
     if selected_tier == "unknown":
@@ -537,14 +624,19 @@ def _build_reason(dest: dict, selected_tier: str) -> str:
         if gain >= 10:
             parts.append(f"現在地より{gain:.0f}m高い")
         parts.append("利用可能なハザードデータでは判定不能のため注意が必要")
+        if time_note:
+            parts.append(time_note)
         return "、".join(parts)
 
     # selected_tier == "unsafe"
-    return (
+    base = (
         "安全候補・未判定候補が見つからなかった。"
         f"危険区域内を含む候補の中で標高差（現在地より{gain:.0f}m高い）と"
         "到達性を基準に選択した（十分な注意が必要）"
     )
+    if time_note:
+        base += f"。{time_note}"
+    return base
 
 
 def search_shelter_destinations(
@@ -557,6 +649,7 @@ def search_shelter_destinations(
     min_elevation_gain: float,
     max_distance: float,
     transport_mode: str,
+    tti_minutes: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """
     避難所ベースで避難候補を検索する。
@@ -564,8 +657,11 @@ def search_shelter_destinations(
     各避難所に対して:
     - 距離フィルタ
     - DEM から標高取得・標高差フィルタ
-    - 安全性スコア算出
-    - ハザード安全判定 (flood)
+    - 安全性スコア算出（hazard_safe + time_margin 補正）
+    - ハザード安全判定
+
+    Args:
+        tti_minutes: 現在地の津波到達時間（分）。None = 算定不能。
 
     Returns:
         安全性スコア降順で最大10件
@@ -603,13 +699,23 @@ def search_shelter_destinations(
 
         hazard_assessment = haz_service.assess_candidate(slat, slon)
         hazard_safe = derive_hazard_safe(hazard_assessment)
-        safety_score = _calc_safety_score(elevation_gain, distance, max_distance, hazard_safe)
+
+        et_minutes = _calc_estimated_time(distance, transport_mode)
+        tm_minutes = (tti_minutes - et_minutes) if tti_minutes is not None else None
+        tm_status = _classify_time_margin(tm_minutes)
+
+        safety_score = _calc_safety_score(
+            elevation_gain, distance, max_distance, hazard_safe, tm_status
+        )
 
         # 最初の3件をデバッグログに出力（判定が動いているか確認用）
         if len(candidates) < 3:
             logger.info(
-                "Candidate[%d] lat=%.5f lon=%.5f assessment=%s hazard_safe=%s score=%.1f",
-                len(candidates), slat, slon, hazard_assessment, hazard_safe, safety_score,
+                "Candidate[%d] lat=%.5f lon=%.5f assessment=%s hazard_safe=%s "
+                "tm_status=%s tm_min=%s score=%.1f",
+                len(candidates), slat, slon, hazard_assessment, hazard_safe,
+                tm_status, f"{tm_minutes:.1f}" if tm_minutes is not None else "None",
+                safety_score,
             )
 
         candidates.append({
@@ -620,10 +726,14 @@ def search_shelter_destinations(
             "elevation": shelter_elevation,
             "elevation_gain": elevation_gain,
             "distance": distance,
-            "estimated_time_minutes": _calc_estimated_time(distance, transport_mode),
+            "estimated_time_minutes": et_minutes,
             "safety_score": safety_score,
             "hazard_safe": hazard_safe,
             "hazard_assessment": hazard_assessment,
+            "time_to_impact_minutes": round(tti_minutes, 1) if tti_minutes is not None else None,
+            "evacuation_time_minutes": round(et_minutes, 1),
+            "time_margin_minutes": round(tm_minutes, 1) if tm_minutes is not None else None,
+            "time_margin_status": tm_status,
         })
 
     # 危険区域内候補除外モード（EXCLUDE_UNSAFE_CANDIDATES=true 時）
@@ -650,6 +760,7 @@ def search_grid_destinations(
     min_elevation_gain: float,
     max_distance: float,
     transport_mode: str,
+    tti_minutes: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """
     グリッド探索ベースで避難候補を検索（避難所データがない場合のフォールバック）。
@@ -668,8 +779,13 @@ def search_grid_destinations(
     for d in raw:
         hazard_assessment = haz_service.assess_candidate(d["lat"], d["lon"])
         hazard_safe = derive_hazard_safe(hazard_assessment)
+
+        et_minutes = d["estimated_time_minutes"]
+        tm_minutes = (tti_minutes - et_minutes) if tti_minutes is not None else None
+        tm_status = _classify_time_margin(tm_minutes)
+
         safety_score = _calc_safety_score(
-            d["elevation_gain"], d["distance"], max_distance, hazard_safe
+            d["elevation_gain"], d["distance"], max_distance, hazard_safe, tm_status
         )
         results.append({
             "name": "高台候補地点",
@@ -679,10 +795,14 @@ def search_grid_destinations(
             "elevation": d["elevation"],
             "elevation_gain": d["elevation_gain"],
             "distance": d["distance"],
-            "estimated_time_minutes": d["estimated_time_minutes"],
+            "estimated_time_minutes": et_minutes,
             "safety_score": safety_score,
             "hazard_safe": hazard_safe,
             "hazard_assessment": hazard_assessment,
+            "time_to_impact_minutes": round(tti_minutes, 1) if tti_minutes is not None else None,
+            "evacuation_time_minutes": round(et_minutes, 1),
+            "time_margin_minutes": round(tm_minutes, 1) if tm_minutes is not None else None,
+            "time_margin_status": tm_status,
         })
     # 危険区域内候補除外モード（EXCLUDE_UNSAFE_CANDIDATES=true 時）
     if EXCLUDE_UNSAFE_CANDIDATES:
@@ -818,6 +938,16 @@ async def find_evacuation_destinations(request: EvacuationRequest):
         # 現在地のハザード判定
         hazard_status = hazard_service.check_hazards(request.lat, request.lon)
 
+        # Time Margin: 現在地の津波到達時間を一度だけ計算（候補全件で共有）
+        tti_minutes = _calc_tti_minutes(request.lat, request.lon)
+        if tti_minutes is not None:
+            logger.info(
+                "TTI computed: lat=%.5f lon=%.5f tti=%.1f min (tsunami speed=%.0f km/h)",
+                request.lat, request.lon, tti_minutes, TSUNAMI_SPEED_KMH,
+            )
+        else:
+            logger.debug("TTI: not in tsunami polygon or data not loaded — time margin disabled")
+
         # 避難候補を検索
         # 避難所データがあれば shelter ベース、なければグリッドフォールバック
         if EMERGENCY_SHELTERS:
@@ -831,6 +961,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 min_elevation_gain=request.min_elevation_gain,
                 max_distance=request.max_distance,
                 transport_mode=request.transport_mode,
+                tti_minutes=tti_minutes,
             )
         else:
             raw_destinations = search_grid_destinations(
@@ -842,6 +973,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 min_elevation_gain=request.min_elevation_gain,
                 max_distance=request.max_distance,
                 transport_mode=request.transport_mode,
+                tti_minutes=tti_minutes,
             )
 
         # レスポンス整形
@@ -858,6 +990,11 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 "safety_score": round(d["safety_score"], 1),
                 "hazard_safe": d["hazard_safe"],
                 "hazard_assessment": d.get("hazard_assessment", {}),
+                # Time Margin フィールド（津波ポリゴン外 / データなし の場合は null）
+                "time_to_impact_minutes": d.get("time_to_impact_minutes"),
+                "evacuation_time_minutes": d.get("evacuation_time_minutes"),
+                "time_margin_minutes": d.get("time_margin_minutes"),
+                "time_margin_status": d.get("time_margin_status", "unknown"),
             }
             for d in raw_destinations
         ]
@@ -882,7 +1019,8 @@ async def find_evacuation_destinations(request: EvacuationRequest):
 
         # 推奨候補を選定（hazard_safe=True > None > False の優先順位）
         best_raw, selected_tier, safe_count = _select_recommended(raw_destinations)
-        # destinations はスコア降順（hazard 減点済み）のまま返す
+        best_tm_status = best_raw.get("time_margin_status", "unknown")
+        # destinations はスコア降順（hazard + time_margin 補正済み）のまま返す
         recommended = {
             "name": best_raw["name"],
             "type": best_raw["type"],
@@ -895,7 +1033,11 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             "safety_score": round(best_raw["safety_score"], 1),
             "hazard_safe": best_raw["hazard_safe"],
             "hazard_assessment": best_raw.get("hazard_assessment", {}),
-            "reason": _build_reason(best_raw, selected_tier),
+            "time_to_impact_minutes": best_raw.get("time_to_impact_minutes"),
+            "evacuation_time_minutes": best_raw.get("evacuation_time_minutes"),
+            "time_margin_minutes": best_raw.get("time_margin_minutes"),
+            "time_margin_status": best_tm_status,
+            "reason": _build_reason(best_raw, selected_tier, best_tm_status),
         }
 
         return {
