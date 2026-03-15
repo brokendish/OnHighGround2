@@ -973,6 +973,22 @@
                     </div>
                 </details>
                 <div class="shelter-status" id="floodStatus">洪水浸水想定レイヤー: OFF</div>
+                <details class="hazard-group">
+                    <summary class="hazard-group-summary">高潮浸水想定</summary>
+                    <label class="manual-location-toggle" for="showStormSurgeTokyo">
+                        <input type="checkbox" id="showStormSurgeTokyo">
+                        東京都
+                    </label>
+                    <div id="stormSurgeLegend" class="hazard-legend" style="display:none;">
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#b3e5fc;"></span>0.3m未満</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#4fc3f7;"></span>0.3〜0.5m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#0288d1;"></span>0.5〜1m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#01579b;"></span>1〜3m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#7b1fa2;"></span>3〜5m</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#4a148c;"></span>5m超</div>
+                    </div>
+                </details>
+                <div class="shelter-status" id="stormSurgeStatus">高潮浸水想定レイヤー: OFF</div>
                 
                 <div class="current-location" id="currentLocationInfo" style="display: none;">
                     <strong>現在地:</strong><br>
@@ -1079,6 +1095,10 @@
                 <div class="legend-item">
                     <div class="legend-color" style="background: #66bb6a; opacity: 0.5; border: 2px solid #2e7d32;"></div>
                     <span>避難可能エリア (RSA)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #0288d1; opacity: 0.5;"></div>
+                    <span>高潮浸水想定</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-line" style="border-top-color: #ff9800;"></div>
@@ -1326,6 +1346,16 @@
                 visible: false,
                 rawData: null,
                 type: 'flood'
+            },
+            storm_surge_tokyo: {
+                name: "高潮浸水想定（東京都）",
+                path: "/hazard/tokyo_storm_surge.geojson",
+                checkboxId: "showStormSurgeTokyo",
+                layer: null,
+                loaded: false,
+                visible: false,
+                rawData: null,
+                type: 'storm_surge'
             }
         };
 
@@ -1473,6 +1503,34 @@
             dashArray: '4,4'
         };
 
+        // 高潮浸水想定カラー（青紫系グラデーション、rank 1-7）
+        const STORM_SURGE_RANK_COLORS = {
+            1: '#b3e5fc',  // 0.3m未満
+            2: '#4fc3f7',  // 0.3〜0.5m
+            3: '#0288d1',  // 0.5〜1m
+            4: '#01579b',  // 1〜3m
+            5: '#7b1fa2',  // 3〜5m
+            6: '#4a148c',  // 5〜10m
+            7: '#1a0033',  // 10m以上
+        };
+        const STORM_SURGE_UNKNOWN_COLOR = '#e1f5fe';
+        const STORM_SURGE_BORDER = {
+            color: '#01579b',
+            weight: 0.4,
+            opacity: 0.35,
+            dashArray: '4,4'
+        };
+
+        function getStormSurgeFeatureStyle(feature) {
+            const rank = feature?.properties?.['storm_surge_rank'];
+            const fillColor = STORM_SURGE_RANK_COLORS[rank] || STORM_SURGE_UNKNOWN_COLOR;
+            return {
+                ...STORM_SURGE_BORDER,
+                fillColor,
+                fillOpacity: 0.38
+            };
+        }
+
         // 洪水浸水想定の GeoJSON feature スタイル（深さランクで色分け）
         function getFloodFeatureStyle(feature) {
             const rank = feature?.properties?.['A31a_205'];
@@ -1594,6 +1652,8 @@
             hazard.rawData = featureCollection;
             const styleFn = hazard.type === 'flood'
                 ? (feature) => getFloodFeatureStyle(feature)
+                : hazard.type === 'storm_surge'
+                ? (feature) => getStormSurgeFeatureStyle(feature)
                 : (feature) => getTsunamiFeatureStyle(feature, depthKey);
             hazard.layer = L.geoJSON(featureCollection, {
                 renderer: L.canvas(),
@@ -1772,6 +1832,19 @@
             } else {
                 setFloodStatus(`洪水浸水想定レイヤー: ON（${floodVisible.join(' / ')}）`);
                 if (floodLegend) floodLegend.style.display = 'block';
+            }
+
+            const stormSurgeVisible = Object.values(HAZARD_LAYERS)
+                .filter((h) => h.type === 'storm_surge' && h.visible)
+                .map((h) => h.name);
+            const stormSurgeLegend = document.getElementById('stormSurgeLegend');
+            const stormSurgeStatusEl = document.getElementById('stormSurgeStatus');
+            if (stormSurgeVisible.length === 0) {
+                if (stormSurgeStatusEl) stormSurgeStatusEl.textContent = '高潮浸水想定レイヤー: OFF';
+                if (stormSurgeLegend) stormSurgeLegend.style.display = 'none';
+            } else {
+                if (stormSurgeStatusEl) stormSurgeStatusEl.textContent = `高潮浸水想定レイヤー: ON（${stormSurgeVisible.join(' / ')}）`;
+                if (stormSurgeLegend) stormSurgeLegend.style.display = 'block';
             }
         }
 

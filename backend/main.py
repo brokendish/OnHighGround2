@@ -314,6 +314,14 @@ _flood_path = resolve_existing_path(
 )
 hazard_service.load("flood", _flood_path)
 
+# storm_surge: 高潮浸水想定区域（東京都）
+_storm_surge_path_value = APP_CONFIG.get(
+    "hazard.storm_surge.path",
+    "../data_lake/normalized/tokyo/storm_surge/tokyo_storm_surge.geojson",
+)
+_storm_surge_path = resolve_existing_path(_storm_surge_path_value, legacy_candidates=[])
+hazard_service.load("storm_surge", _storm_surge_path)
+
 # tsunami: targets 設定に従ってファイルを個別ロード
 # デフォルト: tokyo のみ（東京版 v1 標準モード）
 # 広域モード: hazard.tsunami.targets=tokyo,kanagawa,chiba
