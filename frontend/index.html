@@ -371,16 +371,24 @@
             margin: 8px 10px;
         }
 
+        /* Leaflet の .leaflet-tooltip デフォルトを上書き: 白背景・余白・枠を消す */
         .destination-number-label {
-            background: transparent;
-            border: none;
-            box-shadow: none;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
             color: #fff;
             font-size: 12px;
             font-weight: 700;
-            margin: 0;
+            line-height: 1;
             pointer-events: none;
-            text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.6);
+        }
+        /* Leaflet tooltip の矢印チップを非表示 */
+        .destination-number-label::before,
+        .destination-number-label::after {
+            display: none !important;
         }
         
         .loading {
@@ -892,7 +900,7 @@
                 </div>
                 <div class="legend-item">
                     <div class="legend-color" style="background: #ffd600; border: 2px solid #e65100;"></div>
-                    <span>推奨避難先</span>
+                    <span>推奨避難先 ⭐</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-color" style="background: #4caf50;"></div>
@@ -903,12 +911,16 @@
                     <span>避難先（危険区域内）</span>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-color" style="background: #2e7d32;"></div>
-                    <span>指定緊急避難場所</span>
+                    <div class="legend-color" style="background: #78909c;"></div>
+                    <span>避難先（ハザード情報なし）</span>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-color" style="background: #ff9800;"></div>
-                    <span>選択した避難先</span>
+                    <div class="legend-color" style="background: #4caf50; border: 3px solid #fff; box-shadow: 0 0 0 2px #4caf50;"></div>
+                    <span>案内中（白い外枠で強調）</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #2e7d32;"></div>
+                    <span>指定緊急避難場所</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-line" style="border-top-color: #ff9800;"></div>
@@ -1776,7 +1788,7 @@
                 } else if (dest.hazard_safe === false) {
                     color = '#e65100'; fillColor = '#ff9800'; radius = 9;
                 } else {
-                    color = '#f44336'; fillColor = '#f44336'; radius = 10; // 後方互換
+                    color = '#546e7a'; fillColor = '#78909c'; radius = 10; // 後方互換: hazard_safe 不明
                 }
 
                 const baseStyle = {
