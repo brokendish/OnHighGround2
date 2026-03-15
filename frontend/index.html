@@ -595,11 +595,45 @@
         }
 
         /* ── 推奨避難先カード ─────────────────────────── */
+        /* 基本（安全候補 / hazard_safe=true）: 温かみのある琥珀系 */
         .recommended-card {
             background: #fffde7;
             border: 2px solid #f9a825;
             border-radius: 10px;
             padding: 14px;
+        }
+        /* 危険候補が推奨された場合: 薄いオレンジ系で警告ニュアンス */
+        .recommended-card.unsafe {
+            background: #fff3e0;
+            border-color: #ff9800;
+            box-shadow: 0 2px 8px rgba(255,152,0,0.18);
+        }
+        /* 安全性未判定が推奨された場合: グレー系で「暫定・保留」ニュアンス */
+        .recommended-card.unknown {
+            background: #f5f5f5;
+            border-color: #90a4ae;
+            box-shadow: 0 2px 8px rgba(84,110,122,0.12);
+        }
+        /* unknown カード上での warning ボックス: 背景をやや濃くして埋もれないように */
+        .recommended-card.unknown .recommended-unknown-warning {
+            background: #e0e0e0;
+            border-left-color: #546e7a;
+        }
+        /* unknown カード上での推奨名: 少し落ち着いた色に */
+        .recommended-card.unknown .recommended-name {
+            color: #37474f;
+        }
+        /* 未判定ラベル（推奨名横の小さなバッジ） */
+        .recommended-provisional-label {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 1px 7px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            background: #90a4ae;
+            color: #fff;
+            vertical-align: middle;
         }
         .recommended-name {
             font-size: 15px;
@@ -1986,9 +2020,18 @@
                 </div>`;
             }
 
+            // カード状態クラス: 安全性に応じて見た目を分ける
+            const cardStateClass = rec.hazard_safe === true ? 'safe'
+                : rec.hazard_safe === false ? 'unsafe'
+                : 'unknown';
+            // 未判定時だけ「暫定推奨」ラベルを名前横に表示
+            const provisionalLabel = (rec.hazard_safe == null)
+                ? '<span class="recommended-provisional-label">暫定推奨</span>'
+                : '';
+
             card.innerHTML = `
-                <div class="recommended-card">
-                    <div class="recommended-name">📍 ${rec.name}</div>
+                <div class="recommended-card ${cardStateClass}">
+                    <div class="recommended-name">📍 ${rec.name}${provisionalLabel}</div>
                     <div class="recommended-type">${typeLabel} ${hazardBadge}</div>
                     <div class="recommended-stats">
                         <span>⬆️ 標高差: +${rec.elevation_gain.toFixed(1)}m</span>
