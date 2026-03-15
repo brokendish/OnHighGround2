@@ -445,6 +445,13 @@ def _calc_estimated_time(distance: float, transport_mode: str) -> float:
 HAZARD_UNSAFE_PENALTY = 100.0    # hazard_safe=False: 危険確定
 HAZARD_UNKNOWN_PENALTY = 20.0    # hazard_safe=None:  未判定（やや不利）
 
+# 危険区域内候補（hazard_safe=False）を候補一覧から完全除外するかどうか
+# false（デフォルト）: 大幅減点して残す（全候補が危険な場合の fallback を確保）
+# true: 除外（安全性を最優先。全候補が危険な場合のみ fallback として残す）
+EXCLUDE_UNSAFE_CANDIDATES: bool = parse_bool(
+    APP_CONFIG.get("evacuation.exclude_unsafe_candidates"), False
+)
+
 
 def _calc_safety_score(
     elevation_gain: float,
@@ -484,39 +491,60 @@ def _select_recommended(candidates: List[Dict[str, Any]]) -> tuple:
       3. hazard_safe=False (危険確定) → safety_score 最大  ← True/None が 0件の場合
 
     Returns:
-        (recommended_candidate, used_hazard_safe_filter: bool, safe_count: int)
+        (recommended_candidate, selected_tier: str, safe_count: int)
+        selected_tier: "safe" | "unknown" | "unsafe"
     """
     safe_candidates = [c for c in candidates if c["hazard_safe"] is True]
     if safe_candidates:
         best = max(safe_candidates, key=lambda x: x["safety_score"])
-        return best, True, len(safe_candidates)
+        return best, "safe", len(safe_candidates)
 
     unknown_candidates = [c for c in candidates if c["hazard_safe"] is None]
     if unknown_candidates:
         best = max(unknown_candidates, key=lambda x: x["safety_score"])
-        return best, False, 0
+        return best, "unknown", 0
 
     best = max(candidates, key=lambda x: x["safety_score"])
-    return best, False, 0
+    return best, "unsafe", 0
 
 
-def _build_reason(dest: dict, used_hazard_safe_filter: bool) -> str:
-    """推奨理由の文字列を組み立てる"""
-    if not used_hazard_safe_filter:
-        # すべての候補が危険区域内だった場合
-        parts = [
-            "危険区域外の候補が見つからなかったため",
-            f"到達可能な候補の中で最も条件が良い地点（現在地より{dest['elevation_gain']:.0f}m高い）を返している",
-        ]
+def _build_reason(dest: dict, selected_tier: str) -> str:
+    """
+    推奨理由の文字列を組み立てる。
+
+    selected_tier:
+      "safe"    → ハザード判定上安全な候補から選定
+      "unknown" → 安全候補ゼロのため未判定候補から選定
+      "unsafe"  → 安全・未判定ともにゼロのため危険区域内候補から選定（fallback）
+    """
+    gain = dest["elevation_gain"]
+    dist = dest["distance"]
+
+    if selected_tier == "safe":
+        parts = ["危険区域外で、ハザード判定上安全な候補"]
+        if gain >= 10:
+            parts.append(f"現在地より{gain:.0f}m高い")
+        if dist <= 1000:
+            parts.append("徒歩10分圏内")
+        parts.append("標高差と到達性のバランスが最も良い地点")
         return "、".join(parts)
 
-    parts = ["危険区域外"]
-    if dest["elevation_gain"] >= 10:
-        parts.append(f"現在地より{dest['elevation_gain']:.0f}m高い")
-    if dest["distance"] <= 1000:
-        parts.append("徒歩10分圏内")
-    parts.append("安全候補の中で最も安全性スコアが高い")
-    return "、".join(parts)
+    if selected_tier == "unknown":
+        parts = [
+            "ハザード判定で安全な候補が見つからなかった",
+            "安全性は未判定だが到達可能性と標高差が最も良い候補",
+        ]
+        if gain >= 10:
+            parts.append(f"現在地より{gain:.0f}m高い")
+        parts.append("利用可能なハザードデータでは判定不能のため注意が必要")
+        return "、".join(parts)
+
+    # selected_tier == "unsafe"
+    return (
+        "安全候補・未判定候補が見つからなかった。"
+        f"危険区域内を含む候補の中で標高差（現在地より{gain:.0f}m高い）と"
+        "到達性を基準に選択した（十分な注意が必要）"
+    )
 
 
 def search_shelter_destinations(
@@ -598,6 +626,17 @@ def search_shelter_destinations(
             "hazard_assessment": hazard_assessment,
         })
 
+    # 危険区域内候補除外モード（EXCLUDE_UNSAFE_CANDIDATES=true 時）
+    # 全候補が危険でゼロになる場合は fallback として除外せずに返す
+    if EXCLUDE_UNSAFE_CANDIDATES:
+        filtered = [c for c in candidates if c["hazard_safe"] is not False]
+        if filtered:
+            candidates = filtered
+        else:
+            logger.info(
+                "exclude_unsafe_candidates: すべての候補が危険区域内のため fallback として全件返す"
+            )
+
     candidates.sort(key=lambda x: x["safety_score"], reverse=True)
     return candidates[:10]
 
@@ -645,6 +684,16 @@ def search_grid_destinations(
             "hazard_safe": hazard_safe,
             "hazard_assessment": hazard_assessment,
         })
+    # 危険区域内候補除外モード（EXCLUDE_UNSAFE_CANDIDATES=true 時）
+    if EXCLUDE_UNSAFE_CANDIDATES:
+        filtered = [r for r in results if r["hazard_safe"] is not False]
+        if filtered:
+            results = filtered
+        else:
+            logger.info(
+                "exclude_unsafe_candidates (grid): すべての候補が危険区域内のため fallback として全件返す"
+            )
+
     results.sort(key=lambda x: x["safety_score"], reverse=True)
     return results
 
@@ -831,8 +880,8 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 "message": "指定条件で避難目的地が見つかりませんでした",
             }
 
-        # 推奨候補を選定（hazard_safe=True 優先）
-        best_raw, used_hazard_safe_filter, safe_count = _select_recommended(raw_destinations)
+        # 推奨候補を選定（hazard_safe=True > None > False の優先順位）
+        best_raw, selected_tier, safe_count = _select_recommended(raw_destinations)
         # destinations はスコア降順（hazard 減点済み）のまま返す
         recommended = {
             "name": best_raw["name"],
@@ -846,7 +895,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             "safety_score": round(best_raw["safety_score"], 1),
             "hazard_safe": best_raw["hazard_safe"],
             "hazard_assessment": best_raw.get("hazard_assessment", {}),
-            "reason": _build_reason(best_raw, used_hazard_safe_filter),
+            "reason": _build_reason(best_raw, selected_tier),
         }
 
         return {
@@ -858,9 +907,10 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             "hazard_status": hazard_status,
             "recommended": recommended,
             "recommendation_meta": {
-                "used_hazard_safe_filter": used_hazard_safe_filter,
+                "selected_tier": selected_tier,        # "safe" | "unknown" | "unsafe"
                 "safe_candidates_found": safe_count,
                 "total_candidates_found": len(raw_destinations),
+                "exclude_unsafe_candidates": EXCLUDE_UNSAFE_CANDIDATES,
             },
             "destinations": destinations,
             "search_parameters": {
