@@ -2336,18 +2336,20 @@
             } else {
                 // ハザード組み合わせ別の具体的なメッセージ
                 let mainMessage;
-                const hasFlood   = hazards.includes('flood');
-                const hasTsunami = hazards.includes('tsunami');
+                const hasFlood      = hazards.includes('flood');
+                const hasTsunami    = hazards.includes('tsunami');
+                const hasStormSurge = hazards.includes('storm_surge');
 
-                if (hasFlood && hasTsunami) {
-                    mainMessage = '現在地は洪水・津波の浸水想定区域内です';
-                } else if (hasFlood) {
-                    mainMessage = '現在地は洪水浸水想定区域内です';
-                } else if (hasTsunami) {
-                    mainMessage = '現在地は津波浸水想定区域内です';
+                const activeLabels = [];
+                if (hasFlood)      activeLabels.push('洪水');
+                if (hasTsunami)    activeLabels.push('津波');
+                if (hasStormSurge) activeLabels.push('高潮');
+
+                if (activeLabels.length > 0) {
+                    mainMessage = `現在地は${activeLabels.join('・')}の浸水想定区域内です`;
                 } else {
-                    // storm_surge / urban_flood など将来のハザード
-                    const labels = { storm_surge: '高潮', urban_flood: '内水氾濫' };
+                    // urban_flood など他のハザード
+                    const labels = { urban_flood: '内水氾濫' };
                     const names = hazards.map(h => labels[h] || h).join('・');
                     mainMessage = `現在地は${names}の浸水想定区域内です`;
                 }
