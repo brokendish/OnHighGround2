@@ -1,6 +1,6 @@
 # OnHighGround2 VPS 運用メモ
 
-最終更新: 2026-03-14
+最終更新: 2026-03-15
 
 ---
 
@@ -176,7 +176,8 @@ Docker Compose では backend に `./data_lake:/data_lake:ro` をマウントし
 
 - DEM: `data_lake/validated/tokyo/dem/elevation.tif`
 - 避難所: `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson`
-- 洪水ハザード: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（起動時にメモリ展開）
+- 洪水ハザード（表示用）: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（ベクタータイル生成元）
+- 洪水ハザード（判定用）: `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl`（GeoJSONL ストリーミング読み込み。`hazard.flood.enabled=true` で有効化）
 - 津波ハザード: `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson`（起動時にメモリ展開。`hazard.tsunami.targets=tokyo` で制御）
 
 Martin は `./data_lake/tiles:/tiles:ro` をマウントし、`/tiles/tokyo/*` 配下の MBTiles を配信します。
@@ -193,7 +194,7 @@ curl https://api.brokendish.org/health
 {
   "status": "ok",
   "hazard_loaded": ["flood", "tsunami"],
-  "hazard_polygon_counts": { "flood": 58539, "tsunami": 33124 },
+  "hazard_polygon_counts": { "flood": 666833, "tsunami": 33124 },
   "hazard_sources": {
     "flood": ["tokyo_flood_max"],
     "tsunami": ["tsunami_tokyo"]

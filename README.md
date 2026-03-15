@@ -433,7 +433,13 @@ python -m http.server 8080
 ハザード設定は `backend/app.properties` で変更できます：
 
 ```properties
-# 洪水ハザード（GeoJSON ファイルパス）
+# 洪水ハザード判定の有効化
+hazard.flood.enabled=true
+
+# 洪水ハザード判定用 GeoJSONL（ストリーミング読み込み）
+hazard.flood.check_path=../data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl
+
+# 洪水ハザード表示用 GeoJSON（フロントエンド直接参照、バックエンドは使わない）
 hazard.flood.path=../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
 
 # 津波ハザード（ディレクトリ）
@@ -523,7 +529,8 @@ hazard.tsunami.targets=tokyo
 - [x] 推奨避難先 API（recommended + reason、hazard_safe 優先ロジック）
 - [x] フロントエンドへの危険判定・推奨先表示（パネル・マーカー色分け）
 - [x] tsunami の hazard 判定追加（東京都、`hazard.tsunami.targets` で広域化可能）
-- [ ] storm_surge / urban_flood の hazard 判定追加
+- [x] storm_surge の hazard 判定追加（東京都）
+- [ ] urban_flood の hazard 判定追加
 - [ ] 複数の避難経路の比較表示
 - [ ] spatial index（R-tree）によるハザード判定の高速化
 - [ ] 標高プロファイルグラフの表示
@@ -611,8 +618,12 @@ curl http://localhost:8080/tiles/tokyo_tsunami_A40-23_13
 | --- | --- | --- |
 | 東京都 | `tokyo_flood_max` | `data_lake/tiles/tokyo/flood/tokyo_flood_max.mbtiles` |
 
-洪水データのソース: 国土地理院「洪水浸水想定区域（洪水予報河川）」A31a-2024
+洪水データのソース: 国土地理院「洪水浸水想定区域（洪水予報河川）」A31a-2024 / A31b
 （`国土地理院洪水予報河川データ/A31a-24_13_10_GeoJSON/20_想定最大規模/`）
 
-`scripts/merge_flood_geojson.py` で複数の河川別 GeoJSON を結合して
-`data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` を生成します。
+`scripts/normalize/normalize_flood.py` で複数の河川別 GML/GeoJSON を結合・正規化して
+`data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（666,833 ポリゴン、東京都15河川）を生成します。
+
+バックエンドが参照する判定用ファイルは GeoJSONL 形式の
+`data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` です。
+`scripts/normalize/filter_flood_hazard.py` で全量 GeoJSON から変換します（ストリーミング対応、OOM対策）。

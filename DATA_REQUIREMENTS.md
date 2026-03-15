@@ -173,25 +173,43 @@ osrm-customize data/kanto-260214.osrm
 
 ### 概要
 
-- **用途**: 現在地および避難先候補がハザードエリア内かをリアルタイム判定（`hazard_service.py`）
-- **形式**: GeoJSON（FeatureCollection、Polygon / MultiPolygon）
-- **格納場所**: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`
-- **ファイルサイズ**: 東京都版で約 90 MB（58,539 ポリゴン）
-- **バックエンドでの使用**: 起動時にメモリ展開。バウンディングボックス事前フィルタ＋Ray casting でポイント判定。
+洪水浸水想定データは **2種類** 存在します。用途が異なるため、両方が必要です。
 
-### 入手方法
+| ファイル | 用途 | 形式 | サイズ |
+| ------- | ---- | ---- | ------ |
+| `tokyo_flood_max.geojson` | フロントエンド表示（ベクタータイル生成元） | GeoJSON | 約 124 MB（666,833 ポリゴン） |
+| `tokyo_flood_check.geojsonl` | バックエンド API ハザード判定 | GeoJSONL（1行1Feature） | 約 360 MB（666,833 行） |
+
+- **データソース**: A31a（中小河川）＋ A31b（国管理河川: 荒川等）、東京都内 15 河川
+- **バックエンドでの使用（判定用）**: `load_geojsonl()` で1行ずつストリーミング読み込みし OOM を回避。バウンディングボックス事前フィルタ＋Ray casting でポイント判定。洪水判定には約 25m のグリッドギャップ補正バッファを適用。
+
+### 入手方法・生成方法
+
+#### 元データ取得
 
 - [国土交通省 重ねるハザードマップ（洪水浸水想定区域）](https://disaportal.gsi.go.jp/)
 - 各都道府県の治水情報サイト（東京都: [東京都建設局 洪水ハザードマップ](https://www.kensetsu.metro.tokyo.lg.jp/)）
-- GML/Shapefile 形式を GeoJSON に変換してから配置してください。
+- GML（A31a / A31b）形式を `scripts/normalize/normalize_flood.py` で GeoJSON に変換します。
+
+#### 判定用 GeoJSONL の生成
+
+`tokyo_flood_max.geojson` が用意できたら、以下で判定用 GeoJSONL を生成します:
+
+```bash
+python scripts/normalize/filter_flood_hazard.py
+```
+
+デフォルトで rank 1〜5（浸水深 0.5m 未満を含む全ランク）を出力します。
 
 ### app.properties での設定
 
 ```properties
+hazard.flood.enabled=true
+hazard.flood.check_path=../data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl
 hazard.flood.path=../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
 ```
 
-ファイルが存在しない場合、バックエンドは起動しますが全地点を「安全」として扱います（ログに `Hazard data not found` と出力されます）。
+`hazard.flood.enabled=false` または GeoJSONL ファイルが存在しない場合、バックエンドは起動しますが flood 判定は `unknown` として扱われます（データなし = 安全扱いではなく未判定）。
 
 ---
 
@@ -338,11 +356,13 @@ ls -lh data_lake/validated/tokyo/shelter/
 - [ ] `data_lake/validated/tokyo/dem/elevation.tif` が存在、または移行期間中は `data/elevation.tif` が存在
 - [ ] `data_lake/raw/tokyo/osm/kanto-260214.osm.pbf` が存在（整合性: 数百MB以上）
 - [ ] `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` が存在する
-- [ ] `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在する（任意だが推奨）
+- [ ] `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在する（フロント表示用・任意だが推奨）
+- [ ] `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` が存在する（バックエンド判定用・任意だが推奨）
 - [ ] `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` が存在する（任意だが推奨）
 - [ ] `backend/app.properties` の `dem.path` が `data_lake/validated/tokyo/dem` を指している
 - [ ] `backend/app.properties` の `evacuation.sites.path` が `data_lake/normalized/tokyo/shelter` を指している
-- [ ] `backend/app.properties` の `hazard.flood.path` が `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` を指している
+- [ ] `backend/app.properties` の `hazard.flood.enabled` が `true` になっている
+- [ ] `backend/app.properties` の `hazard.flood.check_path` が `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` を指している
 - [ ] `backend/app.properties` の `hazard.tsunami.dir` が `data_lake/normalized/tokyo/tsunami` を指している
 - [ ] `backend/app.properties` の `hazard.tsunami.targets` が目的地域（例: `tokyo`）に設定されている
 
@@ -473,4 +493,4 @@ grep evacuation.sites.path backend/app.properties
 
 ---
 
-最終更新: 2026年3月14日
+最終更新: 2026年3月15日

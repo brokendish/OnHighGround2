@@ -15,7 +15,7 @@
 
 ### 主要ディレクトリ
 
-```
+```text
 scripts/
   common/
   registry/
@@ -41,6 +41,32 @@ scripts/
 現在の最小 E2E は shelter データだけを対象にしています。
 将来的に flood, tsunami, storm_surge, urban_flood, boundary, osm を同じ責務分離で拡張する想定です。
 
+### 洪水データ処理スクリプト
+
+#### `scripts/normalize/normalize_flood.py`
+
+GML（A31a: 中小河川、A31b: 国管理河川）から GeoJSON に変換するスクリプト。
+iterparse 2パス方式で大容量 GML を低メモリで処理します。
+
+- A31a: 中小河川（従来対応）
+- A31b: 荒川・多摩川等の国管理河川（対応済み）
+
+#### `scripts/normalize/filter_flood_hazard.py`
+
+`tokyo_flood_max.geojson`（表示用・全ランク）から、バックエンド判定用の
+GeoJSONL を生成するスクリプト。
+
+```bash
+python scripts/normalize/filter_flood_hazard.py
+```
+
+- 入力: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（666,833 フィーチャ）
+- 出力: `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl`（1行1Feature、GeoJSONL 形式）
+- デフォルト: rank 1〜5 すべてを含む（`--min-rank 1`）
+
+GeoJSONL はバックエンドが `load_geojsonl()` で1行ずつストリーミング読み込みするため、
+666K ポリゴンでも OOM を起こしません。
+
 ### 移行スクリプト
 
 旧 `data/`, `tiles/`, `frontend/hazard/` から `data_lake/` へ集約するための互換移行は以下で行います。
@@ -58,21 +84,25 @@ scripts/
 ### tippecanoe のインストール
 
 **macOS (Homebrew):**
+
 ```bash
 brew install tippecanoe
 ```
 
 **Ubuntu / Debian:**
+
 ```bash
 sudo apt install tippecanoe
 ```
 
 **ソースからビルド:**
-```
+
+```text
 https://github.com/felt/tippecanoe
 ```
 
 インストール確認:
+
 ```bash
 tippecanoe --version
 ```
@@ -125,7 +155,7 @@ python scripts/build_tiles.py --dry-run
 
 ## 現在のディレクトリ構成
 
-```
+```text
 data_lake/
   validated/
     tokyo/
@@ -158,7 +188,7 @@ scripts/
 
 1. 検証済みの GeoJSON ファイルを `data_lake/validated/tokyo/<hazard>/` に配置します:
 
-   ```
+   ```text
    data_lake/validated/tokyo/flood/flood_tokyo.geojson
    ```
 
@@ -186,7 +216,7 @@ python scripts/build_tiles.py --input data/processed/hazard
 
 プロジェクトがより多くの地域・ハザード種別に対応するにつれ、推奨される長期的なレイアウトは以下の通りです:
 
-```
+```text
 data_lake/
   raw/
     tokyo/

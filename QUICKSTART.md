@@ -19,7 +19,8 @@
 | `elevation.tif` | `data_lake/validated/tokyo/dem/elevation.tif` | 国土地理院 5m DEM |
 | `kanto-*.osm.pbf` | `data/kanto-260214.osm.pbf` | OpenStreetMap 関東版 |
 | `tokyo_shelter.geojson` | `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` | 指定緊急避難場所 |
-| `tokyo_flood_max.geojson` | `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` | 洪水浸水想定（想定最大規模） |
+| `tokyo_flood_max.geojson` | `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` | 洪水浸水想定（表示用・666K ポリゴン） |
+| `tokyo_flood_check.geojsonl` | `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` | 洪水浸水想定（判定用 GeoJSONL・ストリーミング読み込み） |
 | `tsunami_tokyo.geojson` | `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` | 津波浸水想定（東京都） |
 
 ハザードデータが存在しない場合もバックエンドは起動しますが、該当ハザードの判定は `unknown` 扱いになります。
@@ -59,7 +60,8 @@ python main.py
 ```properties
 dem.path=../data_lake/validated/tokyo/dem
 evacuation.sites.path=../data_lake/normalized/tokyo/shelter
-hazard.flood.path=../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
+hazard.flood.enabled=true
+hazard.flood.check_path=../data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl
 hazard.tsunami.dir=../data_lake/normalized/tokyo/tsunami
 hazard.tsunami.targets=tokyo
 ```
@@ -190,9 +192,10 @@ curl http://localhost:8000/health
 `hazard_loaded` が `[]` なら flood/tsunami データが読み込めていません。
 `hazard_polygon_counts` でポリゴン数が 0 の場合もパスを確認してください。
 
-- flood: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在するか
+- flood（判定用）: `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` が存在するか
+- flood（表示用）: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在するか
 - tsunami: `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` が存在するか
-- `backend/app.properties` の `hazard.flood.path` / `hazard.tsunami.dir` が正しいか
+- `backend/app.properties` の `hazard.flood.enabled=true` / `hazard.flood.check_path` / `hazard.tsunami.dir` が正しいか
 
 データが存在しない場合、バックエンドは起動しますが `hazard_safe: null`（未判定）を返します。
 これは v1.2 以降の正しい挙動です（データなし = 安全扱いではなく未判定）。
@@ -212,4 +215,4 @@ curl http://localhost:8000/health
 
 詳細は `README.md` を参照してください。
 
-最終更新: 2026-03-14
+最終更新: 2026-03-15
