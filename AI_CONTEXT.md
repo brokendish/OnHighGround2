@@ -93,7 +93,10 @@ Backend (`backend/`)
 
 - `main.py` — FastAPI server, all endpoints, shelter loading, search orchestration
 - `elevation_service.py` — DEM loading, elevation lookup, grid-based candidate search (fallback)
-- `hazard_service.py` — Hazard polygon loading (GeoJSON), point-in-polygon判定（Ray casting）
+- `hazard_service.py` — Multi-hazard polygon loading (GeoJSON), point-in-polygon判定（Ray casting）
+  - `assess_candidate(lat, lon) -> Dict[str, HazardResult]` — returns per-hazard results for all loaded types
+  - `derive_hazard_safe(assessment) -> Optional[bool]` — any inside→False, all outside→True, unknown→None
+  - `HazardResult = Literal["inside", "outside", "unknown"]`
 
 Data (`data_lake/`)
 
@@ -142,6 +145,17 @@ Current implementation direction:
 - data-lake based ingestion pipeline
 - clear separation between raw, normalized, validated, and delivery artifacts
 - avoid treating missing hazard coverage as safe
+
+Currently active in backend hazard assessment:
+
+- **flood** — `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` (58,539 polygons)
+- **tsunami** — `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` (33,124 polygons, Tokyo default)
+  - Configurable via `hazard.tsunami.targets=tokyo` (CSV; extend to kanagawa, chiba for wide-area mode)
+
+Not yet active (planned):
+
+- storm_surge
+- urban_flood
 
 The current scaffold introduces:
 

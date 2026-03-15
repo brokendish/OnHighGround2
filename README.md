@@ -334,6 +334,10 @@ python -m http.server 8080
     "estimated_time_minutes": 15.5,
     "safety_score": 65.3,
     "hazard_safe": true,
+    "hazard_assessment": {
+      "flood": "outside",
+      "tsunami": "outside"
+    },
     "reason": "危険区域外、現在地より24m高い、徒歩10分圏内、安全候補の中で最も安全性スコアが高い"
   },
   "recommendation_meta": {
@@ -352,7 +356,11 @@ python -m http.server 8080
       "distance": 688.9,
       "estimated_time_minutes": 15.5,
       "safety_score": 65.3,
-      "hazard_safe": true
+      "hazard_safe": true,
+      "hazard_assessment": {
+        "flood": "outside",
+        "tsunami": "outside"
+      }
     }
   ],
   "search_parameters": {
@@ -366,9 +374,10 @@ python -m http.server 8080
 **スコアリングルール:**
 
 - `safety_score` = 標高差スコア（最大50pt）＋ 距離スコア（最大50pt）
-- `hazard_safe=false` の候補には **-100pt** のペナルティを適用
-- `recommended` は `hazard_safe=true` の候補の中から最高スコアを選定
-- `hazard_safe=true` が0件の場合のみ全候補から選定し、`reason` にその旨を記載
+- `hazard_safe=false`（ハザード圏内）の候補には **-100pt** のペナルティを適用
+- `hazard_safe=null`（ハザードデータ未ロードで未判定）の候補には **-20pt** のペナルティを適用
+- `recommended` は `hazard_safe=true` > `null` > `false` の優先順位で選定
+- `hazard_assessment` は各ハザード種別ごとの判定結果（`"inside"` / `"outside"` / `"unknown"`）を返す
 
 #### `POST /api/elevation-profile`
 2点間の標高プロファイルを取得
@@ -416,11 +425,23 @@ python -m http.server 8080
 `backend/main.py` の以下の定数・関数を編集：
 
 - `HAZARD_UNSAFE_PENALTY`: `hazard_safe=false` の減点値（デフォルト100）
+- `HAZARD_UNKNOWN_PENALTY`: `hazard_safe=null` の減点値（デフォルト20）
 - `_calc_safety_score()`: 安全スコアの計算式
 - `search_shelter_destinations()`: 避難所ベースの候補検索
 - `_select_recommended()`: 推奨候補の選定ロジック
 
-ハザード判定の設定は `backend/app.properties` の `hazard.flood.path` で変更できます。
+ハザード設定は `backend/app.properties` で変更できます：
+
+```properties
+# 洪水ハザード（GeoJSON ファイルパス）
+hazard.flood.path=../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
+
+# 津波ハザード（ディレクトリ）
+hazard.tsunami.dir=../data_lake/normalized/tokyo/tsunami
+
+# 津波ロード対象（カンマ区切り。広域: tokyo,kanagawa,chiba）
+hazard.tsunami.targets=tokyo
+```
 
 ### UIのカスタマイズ
 
@@ -501,7 +522,8 @@ python -m http.server 8080
 - [x] 現在地の危険判定 API（hazard_status: flood 対応済み）
 - [x] 推奨避難先 API（recommended + reason、hazard_safe 優先ロジック）
 - [x] フロントエンドへの危険判定・推奨先表示（パネル・マーカー色分け）
-- [ ] tsunami / storm_surge / urban_flood の hazard 判定追加
+- [x] tsunami の hazard 判定追加（東京都、`hazard.tsunami.targets` で広域化可能）
+- [ ] storm_surge / urban_flood の hazard 判定追加
 - [ ] 複数の避難経路の比較表示
 - [ ] spatial index（R-tree）によるハザード判定の高速化
 - [ ] 標高プロファイルグラフの表示

@@ -20,8 +20,10 @@
 | `kanto-*.osm.pbf` | `data/kanto-260214.osm.pbf` | OpenStreetMap 関東版 |
 | `tokyo_shelter.geojson` | `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` | 指定緊急避難場所 |
 | `tokyo_flood_max.geojson` | `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` | 洪水浸水想定（想定最大規模） |
+| `tsunami_tokyo.geojson` | `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` | 津波浸水想定（東京都） |
 
-洪水浸水想定データが存在しない場合もバックエンドは起動しますが、ハザード判定は行われません。
+ハザードデータが存在しない場合もバックエンドは起動しますが、該当ハザードの判定は `unknown` 扱いになります。
+tsunami は `app.properties` の `hazard.tsunami.targets=tokyo` で制御します（デフォルト: 東京のみ）。
 
 ### 2. Docker Compose で起動
 
@@ -35,9 +37,10 @@ docker compose up -d
 
 地図上で「現在地を設定」→「避難先を検索」を実行すると:
 
-- 現在地の洪水ハザード判定結果（危険 / 安全）が表示される
+- 現在地の洪水・津波ハザード判定結果（危険 / 安全 / 未判定）が表示される
 - ハザード安全な避難先が推奨候補として表示される
-- 色分けされたマーカーで候補地点が地図に表示される（金=推奨、緑=安全、橙=ハザード範囲内）
+- 色分けされたマーカーで候補地点が地図に表示される（金=推奨、緑=安全、橙=ハザード範囲内、グレー=未判定）
+- 候補カードおよびポップアップにハザードごとの判定根拠（`hazard_assessment`）が表示される
 
 ---
 
@@ -57,6 +60,8 @@ python main.py
 dem.path=../data_lake/validated/tokyo/dem
 evacuation.sites.path=../data_lake/normalized/tokyo/shelter
 hazard.flood.path=../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
+hazard.tsunami.dir=../data_lake/normalized/tokyo/tsunami
+hazard.tsunami.targets=tokyo
 ```
 
 動作確認:
@@ -98,18 +103,34 @@ curl -X POST http://localhost:8000/api/evacuation \
 {
   "hazard_status": {
     "is_danger": true,
-    "hazards": ["flood"]
+    "hazards": ["flood", "tsunami"]
   },
   "recommended": {
     "name": "新宿中央公園",
-    "distance_m": 850,
-    "elevation_m": 45.2,
+    "distance": 850,
+    "elevation": 45.2,
     "hazard_safe": true,
-    "reason": "洪水ハザードエリア外で、最も安全スコアが高い避難先です。"
+    "hazard_assessment": {
+      "flood": "outside",
+      "tsunami": "outside"
+    },
+    "reason": "危険区域外、現在地より24m高い、徒歩10分圏内、安全候補の中で最も安全性スコアが高い"
   },
-  "destinations": [...]
+  "destinations": [
+    {
+      "name": "新宿中央公園",
+      "hazard_safe": true,
+      "hazard_assessment": {
+        "flood": "outside",
+        "tsunami": "outside"
+      }
+    }
+  ]
 }
 ```
+
+`hazard_safe` は `true`（安全）/ `false`（危険）/ `null`（データ未ロードで未判定）の3値を返します。
+`hazard_assessment` には各ハザードの個別判定結果（`"inside"` / `"outside"` / `"unknown"`）が含まれます。
 
 ---
 
@@ -121,6 +142,7 @@ curl -X POST http://localhost:8000/api/evacuation \
 | OSM（関東） | [Geofabrik](https://download.geofabrik.de/asia/japan.html) |
 | 指定緊急避難場所 | [国土地理院 指定緊急避難場所データ](https://www.gsi.go.jp/bousaichiri/hinanbasho.html) |
 | 洪水浸水想定 | [国土交通省 重ねるハザードマップ / 各都道府県](https://disaportal.gsi.go.jp/) |
+| 津波浸水想定 | [国土数値情報（津波浸水想定 A40）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A40-2024.html) |
 
 ---
 
@@ -157,11 +179,23 @@ curl -X POST http://localhost:8000/api/evacuation \
 2. CORS設定を確認
 3. ブラウザのコンソールでエラーを確認
 
-### ハザード判定が常に「安全」になる
+### 候補がすべてグレー（安全性未判定）になる
 
-`data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在するか確認してください。
-ファイルがない場合はハザード判定をスキップして全候補を「安全」扱いにします。
-バックエンドのログに `Hazard data not found` が出ている場合はパスを確認してください。
+ハザードデータがロードできていない可能性があります。まず `/health` で確認してください。
+
+```bash
+curl http://localhost:8000/health
+```
+
+`hazard_loaded` が `[]` なら flood/tsunami データが読み込めていません。
+`hazard_polygon_counts` でポリゴン数が 0 の場合もパスを確認してください。
+
+- flood: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在するか
+- tsunami: `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` が存在するか
+- `backend/app.properties` の `hazard.flood.path` / `hazard.tsunami.dir` が正しいか
+
+データが存在しない場合、バックエンドは起動しますが `hazard_safe: null`（未判定）を返します。
+これは v1.2 以降の正しい挙動です（データなし = 安全扱いではなく未判定）。
 
 ### 避難先が見つからない / 候補が0件
 
@@ -177,3 +211,5 @@ curl -X POST http://localhost:8000/api/evacuation \
 ---
 
 詳細は `README.md` を参照してください。
+
+最終更新: 2026-03-14

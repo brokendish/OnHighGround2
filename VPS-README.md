@@ -11,6 +11,7 @@
 3. [OSRM 再構築（データ更新時）](#3-osrm-再構築データ更新時)
 4. [動作確認コマンド](#4-動作確認コマンド)
 5. [トラブルシュート](#5-トラブルシュート)
+6. [データマウント構成](#6-データマウント構成)
 
 ---
 
@@ -166,10 +167,39 @@ Caddyfile の `osrm.brokendish.org` 設定を確認する。
 curl -sSI -H "Origin: https://ohg.brokendish.org" \
   "https://osrm.brokendish.org/route/v1/walking/139.7671,35.6812;139.7600,35.6850?overview=false"
 ```
+
+---
+
+## 6. データマウント構成
+
 Docker Compose では backend に `./data_lake:/data_lake:ro` をマウントし、以下を直接参照します:
 
 - DEM: `data_lake/validated/tokyo/dem/elevation.tif`
 - 避難所: `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson`
 - 洪水ハザード: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（起動時にメモリ展開）
+- 津波ハザード: `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson`（起動時にメモリ展開。`hazard.tsunami.targets=tokyo` で制御）
 
 Martin は `./data_lake/tiles:/tiles:ro` をマウントし、`/tiles/tokyo/*` 配下の MBTiles を配信します。
+
+### バックエンド /health の確認例
+
+```bash
+curl https://api.brokendish.org/health
+```
+
+正常時のレスポンス（抜粋）:
+
+```json
+{
+  "status": "ok",
+  "hazard_loaded": ["flood", "tsunami"],
+  "hazard_polygon_counts": { "flood": 58539, "tsunami": 33124 },
+  "hazard_sources": {
+    "flood": ["tokyo_flood_max"],
+    "tsunami": ["tsunami_tokyo"]
+  },
+  "shelters_loaded": 2500
+}
+```
+
+`hazard_loaded` が空配列の場合は、ハザードデータの配置パスを確認してください。
