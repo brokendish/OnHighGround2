@@ -861,6 +861,26 @@
             text-transform: uppercase;
             letter-spacing: 0.4px;
         }
+
+        /* Time Margin: 津波到達時間と避難時間の余裕表示 */
+        .time-margin {
+            margin-top: 5px;
+            padding: 4px 7px;
+            border-radius: 4px;
+            background: #f5f5f5;
+            font-size: 11px;
+            line-height: 1.7;
+        }
+        .time-margin.safe    { border-left: 3px solid #2e7d32; }
+        .time-margin.tight   { border-left: 3px solid #f9a825; }
+        .time-margin.danger  { border-left: 3px solid #c62828; }
+        .time-margin.unknown { border-left: 3px solid #9e9e9e; }
+        .time-margin .tm-icon-label { font-weight: 700; }
+        .time-margin.safe    .tm-icon-label { color: #2e7d32; }
+        .time-margin.tight   .tm-icon-label { color: #f57f17; }
+        .time-margin.danger  .tm-icon-label { color: #c62828; }
+        .time-margin.unknown .tm-icon-label { color: #9e9e9e; }
+        .tm-detail { font-size: 10px; color: #757575; margin-top: 1px; }
     </style>
 </head>
 <body>
@@ -1975,6 +1995,65 @@
             </div>`;
         }
 
+        /**
+         * カード内 Time Margin ブロックの HTML を返す。
+         * time_margin_status が無ければ空文字列を返す（後方互換）。
+         */
+        function renderTimeMarginBlock(dest) {
+            const status = dest.time_margin_status;
+            if (!status) return '';
+
+            const tm  = dest.time_margin_minutes;
+            const tti = dest.time_to_impact_minutes;
+            const et  = dest.evacuation_time_minutes;
+
+            let iconLabel;
+            if      (status === 'safe')   iconLabel = `🟢 余裕: +${tm?.toFixed(1)}分`;
+            else if (status === 'tight')  iconLabel = `🟡 余裕: +${tm?.toFixed(1)}分`;
+            else if (status === 'danger') iconLabel = `🔴 間に合わない可能性 (${tm?.toFixed(1)}分)`;
+            else                          iconLabel = '⚪ 時間余裕: 未判定';
+
+            const detail = (tti != null && et != null)
+                ? `<div class="tm-detail">⏱ 津波到達: ${tti.toFixed(1)}分 ／ 🚶 避難時間: ${et.toFixed(1)}分</div>`
+                : '';
+
+            return `<div class="time-margin ${status}">
+                <span class="tm-icon-label">${iconLabel}</span>
+                ${detail}
+            </div>`;
+        }
+
+        /**
+         * popup 内 Time Margin ブロックの HTML を返す（インラインスタイル版）。
+         * time_margin_status が無ければ空文字列を返す（後方互換）。
+         */
+        function renderTimeMarginPopup(dest) {
+            const status = dest.time_margin_status;
+            if (!status) return '';
+
+            const tm  = dest.time_margin_minutes;
+            const tti = dest.time_to_impact_minutes;
+            const et  = dest.evacuation_time_minutes;
+
+            const colors = { safe: '#2e7d32', tight: '#f57f17', danger: '#c62828', unknown: '#9e9e9e' };
+            const color = colors[status] || '#9e9e9e';
+
+            let label;
+            if      (status === 'safe')   label = `🟢 余裕: +${tm?.toFixed(1)}分`;
+            else if (status === 'tight')  label = `🟡 余裕: +${tm?.toFixed(1)}分`;
+            else if (status === 'danger') label = `🔴 間に合わない可能性 (${tm?.toFixed(1)}分)`;
+            else                          label = '⚪ 時間余裕: 未判定';
+
+            const detail = (tti != null && et != null)
+                ? `<br><span style="font-size:10px;color:#757575;">⏱ 津波: ${tti.toFixed(1)}分 ／ 🚶 避難: ${et.toFixed(1)}分</span>`
+                : '';
+
+            return `<div style="margin-top:5px;padding-top:5px;border-top:1px solid #e0e0e0;font-size:11px;">
+                <div style="font-weight:700;color:#546e7a;font-size:10px;text-transform:uppercase;letter-spacing:0.4px;">Time Margin</div>
+                <span style="color:${color};font-weight:700;">${label}</span>${detail}
+            </div>`;
+        }
+
         function displayDestinations(dests, recommended) {
             dests.forEach((dest, index) => {
                 const isRecommended = recommended
@@ -2014,6 +2093,7 @@
                     ${nameLabel}${recLabel}<br>
                     ${hazardLabel}${hazardNote}
                     ${renderHazardAssessmentPopup(dest.hazard_assessment)}
+                    ${renderTimeMarginPopup(dest)}
                     <br>標高: ${dest.elevation.toFixed(1)} m（差: +${dest.elevation_gain.toFixed(1)} m）<br>
                     距離: ${dest.distance.toFixed(0)} m | 約${dest.estimated_time_minutes.toFixed(0)}分<br>
                     安全スコア: ${dest.safety_score.toFixed(1)}
@@ -2089,6 +2169,7 @@
                         </p>
                         <p>📏 ${dest.distance.toFixed(0)}m | ⏱️ ${dest.estimated_time_minutes.toFixed(0)}分</p>
                         <p>⬆️ +${dest.elevation_gain.toFixed(1)}m（標高 ${dest.elevation.toFixed(1)}m）</p>
+                        ${renderTimeMarginBlock(dest)}
                         ${unknownNote}
                         ${renderHazardAssessmentBlock(dest.hazard_assessment)}
                         <button class="${guideBtnClass}" data-dest-index="${index}">${guideBtnText}</button>
@@ -2188,10 +2269,11 @@
 
             let metaNote = '';
             if (meta) {
-                const filterLabel = meta.used_hazard_safe_filter ? 'あり' : 'なし（全候補が危険区域内）';
+                const tierLabels = { safe: '安全候補から選定', unknown: '未判定候補から選定', unsafe: '危険区域内（fallback）' };
+                const tierLabel = tierLabels[meta.selected_tier] || meta.selected_tier || '-';
                 metaNote = `<div class="recommendation-meta-note">
                     安全候補数: ${meta.safe_candidates_found} / ${meta.total_candidates_found} 件 ｜
-                    ハザードフィルタ: ${filterLabel}
+                    選定: ${tierLabel}
                 </div>`;
             }
 
@@ -2215,6 +2297,7 @@
                         <span>⏱️ 約${rec.estimated_time_minutes.toFixed(0)}分</span>
                         <span>スコア: ${rec.safety_score.toFixed(1)}</span>
                     </div>
+                    ${renderTimeMarginBlock(rec)}
                     ${unknownWarning}
                     ${renderHazardAssessmentBlock(rec.hazard_assessment)}
                     ${rec.reason ? `<div class="recommended-reason">💬 ${rec.reason}</div>` : ''}
