@@ -16,7 +16,7 @@ import json
 import math
 
 from elevation_service import ElevationService
-from hazard_service import HazardService
+from hazard_service import HazardService, derive_hazard_safe
 
 # 設定ファイル読み込み
 BASE_DIR = Path(__file__).resolve().parent
@@ -313,6 +313,39 @@ _flood_path = resolve_existing_path(
 )
 hazard_service.load("flood", _flood_path)
 
+# tsunami: targets 設定に従ってファイルを個別ロード
+# デフォルト: tokyo のみ（東京版 v1 標準モード）
+# 広域モード: hazard.tsunami.targets=tokyo,kanagawa,chiba
+_tsunami_dir_value = APP_CONFIG.get(
+    "hazard.tsunami.dir",
+    "../data_lake/normalized/tokyo/tsunami",
+)
+_tsunami_dir = Path(_tsunami_dir_value)
+if not _tsunami_dir.is_absolute():
+    _tsunami_dir = (BASE_DIR / _tsunami_dir).resolve()
+
+_tsunami_validated_dir = BASE_DIR.parent / "data_lake" / "validated" / "tokyo" / "tsunami"
+_tsunami_targets = parse_csv(APP_CONFIG.get("hazard.tsunami.targets", "tokyo"), ["tokyo"])
+
+logger.info("Loading tsunami hazard targets: %s", ", ".join(_tsunami_targets))
+
+for _target in _tsunami_targets:
+    _filename = f"tsunami_{_target}.geojson"
+    # validated を優先、なければ normalized にフォールバック
+    _validated_path = _tsunami_validated_dir / _filename
+    _normalized_path = _tsunami_dir / _filename
+    if _validated_path.exists():
+        logger.info("Tsunami source (validated): %s", _filename)
+        hazard_service.load("tsunami", _validated_path)
+    elif _normalized_path.exists():
+        logger.info("Tsunami source (normalized): %s", _filename)
+        hazard_service.load("tsunami", _normalized_path)
+    else:
+        logger.warning(
+            "Tsunami file not found for target '%s': checked %s and %s — skipped",
+            _target, _validated_path, _normalized_path,
+        )
+
 # APIサーバー設定
 API_HOST = APP_CONFIG.get("api.host", "0.0.0.0")
 try:
@@ -362,7 +395,8 @@ class EvacuationDestination(BaseModel):
     distance: float
     estimated_time_minutes: float
     safety_score: float
-    hazard_safe: bool
+    hazard_safe: Optional[bool]           # null = データ未ロードで判定不能
+    hazard_assessment: Optional[Dict[str, str]] = None  # {"flood": "inside"|"outside"|"unknown"}
 
 
 class HazardStatus(BaseModel):
@@ -382,7 +416,8 @@ class RecommendedDestination(BaseModel):
     distance: float
     estimated_time_minutes: float
     safety_score: float
-    hazard_safe: bool
+    hazard_safe: Optional[bool]           # null = データ未ロードで判定不能
+    hazard_assessment: Optional[Dict[str, str]] = None
     reason: str
 
 
@@ -405,28 +440,37 @@ def _calc_estimated_time(distance: float, transport_mode: str) -> float:
     return (distance / 1000.0) * time_factor * 15
 
 
-# hazard_safe=False の場合に適用するスコア減点値。
-# 基礎スコア上限が 100 点のため、-100 で確実に安全候補より下位になる。
-HAZARD_UNSAFE_PENALTY = 100.0
+# hazard_safe ごとのスコア減点値
+# 基礎スコア上限 100pt: False は確実に True 候補より下位、None は中間に置く
+HAZARD_UNSAFE_PENALTY = 100.0    # hazard_safe=False: 危険確定
+HAZARD_UNKNOWN_PENALTY = 20.0    # hazard_safe=None:  未判定（やや不利）
 
 
 def _calc_safety_score(
     elevation_gain: float,
     distance: float,
     max_distance: float,
-    hazard_safe: bool,
+    hazard_safe: Optional[bool],
 ) -> float:
     """
-    安全性スコア計算 (基礎 0-100、hazard_unsafe 時は -100 減点)。
+    安全性スコア計算 (基礎 0-100、hazard_safe に応じて減点)。
 
     - elevation_score: 標高差が 30m 以上で満点 50pt
     - distance_score:  距離が短いほど高スコア、max_distance で 0pt
-    - hazard penalty:  hazard_safe=False の場合 -100pt（安全候補を必ず上位にする）
+    - hazard penalty:
+        True  → 0pt    (安全確定)
+        None  → -20pt  (未判定)
+        False → -100pt (危険確定、安全候補を必ず上位にする)
     """
     elevation_score = min(elevation_gain / 30.0 * 50, 50)
     distance_score = max(50 - (distance / max_distance * 50), 0)
     base_score = elevation_score + distance_score
-    penalty = 0.0 if hazard_safe else HAZARD_UNSAFE_PENALTY
+    if hazard_safe is True:
+        penalty = 0.0
+    elif hazard_safe is False:
+        penalty = HAZARD_UNSAFE_PENALTY
+    else:
+        penalty = HAZARD_UNKNOWN_PENALTY
     return base_score - penalty
 
 
@@ -435,19 +479,25 @@ def _select_recommended(candidates: List[Dict[str, Any]]) -> tuple:
     推奨候補を選定する。
 
     優先順位:
-      1. hazard_safe=True の候補群の中で safety_score 最大
-      2. hazard_safe=True が 0 件の場合のみ、全候補から safety_score 最大
+      1. hazard_safe=True  (安全確定) → safety_score 最大
+      2. hazard_safe=None  (未判定)   → safety_score 最大  ← True が 0件の場合
+      3. hazard_safe=False (危険確定) → safety_score 最大  ← True/None が 0件の場合
 
     Returns:
         (recommended_candidate, used_hazard_safe_filter: bool, safe_count: int)
     """
-    safe_candidates = [c for c in candidates if c["hazard_safe"]]
+    safe_candidates = [c for c in candidates if c["hazard_safe"] is True]
     if safe_candidates:
         best = max(safe_candidates, key=lambda x: x["safety_score"])
         return best, True, len(safe_candidates)
-    else:
-        best = max(candidates, key=lambda x: x["safety_score"])
+
+    unknown_candidates = [c for c in candidates if c["hazard_safe"] is None]
+    if unknown_candidates:
+        best = max(unknown_candidates, key=lambda x: x["safety_score"])
         return best, False, 0
+
+    best = max(candidates, key=lambda x: x["safety_score"])
+    return best, False, 0
 
 
 def _build_reason(dest: dict, used_hazard_safe_filter: bool) -> str:
@@ -523,8 +573,16 @@ def search_shelter_destinations(
         if elevation_gain < min_elevation_gain:
             continue
 
-        hazard_safe = not haz_service.check_point(slat, slon, "flood")
+        hazard_assessment = haz_service.assess_candidate(slat, slon)
+        hazard_safe = derive_hazard_safe(hazard_assessment)
         safety_score = _calc_safety_score(elevation_gain, distance, max_distance, hazard_safe)
+
+        # 最初の3件をデバッグログに出力（判定が動いているか確認用）
+        if len(candidates) < 3:
+            logger.info(
+                "Candidate[%d] lat=%.5f lon=%.5f assessment=%s hazard_safe=%s score=%.1f",
+                len(candidates), slat, slon, hazard_assessment, hazard_safe, safety_score,
+            )
 
         candidates.append({
             "name": shelter["name"],
@@ -537,6 +595,7 @@ def search_shelter_destinations(
             "estimated_time_minutes": _calc_estimated_time(distance, transport_mode),
             "safety_score": safety_score,
             "hazard_safe": hazard_safe,
+            "hazard_assessment": hazard_assessment,
         })
 
     candidates.sort(key=lambda x: x["safety_score"], reverse=True)
@@ -568,7 +627,8 @@ def search_grid_destinations(
 
     results: List[Dict[str, Any]] = []
     for d in raw:
-        hazard_safe = not haz_service.check_point(d["lat"], d["lon"], "flood")
+        hazard_assessment = haz_service.assess_candidate(d["lat"], d["lon"])
+        hazard_safe = derive_hazard_safe(hazard_assessment)
         safety_score = _calc_safety_score(
             d["elevation_gain"], d["distance"], max_distance, hazard_safe
         )
@@ -583,6 +643,7 @@ def search_grid_destinations(
             "estimated_time_minutes": d["estimated_time_minutes"],
             "safety_score": safety_score,
             "hazard_safe": hazard_safe,
+            "hazard_assessment": hazard_assessment,
         })
     results.sort(key=lambda x: x["safety_score"], reverse=True)
     return results
@@ -609,10 +670,23 @@ async def root():
 async def health_check():
     """ヘルスチェック"""
     dem_loaded = elevation_service.dataset is not None
+    loaded_hazards = hazard_service.loaded_hazard_types()
+    hazard_info = {
+        ht: hazard_service.polygon_count(ht)
+        for ht in loaded_hazards
+    }
+    hazard_sources = {
+        ht: hazard_service.loaded_sources(ht)
+        for ht in loaded_hazards
+    }
     return {
         "status": "healthy" if dem_loaded else "degraded",
         "dem_loaded": dem_loaded,
-        "dem_path": str(elevation_service.dem_path)
+        "dem_path": str(elevation_service.dem_path),
+        "hazard_loaded": loaded_hazards,
+        "hazard_polygon_counts": hazard_info,
+        "hazard_sources": hazard_sources,
+        "shelters_loaded": len(EMERGENCY_SHELTERS),
     }
 
 
@@ -734,6 +808,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 "estimated_time_minutes": round(d["estimated_time_minutes"], 1),
                 "safety_score": round(d["safety_score"], 1),
                 "hazard_safe": d["hazard_safe"],
+                "hazard_assessment": d.get("hazard_assessment", {}),
             }
             for d in raw_destinations
         ]
@@ -770,6 +845,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             "estimated_time_minutes": round(best_raw["estimated_time_minutes"], 1),
             "safety_score": round(best_raw["safety_score"], 1),
             "hazard_safe": best_raw["hazard_safe"],
+            "hazard_assessment": best_raw.get("hazard_assessment", {}),
             "reason": _build_reason(best_raw, used_hazard_safe_filter),
         }
 

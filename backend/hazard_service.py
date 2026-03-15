@@ -2,15 +2,31 @@
 ハザード判定サービス
 
 現在地・候補地点がハザードエリア内かを判定する。
-v1 実装: flood (洪水浸水想定) のみ対応。
-tsunami / storm_surge / urban_flood は load() を追加するだけで拡張可能。
+v1.2 実装: multi-hazard 構造。flood をデフォルトロード。
+tsunami / storm_surge / urban_flood は load() で追加可能。
+
+判定値:
+  "inside"  : ハザードエリア内
+  "outside" : ハザードエリア外
+  "unknown" : データ未ロード（判定不能）
+
+hazard_safe 決定ルール:
+  - いずれかの hazard が "inside"      → False
+  - すべてのロード済み hazard が "outside" → True
+  - "inside" は無いが 1つ以上 "unknown"  → None
+  - ロード済み hazard が 0件             → None
 """
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Literal, Optional
 
 logger = logging.getLogger(__name__)
+
+HazardResult = Literal["inside", "outside", "unknown"]
+
+# 既知のハザードタイプ一覧（拡張時はここに追加）
+KNOWN_HAZARD_TYPES: List[str] = ["flood", "tsunami", "storm_surge", "urban_flood"]
 
 
 def _point_in_polygon(lat: float, lon: float, ring: List[List[float]]) -> bool:
@@ -32,7 +48,6 @@ def _point_in_polygon(lat: float, lon: float, ring: List[List[float]]) -> bool:
         xi, yi = ring[i][0], ring[i][1]  # lon, lat
         xj, yj = ring[j][0], ring[j][1]
         if (yi > lat) != (yj > lat):
-            # 経度の交差判定
             x_intersect = (xj - xi) * (lat - yi) / (yj - yi) + xi
             if lon < x_intersect:
                 inside = not inside
@@ -40,23 +55,64 @@ def _point_in_polygon(lat: float, lon: float, ring: List[List[float]]) -> bool:
     return inside
 
 
+def derive_hazard_safe(assessment: Dict[str, HazardResult]) -> Optional[bool]:
+    """
+    hazard_assessment dict から hazard_safe (Optional[bool]) を決定する。
+
+    ルール:
+      - いずれかが "inside"       → False
+      - 1つ以上 "unknown" がある   → None  (inside がない場合)
+      - すべて "outside"          → True
+      - assessment が空           → None  (データなし)
+
+    Args:
+        assessment: {"flood": "inside"|"outside"|"unknown", ...}
+
+    Returns:
+        True / False / None
+    """
+    if not assessment:
+        return None
+
+    values = list(assessment.values())
+
+    if "inside" in values:
+        return False
+
+    if "unknown" in values:
+        return None
+
+    # 全件 "outside"
+    return True
+
+
 class HazardService:
     """
     ハザードデータによるリスク判定サービス。
 
     各ハザードタイプごとに GeoJSON ポリゴンを保持し、
-    任意座標がハザードエリア内かを高速に判定する。
+    任意座標のハザード評価を返す。
 
     使い方:
         service = HazardService()
         service.load("flood", Path("tokyo_flood_max.geojson"))
+
+        # 現在地判定（後方互換）
         result = service.check_hazards(35.63, 139.59)
         # -> {"is_danger": True, "hazards": ["flood"]}
+
+        # 候補地点の multi-hazard 評価
+        assessment = service.assess_candidate(35.65, 139.61)
+        # -> {"flood": "outside"}
+        hazard_safe = derive_hazard_safe(assessment)
+        # -> True
     """
 
     def __init__(self) -> None:
         # hazard_type -> list of {"bbox": (s, w, n, e), "coords": [[lon, lat], ...]}
         self._polygons: Dict[str, List[dict]] = {}
+        # hazard_type -> list of loaded file stems (e.g. ["tsunami_tokyo", "tsunami_kanagawa"])
+        self._sources: Dict[str, List[str]] = {}
 
     # ------------------------------------------------------------------
     # データ読み込み
@@ -64,10 +120,12 @@ class HazardService:
 
     def load(self, hazard_type: str, geojson_path: Path) -> None:
         """
-        指定ハザードタイプの GeoJSON ポリゴンを読み込む。
+        指定ハザードタイプの GeoJSON ポリゴンを読み込む（累積式）。
+
+        同じ hazard_type に対して複数回呼び出すと、ポリゴンが累積される。
+        例: 都県別に分かれた tsunami ファイルを順次ロードできる。
 
         Polygon / MultiPolygon の外環のみを保持（穴は無視）。
-        将来の拡張: tsunami / storm_surge / urban_flood も同じ I/F で追加可能。
 
         Args:
             hazard_type: ハザードタイプ識別子 ("flood", "tsunami" など)
@@ -82,7 +140,7 @@ class HazardService:
         logger.info(
             "Loading hazard polygons: type=%s path=%s", hazard_type, geojson_path
         )
-        polygons: List[dict] = []
+        new_polygons: List[dict] = []
 
         try:
             with geojson_path.open("r", encoding="utf-8") as f:
@@ -96,11 +154,11 @@ class HazardService:
                 if geom_type == "Polygon":
                     coords = geom.get("coordinates", [])
                     if coords:
-                        outer_rings = [coords[0]]  # 外環のみ
+                        outer_rings = [coords[0]]
                 elif geom_type == "MultiPolygon":
                     for poly in geom.get("coordinates", []):
                         if poly:
-                            outer_rings.append(poly[0])  # 各ポリゴンの外環
+                            outer_rings.append(poly[0])
 
                 for ring in outer_rings:
                     if len(ring) < 3:
@@ -108,17 +166,66 @@ class HazardService:
                     lons = [c[0] for c in ring]
                     lats = [c[1] for c in ring]
                     bbox = (min(lats), min(lons), max(lats), max(lons))  # (s, w, n, e)
-                    polygons.append({"bbox": bbox, "coords": ring})
+                    new_polygons.append({"bbox": bbox, "coords": ring})
 
-            self._polygons[hazard_type] = polygons
+            # 累積: 同じハザードタイプへの複数ファイルロードをサポート
+            existing = self._polygons.get(hazard_type, [])
+            existing.extend(new_polygons)
+            self._polygons[hazard_type] = existing
+
+            # ソース追跡（/health で何をロードしたか分かるようにする）
+            existing_sources = self._sources.get(hazard_type, [])
+            existing_sources.append(geojson_path.stem)
+            self._sources[hazard_type] = existing_sources
+
             logger.info(
-                "Loaded %d polygons for hazard type '%s'", len(polygons), hazard_type
+                "Loaded %d polygons from '%s' (total for '%s': %d)",
+                len(new_polygons), geojson_path.name, hazard_type,
+                len(self._polygons[hazard_type]),
             )
 
         except Exception as e:
             logger.error(
-                "Failed to load hazard data: type=%s error=%s", hazard_type, e
+                "Failed to load hazard data: type=%s path=%s error=%s",
+                hazard_type, geojson_path, e,
             )
+
+    def load_dir(
+        self,
+        hazard_type: str,
+        dir_path: Path,
+        pattern: str = "*.geojson",
+    ) -> None:
+        """
+        ディレクトリ内のすべての GeoJSON ファイルを指定ハザードタイプとしてロードする。
+
+        複数都県に分割されたデータ（tsunami など）を一括ロードするために使用する。
+
+        Args:
+            hazard_type: ハザードタイプ識別子 ("tsunami" など)
+            dir_path: GeoJSON ファイルが格納されたディレクトリ
+            pattern: glob パターン (デフォルト "*.geojson")
+        """
+        if not dir_path.is_dir():
+            logger.warning(
+                "Hazard directory not found: type=%s dir=%s", hazard_type, dir_path
+            )
+            return
+
+        files = sorted(dir_path.glob(pattern))
+        if not files:
+            logger.warning(
+                "No files matching '%s' in hazard dir: type=%s dir=%s",
+                pattern, hazard_type, dir_path,
+            )
+            return
+
+        logger.info(
+            "Loading %d files for hazard type '%s' from %s",
+            len(files), hazard_type, dir_path,
+        )
+        for f in files:
+            self.load(hazard_type, f)
 
     # ------------------------------------------------------------------
     # 判定メソッド
@@ -128,11 +235,23 @@ class HazardService:
         """指定ハザードタイプのデータが読み込まれているか"""
         return bool(self._polygons.get(hazard_type))
 
+    def loaded_hazard_types(self) -> List[str]:
+        """ロード済みのハザードタイプ一覧"""
+        return [k for k, v in self._polygons.items() if v]
+
+    def loaded_sources(self, hazard_type: str) -> List[str]:
+        """指定ハザードタイプにロードされたファイルのステム一覧 (例: ["tsunami_tokyo"])"""
+        return list(self._sources.get(hazard_type, []))
+
+    def polygon_count(self, hazard_type: str) -> int:
+        """指定ハザードタイプのポリゴン数"""
+        return len(self._polygons.get(hazard_type, []))
+
     def check_point(self, lat: float, lon: float, hazard_type: str) -> bool:
         """
-        指定座標が特定ハザードエリア内かを判定。
+        指定座標が特定ハザードエリア内かを判定（後方互換メソッド）。
 
-        バウンディングボックスで事前フィルタリングした後、
+        バウンディングボックスで事前フィルタリング後、
         Ray casting でポリゴン内外を判定する。
 
         Args:
@@ -141,21 +260,63 @@ class HazardService:
             hazard_type: ハザードタイプ ("flood" など)
 
         Returns:
-            True = 危険エリア内
+            True = 危険エリア内 / False = 範囲外 or データ未ロード
         """
         polygons = self._polygons.get(hazard_type, [])
         for poly in polygons:
             s, w, n, e = poly["bbox"]
-            # バウンディングボックス事前フィルタ（高速）
             if not (s <= lat <= n and w <= lon <= e):
                 continue
             if _point_in_polygon(lat, lon, poly["coords"]):
                 return True
         return False
 
+    def check_point_assessment(
+        self, lat: float, lon: float, hazard_type: str
+    ) -> HazardResult:
+        """
+        指定座標の特定ハザードに対する3値評価を返す。
+
+        Args:
+            lat: 緯度
+            lon: 経度
+            hazard_type: ハザードタイプ
+
+        Returns:
+            "inside" / "outside" / "unknown"
+        """
+        if not self.is_loaded(hazard_type):
+            return "unknown"
+        return "inside" if self.check_point(lat, lon, hazard_type) else "outside"
+
+    def assess_candidate(self, lat: float, lon: float) -> Dict[str, HazardResult]:
+        """
+        候補地点の全ロード済みハザードに対する評価 dict を返す。
+
+        ロードされていないハザードタイプは "unknown" として含める。
+        現時点でロード済みタイプが 0件なら空 dict を返す。
+
+        Returns:
+            {
+                "flood": "inside" | "outside" | "unknown",
+                "tsunami": "unknown",   # 未ロード時
+                ...
+            }
+            ※ 返却される key はロード済みタイプのみ（"unknown" は含めない）
+            ※ ただし将来の拡張に備え、ロード済みタイプに対して値を保証する
+        """
+        loaded = self.loaded_hazard_types()
+        if not loaded:
+            return {}
+
+        assessment: Dict[str, HazardResult] = {}
+        for hazard_type in loaded:
+            assessment[hazard_type] = self.check_point_assessment(lat, lon, hazard_type)
+        return assessment
+
     def check_hazards(self, lat: float, lon: float) -> Dict:
         """
-        現在地に対する全ハザード判定結果を返す。
+        現在地に対する全ハザード判定結果を返す（後方互換）。
 
         Args:
             lat: 緯度

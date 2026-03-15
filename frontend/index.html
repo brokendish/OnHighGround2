@@ -684,6 +684,22 @@
             transform: translateY(-1px);
             box-shadow: 0 5px 12px rgba(230,81,0,0.4);
         }
+        .recommended-btn.unsafe {
+            background: #ef6c00;
+            box-shadow: 0 3px 8px rgba(239,108,0,0.30);
+        }
+        .recommended-btn.unsafe:hover {
+            background: #e65100;
+            box-shadow: 0 5px 12px rgba(239,108,0,0.38);
+        }
+        .recommended-btn.unknown {
+            background: #78909c;
+            box-shadow: 0 3px 8px rgba(120,144,156,0.30);
+        }
+        .recommended-btn.unknown:hover {
+            background: #546e7a;
+            box-shadow: 0 5px 12px rgba(120,144,156,0.38);
+        }
         .recommended-btn.navigating {
             background: #1565c0;
             cursor: default;
@@ -799,6 +815,51 @@
         .destination-rank.is-recommended-rank {
             background: #ffd600;
             color: #333;
+        }
+
+        /* ── hazard_assessment 詳細ブロック ─────────────────── */
+        .hazard-assessment-block {
+            margin-top: 5px;
+            padding: 5px 7px;
+            border-radius: 4px;
+            background: #f5f5f5;
+            font-size: 11px;
+            line-height: 1.7;
+        }
+        .hazard-assessment-block .ha-title {
+            font-weight: 700;
+            color: #546e7a;
+            margin-bottom: 2px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .ha-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .ha-name { color: #546e7a; min-width: 30px; }
+        .ha-value { font-weight: 600; }
+        .ha-value.inside  { color: #c62828; }
+        .ha-value.outside { color: #2e7d32; }
+        .ha-value.unknown { color: #78909c; }
+
+        /* popup 内の hazard_assessment */
+        .popup-ha-block {
+            margin-top: 5px;
+            padding-top: 5px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 11px;
+            line-height: 1.8;
+            color: #444;
+        }
+        .popup-ha-block .ha-title {
+            font-weight: 700;
+            color: #546e7a;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
         }
     </style>
 </head>
@@ -1823,6 +1884,66 @@
         });
         
         // 避難先を地図に表示
+        // ── hazard_assessment helper ──────────────────────────────
+        // 表示順: flood → tsunami → storm_surge → urban_flood → その他
+        const HAZARD_DISPLAY_ORDER = ['flood', 'tsunami', 'storm_surge', 'urban_flood'];
+
+        function getHazardLabel(key) {
+            const map = { flood: '洪水', tsunami: '津波', storm_surge: '高潮', urban_flood: '内水' };
+            return map[key] || key;
+        }
+
+        function getAssessmentValueLabel(value) {
+            const map = { inside: '危険区域内', outside: '区域外', unknown: '未判定' };
+            return map[value] || value;
+        }
+
+        /**
+         * hazard_assessment を優先順にソートした配列を返す。
+         * @param {Object|null} assessment
+         * @returns {Array<{key:string, value:string}>}
+         */
+        function sortedAssessmentEntries(assessment) {
+            if (!assessment || typeof assessment !== 'object') return [];
+            const keys = Object.keys(assessment);
+            const ordered = HAZARD_DISPLAY_ORDER.filter(k => keys.includes(k));
+            const rest = keys.filter(k => !HAZARD_DISPLAY_ORDER.includes(k)).sort();
+            return [...ordered, ...rest].map(k => ({ key: k, value: assessment[k] }));
+        }
+
+        /**
+         * カード内 hazard_assessment ブロックの HTML を返す。
+         * assessment が空またはnullなら空文字列を返す。
+         */
+        function renderHazardAssessmentBlock(assessment) {
+            const entries = sortedAssessmentEntries(assessment);
+            if (entries.length === 0) return '';
+            const rows = entries.map(({ key, value }) => `
+                <div class="ha-row">
+                    <span class="ha-name">${getHazardLabel(key)}</span>
+                    <span class="ha-value ${value}">${getAssessmentValueLabel(value)}</span>
+                </div>`).join('');
+            return `<div class="hazard-assessment-block">
+                <div class="ha-title">ハザード判定</div>
+                ${rows}
+            </div>`;
+        }
+
+        /**
+         * popup 内 hazard_assessment ブロックの HTML を返す。
+         */
+        function renderHazardAssessmentPopup(assessment) {
+            const entries = sortedAssessmentEntries(assessment);
+            if (entries.length === 0) return '';
+            const rows = entries.map(({ key, value }) =>
+                `・${getHazardLabel(key)}: <span style="font-weight:700;color:${value === 'inside' ? '#c62828' : value === 'outside' ? '#2e7d32' : '#78909c'}">${getAssessmentValueLabel(value)}</span>`
+            ).join('<br>');
+            return `<div class="popup-ha-block">
+                <div class="ha-title">ハザード判定</div>
+                ${rows}
+            </div>`;
+        }
+
         function displayDestinations(dests, recommended) {
             dests.forEach((dest, index) => {
                 const isRecommended = recommended
@@ -1860,8 +1981,9 @@
 
                 marker.bindPopup(`
                     ${nameLabel}${recLabel}<br>
-                    ${hazardLabel}${hazardNote}<br>
-                    標高: ${dest.elevation.toFixed(1)} m（差: +${dest.elevation_gain.toFixed(1)} m）<br>
+                    ${hazardLabel}${hazardNote}
+                    ${renderHazardAssessmentPopup(dest.hazard_assessment)}
+                    <br>標高: ${dest.elevation.toFixed(1)} m（差: +${dest.elevation_gain.toFixed(1)} m）<br>
                     距離: ${dest.distance.toFixed(0)} m | 約${dest.estimated_time_minutes.toFixed(0)}分<br>
                     安全スコア: ${dest.safety_score.toFixed(1)}
                 `);
@@ -1937,6 +2059,7 @@
                         <p>📏 ${dest.distance.toFixed(0)}m | ⏱️ ${dest.estimated_time_minutes.toFixed(0)}分</p>
                         <p>⬆️ +${dest.elevation_gain.toFixed(1)}m（標高 ${dest.elevation.toFixed(1)}m）</p>
                         ${unknownNote}
+                        ${renderHazardAssessmentBlock(dest.hazard_assessment)}
                         <button class="${guideBtnClass}" data-dest-index="${index}">${guideBtnText}</button>
                     </div>
                     <div class="route-guidance" data-route-guidance></div>
@@ -1962,26 +2085,47 @@
         // ── 危険判定パネル表示 ──────────────────────────────────
         function displayHazardStatus(hazardStatus) {
             const panel = document.getElementById('dangerStatusPanel');
-            if (!panel || !hazardStatus) return;
+            if (!panel) return;
 
-            const isDanger = hazardStatus.is_danger === true;
+            const hazards = hazardStatus?.hazards || [];
+            const isDanger = hazardStatus?.is_danger === true;
+
             panel.className = `danger-status-panel ${isDanger ? 'danger' : 'safe'}`;
 
-            if (isDanger) {
-                const hazardTags = (hazardStatus.hazards || [])
-                    .map(h => {
-                        const labels = { flood: '洪水', tsunami: '津波', storm_surge: '高潮', urban_flood: '内水' };
-                        return `<span class="hazard-tag">${labels[h] || h}</span>`;
-                    }).join('');
+            if (!isDanger || hazards.length === 0) {
                 panel.innerHTML = `
-                    <div class="danger-title">⚠️ 現在地は危険区域内です</div>
-                    <div>検出ハザード: ${hazardTags || '不明'}</div>
-                    <div style="margin-top:4px;font-size:12px;">直ちに避難先へ移動してください</div>
+                    <div class="danger-title">✅ 現在地はハザード区域外です</div>
+                    <div style="font-size:12px;">念のため避難先を確認しておきましょう</div>
                 `;
             } else {
+                // ハザード組み合わせ別の具体的なメッセージ
+                let mainMessage;
+                const hasFlood   = hazards.includes('flood');
+                const hasTsunami = hazards.includes('tsunami');
+
+                if (hasFlood && hasTsunami) {
+                    mainMessage = '現在地は洪水・津波の浸水想定区域内です';
+                } else if (hasFlood) {
+                    mainMessage = '現在地は洪水浸水想定区域内です';
+                } else if (hasTsunami) {
+                    mainMessage = '現在地は津波浸水想定区域内です';
+                } else {
+                    // storm_surge / urban_flood など将来のハザード
+                    const labels = { storm_surge: '高潮', urban_flood: '内水氾濫' };
+                    const names = hazards.map(h => labels[h] || h).join('・');
+                    mainMessage = `現在地は${names}の浸水想定区域内です`;
+                }
+
+                // ハザードタグ（補助情報として表示）
+                const labelMap = { flood: '洪水', tsunami: '津波', storm_surge: '高潮', urban_flood: '内水氾濫' };
+                const hazardTags = hazards
+                    .map(h => `<span class="hazard-tag">${labelMap[h] || h}</span>`)
+                    .join('');
+
                 panel.innerHTML = `
-                    <div class="danger-title">✅ 現在地は危険区域外です</div>
-                    <div style="font-size:12px;">念のため避難先を確認しておきましょう</div>
+                    <div class="danger-title">⚠️ ${mainMessage}</div>
+                    <div style="margin-top:4px;">${hazardTags}</div>
+                    <div style="margin-top:6px;font-size:12px;">直ちに避難先へ移動してください</div>
                 `;
             }
             panel.style.display = 'block';
@@ -2041,8 +2185,9 @@
                         <span>スコア: ${rec.safety_score.toFixed(1)}</span>
                     </div>
                     ${unknownWarning}
+                    ${renderHazardAssessmentBlock(rec.hazard_assessment)}
                     ${rec.reason ? `<div class="recommended-reason">💬 ${rec.reason}</div>` : ''}
-                    <button class="recommended-btn" id="recommendedRouteBtn">🚶 今すぐ案内</button>
+                    <button class="recommended-btn ${cardStateClass}" id="recommendedRouteBtn">${cardStateClass === 'unsafe' ? '⚠️ 注意して案内' : '🚶 今すぐ案内'}</button>
                 </div>
                 ${metaNote}
             `;
@@ -2110,8 +2255,18 @@
                     recBtn.textContent = '✅ 案内中';
                     recBtn.classList.add('navigating');
                 } else {
-                    recBtn.textContent = '🚶 今すぐ案内';
-                    recBtn.classList.remove('navigating');
+                    const recSafe = evacuationRecommended.hazard_safe;
+                    recBtn.classList.remove('navigating', 'safe', 'unsafe', 'unknown');
+                    if (recSafe === true) {
+                        recBtn.classList.add('safe');
+                        recBtn.textContent = '🚶 今すぐ案内';
+                    } else if (recSafe === false) {
+                        recBtn.classList.add('unsafe');
+                        recBtn.textContent = '⚠️ 注意して案内';
+                    } else {
+                        recBtn.classList.add('unknown');
+                        recBtn.textContent = '🚶 今すぐ案内';
+                    }
                 }
             }
         }
