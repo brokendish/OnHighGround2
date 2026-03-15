@@ -137,13 +137,19 @@ class HazardService:
     # 隣接格子間に小さなギャップが生じる。マップ表示（ベクタータイル）は
     # 隣接ポリゴンを結合して描画するため、格子間のギャップでも視覚的に浸水域に見える。
     # 判定時にギャップを埋めるバッファを設定する（単位: 度、約25m）。
-    FLOOD_PROXIMITY_BUFFER_DEG: float = 0.000225
+    DEFAULT_FLOOD_PROXIMITY_BUFFER_DEG: float = 0.000225
 
-    def __init__(self) -> None:
+    def __init__(self, flood_proximity_buffer_deg: Optional[float] = None) -> None:
         # hazard_type -> list of {"bbox": (s, w, n, e), "coords": [[lon, lat], ...]}
         self._polygons: Dict[str, List[dict]] = {}
         # hazard_type -> list of loaded file stems (e.g. ["tsunami_tokyo", "tsunami_kanagawa"])
         self._sources: Dict[str, List[str]] = {}
+        self._flood_proximity_buffer_deg = max(
+            0.0,
+            flood_proximity_buffer_deg
+            if flood_proximity_buffer_deg is not None
+            else self.DEFAULT_FLOOD_PROXIMITY_BUFFER_DEG,
+        )
 
     # ------------------------------------------------------------------
     # データ読み込み
@@ -406,12 +412,13 @@ class HazardService:
         # ギャップを埋めるため、bbox を FLOOD_PROXIMITY_BUFFER_DEG だけ
         # 拡張してバッファ判定を行う（1次判定でヒットしなかった場合のみ）。
         if hazard_type == "flood":
-            buf = self.FLOOD_PROXIMITY_BUFFER_DEG
-            for poly in polygons:
-                s, w, n, e = poly["bbox"]
-                if s - buf <= lat <= n + buf and w - buf <= lon <= e + buf:
-                    # 点は bbox バッファ内（厳密な polygon 外）→ 近傍と判定
-                    return True
+            buf = self._flood_proximity_buffer_deg
+            if buf > 0:
+                for poly in polygons:
+                    s, w, n, e = poly["bbox"]
+                    if s - buf <= lat <= n + buf and w - buf <= lon <= e + buf:
+                        # 点は bbox バッファ内（厳密な polygon 外）→ 近傍と判定
+                        return True
 
         return False
 

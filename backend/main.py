@@ -97,6 +97,11 @@ def resolve_existing_path(path_value: str, legacy_candidates: List[Path]) -> Pat
 
     return resolved
 
+
+def meters_to_lat_degrees(meters: float) -> float:
+    """メートルを緯度方向のおおよその度数へ変換"""
+    return meters / 111_320.0
+
 # FastAPIアプリケーション初期化
 app = FastAPI(
     title="避難ナビゲーションAPI",
@@ -302,7 +307,16 @@ SHELTER_CSV_PATHS = parse_shelter_paths(APP_CONFIG.get("evacuation.sites.path"))
 EMERGENCY_SHELTERS = load_emergency_shelters(SHELTER_CSV_PATHS)
 
 # ハザードサービスの初期化
-hazard_service = HazardService()
+try:
+    FLOOD_PROXIMITY_BUFFER_M = float(
+        APP_CONFIG.get("hazard.flood.proximity_buffer_m", "25")
+    )
+except (TypeError, ValueError):
+    FLOOD_PROXIMITY_BUFFER_M = 25.0
+
+hazard_service = HazardService(
+    flood_proximity_buffer_deg=meters_to_lat_degrees(FLOOD_PROXIMITY_BUFFER_M)
+)
 
 FLOOD_ENABLED = parse_bool(APP_CONFIG.get("hazard.flood.enabled", "false"), False)
 if FLOOD_ENABLED:
