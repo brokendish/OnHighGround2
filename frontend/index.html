@@ -1419,7 +1419,7 @@
         // 道路を見えやすくするため、境界線は控えめに
         const FLOOD_BORDER = {
             color: '#b71c1c',
-            weight: 0.8,
+            weight: 0.4,
             opacity: 0.35,
             dashArray: '4,4'
         };
@@ -1438,7 +1438,7 @@
         function getTsunamiFeatureStyle(feature, depthKey) {
             const defaultStyle = {
                 color: '#1565c0',
-                weight: 0.8,
+                weight: 0.4,
                 opacity: 0.35,
                 dashArray: '4,4',
                 fillColor: '#42a5f5',
@@ -1457,7 +1457,7 @@
 
             return {
                 color: '#1565c0',
-                weight: 0.8,
+                weight: 0.4,
                 opacity: 0.35,
                 dashArray: '4,4',
                 fillColor: getDepthColor(depthMeters),
