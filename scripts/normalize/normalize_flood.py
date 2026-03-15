@@ -3,8 +3,9 @@
 洪水浸水想定区域（想定最大規模）GML → GeoJSON 変換スクリプト
 
 入力:
-  data_lake/raw/tokyo/flood/A31a-24_13_10_GML/20_想定最大規模/*.xml
-  data_lake/raw/tokyo/flood/A31a-24_13_20_GML/20_想定最大規模/*.xml
+  data_lake/raw/tokyo/flood/A31a-24_13_10_GML/20_想定最大規模/*.xml  (A31a: 都管理河川)
+  data_lake/raw/tokyo/flood/A31a-24_13_20_GML/20_想定最大規模/*.xml  (A31a: 都管理河川)
+  data_lake/raw/tokyo/flood/A31b-24_10_5339_GML/20_想定最大規模/*.xml (A31b: 国管理河川)
 
 出力:
   data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
@@ -14,8 +15,8 @@ GML 構造:
   gml:Surface (gml:id="sfN")  → curveMember xlink:href="#cvN_M" で Curve を参照
   ksj:MaximumScale             → bounds xlink:href="#sfN" で Surface を参照
     ksj:waterDepth   : 1〜6 (浸水深ランク)
-    ksj:riverName    : 河川名
-    ksj:riverNumber  : 河川番号
+    ksj:riverName    : 河川名 (A31a のみ)
+    ksj:riverNumber  : 河川番号 (A31a のみ)
     ksj:riverManager : 管理者
 
 waterDepth → A31a_205 ランク変換（フロントエンドの色分け凡例と対応）:
@@ -28,6 +29,10 @@ waterDepth → A31a_205 ランク変換（フロントエンドの色分け凡�
 
 座標系: JGD2011 (EPSG:6668) ≈ WGS84 / EPSG:4326
         GML は (lat, lon) 順 → GeoJSON 出力は (lon, lat) 順に変換
+
+メモリ効率:
+  iterparse を使ったストリーミング解析（2パス）。
+  A31b のような 26M 行超の大容量 XML でもメモリを節約して処理可能。
 """
 
 import argparse
@@ -39,13 +44,8 @@ from typing import Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
 # XML 名前空間
-NS = {
-    'gml':   'http://schemas.opengis.net/gml/3.2.1',
-    'ksj':   'http://nlftp.mlit.go.jp/ksj/schemas/ksj-app',
-    'xlink': 'http://www.w3.org/1999/xlink',
-}
-GML  = 'http://schemas.opengis.net/gml/3.2.1'
-KSJ  = 'http://nlftp.mlit.go.jp/ksj/schemas/ksj-app'
+GML   = 'http://schemas.opengis.net/gml/3.2.1'
+KSJ   = 'http://nlftp.mlit.go.jp/ksj/schemas/ksj-app'
 XLINK = 'http://www.w3.org/1999/xlink'
 
 # waterDepth(1-6) → A31a_205(1-5) 変換
@@ -73,103 +73,179 @@ def parse_poslist(text: str) -> List[Tuple[float, float]]:
     return coords
 
 
-def extract_features_from_xml(xml_path: Path) -> List[dict]:
+def _collect_geometry(xml_path: Path) -> Tuple[
+    Dict[str, List[Tuple[float, float]]],
+    Dict[str, List[str]],
+]:
     """
-    1つの XML ファイルから GeoJSON Feature リストを抽出する。
+    パス1: iterparse で Curve と Surface の辞書を収集。
 
-    ステップ:
-      1. gml:Curve id → 座標リスト のマップを構築
-      2. gml:Surface id → Curve id リスト のマップを構築
-      3. ksj:MaximumScale を走査し Surface → Curve → 座標を解決
+    Returns:
+        curves:   {curve_id: [(lon, lat), ...]}
+        surfaces: {surface_id: [curve_id, ...]}
     """
-    t0 = time.time()
-    print(f"  解析中: {xml_path.name}", flush=True)
+    curves:   Dict[str, List[Tuple[float, float]]] = {}
+    surfaces: Dict[str, List[str]]                 = {}
 
-    tree = ET.parse(xml_path)
-    root = tree.getroot()
+    cur_curve_id:   Optional[str] = None
+    cur_surf_id:    Optional[str] = None
+    cur_surf_curves: List[str]    = []
 
-    # --- ① Curve id → 座標 ---
-    curves: Dict[str, List[Tuple[float, float]]] = {}
-    for curve in root.iter(f'{{{GML}}}Curve'):
-        gml_id = curve.get(f'{{{GML}}}id')
-        pos_el = curve.find(f'.//{{{GML}}}posList')
-        if gml_id and pos_el is not None and pos_el.text:
-            curves[gml_id] = parse_poslist(pos_el.text)
+    for event, elem in ET.iterparse(xml_path, events=('start', 'end')):
+        tag = elem.tag
 
-    # --- ② Surface id → [Curve id, ...] ---
-    surfaces: Dict[str, List[str]] = {}
-    for surface in root.iter(f'{{{GML}}}Surface'):
-        gml_id = surface.get(f'{{{GML}}}id')
-        if not gml_id:
-            continue
-        curve_ids = []
-        for member in surface.iter(f'{{{GML}}}curveMember'):
-            href = member.get(f'{{{XLINK}}}href', '')
-            if href.startswith('#'):
-                curve_ids.append(href[1:])
-        surfaces[gml_id] = curve_ids
+        if event == 'start':
+            if tag == f'{{{GML}}}Curve':
+                cur_curve_id    = elem.get(f'{{{GML}}}id')
+            elif tag == f'{{{GML}}}Surface':
+                cur_surf_id     = elem.get(f'{{{GML}}}id')
+                cur_surf_curves = []
 
-    # --- ③ MaximumScale → Feature ---
+        else:  # end
+            if tag == f'{{{GML}}}posList':
+                if cur_curve_id and elem.text:
+                    curves[cur_curve_id] = parse_poslist(elem.text)
+
+            elif tag == f'{{{GML}}}Curve':
+                cur_curve_id = None
+
+            elif tag == f'{{{GML}}}curveMember':
+                if cur_surf_id:
+                    href = elem.get(f'{{{XLINK}}}href', '')
+                    if href.startswith('#'):
+                        cur_surf_curves.append(href[1:])
+
+            elif tag == f'{{{GML}}}Surface':
+                if cur_surf_id:
+                    surfaces[cur_surf_id] = cur_surf_curves
+                cur_surf_id     = None
+                cur_surf_curves = []
+
+            elem.clear()
+
+    return curves, surfaces
+
+
+def _build_features(
+    xml_path: Path,
+    curves:   Dict[str, List[Tuple[float, float]]],
+    surfaces: Dict[str, List[str]],
+    source_tag: str,
+) -> Tuple[List[dict], int]:
+    """
+    パス2: iterparse で ksj:MaximumScale を走査し Feature を生成。
+
+    Args:
+        source_tag: ファイルの由来ラベル ('A31a' or 'A31b')
+    """
     features: List[dict] = []
     skipped = 0
 
-    for record in root.iter(f'{{{KSJ}}}MaximumScale'):
-        bounds_el = record.find(f'{{{KSJ}}}bounds')
-        if bounds_el is None:
-            skipped += 1
-            continue
+    in_ms   = False
+    ms_data: dict = {}
 
-        sf_href = bounds_el.get(f'{{{XLINK}}}href', '')
-        sf_id = sf_href.lstrip('#')
-        curve_ids = surfaces.get(sf_id)
-        if not curve_ids:
-            skipped += 1
-            continue
+    for event, elem in ET.iterparse(xml_path, events=('start', 'end')):
+        tag = elem.tag
 
-        # Curve の座標を順番に結合してポリゴンリングを構築
-        ring: List[Tuple[float, float]] = []
-        for cv_id in curve_ids:
-            coords = curves.get(cv_id, [])
-            if ring and coords and ring[-1] == coords[0]:
-                ring.extend(coords[1:])  # 重複点を除いて接続
-            else:
-                ring.extend(coords)
+        if event == 'start':
+            if tag == f'{{{KSJ}}}MaximumScale':
+                in_ms   = True
+                ms_data = {'river_name': '', 'river_number': ''}
 
-        if len(ring) < 3:
-            skipped += 1
-            continue
+        elif in_ms:
+            # --- 子要素の収集（end イベント） ---
+            if tag == f'{{{KSJ}}}bounds':
+                href = elem.get(f'{{{XLINK}}}href', '')
+                ms_data['sf_id'] = href.lstrip('#')
 
-        # 閉じたリングにする
-        if ring[0] != ring[-1]:
-            ring.append(ring[0])
+            elif tag == f'{{{KSJ}}}waterDepth':
+                ms_data['water_depth'] = (elem.text or '').strip()
 
-        depth_text = record.findtext(f'{{{KSJ}}}waterDepth', '').strip()
-        try:
-            depth_int = int(depth_text)
-        except ValueError:
-            depth_int = 0
-        rank = DEPTH_TO_RANK.get(depth_int, 1)
+            elif tag == f'{{{KSJ}}}riverName':
+                ms_data['river_name'] = (elem.text or '').strip()
 
-        river_name   = (record.findtext(f'{{{KSJ}}}riverName',   '') or '').strip()
-        river_number = (record.findtext(f'{{{KSJ}}}riverNumber', '') or '').strip()
+            elif tag == f'{{{KSJ}}}riverNumber':
+                ms_data['river_number'] = (elem.text or '').strip()
 
-        features.append({
-            "type": "Feature",
-            "properties": {
-                "A31a_205":     rank,         # 既存フロントエンドと互換
-                "flood_rank":   rank,         # 明示的エイリアス
-                "water_depth":  depth_int,    # 元の waterDepth 値
-                "river_name":   river_name,
-                "river_number": river_number,
-            },
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [[[lon, lat] for lon, lat in ring]],
-            },
-        })
+            elif tag == f'{{{KSJ}}}MaximumScale':
+                # --- Feature 生成 ---
+                sf_id     = ms_data.get('sf_id', '')
+                curve_ids = surfaces.get(sf_id)
+                if not curve_ids:
+                    skipped += 1
+                    in_ms = False
+                    elem.clear()
+                    continue
+
+                # Curve 座標を結合してポリゴンリングを構築
+                ring: List[Tuple[float, float]] = []
+                for cv_id in curve_ids:
+                    coords = curves.get(cv_id, [])
+                    if ring and coords and ring[-1] == coords[0]:
+                        ring.extend(coords[1:])
+                    else:
+                        ring.extend(coords)
+
+                if len(ring) < 3:
+                    skipped += 1
+                    in_ms = False
+                    elem.clear()
+                    continue
+
+                if ring[0] != ring[-1]:
+                    ring.append(ring[0])
+
+                try:
+                    depth_int = int(ms_data.get('water_depth', '0'))
+                except ValueError:
+                    depth_int = 0
+                rank = DEPTH_TO_RANK.get(depth_int, 1)
+
+                features.append({
+                    "type": "Feature",
+                    "properties": {
+                        "A31a_205":     rank,
+                        "flood_rank":   rank,
+                        "water_depth":  depth_int,
+                        "river_name":   ms_data['river_name'],
+                        "river_number": ms_data['river_number'],
+                        "source":       source_tag,
+                    },
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[[lon, lat] for lon, lat in ring]],
+                    },
+                })
+                in_ms = False
+
+            elem.clear()
+
+    return features, skipped
+
+
+def extract_features_from_xml(xml_path: Path) -> List[dict]:
+    """
+    1つの XML ファイルから GeoJSON Feature リストを抽出する（iterparse 2パス方式）。
+
+    パス1: gml:Curve / gml:Surface の辞書を構築
+    パス2: ksj:MaximumScale を走査し Feature を生成
+    """
+    t0 = time.time()
+    size_mb = xml_path.stat().st_size / 1024 / 1024
+    print(f"  解析中: {xml_path.name}  ({size_mb:.1f} MB)", flush=True)
+
+    # A31a / A31b を判定（source 属性として記録）
+    source_tag = 'A31b' if 'A31b' in xml_path.name else 'A31a'
+
+    # パス1
+    curves, surfaces = _collect_geometry(xml_path)
+    print(f"    Curve: {len(curves):,}  Surface: {len(surfaces):,}", flush=True)
+
+    # パス2
+    features, skipped = _build_features(xml_path, curves, surfaces, source_tag)
 
     elapsed = time.time() - t0
-    print(f"    → {len(features)} フィーチャ (スキップ: {skipped})  [{elapsed:.1f}s]", flush=True)
+    print(f"    → {len(features):,} フィーチャ (スキップ: {skipped})  [{elapsed:.1f}s]", flush=True)
     return features
 
 
@@ -179,10 +255,10 @@ def main() -> int:
     raw_dir     = Path(args.raw_dir) if Path(args.raw_dir).is_absolute() else repo_root / args.raw_dir
     output_path = Path(args.output)  if Path(args.output).is_absolute()  else repo_root / args.output
 
-    # 対象 XML ファイルを収集（20_想定最大規模 のみ）
-    xml_files = sorted(raw_dir.rglob(f"{TARGET_DIR}/A31a-20-*.xml"))
+    # 対象 XML ファイルを収集（20_想定最大規模 のみ、A31a / A31b 両対応）
+    xml_files = sorted(raw_dir.rglob(f"{TARGET_DIR}/*-20-*.xml"))
     if not xml_files:
-        print(f"エラー: 対象 XML が見つかりません: {raw_dir}/**/{TARGET_DIR}/A31a-20-*.xml",
+        print(f"エラー: 対象 XML が見つかりません: {raw_dir}/**/{TARGET_DIR}/*-20-*.xml",
               file=sys.stderr)
         return 1
 
@@ -226,12 +302,20 @@ def main() -> int:
     for r in sorted(rank_counts):
         print(f"  rank {r} ({depth_labels.get(r, '?')}): {rank_counts[r]:,} 件")
 
+    source_counts: Counter = Counter(
+        f["properties"]["source"] for f in all_features
+    )
+    print("\nソース別フィーチャ数:")
+    for src, count in sorted(source_counts.items()):
+        print(f"  {src}: {count:,} 件")
+
     river_counts: Counter = Counter(
         f["properties"]["river_name"] for f in all_features
     )
     print("\n河川別フィーチャ数:")
     for name, count in sorted(river_counts.items(), key=lambda x: -x[1]):
-        print(f"  {name}: {count:,} 件")
+        label = f"  {name}: {count:,} 件" if name else f"  (名称なし/A31b): {count:,} 件"
+        print(label)
 
     return 0
 
