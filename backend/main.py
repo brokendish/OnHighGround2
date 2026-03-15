@@ -968,6 +968,41 @@ async def get_elevation(
         raise HTTPException(status_code=500, detail="標高取得中に内部エラーが発生しました")
 
 
+@app.get("/api/hazard-check")
+async def hazard_check(
+    lat: float = Query(..., description="緯度", ge=-90, le=90),
+    lon: float = Query(..., description="経度", ge=-180, le=180),
+):
+    """
+    指定座標のハザード判定を返す（軽量・即時応答）。
+
+    避難先検索 (/api/evacuation) を行わずにハザードエリア判定だけを取得したい
+    場合（手動現在地選択など）に使用する。
+
+    Returns:
+        {
+            "lat": float,
+            "lon": float,
+            "is_danger": bool,
+            "hazards": list[str],
+            "hazard_assessment": dict[str, str]
+        }
+    """
+    try:
+        hazard_status = hazard_service.check_hazards(lat, lon)
+        hazard_assessment = hazard_service.assess_candidate(lat, lon)
+        return {
+            "lat": lat,
+            "lon": lon,
+            "is_danger": hazard_status["is_danger"],
+            "hazards": hazard_status["hazards"],
+            "hazard_assessment": hazard_assessment,
+        }
+    except Exception as e:
+        logger.error(f"ハザード判定エラー: {e}")
+        raise HTTPException(status_code=500, detail="ハザード判定中に内部エラーが発生しました")
+
+
 @app.post("/api/evacuation")
 async def find_evacuation_destinations(request: EvacuationRequest):
     """

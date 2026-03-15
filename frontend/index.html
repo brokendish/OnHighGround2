@@ -1742,6 +1742,21 @@
 
             map.setView([lat, lon], 15);
             document.getElementById('searchDestinations').disabled = false;
+
+            // ハザード判定を取得して即時表示
+            try {
+                const hazardRes = await apiFetch(`/hazard-check?lat=${lat}&lon=${lon}`);
+                if (hazardRes.ok) {
+                    const hazardData = await hazardRes.json();
+                    displayHazardStatus({
+                        is_danger: hazardData.is_danger,
+                        hazards: hazardData.hazards,
+                    });
+                }
+            } catch (e) {
+                // ハザード判定失敗は非致命的 — サイレントに無視
+                console.warn('ハザード判定取得エラー:', e);
+            }
         }
 
         async function hazardDataExists(path) {
