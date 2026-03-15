@@ -1407,18 +1407,42 @@
 
         // 洪水浸水想定 A31a_205 ランク（1〜5）→ 表示色
         // 1: 0.5m未満 / 2: 0.5〜3m / 3: 3〜5m / 4: 5〜10m / 5: 10m以上
+        // 凡例（#floodLegend）と同一の色定義を使用すること
+        const FLOOD_RANK_COLORS = { 1: '#ffe082', 2: '#ffca28', 3: '#ff8f00', 4: '#f4511e', 5: '#b71c1c' };
+        const FLOOD_UNKNOWN_COLOR = '#ffe0b2';  // 深さ不明時のフォールバック（薄いオレンジ）
+
         function getFloodRankColor(rank) {
-            const colors = { 1: '#ffe082', 2: '#ffca28', 3: '#ff8f00', 4: '#f4511e', 5: '#b71c1c' };
-            return colors[rank] || '#f44336';
+            return FLOOD_RANK_COLORS[rank] || FLOOD_UNKNOWN_COLOR;
+        }
+
+        // 洪水ポリゴン境界線スタイル（細線・半透明）
+        // 道路を見えやすくするため、境界線は控えめに
+        const FLOOD_BORDER = {
+            color: '#b71c1c',
+            weight: 0.8,
+            opacity: 0.35,
+            dashArray: '4,4'
+        };
+
+        // 洪水浸水想定の GeoJSON feature スタイル（深さランクで色分け）
+        function getFloodFeatureStyle(feature) {
+            const rank = feature?.properties?.['A31a_205'];
+            const fillColor = getFloodRankColor(rank);
+            return {
+                ...FLOOD_BORDER,
+                fillColor,
+                fillOpacity: 0.38
+            };
         }
 
         function getTsunamiFeatureStyle(feature, depthKey) {
             const defaultStyle = {
-                color: '#b71c1c',
-                weight: 1,
-                opacity: 0.9,
-                fillColor: '#f44336',
-                fillOpacity: 0.35
+                color: '#1565c0',
+                weight: 0.8,
+                opacity: 0.35,
+                dashArray: '4,4',
+                fillColor: '#42a5f5',
+                fillOpacity: 0.32
             };
 
             if (!depthKey) {
@@ -1432,11 +1456,12 @@
             }
 
             return {
-                color: '#8e0000',
-                weight: 1,
-                opacity: 0.9,
+                color: '#1565c0',
+                weight: 0.8,
+                opacity: 0.35,
+                dashArray: '4,4',
                 fillColor: getDepthColor(depthMeters),
-                fillOpacity: 0.42
+                fillOpacity: 0.38
             };
         }
 
@@ -1452,9 +1477,11 @@
 
         // Martin ベクタータイル用の L.vectorGrid.protobuf レイヤーを生成する
         // colorFn: (properties) => colorString  省略時は津波デフォルト（深度テキスト解析）
-        function createVectorTileLayer(tilesetId, sourceLayer, colorFn) {
+        // borderStyle: オプションで境界線スタイルを上書き（省略時は洪水用 FLOOD_BORDER を適用）
+        function createVectorTileLayer(tilesetId, sourceLayer, colorFn, borderStyle) {
             const url = `/tiles/${tilesetId}/{z}/{x}/{y}`;
             const depthKeys = ['a40_003', 'A40_003', 'depth', 'rank', 'level'];
+            const border = borderStyle || FLOOD_BORDER;
             return L.vectorGrid.protobuf(url, {
                 vectorTileLayerStyles: {
                     [sourceLayer]: function(properties) {
@@ -1462,7 +1489,7 @@
                         if (colorFn) {
                             depthColor = colorFn(properties);
                         } else {
-                            depthColor = '#f44336';
+                            depthColor = FLOOD_UNKNOWN_COLOR;
                             for (const key of depthKeys) {
                                 const val = parseDepthValue(properties[key]);
                                 if (val !== null) {
@@ -1474,10 +1501,11 @@
                         return {
                             fill: true,
                             fillColor: depthColor,
-                            fillOpacity: 0.42,
-                            weight: 1,
-                            color: '#8e0000',
-                            opacity: 0.9
+                            fillOpacity: 0.38,
+                            weight: border.weight,
+                            color: border.color,
+                            opacity: border.opacity,
+                            dashArray: border.dashArray
                         };
                     }
                 },
@@ -1515,9 +1543,12 @@
             const depthKey = detectDepthPropertyKey(featureCollection);
 
             hazard.rawData = featureCollection;
+            const styleFn = hazard.type === 'flood'
+                ? (feature) => getFloodFeatureStyle(feature)
+                : (feature) => getTsunamiFeatureStyle(feature, depthKey);
             hazard.layer = L.geoJSON(featureCollection, {
                 renderer: L.canvas(),
-                style: (feature) => getTsunamiFeatureStyle(feature, depthKey)
+                style: styleFn
             });
             hazard.loaded = true;
             return hazard.layer;
