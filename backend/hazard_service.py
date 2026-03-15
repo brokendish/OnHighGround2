@@ -215,6 +215,98 @@ class HazardService:
                 hazard_type, geojson_path, e,
             )
 
+    def load_geojsonl(
+        self,
+        hazard_type: str,
+        geojsonl_path: Path,
+        min_rank_prop: str = "",
+        min_rank: int = 0,
+    ) -> None:
+        """
+        GeoJSONL（1行1フィーチャ）をストリーミングで読み込む。
+
+        通常の load() と異なり json.load() を使わず1行ずつ処理するため、
+        大容量ファイル（数百MB超）でもピークメモリを最小限に抑えられる。
+
+        Args:
+            hazard_type:   ハザードタイプ識別子
+            geojsonl_path: GeoJSONL ファイルのパス（.geojsonl）
+            min_rank_prop: ランクフィルタに使うプロパティ名（空文字でフィルタなし）
+            min_rank:      このランク以上のフィーチャのみロード（0でフィルタなし）
+        """
+        if not geojsonl_path.exists():
+            logger.warning(
+                "Hazard data not found: type=%s path=%s", hazard_type, geojsonl_path
+            )
+            return
+
+        logger.info(
+            "Loading hazard polygons (streaming): type=%s path=%s", hazard_type, geojsonl_path
+        )
+        new_polygons: List[dict] = []
+        skipped = 0
+
+        try:
+            with geojsonl_path.open("r", encoding="utf-8") as f:
+                for line_no, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    try:
+                        feature = json.loads(line)
+                    except json.JSONDecodeError as e:
+                        logger.warning("GeoJSONL parse error at line %d: %s", line_no, e)
+                        continue
+
+                    # ランクフィルタ
+                    if min_rank_prop and min_rank > 0:
+                        props = feature.get("properties") or {}
+                        if props.get(min_rank_prop, 0) < min_rank:
+                            skipped += 1
+                            continue
+
+                    geom = feature.get("geometry") or {}
+                    geom_type = geom.get("type")
+                    outer_rings: List[List] = []
+
+                    if geom_type == "Polygon":
+                        coords = geom.get("coordinates", [])
+                        if coords:
+                            outer_rings = [coords[0]]
+                    elif geom_type == "MultiPolygon":
+                        for poly in geom.get("coordinates", []):
+                            if poly:
+                                outer_rings.append(poly[0])
+
+                    for ring in outer_rings:
+                        if len(ring) < 3:
+                            continue
+                        lons = [c[0] for c in ring]
+                        lats = [c[1] for c in ring]
+                        bbox = (min(lats), min(lons), max(lats), max(lons))
+                        new_polygons.append({"bbox": bbox, "coords": ring})
+
+            existing = self._polygons.get(hazard_type, [])
+            existing.extend(new_polygons)
+            self._polygons[hazard_type] = existing
+
+            existing_sources = self._sources.get(hazard_type, [])
+            existing_sources.append(geojsonl_path.stem)
+            self._sources[hazard_type] = existing_sources
+
+            logger.info(
+                "Loaded %d polygons from '%s' (skipped: %d, total for '%s': %d)",
+                len(new_polygons), geojsonl_path.name, skipped,
+                hazard_type, len(self._polygons[hazard_type]),
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to load hazard data: type=%s path=%s error=%s",
+                hazard_type, geojsonl_path, e,
+            )
+
     def load_dir(
         self,
         hazard_type: str,

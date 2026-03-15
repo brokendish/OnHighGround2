@@ -304,15 +304,16 @@ EMERGENCY_SHELTERS = load_emergency_shelters(SHELTER_CSV_PATHS)
 # ハザードサービスの初期化
 hazard_service = HazardService()
 
-_flood_path_value = APP_CONFIG.get(
-    "hazard.flood.path",
-    "../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson",
-)
-_flood_path = resolve_existing_path(
-    _flood_path_value,
-    legacy_candidates=[BASE_DIR.parent / "frontend" / "hazard" / "tokyo_flood_max.geojson"],
-)
-hazard_service.load("flood", _flood_path)
+FLOOD_ENABLED = parse_bool(APP_CONFIG.get("hazard.flood.enabled", "false"), False)
+if FLOOD_ENABLED:
+    _flood_check_path_value = APP_CONFIG.get(
+        "hazard.flood.check_path",
+        "../data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl",
+    )
+    _flood_check_path = resolve_existing_path(_flood_check_path_value, legacy_candidates=[])
+    hazard_service.load_geojsonl("flood", _flood_check_path)
+else:
+    logger.info("洪水ハザード判定は無効（hazard.flood.enabled=false）")
 
 # storm_surge: 高潮浸水想定区域（東京都）
 _storm_surge_path_value = APP_CONFIG.get(
