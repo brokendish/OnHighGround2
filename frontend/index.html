@@ -1098,6 +1098,7 @@
         let currentLocation = null;
         let currentMarker = null;
         let destinationMarkers = [];
+        let destinationMarkerBaseStyles = []; // マーカーの意味色を保持（案内中でも基本色が消えないように）
         let emergencyShelterMarkers = [];
         let routingControl = null;
         let destinations = [];
@@ -1778,13 +1779,14 @@
                     color = '#f44336'; fillColor = '#f44336'; radius = 10; // 後方互換
                 }
 
-                const marker = L.circleMarker([dest.lat, dest.lon], {
+                const baseStyle = {
                     color,
                     fillColor,
                     fillOpacity: 0.85,
                     radius,
                     weight: isRecommended ? 3 : 2
-                }).addTo(map);
+                };
+                const marker = L.circleMarker([dest.lat, dest.lon], baseStyle).addTo(map);
 
                 const hazardLabel = dest.hazard_safe === true ? '✅ 危険区域外'
                     : dest.hazard_safe === false ? '⚠️ 危険区域内'
@@ -1811,6 +1813,7 @@
                 });
 
                 destinationMarkers.push(marker);
+                destinationMarkerBaseStyles.push(baseStyle);
             });
 
             // 地図の表示範囲を調整
@@ -2694,21 +2697,26 @@
                 return;
             }
             
-            // 選択した避難先のマーカーを強調
+            // 案内中マーカーを強調 — 基本色（意味色）は維持し、外枠とサイズで選択状態を表現
             destinationMarkers.forEach((marker, i) => {
+                const base = destinationMarkerBaseStyles[i];
+                if (!base) return;
                 if (i === index) {
+                    // 案内中: 基本色を維持しつつ白い外枠＋サイズ拡大で強調
                     marker.setStyle({
-                        color: '#ff9800',
-                        fillColor: '#ff9800',
-                        radius: 12
+                        color: '#ffffff',          // 白い選択リング
+                        fillColor: base.fillColor, // 意味色（金/緑/オレンジ/赤）をそのまま保持
+                        fillOpacity: 0.95,
+                        radius: base.radius + 4,   // 少し大きく
+                        weight: 5                  // 太い外枠
                     });
+                    if (typeof marker.bringToFront === 'function') {
+                        marker.bringToFront();
+                    }
                     marker.openPopup();
                 } else {
-                    marker.setStyle({
-                        color: '#f44336',
-                        fillColor: '#f44336',
-                        radius: 10
-                    });
+                    // 他のマーカー: 元の意味色・サイズに戻す
+                    marker.setStyle(base);
                 }
             });
         }
@@ -2757,6 +2765,7 @@
         function clearDestinationMarkers() {
             destinationMarkers.forEach(marker => map.removeLayer(marker));
             destinationMarkers = [];
+            destinationMarkerBaseStyles = [];
         }
 
         function clearEmergencyShelterMarkers() {
