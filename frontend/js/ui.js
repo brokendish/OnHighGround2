@@ -1,0 +1,611 @@
+/**
+ * ui.js — UI 表示・レンダリング関数
+ *
+ * - hazard_assessment ブロックのレンダリング
+ * - Time Margin ブロックのレンダリング
+ * - 避難先候補の地図表示・リスト表示
+ * - 危険判定パネル・推奨避難先カード
+ * - RSA（到達可能安全エリア）の表示
+ * - 検索結果のクリア
+ * - ステータステキスト更新
+ */
+
+// ── hazard_assessment ヘルパー ────────────────────────────────────────────
+// 表示順: flood → tsunami → storm_surge → urban_flood → その他
+const HAZARD_DISPLAY_ORDER = ['flood', 'tsunami', 'storm_surge', 'urban_flood'];
+
+function getHazardLabel(key) {
+    const map = { flood: '洪水', tsunami: '津波', storm_surge: '高潮', urban_flood: '内水' };
+    return map[key] || key;
+}
+
+function getAssessmentValueLabel(value) {
+    const map = { inside: '危険区域内', outside: '区域外', unknown: '未判定' };
+    return map[value] || value;
+}
+
+function sortedAssessmentEntries(assessment) {
+    if (!assessment || typeof assessment !== 'object') return [];
+    const keys = Object.keys(assessment);
+    const ordered = HAZARD_DISPLAY_ORDER.filter(k => keys.includes(k));
+    const rest = keys.filter(k => !HAZARD_DISPLAY_ORDER.includes(k)).sort();
+    return [...ordered, ...rest].map(k => ({ key: k, value: assessment[k] }));
+}
+
+function renderHazardAssessmentBlock(assessment) {
+    const entries = sortedAssessmentEntries(assessment);
+    if (entries.length === 0) return '';
+    const rows = entries.map(({ key, value }) => `
+        <div class="ha-row">
+            <span class="ha-name">${getHazardLabel(key)}</span>
+            <span class="ha-value ${value}">${getAssessmentValueLabel(value)}</span>
+        </div>`).join('');
+    return `<div class="hazard-assessment-block">
+        <div class="ha-title">ハザード判定</div>
+        ${rows}
+    </div>`;
+}
+
+function renderHazardAssessmentPopup(assessment) {
+    const entries = sortedAssessmentEntries(assessment);
+    if (entries.length === 0) return '';
+    const rows = entries.map(({ key, value }) =>
+        `・${getHazardLabel(key)}: <span style="font-weight:700;color:${value === 'inside' ? '#c62828' : value === 'outside' ? '#2e7d32' : '#78909c'}">${getAssessmentValueLabel(value)}</span>`
+    ).join('<br>');
+    return `<div class="popup-ha-block">
+        <div class="ha-title">ハザード判定</div>
+        ${rows}
+    </div>`;
+}
+
+// ── Time Margin ブロック ──────────────────────────────────────────────────
+
+function renderTimeMarginBlock(dest) {
+    const status = dest.time_margin_status;
+    if (!status) return '';
+
+    const tm  = dest.time_margin_minutes;
+    const tti = dest.time_to_impact_minutes;
+    const et  = dest.evacuation_time_minutes;
+
+    if (status === 'danger') {
+        const detail = (tti != null && et != null)
+            ? `<div class="tm-detail">余裕時間: ${tm?.toFixed(1)}分<br>⏱ 津波到達: ${tti.toFixed(1)}分<br>🚶 避難時間: ${et.toFixed(1)}分</div>`
+            : '';
+        return `<div class="time-margin danger">
+            <div class="tm-warning">🚨 避難が間に合わない可能性</div>
+            ${detail}
+        </div>`;
+    }
+
+    let iconLabel;
+    if      (status === 'safe')  iconLabel = `🟢 余裕: +${tm?.toFixed(1)}分`;
+    else if (status === 'tight') iconLabel = `🟡 余裕: +${tm?.toFixed(1)}分`;
+    else                         iconLabel = '⚪ 時間余裕: 未判定';
+
+    const detail = (tti != null && et != null)
+        ? `<div class="tm-detail">⏱ 津波到達: ${tti.toFixed(1)}分 ／ 🚶 避難時間: ${et.toFixed(1)}分</div>`
+        : '';
+
+    return `<div class="time-margin ${status}">
+        <span class="tm-icon-label">${iconLabel}</span>
+        ${detail}
+    </div>`;
+}
+
+function renderTimeMarginPopup(dest) {
+    const status = dest.time_margin_status;
+    if (!status) return '';
+
+    const tm  = dest.time_margin_minutes;
+    const tti = dest.time_to_impact_minutes;
+    const et  = dest.evacuation_time_minutes;
+
+    const colors = { safe: '#2e7d32', tight: '#f57f17', danger: '#c62828', unknown: '#9e9e9e' };
+    const color = colors[status] || '#9e9e9e';
+
+    if (status === 'danger') {
+        const detail = (tti != null && et != null)
+            ? `<div style="font-size:10px;color:#b71c1c;margin-top:2px;">余裕時間: ${tm?.toFixed(1)}分 ／ ⏱ 津波: ${tti.toFixed(1)}分 ／ 🚶 避難: ${et.toFixed(1)}分</div>`
+            : '';
+        return `<div style="margin-top:5px;padding:5px 7px;border-top:1px solid #e0e0e0;border-left:4px solid #c62828;background:#ffebee;border-radius:3px;font-size:11px;">
+            <span style="font-weight:700;color:#b71c1c;">🚨 避難が間に合わない可能性</span>
+            ${detail}
+        </div>`;
+    }
+
+    let label;
+    if      (status === 'safe')  label = `🟢 余裕: +${tm?.toFixed(1)}分`;
+    else if (status === 'tight') label = `🟡 余裕: +${tm?.toFixed(1)}分`;
+    else                         label = '⚪ 時間余裕: 未判定';
+
+    const detail = (tti != null && et != null)
+        ? `<br><span style="font-size:10px;color:#757575;">⏱ 津波: ${tti.toFixed(1)}分 ／ 🚶 避難: ${et.toFixed(1)}分</span>`
+        : '';
+
+    return `<div style="margin-top:5px;padding-top:5px;border-top:1px solid #e0e0e0;font-size:11px;">
+        <div style="font-weight:700;color:#546e7a;font-size:10px;text-transform:uppercase;letter-spacing:0.4px;">Time Margin</div>
+        <span style="color:${color};font-weight:700;">${label}</span>${detail}
+    </div>`;
+}
+
+// ── 避難先候補の地図表示 ──────────────────────────────────────────────────
+
+function displayDestinations(dests, recommended) {
+    dests.forEach((dest, index) => {
+        const isRecommended = recommended
+            && Math.abs(dest.lat - recommended.lat) < 1e-8
+            && Math.abs(dest.lon - recommended.lon) < 1e-8;
+
+        let color, fillColor, radius;
+        if (isRecommended) {
+            color = '#e65100'; fillColor = '#ffd600'; radius = 14;
+        } else if (dest.hazard_safe === true) {
+            color = '#2e7d32'; fillColor = '#4caf50'; radius = 9;
+        } else if (dest.hazard_safe === false) {
+            color = '#e65100'; fillColor = '#ff9800'; radius = 9;
+        } else {
+            color = '#546e7a'; fillColor = '#78909c'; radius = 10; // 後方互換: hazard_safe 不明
+        }
+
+        const baseStyle = {
+            color,
+            fillColor,
+            fillOpacity: 0.85,
+            radius,
+            weight: isRecommended ? 3 : 2
+        };
+        const marker = L.circleMarker([dest.lat, dest.lon], baseStyle).addTo(map);
+
+        const hazardLabel = dest.hazard_safe === true ? '✅ 危険区域外'
+            : dest.hazard_safe === false ? '⚠️ 危険区域内'
+            : '❓ 安全性未判定';
+        const hazardNote = (dest.hazard_safe == null)
+            ? '<br><span style="font-size:11px;color:#546e7a;">ハザードデータが利用できないため安全性は未判定です</span>'
+            : '';
+        const nameLabel = dest.name ? `<strong>${dest.name}</strong>` : `<strong>避難先候補 #${index + 1}</strong>`;
+        const recLabel = isRecommended ? '<br><span style="color:#e65100;font-weight:700;">⭐ 推奨避難先</span>' : '';
+
+        marker.bindPopup(`
+            ${nameLabel}${recLabel}<br>
+            ${hazardLabel}${hazardNote}
+            ${renderHazardAssessmentPopup(dest.hazard_assessment)}
+            ${renderTimeMarginPopup(dest)}
+            <br>標高: ${dest.elevation.toFixed(1)} m（差: +${dest.elevation_gain.toFixed(1)} m）<br>
+            距離: ${dest.distance.toFixed(0)} m | 約${dest.estimated_time_minutes.toFixed(0)}分<br>
+            安全スコア: ${dest.safety_score.toFixed(1)}
+        `);
+
+        marker.on('click', () => {
+            showRoute(dest, index, { ensureCardVisible: true });
+        });
+
+        marker.bindTooltip(isRecommended ? '⭐' : String(index + 1), {
+            permanent: true,
+            direction: 'center',
+            className: 'destination-number-label'
+        });
+
+        destinationMarkers.push(marker);
+        destinationMarkerBaseStyles.push(baseStyle);
+    });
+
+    // 地図の表示範囲を調整
+    const bounds = L.latLngBounds(
+        [currentLocation.lat, currentLocation.lon],
+        dests.map(d => [d.lat, d.lon])
+    );
+    map.fitBounds(bounds, { padding: [50, 50] });
+}
+
+// ── 避難先リスト表示 ──────────────────────────────────────────────────────
+
+function displayDestinationsList(dests, recommended) {
+    const listContainer = document.getElementById('destinationsList');
+    listContainer.innerHTML = '';
+
+    dests.forEach((dest, index) => {
+        const isRecommended = recommended
+            && Math.abs(dest.lat - recommended.lat) < 1e-8
+            && Math.abs(dest.lon - recommended.lon) < 1e-8;
+
+        const card = document.createElement('div');
+        let cardClass = 'destination-card';
+        if (isRecommended) cardClass += ' is-recommended';
+        else if (dest.hazard_safe === false) cardClass += ' hazard-unsafe';
+        card.className = cardClass;
+        card.dataset.index = index;
+
+        const hazardBadge = dest.hazard_safe === true
+            ? '<span class="hazard-safe-badge safe">危険区域外</span>'
+            : dest.hazard_safe === false
+                ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
+                : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
+        const unknownNote = (dest.hazard_safe == null)
+            ? '<p style="font-size:11px;color:#546e7a;margin:2px 0 0;">ハザードデータが利用できないため安全性は未判定です</p>'
+            : '';
+        const nameText = dest.name || `候補 #${index + 1}`;
+        const typeBadge = dest.type === 'emergency_shelter'
+            ? '<span class="dest-type-badge">指定避難所</span>'
+            : dest.type === 'safe_high_ground_candidate'
+                ? '<span class="dest-type-badge" style="background:#f3e5f5;color:#6a1b9a;">高台候補</span>'
+                : '';
+        const rankClass = isRecommended ? 'destination-rank is-recommended-rank' : 'destination-rank';
+        const rankLabel = isRecommended ? '⭐' : String(index + 1);
+
+        const guideBtnClass = dest.hazard_safe === false
+            ? 'dest-guide-btn unsafe-dest'
+            : 'dest-guide-btn';
+        const guideBtnText = dest.hazard_safe === false ? '⚠️ 案内' : '案内';
+
+        card.innerHTML = `
+            <span class="${rankClass}">${rankLabel}</span>
+            <div class="destination-info">
+                <p class="dest-name">${nameText}${typeBadge}</p>
+                <p>${hazardBadge}
+                    <span class="safety-score">スコア ${dest.safety_score.toFixed(1)}</span>
+                </p>
+                <p>📏 ${dest.distance.toFixed(0)}m | ⏱️ ${dest.estimated_time_minutes.toFixed(0)}分</p>
+                <p>⬆️ +${dest.elevation_gain.toFixed(1)}m（標高 ${dest.elevation.toFixed(1)}m）</p>
+                ${renderTimeMarginBlock(dest)}
+                ${unknownNote}
+                ${renderHazardAssessmentBlock(dest.hazard_assessment)}
+                <button class="${guideBtnClass}" data-dest-index="${index}">${guideBtnText}</button>
+            </div>
+            <div class="route-guidance" data-route-guidance></div>
+        `;
+
+        card.addEventListener('click', () => {
+            showRoute(dest, index, { ensureCardVisible: false });
+        });
+
+        const guideBtn = card.querySelector('.dest-guide-btn');
+        if (guideBtn) {
+            guideBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showRoute(dest, index, { ensureCardVisible: false });
+            });
+        }
+
+        listContainer.appendChild(card);
+    });
+}
+
+// ── 危険判定パネル ────────────────────────────────────────────────────────
+
+function displayHazardStatus(hazardStatus) {
+    const panel = document.getElementById('dangerStatusPanel');
+    if (!panel) return;
+
+    const hazards = hazardStatus?.hazards || [];
+    const isDanger = hazardStatus?.is_danger === true;
+
+    panel.className = `danger-status-panel ${isDanger ? 'danger' : 'safe'}`;
+
+    if (!isDanger || hazards.length === 0) {
+        panel.innerHTML = `
+            <div class="danger-title">✅ 現在地はハザード区域外です</div>
+            <div style="font-size:12px;">念のため避難先を確認しておきましょう</div>
+        `;
+    } else {
+        const hasFlood      = hazards.includes('flood');
+        const hasTsunami    = hazards.includes('tsunami');
+        const hasStormSurge = hazards.includes('storm_surge');
+
+        const activeLabels = [];
+        if (hasFlood)      activeLabels.push('洪水');
+        if (hasTsunami)    activeLabels.push('津波');
+        if (hasStormSurge) activeLabels.push('高潮');
+
+        let mainMessage;
+        if (activeLabels.length > 0) {
+            mainMessage = `現在地は${activeLabels.join('・')}の浸水想定区域内です`;
+        } else {
+            const labels = { urban_flood: '内水氾濫' };
+            const names = hazards.map(h => labels[h] || h).join('・');
+            mainMessage = `現在地は${names}の浸水想定区域内です`;
+        }
+
+        const labelMap = { flood: '洪水', tsunami: '津波', storm_surge: '高潮', urban_flood: '内水氾濫' };
+        const hazardTags = hazards
+            .map(h => `<span class="hazard-tag">${labelMap[h] || h}</span>`)
+            .join('');
+
+        panel.innerHTML = `
+            <div class="danger-title">⚠️ ${mainMessage}</div>
+            <div style="margin-top:4px;">${hazardTags}</div>
+            <div style="margin-top:6px;font-size:12px;">直ちに避難先へ移動してください</div>
+        `;
+    }
+    panel.style.display = 'block';
+}
+
+function hideDangerStatus() {
+    const panel = document.getElementById('dangerStatusPanel');
+    if (panel) panel.style.display = 'none';
+}
+
+// ── 推奨避難先カード ──────────────────────────────────────────────────────
+
+function displayRecommended(rec, meta) {
+    const panel = document.getElementById('recommendedPanel');
+    const card = document.getElementById('recommendedCard');
+    if (!panel || !card || !rec) return;
+
+    const hazardBadge = rec.hazard_safe === true
+        ? '<span class="hazard-safe-badge safe">✅ 危険区域外</span>'
+        : rec.hazard_safe === false
+            ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
+            : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
+    const unknownWarning = (rec.hazard_safe == null)
+        ? `<div class="recommended-unknown-warning">⚠️ ハザードデータが利用できないため、この候補の安全性は未判定です。避難前に現地の状況を確認してください。</div>`
+        : '';
+
+    const typeLabel = rec.type === 'emergency_shelter' ? '指定緊急避難場所'
+        : rec.type === 'safe_high_ground_candidate' ? '高台候補地点'
+        : rec.type || '';
+
+    let metaNote = '';
+    if (meta) {
+        const tierLabels = { safe: '安全候補から選定', unknown: '未判定候補から選定', unsafe: '危険区域内（fallback）' };
+        const tierLabel = tierLabels[meta.selected_tier] || meta.selected_tier || '-';
+        metaNote = `<div class="recommendation-meta-note">
+            安全候補数: ${meta.safe_candidates_found} / ${meta.total_candidates_found} 件 ｜
+            選定: ${tierLabel}
+        </div>`;
+    }
+
+    const cardStateClass = rec.hazard_safe === true ? 'safe'
+        : rec.hazard_safe === false ? 'unsafe'
+        : 'unknown';
+    const provisionalLabel = (rec.hazard_safe == null)
+        ? '<span class="recommended-provisional-label">暫定推奨</span>'
+        : '';
+
+    const dangerWarningBanner = rec.time_margin_status === 'danger'
+        ? `<div class="recommended-warning">🚨 津波到達前に避難が完了しない可能性があります</div>`
+        : '';
+
+    card.innerHTML = `
+        <div class="recommended-card ${cardStateClass}">
+            <div class="recommended-name">📍 ${rec.name}${provisionalLabel}</div>
+            <div class="recommended-type">${typeLabel} ${hazardBadge}</div>
+            ${dangerWarningBanner}
+            <div class="recommended-stats">
+                <span>⬆️ 標高差: +${rec.elevation_gain.toFixed(1)}m</span>
+                <span>🏔️ 標高: ${rec.elevation.toFixed(1)}m</span>
+                <span>📏 距離: ${rec.distance.toFixed(0)}m</span>
+                <span>⏱️ 約${rec.estimated_time_minutes.toFixed(0)}分</span>
+                <span>スコア: ${rec.safety_score.toFixed(1)}</span>
+            </div>
+            ${renderTimeMarginBlock(rec)}
+            ${unknownWarning}
+            ${renderHazardAssessmentBlock(rec.hazard_assessment)}
+            ${rec.reason ? `<div class="recommended-reason">💬 ${rec.reason}</div>` : ''}
+            <button class="recommended-btn ${cardStateClass}" id="recommendedRouteBtn">${cardStateClass === 'unsafe' ? '⚠️ 注意して案内' : '🚶 今すぐ案内'}</button>
+        </div>
+        ${metaNote}
+    `;
+
+    const btn = document.getElementById('recommendedRouteBtn');
+    if (btn) {
+        btn.addEventListener('click', () => {
+            const idx = destinations.findIndex(d =>
+                Math.abs(d.lat - rec.lat) < 1e-8 && Math.abs(d.lon - rec.lon) < 1e-8
+            );
+            if (idx >= 0) {
+                showRoute(destinations[idx], idx, { ensureCardVisible: true });
+            } else {
+                drawRouteTo(rec.lat, rec.lon, {});
+            }
+        });
+    }
+
+    panel.style.display = 'block';
+}
+
+function hideRecommended() {
+    const panel = document.getElementById('recommendedPanel');
+    if (panel) panel.style.display = 'none';
+}
+
+// ── カード・ナビゲーション状態 ────────────────────────────────────────────
+
+function setSelectedDestinationCard(index) {
+    document.querySelectorAll('.destination-card').forEach((card, cardIndex) => {
+        card.classList.toggle('selected', cardIndex === index);
+    });
+}
+
+function updateNavigatingState(index) {
+    activeNavigatingIndex = index;
+
+    document.querySelectorAll('.destination-card').forEach((card, cardIndex) => {
+        card.classList.toggle('navigating', cardIndex === index);
+    });
+
+    document.querySelectorAll('.dest-guide-btn').forEach((btn) => {
+        const btnIndex = parseInt(btn.dataset.destIndex, 10);
+        const dest = destinations[btnIndex];
+        if (btnIndex === index) {
+            btn.textContent = '✅ 案内中';
+            btn.classList.add('navigating');
+        } else {
+            btn.textContent = (dest && dest.hazard_safe === false) ? '⚠️ 案内' : '案内';
+            btn.classList.remove('navigating');
+        }
+    });
+
+    const recBtn = document.getElementById('recommendedRouteBtn');
+    if (recBtn && evacuationRecommended) {
+        const dest = destinations[index];
+        const isRecNavigating = dest
+            && Math.abs(dest.lat - evacuationRecommended.lat) < 1e-8
+            && Math.abs(dest.lon - evacuationRecommended.lon) < 1e-8;
+        if (isRecNavigating) {
+            recBtn.textContent = '✅ 案内中';
+            recBtn.classList.add('navigating');
+        } else {
+            const recSafe = evacuationRecommended.hazard_safe;
+            recBtn.classList.remove('navigating', 'safe', 'unsafe', 'unknown');
+            if (recSafe === true) {
+                recBtn.classList.add('safe');
+                recBtn.textContent = '🚶 今すぐ案内';
+            } else if (recSafe === false) {
+                recBtn.classList.add('unsafe');
+                recBtn.textContent = '⚠️ 注意して案内';
+            } else {
+                recBtn.classList.add('unknown');
+                recBtn.textContent = '🚶 今すぐ案内';
+            }
+        }
+    }
+}
+
+// ── RSA（到達可能安全エリア） ─────────────────────────────────────────────
+
+const RSA_STYLE = {
+    color: '#2e7d32',
+    weight: 2,
+    opacity: 0.8,
+    fillColor: '#66bb6a',
+    fillOpacity: 0.25,
+};
+
+function clearRsaLayer() {
+    if (reachableSafeAreaLayer) {
+        map.removeLayer(reachableSafeAreaLayer);
+        reachableSafeAreaLayer = null;
+    }
+}
+
+function displayRsa(rsa) {
+    const panel = document.getElementById('rsaPanel');
+    const info  = document.getElementById('rsaInfo');
+
+    clearRsaLayer();
+
+    if (!rsa || !rsa.enabled || rsa.exists === null) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+
+    const areaKm2 = rsa.area_m2 != null ? (rsa.area_m2 / 1_000_000).toFixed(2) : null;
+    const existsBadge = rsa.exists
+        ? '<span class="rsa-exists-badge yes">✅ 避難可能エリアあり</span>'
+        : '<span class="rsa-exists-badge no">❌ 避難可能エリアなし</span>';
+
+    const warningBlock = !rsa.exists
+        ? `<div class="rsa-warning">
+            🚨 現在地からの水平避難が難しい可能性があります。<br>
+            近隣の高い建物への垂直避難も検討してください。
+           </div>`
+        : '';
+
+    info.innerHTML = `
+        ${existsBadge}
+        <div class="rsa-stat"><span class="rsa-stat-label">到達可能半径</span><span class="rsa-stat-value">約${rsa.radius_m != null ? Math.round(rsa.radius_m) : '—'} m</span></div>
+        <div class="rsa-stat"><span class="rsa-stat-label">津波到達まで</span><span class="rsa-stat-value">${rsa.time_to_impact_minutes != null ? rsa.time_to_impact_minutes.toFixed(1) : '—'} 分</span></div>
+        <div class="rsa-stat"><span class="rsa-stat-label">歩行速度</span><span class="rsa-stat-value">${rsa.walking_speed_mps} m/s</span></div>
+        ${areaKm2 != null ? `<div class="rsa-stat"><span class="rsa-stat-label">安全エリア面積</span><span class="rsa-stat-value">約${areaKm2} km²</span></div>` : ''}
+        ${warningBlock}
+    `;
+
+    if (rsa.exists && rsa.geometry) {
+        reachableSafeAreaLayer = L.geoJSON(rsa.geometry, { style: RSA_STYLE }).addTo(map);
+        reachableSafeAreaLayer.bringToBack();
+    }
+}
+
+// ── マーカー・検索結果のクリア ────────────────────────────────────────────
+
+function clearDestinationMarkers() {
+    destinationMarkers.forEach(marker => map.removeLayer(marker));
+    destinationMarkers = [];
+    destinationMarkerBaseStyles = [];
+}
+
+function clearSearchResults() {
+    clearDestinationMarkers();
+    clearRsaLayer();
+    document.getElementById('rsaPanel').style.display = 'none';
+
+    if (routingControl) {
+        map.removeControl(routingControl);
+        routingControl = null;
+    }
+    clearSelectedRouteHighlight();
+    clearRouteCandidateLayers();
+    clearRouteStepFocusMarker();
+
+    document.getElementById('destinationsPanel').style.display = 'none';
+    destinations = [];
+    evacuationRecommended = null;
+    evacuationHazardStatus = null;
+    evacuationMeta = null;
+    activeNavigatingIndex = null;
+    hasSearchedDestinations = false;
+    hideSearchMessage();
+    hideSelectedEmergencyShelter();
+    hideDangerStatus();
+    hideRecommended();
+}
+
+// ── 指定緊急避難場所の選択情報 ───────────────────────────────────────────
+
+function showSelectedEmergencyShelter(site) {
+    document.getElementById('selectedShelterName').textContent = site.name || '名称未設定';
+    document.getElementById('selectedShelterDesignation').textContent = site.designation || '指定緊急避難場所';
+    document.getElementById('selectedShelterAddress').textContent = site.address || '-';
+    document.getElementById('selectedShelterLat').textContent = Number(site.lat).toFixed(6);
+    document.getElementById('selectedShelterLon').textContent = Number(site.lon).toFixed(6);
+    document.getElementById('selectedShelterTransport').textContent = document.getElementById('transportMode').value === 'walking' ? '徒歩' : '車';
+    document.getElementById('selectedShelterDistance').textContent = '計算中...';
+    document.getElementById('selectedShelterDuration').textContent = '計算中...';
+    clearSelectedEmergencyShelterRouteGuidance();
+    document.getElementById('selectedShelterInfo').style.display = 'block';
+}
+
+function updateSelectedEmergencyShelterRouteInfo(distanceMeters, durationSeconds, transportMode) {
+    const durationSec = Number(durationSeconds);
+    const durationMin = durationSec / 60;
+    document.getElementById('selectedShelterTransport').textContent = transportMode === 'walking' ? '徒歩' : '車';
+    document.getElementById('selectedShelterDistance').textContent = `${Number(distanceMeters).toFixed(0)} m`;
+    document.getElementById('selectedShelterDuration').textContent = `${durationMin.toFixed(1)} 分 (${Math.round(durationSec)} 秒)`;
+}
+
+function hideSelectedEmergencyShelter() {
+    clearSelectedEmergencyShelterRouteGuidance();
+    document.getElementById('selectedShelterInfo').style.display = 'none';
+}
+
+// ── メッセージ・ステータステキスト ────────────────────────────────────────
+
+function showSearchMessage(message, type = 'info') {
+    const messageEl = document.getElementById('searchMessage');
+    messageEl.textContent = message;
+    messageEl.className = `search-message ${type}`;
+    messageEl.style.display = 'block';
+}
+
+function hideSearchMessage() {
+    const messageEl = document.getElementById('searchMessage');
+    messageEl.textContent = '';
+    messageEl.className = 'search-message';
+    messageEl.style.display = 'none';
+}
+
+function setShelterStatus(message) {
+    document.getElementById('shelterStatus').textContent = message;
+}
+
+function setHazardStatus(message) {
+    document.getElementById('hazardStatus').textContent = message;
+}
+
+function setFloodStatus(message) {
+    const el = document.getElementById('floodStatus');
+    if (el) el.textContent = message;
+}
