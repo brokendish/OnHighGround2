@@ -19,6 +19,7 @@ import math
 from elevation_service import ElevationService
 from hazard_service import HazardService, derive_hazard_safe
 from geometry_utils import calc_reachable_safe_area, SHAPELY_AVAILABLE
+from hazard_engine import HazardEngine
 
 # 設定ファイル読み込み
 BASE_DIR = Path(__file__).resolve().parent
@@ -585,6 +586,13 @@ except (TypeError, ValueError):
 
 logger.info("RSA: enabled=%s walking_speed=%.1fm/s", ENABLE_RSA, WALKING_SPEED_MPS)
 
+# ── Hazard Engine 初期化 ─────────────────────────────────────────────────────
+hazard_engine = HazardEngine(
+    hazard_service=hazard_service,
+    enable_time_margin=ENABLE_TIME_MARGIN,
+    tsunami_speed_kmh=TSUNAMI_SPEED_KMH,
+)
+
 # Time Margin スコア補正値（既存の hazard_safe 補正に加算）
 TIME_MARGIN_SAFE_BONUS    =  20.0   # margin >= 5 min: 余裕あり → ボーナス
 TIME_MARGIN_TIGHT_BONUS   =   0.0   # 0 <= margin < 5 min: ギリギリ → 中立
@@ -617,7 +625,7 @@ def _calc_rsa(user_lat: float, user_lon: float, tti_minutes: float) -> dict:
         user_lat=user_lat,
         user_lon=user_lon,
         radius_m=radius_m,
-        hazard_polygon_store=hazard_service.get_polygon_store(),
+        hazard_polygon_store=hazard_engine.get_polygon_store(),
     )
     logger.info(
         "RSA generated: radius_m=%.0f area_m2=%.0f exists=%s",
@@ -635,27 +643,6 @@ def _calc_rsa(user_lat: float, user_lon: float, tti_minutes: float) -> dict:
         "exists": result["exists"],
         "geometry": result.get("geometry"),
     }
-
-
-def _calc_tti_minutes(lat: float, lon: float) -> Optional[float]:
-    """
-    現在地の津波到達時間（分）を近似計算する。
-
-    計算方法（v1 案A）:
-      現在地が入っている津波ポリゴンの重心を「危険源」とみなし、
-      そこまでの距離を津波速度で割って TTI（分）を算出する。
-      ポリゴン外縁に近いほど TTI は長く（余裕あり）、
-      重心に近いほど TTI は短い（余裕なし）。
-
-    現在地が津波ポリゴン外、またはデータ未ロード / ENABLE_TIME_MARGIN=false の場合は None。
-    """
-    if not ENABLE_TIME_MARGIN:
-        return None
-    dist_m = hazard_service.get_tsunami_centroid_distance_m(lat, lon)
-    if dist_m is None:
-        return None
-    speed_m_per_min = TSUNAMI_SPEED_KMH * 1000.0 / 60.0
-    return dist_m / speed_m_per_min
 
 
 def _classify_time_margin(time_margin: Optional[float]) -> str:
@@ -1101,14 +1088,13 @@ async def hazard_check(
     """
     try:
         logger.info("hazard-check: lat=%.5f lon=%.5f", lat, lon)
-        hazard_status = hazard_service.check_hazards(lat, lon)
-        hazard_assessment = hazard_service.assess_candidate(lat, lon)
+        point_eval = hazard_engine.evaluate_point(lat, lon)
         return {
             "lat": lat,
             "lon": lon,
-            "is_danger": hazard_status["is_danger"],
-            "hazards": hazard_status["hazards"],
-            "hazard_assessment": hazard_assessment,
+            "is_danger": point_eval["is_danger"],
+            "hazards": point_eval["hazards"],
+            "hazard_assessment": point_eval["hazard_assessment"],
         }
     except Exception as e:
         logger.exception("ハザード判定エラー")
@@ -1142,11 +1128,15 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 detail="現在地の標高データが見つかりません",
             )
 
-        # 現在地のハザード判定
-        hazard_status = hazard_service.check_hazards(request.lat, request.lon)
+        # 現在地のハザード判定（HazardEngine 経由）
+        point_eval = hazard_engine.evaluate_point(request.lat, request.lon)
+        hazard_status = {
+            "is_danger": point_eval["is_danger"],
+            "hazards": point_eval["hazards"],
+        }
 
         # Time Margin: 現在地の津波到達時間を一度だけ計算（候補全件で共有）
-        tti_minutes = _calc_tti_minutes(request.lat, request.lon)
+        tti_minutes = hazard_engine.get_time_to_impact(request.lat, request.lon)
         if tti_minutes is not None:
             logger.info(
                 "TTI computed: lat=%.5f lon=%.5f tti=%.1f min (tsunami speed=%.0f km/h)",
