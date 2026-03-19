@@ -52,3 +52,11 @@ data_lake/normalized/
 data_lake/validated/
 data_lake/tiles/
 data_lake/logs/
+
+# ---- data_runtime: 配備済みデータ（deploy_to_runtime.sh で生成、git 管理外）----
+# ディレクトリ構造（.gitkeep）と README は管理対象、データファイルは除外
+data_runtime/backend/
+data_runtime/frontend/layers/
+data_runtime/frontend/tiles/
+data_runtime/manifests/*.json
+data_runtime/manifests/*.log

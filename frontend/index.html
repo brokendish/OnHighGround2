@@ -1125,19 +1125,11 @@
 
     <!-- Leaflet VectorGrid: MVT ベクタータイル描画プラグイン -->
     <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
-    
+
+    <!-- アプリ設定定数 (Phase 1 で config.js に切り出し) -->
+    <script src="js/config.js"></script>
+
     <script>
-        // 設定
-        const API_BASE_URL_CANDIDATES = [
-            `${window.location.origin}/api`,
-            `${window.location.protocol}//${window.location.hostname}:8000/api`,
-            'http://localhost:8000/api'
-        ].filter((url, index, arr) => arr.indexOf(url) === index);
-        const OSRM_SERVICE_URLS = {
-            driving: '/osrm/driving/route/v1',
-            walking: '/osrm/walking/route/v1'
-        };
-        const DEBUG_API_FETCH = true;
 
         function logApiFetch(level, ...args) {
             if (!DEBUG_API_FETCH) {
@@ -1308,10 +1300,21 @@
         let routeStepFocusMarker = null;
         let reachableSafeAreaLayer = null;
         const ROUTE_COLOR_PALETTE = ['#ff9800', '#1e88e5', '#43a047', '#8e24aa', '#fb8c00'];
+        // ── ハザードレイヤー定義 ─────────────────────────────────────────
+        // [Phase 1] path は /hazard/ からの GeoJSON フォールバック（legacy 配信）。
+        // nginx が frontend/hazard/ を /hazard/ として配信中。
+        //
+        // [移行予定] Phase 2 以降、frontend/layers/ を公式配置先とし、
+        // path を `${LAYER_BASE_PATH}/...` で参照するよう統一する。
+        // LAYER_BASE_PATH は js/config.js で定義（現在 '/hazard'、移行後 '/layers'）。
+        // 各 path を `/hazard/` → `/layers/` に切り替えたら frontend/hazard/ を廃止する。
+        //
+        // primary 配信は Martin vector tiles (/tiles/) であり、
+        // GeoJSON パスはベクタータイル未整備時のフォールバックとして使われる。
         const HAZARD_LAYERS = {
             tsunami_tokyo: {
                 name: "津波浸水想定（東京都）",
-                path: "/hazard/tsunami_tokyo.geojson",
+                path: "/hazard/tsunami_tokyo.geojson", // TODO: 移行後 /layers/tsunami_tokyo.geojson
                 checkboxId: "showTsunamiHazardTokyo",
                 layer: null,
                 loaded: false,
@@ -1321,7 +1324,7 @@
             },
             tsunami_kanagawa: {
                 name: "津波浸水想定（神奈川県）",
-                path: "/hazard/tsunami_kanagawa.geojson",
+                path: "/hazard/tsunami_kanagawa.geojson", // TODO: 移行後 /layers/tsunami_kanagawa.geojson
                 checkboxId: "showTsunamiHazardKanagawa",
                 layer: null,
                 loaded: false,
@@ -1331,7 +1334,7 @@
             },
             tsunami_chiba: {
                 name: "津波浸水想定（千葉県）",
-                path: "/hazard/tsunami_chiba.geojson",
+                path: "/hazard/tsunami_chiba.geojson", // TODO: 移行後 /layers/tsunami_chiba.geojson
                 checkboxId: "showTsunamiHazardChiba",
                 layer: null,
                 loaded: false,
@@ -1341,7 +1344,7 @@
             },
             flood_tokyo_max: {
                 name: "洪水浸水想定（東京都・想定最大規模）",
-                path: "/hazard/tokyo_flood_max.geojson",
+                path: "/hazard/tokyo_flood_max.geojson", // TODO: 移行後 /layers/tokyo_flood_max.geojson
                 checkboxId: "showFloodTokyoMax",
                 layer: null,
                 loaded: false,
@@ -1351,7 +1354,7 @@
             },
             storm_surge_tokyo: {
                 name: "高潮浸水想定（東京都）",
-                path: "/hazard/tokyo_storm_surge.geojson",
+                path: "/hazard/tokyo_storm_surge.geojson", // TODO: 移行後 /layers/tokyo_storm_surge.geojson
                 checkboxId: "showStormSurgeTokyo",
                 layer: null,
                 loaded: false,

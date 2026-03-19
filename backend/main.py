@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 import logging
+import sys
 import os
 from pathlib import Path
 import csv
@@ -73,28 +74,46 @@ CONFIG_PATH = raw_config_path.resolve()
 APP_CONFIG = load_properties(CONFIG_PATH)
 
 LOG_LEVEL = APP_CONFIG.get("log.level", "INFO").upper()
-logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logger = logging.getLogger(__name__)
 
+logger.info("OnHighGround2 backend starting")
+logger.info("LOG_LEVEL=%s  config=%s", LOG_LEVEL, CONFIG_PATH)
+logger.info("runtime path=%s", (BASE_DIR.parent / "data_runtime").resolve())
+logger.info("fallback path=%s  (data_lake)", (BASE_DIR.parent / "data_lake").resolve())
 
-def resolve_existing_path(path_value: str, legacy_candidates: List[Path]) -> Path:
-    """正本候補を優先しつつ、移行期間は legacy をフォールバックにする"""
+
+def resolve_existing_path(path_value: str, legacy_candidates: List[Path], label: str = "") -> Path:
+    """正本候補を優先しつつ、移行期間は legacy をフォールバックにする。
+
+    採用パスは INFO（runtime / primary）または WARNING（fallback）でログに出す。
+    """
+    _label = label or "data path"
     path = Path(path_value)
     if not path.is_absolute():
         path = BASE_DIR / path
     resolved = path.resolve()
     if resolved.exists():
+        if "data_runtime" in str(resolved):
+            logger.info("%s loaded from runtime: %s", _label, resolved)
+        else:
+            logger.info("%s loaded from primary: %s", _label, resolved)
         return resolved
 
     for candidate in legacy_candidates:
         legacy_path = candidate.resolve()
         if legacy_path.exists():
-            logger.warning(
-                "Canonical data_lake path not found. Falling back to legacy path: %s",
-                legacy_path,
-            )
+            if "data_lake" in str(legacy_path):
+                logger.warning("%s fallback to data_lake: %s", _label, legacy_path)
+            else:
+                logger.warning("%s fallback to legacy: %s", _label, legacy_path)
             return legacy_path
 
+    logger.warning("%s: no valid path found, using (may not exist): %s", _label, resolved)
     return resolved
 
 
@@ -127,10 +146,18 @@ app.add_middleware(
 )
 
 # 標高サービスの初期化
-dem_path_value = APP_CONFIG.get("dem.path", "../data_lake/validated/tokyo/dem/elevation.tif")
+# [Phase 1] data_runtime/backend/elevation/ を優先参照。
+# data_runtime にデータが無い場合は data_lake/validated/ → legacy へフォールバック。
+# deploy_to_runtime.sh を実行することで data_runtime が整備される。
+dem_path_value = APP_CONFIG.get("dem.path", "../data_runtime/backend/elevation/elevation.tif")
 dem_path = resolve_existing_path(
     dem_path_value,
-    legacy_candidates=[BASE_DIR.parent / "data" / "elevation.tif", BASE_DIR / "elevation.tif"],
+    legacy_candidates=[
+        BASE_DIR.parent / "data_lake" / "validated" / "tokyo" / "dem" / "elevation.tif",
+        BASE_DIR.parent / "data" / "elevation.tif",
+        BASE_DIR / "elevation.tif",
+    ],
+    label="DEM",
 )
 DEM_PATH = str(dem_path)
 elevation_service = ElevationService(DEM_PATH)
@@ -297,13 +324,14 @@ def load_emergency_shelters(paths: List[Path]) -> List[Dict[str, Any]]:
                 elif data_path.suffix.lower() == ".geojson":
                     load_emergency_shelters_from_geojson(data_path, shelters, seen)
             except Exception as e:
-                logger.error(f"避難場所データの読み込みに失敗しました: {data_path} error={e}")
+                logger.exception("避難場所データの読み込みに失敗しました: %s", data_path)
 
     logger.info(f"避難場所データ読み込み件数: {len(shelters)}")
     return shelters
 
 
 SHELTER_CSV_PATHS = parse_shelter_paths(APP_CONFIG.get("evacuation.sites.path"))
+logger.info("Shelter data sources: %s", [str(p) for p in SHELTER_CSV_PATHS])
 EMERGENCY_SHELTERS = load_emergency_shelters(SHELTER_CSV_PATHS)
 
 # ハザードサービスの初期化
@@ -320,26 +348,47 @@ hazard_service = HazardService(
 
 FLOOD_ENABLED = parse_bool(APP_CONFIG.get("hazard.flood.enabled", "false"), False)
 if FLOOD_ENABLED:
+    # [Phase 1] data_runtime/backend/hazard/flood/ を優先。
+    # 未整備の場合は data_lake/normalized/ へフォールバック。
     _flood_check_path_value = APP_CONFIG.get(
         "hazard.flood.check_path",
-        "../data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl",
+        "../data_runtime/backend/hazard/flood/tokyo_flood_check.geojsonl",
     )
-    _flood_check_path = resolve_existing_path(_flood_check_path_value, legacy_candidates=[])
+    _flood_check_path = resolve_existing_path(
+        _flood_check_path_value,
+        legacy_candidates=[
+            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "flood" / "tokyo_flood_check.geojsonl",
+        ],
+        label="Flood",
+    )
     hazard_service.load_geojsonl("flood", _flood_check_path, bbox_only=True)
 else:
     logger.info("洪水ハザード判定は無効（hazard.flood.enabled=false）")
 
 # storm_surge: 高潮浸水想定区域（東京都）
+# [Phase 1] data_runtime/backend/hazard/storm_surge/ を優先。
+# 未整備の場合は data_lake/normalized/ へフォールバック。
 _storm_surge_path_value = APP_CONFIG.get(
     "hazard.storm_surge.path",
-    "../data_lake/normalized/tokyo/storm_surge/tokyo_storm_surge.geojson",
+    "../data_runtime/backend/hazard/storm_surge/tokyo_storm_surge.geojson",
 )
-_storm_surge_path = resolve_existing_path(_storm_surge_path_value, legacy_candidates=[])
+_storm_surge_path = resolve_existing_path(
+    _storm_surge_path_value,
+    legacy_candidates=[
+        BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "storm_surge" / "tokyo_storm_surge.geojson",
+    ],
+    label="StormSurge",
+)
 hazard_service.load("storm_surge", _storm_surge_path)
 
 # tsunami: targets 設定に従ってファイルを個別ロード
 # デフォルト: tokyo のみ（東京版 v1 標準モード）
 # 広域モード: hazard.tsunami.targets=tokyo,kanagawa,chiba
+#
+# [Phase 1] 参照優先順位:
+#   1. data_runtime/backend/hazard/tsunami/  (runtime 優先)
+#   2. data_lake/validated/tokyo/tsunami/    (validated 正本)
+#   3. data_lake/normalized/tokyo/tsunami/   (normalized フォールバック)
 _tsunami_dir_value = APP_CONFIG.get(
     "hazard.tsunami.dir",
     "../data_lake/normalized/tokyo/tsunami",
@@ -348,6 +397,7 @@ _tsunami_dir = Path(_tsunami_dir_value)
 if not _tsunami_dir.is_absolute():
     _tsunami_dir = (BASE_DIR / _tsunami_dir).resolve()
 
+_tsunami_runtime_dir = BASE_DIR.parent / "data_runtime" / "backend" / "hazard" / "tsunami"
 _tsunami_validated_dir = BASE_DIR.parent / "data_lake" / "validated" / "tokyo" / "tsunami"
 _tsunami_targets = parse_csv(APP_CONFIG.get("hazard.tsunami.targets", "tokyo"), ["tokyo"])
 
@@ -355,19 +405,22 @@ logger.info("Loading tsunami hazard targets: %s", ", ".join(_tsunami_targets))
 
 for _target in _tsunami_targets:
     _filename = f"tsunami_{_target}.geojson"
-    # validated を優先、なければ normalized にフォールバック
+    _runtime_path = _tsunami_runtime_dir / _filename
     _validated_path = _tsunami_validated_dir / _filename
     _normalized_path = _tsunami_dir / _filename
-    if _validated_path.exists():
-        logger.info("Tsunami source (validated): %s", _filename)
+    if _runtime_path.exists():
+        logger.info("Tsunami loaded from runtime: %s", _runtime_path)
+        hazard_service.load("tsunami", _runtime_path)
+    elif _validated_path.exists():
+        logger.warning("Tsunami fallback to data_lake: %s", _validated_path)
         hazard_service.load("tsunami", _validated_path)
     elif _normalized_path.exists():
-        logger.info("Tsunami source (normalized): %s", _filename)
+        logger.warning("Tsunami fallback to data_lake: %s", _normalized_path)
         hazard_service.load("tsunami", _normalized_path)
     else:
         logger.warning(
-            "Tsunami file not found for target '%s': checked %s and %s — skipped",
-            _target, _validated_path, _normalized_path,
+            "Tsunami file not found for target '%s': checked runtime=%s, validated=%s, normalized=%s — skipped",
+            _target, _runtime_path, _validated_path, _normalized_path,
         )
 
 # APIサーバー設定
@@ -979,7 +1032,7 @@ async def get_elevation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"標高取得エラー: {e}")
+        logger.exception("標高取得エラー")
         raise HTTPException(status_code=500, detail="標高取得中に内部エラーが発生しました")
 
 
@@ -1004,6 +1057,7 @@ async def hazard_check(
         }
     """
     try:
+        logger.info("hazard-check: lat=%.5f lon=%.5f", lat, lon)
         hazard_status = hazard_service.check_hazards(lat, lon)
         hazard_assessment = hazard_service.assess_candidate(lat, lon)
         return {
@@ -1014,7 +1068,7 @@ async def hazard_check(
             "hazard_assessment": hazard_assessment,
         }
     except Exception as e:
-        logger.error(f"ハザード判定エラー: {e}")
+        logger.exception("ハザード判定エラー")
         raise HTTPException(status_code=500, detail="ハザード判定中に内部エラーが発生しました")
 
 
@@ -1030,6 +1084,10 @@ async def find_evacuation_destinations(request: EvacuationRequest):
         hazard_status / recommended / destinations / search_parameters
     """
     try:
+        logger.info(
+            "evacuation request: lat=%.5f lon=%.5f mode=%s max_distance=%.0f",
+            request.lat, request.lon, request.transport_mode, request.max_distance,
+        )
         # 現在地の標高を確認
         current_elevation = elevation_service.get_elevation_interpolated(
             request.lat, request.lon
@@ -1161,6 +1219,10 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             "reason": _build_reason(best_raw, selected_tier, best_tm_status),
         }
 
+        logger.info(
+            "evacuation result: candidates=%d selected=1 tier=%s",
+            len(destinations), selected_tier,
+        )
         return {
             "current_location": {
                 "lat": request.lat,
@@ -1187,7 +1249,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"避難目的地検索エラー: {e}")
+        logger.exception("避難目的地検索エラー")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1236,7 +1298,7 @@ async def get_elevation_profile(request: ElevationProfileRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"標高プロファイル取得エラー: {e}")
+        logger.exception("標高プロファイル取得エラー")
         raise HTTPException(status_code=500, detail=str(e))
 
 

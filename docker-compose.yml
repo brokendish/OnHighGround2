@@ -51,7 +51,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # data_lake を正本としてマウント
+      # [Phase 1] data_runtime を runtime 参照先としてマウント（優先参照）
+      # deploy_to_runtime.sh 実行後にデータが配備される。未整備の間は data_lake へフォールバック。
+      - ./data_runtime:/data_runtime:ro
+      # data_lake を正本としてマウント（フォールバック用）
       - ./data_lake:/data_lake:ro
       # legacy shelter fallback 用
       - ./国土地理院避難所データ:/app/shelter_data:ro
@@ -61,6 +64,11 @@ services:
       - DEM_FILE_PATH=/data_lake/validated/tokyo/dem/elevation.tif
       - API_HOST=0.0.0.0
       - API_PORT=8000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
