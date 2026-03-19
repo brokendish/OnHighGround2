@@ -163,21 +163,35 @@ python data_processing/convert_dem.py /path/to/xml/directory output.tif --merge
 ### 2. 起動方法（推奨: Docker Compose）
 
 `frontend` / `backend` / `osrm-driving` / `osrm-walking` をまとめて起動します。
-移行期間中は旧 `data/` 構造でも起動できますが、正本方針は `data_lake/` です。
 
-1. `data/` 配下に必要データを配置  
-標高GeoTIFF（legacy 例: `data/elevation.tif`、canonical 例: `data_lake/validated/tokyo/dem/elevation.tif`）  
-OSM PBF（例: `data/kanto-260214.osm.pbf`）
+#### 起動前必須手順
 
-2. 起動
+**`docker compose up` を実行する前に、必ず `deploy_to_runtime.sh` を実行してください。**
+
+`data_runtime/` は配備用ディレクトリであり、スクリプトを実行しないと backend・frontend・Martin が参照するデータが空になります。
+
+```bash
+# runtime にデータを配備（起動前に必ず実行）
+scripts/publish/deploy_to_runtime.sh --region tokyo
+
+# ドライランで配備内容を確認してから実行したい場合
+scripts/publish/deploy_to_runtime.sh --region tokyo --dry-run
+```
+
+deploy 完了後、`data_runtime/manifests/latest.json` でデプロイ状態を確認できます。
+
+#### 起動
 
 ```bash
 # 基本サービス（標高・ルーティング・フロントエンド）
 docker compose up -d osrm-driving osrm-walking backend frontend
 
-# 津波タイル配信を有効にする場合は martin も追加
+# Martin（ベクタータイル）も含めて起動する場合
 docker compose up -d osrm-driving osrm-walking backend frontend martin
 ```
+
+> **deploy 未実行時の挙動**: backend は `data_lake/` へ fallback して起動しますが、
+> WARNING ログが出力されます。frontend の `/layers/` や Martin タイルは空になる可能性があります。
 
 3. アクセス  
 フロントエンド: `http://localhost:8080`  

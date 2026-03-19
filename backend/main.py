@@ -18,7 +18,7 @@ import math
 
 from elevation_service import ElevationService
 from hazard_service import HazardService, derive_hazard_safe
-from geometry_utils import calc_reachable_safe_area
+from geometry_utils import calc_reachable_safe_area, SHAPELY_AVAILABLE
 
 # 設定ファイル読み込み
 BASE_DIR = Path(__file__).resolve().parent
@@ -85,6 +85,10 @@ logger.info("OnHighGround2 backend starting")
 logger.info("LOG_LEVEL=%s  config=%s", LOG_LEVEL, CONFIG_PATH)
 logger.info("runtime path=%s", (BASE_DIR.parent / "data_runtime").resolve())
 logger.info("fallback path=%s  (data_lake)", (BASE_DIR.parent / "data_lake").resolve())
+if SHAPELY_AVAILABLE:
+    logger.info("RSA: shapely/pyproj available — RSA calculation enabled")
+else:
+    logger.warning("RSA: shapely/pyproj not available — RSA calculation disabled")
 
 
 def resolve_existing_path(path_value: str, legacy_candidates: List[Path], label: str = "") -> Path:
@@ -579,6 +583,8 @@ try:
 except (TypeError, ValueError):
     WALKING_SPEED_MPS = 1.3
 
+logger.info("RSA: enabled=%s walking_speed=%.1fm/s", ENABLE_RSA, WALKING_SPEED_MPS)
+
 # Time Margin スコア補正値（既存の hazard_safe 補正に加算）
 TIME_MARGIN_SAFE_BONUS    =  20.0   # margin >= 5 min: 余裕あり → ボーナス
 TIME_MARGIN_TIGHT_BONUS   =   0.0   # 0 <= margin < 5 min: ギリギリ → 中立
@@ -613,8 +619,15 @@ def _calc_rsa(user_lat: float, user_lon: float, tti_minutes: float) -> dict:
         radius_m=radius_m,
         hazard_polygon_store=hazard_service.get_polygon_store(),
     )
+    logger.info(
+        "RSA generated: radius_m=%.0f area_m2=%.0f exists=%s",
+        result["radius_m"], result["area_m2"] or 0, result["exists"],
+    )
     return {
         "enabled": True,
+        "computed": True,
+        "status": "computed",
+        "reason": None,
         "radius_m": result["radius_m"],
         "time_to_impact_minutes": round(tti_minutes, 1),
         "walking_speed_mps": WALKING_SPEED_MPS,
@@ -1143,11 +1156,13 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             logger.debug("TTI: not in tsunami polygon or data not loaded — time margin disabled")
 
         # Reachable Safe Area: TTI がある場合のみ算出
-        if ENABLE_RSA and tti_minutes is not None:
-            rsa_result = _calc_rsa(request.lat, request.lon, tti_minutes)
-        else:
+        if not ENABLE_RSA:
+            logger.info("RSA disabled: ENABLE_RSA=False")
             rsa_result = {
-                "enabled": ENABLE_RSA,
+                "enabled": False,
+                "computed": False,
+                "status": "disabled",
+                "reason": "rsa_disabled",
                 "radius_m": None,
                 "time_to_impact_minutes": round(tti_minutes, 1) if tti_minutes is not None else None,
                 "walking_speed_mps": WALKING_SPEED_MPS,
@@ -1155,6 +1170,22 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 "exists": None,
                 "geometry": None,
             }
+        elif tti_minutes is None:
+            logger.info("RSA skipped: time_to_impact_minutes is null")
+            rsa_result = {
+                "enabled": True,
+                "computed": False,
+                "status": "skipped",
+                "reason": "time_to_impact_unknown",
+                "radius_m": None,
+                "time_to_impact_minutes": None,
+                "walking_speed_mps": WALKING_SPEED_MPS,
+                "area_m2": None,
+                "exists": None,
+                "geometry": None,
+            }
+        else:
+            rsa_result = _calc_rsa(request.lat, request.lon, tti_minutes)
 
         # 避難候補を検索
         # 避難所データがあれば shelter ベース、なければグリッドフォールバック
