@@ -23,6 +23,7 @@ from hazard_definitions import (
     get_rsa_supporting_definitions,
     get_tti_supporting_definitions,
 )
+from services.tti_service import TTIService
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,11 @@ class HazardEngine:
         self._service = hazard_service
         self._enable_time_margin = enable_time_margin
         self._tsunami_speed_kmh = tsunami_speed_kmh
+        self._tti_service = TTIService(
+            hazard_service=hazard_service,
+            tsunami_speed_kmh=tsunami_speed_kmh,
+            enable_time_margin=enable_time_margin,
+        )
 
         loaded = self._service.loaded_hazard_types()
         logger.info(
@@ -132,23 +138,55 @@ class HazardEngine:
     # TTI (Time to Impact)
     # ──────────────────────────────────────────────────────────────────────────
 
-    def get_time_to_impact(self, lat: float, lon: float) -> Optional[float]:
+    def get_time_to_impact_detail(self, lat: float, lon: float) -> Dict:
         """
-        現在地の到達時間 (minutes) を返す。
+        現在地の TTI を構造化形式で返す。
 
-        対応ハザード: tsunami（v1: 重心距離近似）
-        flood / storm_surge は現在未対応 (has_time_to_impact=False)。
+        TTI に対応するハザード（現在は tsunami のみ）で計算を試み、
+        最初に computed=True となった結果を返す。
+        すべて未対応 / 未計算の場合は最後のハザードの結果を返す。
 
         Returns:
-            float: TTI (分)。ポリゴン外 / 時間マージン無効 / 未ロードの場合は None。
+            {
+                "supported": bool,
+                "computed": bool,
+                "minutes": float | None,
+                "reason": str | None,   # "distance_based_estimation" | "not_in_hazard_zone" | ...
+            }
         """
-        if not self._enable_time_margin:
-            return None
-        dist_m = self._service.get_tsunami_centroid_distance_m(lat, lon)
-        if dist_m is None:
-            return None
-        speed_m_per_min = self._tsunami_speed_kmh * 1000.0 / 60.0
-        return dist_m / speed_m_per_min
+        tti_defs = get_tti_supporting_definitions()
+        if not tti_defs:
+            return {
+                "supported": False,
+                "computed": False,
+                "minutes": None,
+                "reason": "not_supported",
+            }
+
+        # TTI 対応ハザードを順に試みる（現在は tsunami のみ）
+        last_result: Dict = {
+            "supported": False,
+            "computed": False,
+            "minutes": None,
+            "reason": "not_supported",
+        }
+        for defn in tti_defs:
+            result = self._tti_service.compute_tti(defn.name, lat, lon)
+            last_result = result
+            if result["computed"]:
+                return result
+
+        return last_result
+
+    def get_time_to_impact(self, lat: float, lon: float) -> Optional[float]:
+        """
+        現在地の到達時間 (minutes) を返す。後方互換インターフェース。
+
+        Returns:
+            float: TTI (分)。computed=False の場合は None。
+        """
+        detail = self.get_time_to_impact_detail(lat, lon)
+        return detail["minutes"] if detail["computed"] else None
 
     def get_tti_status_for_hazard(self, hazard_name: str) -> str:
         """
@@ -176,15 +214,19 @@ class HazardEngine:
         点に対する全ハザード評価を統一形式で返す（内部利用向け）。
 
         外向け API レスポンスとは独立した内部共通形式。
-        将来の評価ロジック拡張（重み付け・複合判定など）の基盤として使用する。
+        capability-based 設計に基づき、各ハザードの TTI を TTIService 経由で計算する。
 
         Returns:
             {
                 "flood": {
                     "status": "inside" | "outside" | "unknown",
                     "safe": bool,
-                    "time_to_impact_minutes": float | None,
-                    "tti_status": "supported" | "unsupported" | "unknown" | "computed",
+                    "tti": {
+                        "supported": bool,
+                        "computed": bool,
+                        "minutes": float | None,
+                        "reason": str | None,
+                    },
                 },
                 ...
             }
@@ -194,23 +236,22 @@ class HazardEngine:
 
         for hazard_name, status in assessment.items():
             defn = get_definition(hazard_name)
-            has_tti = defn.has_time_to_impact if defn else False
+            has_tti = defn.capabilities["time_to_impact"] if defn else False
 
-            tti_val: Optional[float] = None
-            tti_stat: str
-            if not has_tti:
-                tti_stat = "unsupported"
-            elif tti_minutes is not None:
-                tti_val = tti_minutes
-                tti_stat = "computed"
+            if has_tti:
+                tti_detail = self._tti_service.compute_tti(hazard_name, lat, lon)
             else:
-                tti_stat = "unknown"
+                tti_detail = {
+                    "supported": False,
+                    "computed": False,
+                    "minutes": None,
+                    "reason": "not_supported",
+                }
 
             summary[hazard_name] = {
                 "status": status,
                 "safe": status == "outside",
-                "time_to_impact_minutes": tti_val,
-                "tti_status": tti_stat,
+                "tti": tti_detail,
             }
 
         return summary

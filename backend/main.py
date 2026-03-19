@@ -1135,17 +1135,22 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             "hazards": point_eval["hazards"],
         }
 
-        # Time Margin: 現在地の津波到達時間を一度だけ計算（候補全件で共有）
-        tti_minutes = hazard_engine.get_time_to_impact(request.lat, request.lon)
-        if tti_minutes is not None:
+        # Time Margin: 現在地の TTI を構造化形式で取得（候補全件で共有）
+        tti_detail = hazard_engine.get_time_to_impact_detail(request.lat, request.lon)
+        tti_minutes = tti_detail["minutes"]  # 後方互換：search_* 関数に渡す用
+
+        if tti_detail["computed"]:
             logger.info(
-                "TTI computed: lat=%.5f lon=%.5f tti=%.1f min (tsunami speed=%.0f km/h)",
-                request.lat, request.lon, tti_minutes, TSUNAMI_SPEED_KMH,
+                "TTI computed: lat=%.5f lon=%.5f tti=%.1f min (tsunami speed=%.0f km/h reason=%s)",
+                request.lat, request.lon, tti_minutes, TSUNAMI_SPEED_KMH, tti_detail["reason"],
             )
         else:
-            logger.debug("TTI: not in tsunami polygon or data not loaded — time margin disabled")
+            logger.debug(
+                "TTI: not computed (supported=%s reason=%s)",
+                tti_detail["supported"], tti_detail["reason"],
+            )
 
-        # Reachable Safe Area: TTI がある場合のみ算出
+        # Reachable Safe Area: TTI が computed の場合のみ算出
         if not ENABLE_RSA:
             logger.info("RSA disabled: ENABLE_RSA=False")
             rsa_result = {
@@ -1160,13 +1165,14 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 "exists": None,
                 "geometry": None,
             }
-        elif tti_minutes is None:
-            logger.info("RSA skipped: time_to_impact_minutes is null")
+        elif not tti_detail["computed"]:
+            _rsa_skip_reason = tti_detail["reason"] or "tti_not_computed"
+            logger.info("RSA skipped: TTI not computed (reason=%s)", _rsa_skip_reason)
             rsa_result = {
                 "enabled": True,
                 "computed": False,
                 "status": "skipped",
-                "reason": "time_to_impact_unknown",
+                "reason": _rsa_skip_reason,
                 "radius_m": None,
                 "time_to_impact_minutes": None,
                 "walking_speed_mps": WALKING_SPEED_MPS,
@@ -1236,6 +1242,12 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                     "elevation": round(current_elevation, 2),
                 },
                 "hazard_status": hazard_status,
+                "time_to_impact": {
+                    "supported": tti_detail["supported"],
+                    "computed": tti_detail["computed"],
+                    "minutes": round(tti_minutes, 1) if tti_minutes is not None else None,
+                    "reason": tti_detail["reason"],
+                },
                 "recommended": None,
                 "reachable_safe_area": rsa_result,
                 "destinations": [],
@@ -1281,6 +1293,12 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 "elevation": round(current_elevation, 2),
             },
             "hazard_status": hazard_status,
+            "time_to_impact": {
+                "supported": tti_detail["supported"],
+                "computed": tti_detail["computed"],
+                "minutes": round(tti_minutes, 1) if tti_minutes is not None else None,
+                "reason": tti_detail["reason"],
+            },
             "recommended": recommended,
             "reachable_safe_area": rsa_result,
             "recommendation_meta": {

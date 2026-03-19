@@ -8,7 +8,7 @@
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,24 @@ class HazardDefinition:
 
     notes: str = ""
     """補足メモ。"""
+
+    enabled: bool = True
+    """ハザードが全体として有効かどうか（backend + frontend 両方が有効な場合に True）。"""
+
+    @property
+    def capabilities(self) -> Dict[str, bool]:
+        """ハザードの能力マップ（capability-based 設計のエントリポイント）。
+
+        キー:
+            polygon_check  — inside/outside ポリゴン判定が実装されているか
+            time_to_impact — TTI（到達時間）計算が実装されているか
+            rsa_support    — RSA（到達可能安全エリア）計算に関与するか
+        """
+        return {
+            "polygon_check": self.has_polygon_check,
+            "time_to_impact": self.has_time_to_impact,
+            "rsa_support": self.supports_rsa,
+        }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -103,6 +121,7 @@ HAZARD_DEFINITIONS: List[HazardDefinition] = [
         source_type="geojson",
         evaluation_mode="none",
         notes="Phase 3.x 以降で実装予定。データ未整備。",
+        enabled=False,
     ),
 
     HazardDefinition(
@@ -116,6 +135,7 @@ HAZARD_DEFINITIONS: List[HazardDefinition] = [
         source_type="geojson",
         evaluation_mode="none",
         notes="Phase 3.x 以降で実装予定。データ未整備。",
+        enabled=False,
     ),
 ]
 

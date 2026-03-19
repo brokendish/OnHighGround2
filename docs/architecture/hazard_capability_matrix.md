@@ -1,12 +1,12 @@
 # Hazard Capability Matrix
 
-**Phase 3 時点の対応状況**
+## Phase 3.1 時点の対応状況
 
 ---
 
 ## ハザード種別対応マトリクス
 
-| ハザード | 表示名 | backend 判定 | frontend 表示 | TTI | RSA | データ形式 | 状態 |
+| ハザード | 表示名 | enabled | polygon | TTI | RSA | データ形式 | 状態 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `flood` | 洪水浸水想定 | ✅ | ✅ | ❌ | ❌ | GeoJSONL | 実装済み |
 | `storm_surge` | 高潮浸水想定 | ✅ | ✅ | ❌ | ❌ | GeoJSON | 実装済み |
@@ -30,11 +30,66 @@
 
 | 列 | 定義 |
 | --- | --- |
-| **backend 判定** | `HazardService` でポリゴン内外判定が機能しているか |
-| **frontend 表示** | フロントエンドでハザードレイヤーが表示されるか |
-| **TTI** | Time to Impact（到達時間）計算が実装されているか |
-| **RSA** | Reachable Safe Area（到達可能安全エリア）に関与するか |
+| **enabled** | `HazardDefinition.enabled` — ハザードが全体として有効か（backend + frontend 両方が有効な場合 True） |
+| **polygon** | `capabilities["polygon_check"]` — ポリゴン内外判定が機能しているか |
+| **TTI** | `capabilities["time_to_impact"]` — 到達時間計算が実装されているか |
+| **RSA** | `capabilities["rsa_support"]` — 到達可能安全エリア計算に関与するか |
 | **データ形式** | backend が読み込むデータ形式 |
+
+---
+
+## Capability モデル（Phase 3.1 導入）
+
+各ハザードは `HazardDefinition.capabilities` プロパティで能力マップを公開する。
+
+```python
+# tsunami の例
+tsunami.capabilities
+# → {
+#     "polygon_check":  True,   # inside/outside 判定
+#     "time_to_impact": True,   # TTI 計算
+#     "rsa_support":    True,   # RSA 計算に関与
+# }
+
+# flood の例
+flood.capabilities
+# → {
+#     "polygon_check":  True,
+#     "time_to_impact": False,
+#     "rsa_support":    False,
+# }
+```
+
+capability は既存の個別フィールド（`has_polygon_check` 等）から導出されるため、
+定義と実態が常に一致する。
+
+---
+
+## TTI 計算詳細
+
+### TTIService（Phase 3.1 新規: `backend/services/tti_service.py`）
+
+TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
+
+返り値構造:
+
+```json
+{
+  "supported": true,
+  "computed": true,
+  "minutes": 12.3,
+  "reason": "distance_based_estimation"
+}
+```
+
+### reason 一覧
+
+| reason | 説明 |
+| --- | --- |
+| `distance_based_estimation` | 重心距離近似（tsunami v1）。computed=True |
+| `not_in_hazard_zone` | 該当ハザードのポリゴン外またはデータなし。computed=False |
+| `not_supported` | このハザードは TTI 未対応。computed=False |
+| `time_margin_disabled` | `enable_time_margin=False` により無効化。computed=False |
 
 ---
 
@@ -55,20 +110,21 @@
 ### tsunami（津波浸水想定）
 
 - **データ**: `tsunami_{region}.geojson`（tokyo / kanagawa / chiba）
-- **TTI v1**: 現在地が入る津波ポリゴンの重心までの距離 / 津波速度で近似
+- **TTI v1**: `TTIService._compute_tsunami()` が担当
+  - 現在地が入る津波ポリゴンの重心までの距離 / 津波速度で近似
+  - reason = `"distance_based_estimation"`
   - 精度は低め。将来的に津波伝播シミュレーション結果への置き換えを検討。
-- **RSA**: TTI が算出できた場合のみ RSA を計算。`supports_rsa=True`。
+- **RSA**: `capabilities["rsa_support"] = True` → TTI computed 時に RSA 計算が走る
 - **multi-region**: 複数都県ファイルを順次ロード（累積式）
 
 ### inland_flood（内水氾濫想定）
 
-- **状態**: `backend_enabled=False` / `frontend_enabled=False`
+- **状態**: `enabled=False` / `backend_enabled=False` / `frontend_enabled=False`
 - **整備条件**: 国土地理院または各自治体の内水氾濫想定 GeoJSON の整備
-- **追加方法**: `hazard_definitions.py` の `backend_enabled=True` に変更 + main.py にロード追加
 
 ### landslide（土砂災害警戒区域）
 
-- **状態**: `backend_enabled=False` / `frontend_enabled=False`
+- **状態**: `enabled=False` / `backend_enabled=False` / `frontend_enabled=False`
 - **整備条件**: 都道府県別の土砂災害警戒区域データの整備
 - **注意**: 評価方式が警戒区域の段階（特別警戒 / 警戒）を区別する必要があるため、
   `HazardService.assess_candidate()` の拡張が必要になる見込み
@@ -79,9 +135,55 @@
 
 | ハザード | v1（現在） | v2（将来） |
 | --- | --- | --- |
-| tsunami | 重心距離近似 | 津波伝播シミュレーション |
-| flood | 未対応 | 浸水タイムラインデータ連携 |
-| storm_surge | 未対応 | 潮位予報データ連携 |
+| tsunami | 重心距離近似 (`distance_based_estimation`) | 津波伝播シミュレーション |
+| flood | 未対応 (`not_supported`) | 浸水タイムラインデータ連携 |
+| storm_surge | 未対応 (`not_supported`) | 潮位予報データ連携 |
+
+---
+
+## RSA との連携（Phase 3.1）
+
+RSA は `TTIService.compute_tti()` の `computed=True` 時のみ実行する。
+
+```python
+tti_detail = hazard_engine.get_time_to_impact_detail(lat, lon)
+
+if tti_detail["computed"]:
+    RSA 実行 → rsa_result (status="computed")
+else:
+    RSA スキップ → rsa_result (status="skipped", reason=tti_detail["reason"])
+```
+
+RSA ログ:
+
+```text
+RSA generated: radius_m=NNN area_m2=NNN exists=True/False
+RSA skipped: TTI not computed (reason=not_in_hazard_zone)
+RSA skipped: TTI not computed (reason=time_margin_disabled)
+RSA disabled: ENABLE_RSA=False
+```
+
+---
+
+## /api/evacuation レスポンス（Phase 3.1 追加フィールド）
+
+`time_to_impact` フィールドがトップレベルに追加された（非破壊）。
+
+```json
+{
+  "hazard_status": { ... },
+  "time_to_impact": {
+    "supported": true,
+    "computed": false,
+    "minutes": null,
+    "reason": "not_in_hazard_zone"
+  },
+  "reachable_safe_area": { ... },
+  "destinations": [ ... ]
+}
+```
+
+既存の `time_to_impact_minutes`（destinations 内）は後方互換のため維持。
 
 ---
 
