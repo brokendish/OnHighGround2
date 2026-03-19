@@ -25,16 +25,29 @@
 
 ## 現状の互換維持箇所
 
-- `frontend/hazard/` — nginx から `/hazard/` として配信中。GeoJSON フォールバックとして現役。
-  - 将来的に `frontend/layers/` + vector tiles (Martin) へ完全移行後、削除予定。
-- `data/elevation.tif` — DEMデータの旧配置。`data_lake/validated/tokyo/dem/elevation.tif` への移行が完了したら不要。
-- `国土地理院避難所データ/` — 避難所CSVの旧配置。`data_lake/validated/tokyo/shelter/` への移行後に削除予定。
+- `frontend/hazard/` — nginx で `/hazard/` として配信中。**deprecated** (Phase 2)。
+  - Phase 2 で `/layers/` への切替完了。新規参照は `frontend/layers/` を使うこと。
+  - Martin vector tiles が安定した Phase 3 時点で `/hazard/` location と `frontend/hazard/` を削除予定。
+- `data/elevation.tif` — DEMデータの旧配置。`data_runtime/backend/elevation/elevation.tif` への移行後に不要。
+- `国土地理院避難所データ/` — 避難所CSVの旧配置。`data_runtime/backend/shelters/` に配備完了後に削除予定。
+
+---
+
+## Phase 2 完了後の削除対象候補
+
+Phase 2 で以下の移行が完了した。これらは Phase 3 で削除を検討する。
+
+| 対象 | 状態 | 削除条件 |
+| --- | --- | --- |
+| `nginx.conf` の `/hazard/` location | deprecated | Martin tiles が安定し `/layers/` で完全代替できること |
+| `frontend/hazard/*.geojson` | 後方互換維持中 | `/layers/` 経由で全レイヤーが表示できること |
+| `docker-compose.yml` の `data_lake/tiles:/tiles_legacy` マウント | fallback 用 | `data_runtime/frontend/tiles/` に全タイルが配備されること |
+| backend の `data_lake` fallback コード | 残存 | runtime が 1 か月以上安定稼働したこと |
+| `国土地理院避難所データ/` Docker マウント | legacy shelter | `data_runtime/backend/shelters/` で全避難所が賄えること |
 
 ---
 
 ## 削除タイミング
 
-Phase 2 以降、`data_runtime/` への配備が安定した時点で、
-`legacy/` 配下のディレクトリおよびプロジェクトルート直下の旧配置を整理する。
-
-削除前に、各サービスの参照先がすべて `data_runtime/` を向いていることを確認すること。
+Phase 3 以降、上記削除条件を確認してから段階的に削除する。
+削除前に `runtime_cutover_checklist.md` ですべての確認項目がグリーンになっていること。

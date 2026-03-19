@@ -29,15 +29,10 @@ const OSRM_SERVICE_URLS = {
 const DEBUG_API_FETCH = true;
 
 // ── レイヤーパス設定 ─────────────────────────────────────────────
-// [Phase 1] 現在のハザードGeoJSONフォールバックパス。
-// nginx が /hazard/ を frontend/hazard/ から配信中（legacy 扱い）。
+// [Phase 2] frontend/layers/ を公式配置先として /layers/ に切替済み。
+// nginx が /layers/ を frontend/layers/ から配信する。
+// frontend/layers/ への配備は deploy_to_runtime.sh が実施する。
 //
-// [移行予定] Phase 2 以降、frontend/layers/ を公式配置先とし、
-// /layers/ パスへ統一する。以下の LAYER_BASE_PATH を切り替えることで移行する。
-//
-//   現在 (legacy):  LAYER_BASE_PATH = '/hazard'
-//   移行後 (公式):  LAYER_BASE_PATH = '/layers'
-//
-// TODO: deploy_to_runtime.sh で frontend/layers/ にデータが配備されたら
-//       LAYER_BASE_PATH を '/layers' へ変更し、/hazard/ を廃止する。
-const LAYER_BASE_PATH = '/hazard'; // 今後 /layers に統一予定
+// /hazard/ は deprecated（後方互換として残すが新規参照はしない）。
+// vector tiles (Martin /tiles/) が主配信。GeoJSON は vector tile 未整備時の fallback。
+const LAYER_BASE_PATH = '/layers';

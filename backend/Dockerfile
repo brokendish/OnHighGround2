@@ -4,10 +4,14 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # システムパッケージのインストール
+# libgeos-dev: shapely のソースビルドに必要 (--no-build-isolation 使用時)
+# libproj-dev: pyproj のソースビルドに必要 (RSA 計算で使用)
 RUN apt-get update && apt-get install -y \
     build-essential \
     gdal-bin \
     libgdal-dev \
+    libgeos-dev \
+    libproj-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Pythonパッケージの依存関係をコピー

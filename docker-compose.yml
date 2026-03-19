@@ -94,7 +94,12 @@ services:
     image: ghcr.io/maplibre/martin:latest
     container_name: evacuation-navi-martin
     volumes:
-      - ./data_lake/tiles:/tiles:ro
+      # [Phase 2] data_runtime/frontend/tiles を正規参照先とする。
+      # deploy_to_runtime.sh で data_lake/tiles → data_runtime/frontend/tiles へ配備すること。
+      - ./data_runtime/frontend/tiles:/tiles:ro
+      # [fallback] data_runtime/frontend/tiles が空の場合に備え data_lake/tiles も残す。
+      # Phase 3 で data_runtime/frontend/tiles が安定したら削除予定。
+      - ./data_lake/tiles:/tiles_legacy:ro
     command: /tiles/tokyo/flood /tiles/tokyo/tsunami /tiles/tokyo/storm_surge /tiles/tokyo/urban_flood
     restart: unless-stopped
 

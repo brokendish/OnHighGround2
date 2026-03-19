@@ -1314,7 +1314,7 @@
         const HAZARD_LAYERS = {
             tsunami_tokyo: {
                 name: "津波浸水想定（東京都）",
-                path: "/hazard/tsunami_tokyo.geojson", // TODO: 移行後 /layers/tsunami_tokyo.geojson
+                path: `${LAYER_BASE_PATH}/tsunami_tokyo.geojson`,
                 checkboxId: "showTsunamiHazardTokyo",
                 layer: null,
                 loaded: false,
@@ -1324,7 +1324,7 @@
             },
             tsunami_kanagawa: {
                 name: "津波浸水想定（神奈川県）",
-                path: "/hazard/tsunami_kanagawa.geojson", // TODO: 移行後 /layers/tsunami_kanagawa.geojson
+                path: `${LAYER_BASE_PATH}/tsunami_kanagawa.geojson`,
                 checkboxId: "showTsunamiHazardKanagawa",
                 layer: null,
                 loaded: false,
@@ -1334,7 +1334,7 @@
             },
             tsunami_chiba: {
                 name: "津波浸水想定（千葉県）",
-                path: "/hazard/tsunami_chiba.geojson", // TODO: 移行後 /layers/tsunami_chiba.geojson
+                path: `${LAYER_BASE_PATH}/tsunami_chiba.geojson`,
                 checkboxId: "showTsunamiHazardChiba",
                 layer: null,
                 loaded: false,
@@ -1344,7 +1344,7 @@
             },
             flood_tokyo_max: {
                 name: "洪水浸水想定（東京都・想定最大規模）",
-                path: "/hazard/tokyo_flood_max.geojson", // TODO: 移行後 /layers/tokyo_flood_max.geojson
+                path: `${LAYER_BASE_PATH}/tokyo_flood_max.geojson`,
                 checkboxId: "showFloodTokyoMax",
                 layer: null,
                 loaded: false,
@@ -1354,7 +1354,7 @@
             },
             storm_surge_tokyo: {
                 name: "高潮浸水想定（東京都）",
-                path: "/hazard/tokyo_storm_surge.geojson", // TODO: 移行後 /layers/tokyo_storm_surge.geojson
+                path: `${LAYER_BASE_PATH}/tokyo_storm_surge.geojson`,
                 checkboxId: "showStormSurgeTokyo",
                 layer: null,
                 loaded: false,

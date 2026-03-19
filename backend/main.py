@@ -100,8 +100,10 @@ def resolve_existing_path(path_value: str, legacy_candidates: List[Path], label:
     if resolved.exists():
         if "data_runtime" in str(resolved):
             logger.info("%s loaded from runtime: %s", _label, resolved)
+        elif "data_lake" in str(resolved):
+            logger.warning("%s fallback to data_lake: %s", _label, resolved)
         else:
-            logger.info("%s loaded from primary: %s", _label, resolved)
+            logger.warning("%s fallback to legacy: %s", _label, resolved)
         return resolved
 
     for candidate in legacy_candidates:
@@ -174,13 +176,27 @@ def parse_float(value: Any) -> Optional[float]:
 
 
 def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
-    """避難場所データの設定値をPath配列へ変換"""
+    """避難場所データの設定値をPath配列へ変換。
+
+    [Phase 2] 参照優先順位:
+      1. data_runtime/backend/shelters/  (runtime 優先)
+      2. data_lake/validated/tokyo/shelter  (data_lake fallback)
+      3. 国土地理院避難所データ  (legacy fallback)
+    """
+    runtime_path = BASE_DIR.parent / "data_runtime" / "backend" / "shelters"
     default_path = BASE_DIR.parent / "data_lake" / "validated" / "tokyo" / "shelter"
     legacy_default_path = BASE_DIR.parent / "国土地理院避難所データ" / "東京" / "13000_2" / "13000_2.csv"
+
     if not path_config:
+        # config 未指定時は runtime → data_lake → legacy の順で探す
+        runtime_files = list(runtime_path.rglob("*.geojson")) + list(runtime_path.rglob("*.csv")) if runtime_path.exists() else []
+        if runtime_files:
+            logger.info("Shelter loaded from runtime: %s", runtime_path)
+            return [runtime_path]
         if default_path.exists():
+            logger.warning("Shelter fallback to data_lake: %s", default_path)
             return [default_path]
-        # TODO: data_lake/validated/tokyo/shelter への移行完了後に legacy fallback を削除する。
+        logger.warning("Shelter fallback to legacy: %s", legacy_default_path)
         return [legacy_default_path]
 
     result: List[Path] = []
@@ -191,21 +207,35 @@ def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
         path = Path(item)
         if not path.is_absolute():
             path = (BASE_DIR / path).resolve()
+
         if path.exists():
+            if "data_runtime" in str(path):
+                logger.info("Shelter loaded from runtime: %s", path)
+            elif "data_lake" in str(path):
+                logger.warning("Shelter fallback to data_lake: %s", path)
+            else:
+                logger.warning("Shelter fallback to legacy: %s", path)
             result.append(path)
             continue
 
-        if path == default_path and legacy_default_path.exists():
-            logger.warning(
-                "Canonical shelter path not found. Falling back to legacy path: %s",
-                legacy_default_path,
-            )
+        # 指定パスが見つからない場合の fallback
+        if "data_runtime" in str(path) and default_path.exists():
+            logger.warning("Shelter: runtime path not found (%s) — fallback to data_lake: %s", path, default_path)
+            result.append(default_path)
+            continue
+        if "data_lake" in str(path) and legacy_default_path.exists():
+            logger.warning("Shelter fallback to legacy: %s", legacy_default_path)
             result.append(legacy_default_path)
             continue
 
         result.append(path)
 
-    return result if result else ([default_path] if default_path.exists() else [legacy_default_path])
+    if result:
+        return result
+    runtime_files = list(runtime_path.rglob("*.geojson")) + list(runtime_path.rglob("*.csv")) if runtime_path.exists() else []
+    if runtime_files:
+        return [runtime_path]
+    return [default_path] if default_path.exists() else [legacy_default_path]
 
 
 def load_emergency_shelters_from_csv(csv_path: Path, shelters: List[Dict[str, Any]], seen: set) -> None:
