@@ -60,3 +60,7 @@ data_runtime/frontend/layers/
 data_runtime/frontend/tiles/
 data_runtime/manifests/*.json
 data_runtime/manifests/*.log
+
+# ---- frontend/layers: deploy_to_runtime.sh で同期される GeoJSON (deploy artifact) ----
+frontend/layers/*.geojson
+frontend/layers/*.json
