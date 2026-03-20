@@ -989,7 +989,23 @@
                     </div>
                 </details>
                 <div class="shelter-status" id="stormSurgeStatus">高潮浸水想定レイヤー: OFF</div>
-                
+                <details class="hazard-group">
+                    <summary class="hazard-group-summary">内水氾濫</summary>
+                    <label class="manual-location-toggle" for="showInlandFloodTokyo">
+                        <input type="checkbox" id="showInlandFloodTokyo">
+                        東京都
+                    </label>
+                </details>
+                <div class="shelter-status" id="inlandFloodStatus">内水氾濫レイヤー: OFF</div>
+                <details class="hazard-group">
+                    <summary class="hazard-group-summary">土砂災害</summary>
+                    <label class="manual-location-toggle" for="showLandslideTokyo">
+                        <input type="checkbox" id="showLandslideTokyo">
+                        東京都
+                    </label>
+                </details>
+                <div class="shelter-status" id="landslideStatus">土砂災害レイヤー: OFF</div>
+
                 <div class="current-location" id="currentLocationInfo" style="display: none;">
                     <strong>現在地:</strong><br>
                     緯度: <span id="currentLat">-</span><br>

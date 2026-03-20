@@ -458,6 +458,54 @@ for _target in _tsunami_targets:
             _target, _runtime_path, _validated_path, _normalized_path,
         )
 
+# inland_flood: 内水氾濫想定（サンプルデータ）
+# [Phase 4] data_runtime/backend/hazard/inland_flood/ を優先。
+# 未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
+INLAND_FLOOD_ENABLED = parse_bool(APP_CONFIG.get("hazard.inland_flood.enabled", "true"), True)
+if INLAND_FLOOD_ENABLED:
+    _inland_flood_path_value = APP_CONFIG.get(
+        "hazard.inland_flood.path",
+        "../data_runtime/backend/hazard/inland_flood/inland_flood_sample.geojson",
+    )
+    _inland_flood_path = resolve_existing_path(
+        _inland_flood_path_value,
+        legacy_candidates=[
+            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "inland_flood" / "inland_flood_sample.geojson",
+            BASE_DIR.parent / "data" / "hazard" / "inland_flood_sample.geojson",
+        ],
+        label="InlandFlood",
+    )
+    if _inland_flood_path.exists():
+        hazard_service.load("inland_flood", _inland_flood_path)
+    else:
+        logger.info("内水氾濫サンプルデータが見つかりません（スキップ）: %s", _inland_flood_path)
+else:
+    logger.info("内水氾濫ハザード判定は無効（hazard.inland_flood.enabled=false）")
+
+# landslide: 土砂災害警戒区域（サンプルデータ）
+# [Phase 4] data_runtime/backend/hazard/landslide/ を優先。
+# 未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
+LANDSLIDE_ENABLED = parse_bool(APP_CONFIG.get("hazard.landslide.enabled", "true"), True)
+if LANDSLIDE_ENABLED:
+    _landslide_path_value = APP_CONFIG.get(
+        "hazard.landslide.path",
+        "../data_runtime/backend/hazard/landslide/landslide_sample.geojson",
+    )
+    _landslide_path = resolve_existing_path(
+        _landslide_path_value,
+        legacy_candidates=[
+            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "landslide" / "landslide_sample.geojson",
+            BASE_DIR.parent / "data" / "hazard" / "landslide_sample.geojson",
+        ],
+        label="Landslide",
+    )
+    if _landslide_path.exists():
+        hazard_service.load("landslide", _landslide_path)
+    else:
+        logger.info("土砂災害サンプルデータが見つかりません（スキップ）: %s", _landslide_path)
+else:
+    logger.info("土砂災害ハザード判定は無効（hazard.landslide.enabled=false）")
+
 # APIサーバー設定
 API_HOST = APP_CONFIG.get("api.host", "0.0.0.0")
 try:

@@ -1,6 +1,6 @@
 # Hazard Capability Matrix
 
-## Phase 3.1 時点の対応状況
+## Phase 4 時点の対応状況
 
 ---
 
@@ -11,8 +11,8 @@
 | `flood` | 洪水浸水想定 | ✅ | ✅ | ❌ | ❌ | GeoJSONL | 実装済み |
 | `storm_surge` | 高潮浸水想定 | ✅ | ✅ | ❌ | ❌ | GeoJSON | 実装済み |
 | `tsunami` | 津波浸水想定 | ✅ | ✅ | ✅ (v1) | ✅ | GeoJSON (dir) | 実装済み |
-| `inland_flood` | 内水氾濫想定 | ❌ | ❌ | ❌ | ❌ | GeoJSON | 計画中 |
-| `landslide` | 土砂災害警戒区域 | ❌ | ❌ | ❌ | ❌ | GeoJSON | 計画中 |
+| `inland_flood` | 内水氾濫 | ✅ | ✅ | ❌ | ❌ | GeoJSON | Phase4 |
+| `landslide` | 土砂災害 | ✅ | ✅ | ❌ | ❌ | GeoJSON | Phase4 |
 
 ---
 
@@ -117,17 +117,24 @@ TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
 - **RSA**: `capabilities["rsa_support"] = True` → TTI computed 時に RSA 計算が走る
 - **multi-region**: 複数都県ファイルを順次ロード（累積式）
 
-### inland_flood（内水氾濫想定）
+### inland_flood（内水氾濫）
 
-- **状態**: `enabled=False` / `backend_enabled=False` / `frontend_enabled=False`
-- **整備条件**: 国土地理院または各自治体の内水氾濫想定 GeoJSON の整備
+- **状態**: `enabled=True` / `backend_enabled=True` / `frontend_enabled=True`（Phase 4）
+- **データ**: `inland_flood_sample.geojson`（サンプル）
+  - 参照順位: `data_runtime/backend/hazard/inland_flood/` → `data_lake/normalized/tokyo/inland_flood/` → `data/hazard/`
+  - 設定キー: `hazard.inland_flood.enabled` / `hazard.inland_flood.path`
+- **将来拡張**: 浸水深評価（severity）、タイル化（Phase 4.1）
+- **データソース（予定）**: 自治体オープンデータ（浸水深別ポリゴン）
 
-### landslide（土砂災害警戒区域）
+### landslide（土砂災害）
 
-- **状態**: `enabled=False` / `backend_enabled=False` / `frontend_enabled=False`
-- **整備条件**: 都道府県別の土砂災害警戒区域データの整備
-- **注意**: 評価方式が警戒区域の段階（特別警戒 / 警戒）を区別する必要があるため、
-  `HazardService.assess_candidate()` の拡張が必要になる見込み
+- **状態**: `enabled=True` / `backend_enabled=True` / `frontend_enabled=True`（Phase 4）
+- **データ**: `landslide_sample.geojson`（サンプル）
+  - 参照順位: `data_runtime/backend/hazard/landslide/` → `data_lake/normalized/tokyo/landslide/` → `data/hazard/`
+  - 設定キー: `hazard.landslide.enabled` / `hazard.landslide.path`
+- **属性**: `zone_type`（警戒区域 / 特別警戒区域）— 将来の危険度レベル分岐に使用予定
+- **将来拡張**: 危険度レベル分岐、タイル化（Phase 4.1）
+- **データソース（予定）**: 都道府県別土砂災害警戒区域データ
 
 ---
 
@@ -138,6 +145,8 @@ TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
 | tsunami | 重心距離近似 (`distance_based_estimation`) | 津波伝播シミュレーション |
 | flood | 未対応 (`not_supported`) | 浸水タイムラインデータ連携 |
 | storm_surge | 未対応 (`not_supported`) | 潮位予報データ連携 |
+| inland_flood | 未対応 (`not_supported`) | 浸水深評価・タイムライン連携（Phase 4.1） |
+| landslide | 未対応 (`not_supported`) | 危険度レベル分岐・降雨連携（Phase 4.1） |
 
 ---
 

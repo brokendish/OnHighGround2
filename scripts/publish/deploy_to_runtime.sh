@@ -168,6 +168,20 @@ for target in tokyo kanagawa chiba; do
     fi
 done
 
+# ─── backend: hazard / inland_flood (Phase 4 sample) ─────────────────────────
+log_info "--- inland_flood (Phase 4 sample) ---"
+deploy_file \
+    "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
+    "${RUNTIME_BACKEND}/hazard/inland_flood/inland_flood_sample.geojson" \
+    "backend"
+
+# ─── backend: hazard / landslide (Phase 4 sample) ────────────────────────────
+log_info "--- landslide (Phase 4 sample) ---"
+deploy_file \
+    "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
+    "${RUNTIME_BACKEND}/hazard/landslide/landslide_sample.geojson" \
+    "backend"
+
 # ─── backend: shelters ────────────────────────────────────────────────────────
 log_info "--- shelters ---"
 deploy_dir "${VALIDATED}/shelter" "${RUNTIME_BACKEND}/shelters" "*.geojson" "backend"
@@ -202,6 +216,16 @@ else
             "${RUNTIME_FRONTEND_LAYERS}/tokyo_flood_max.geojson" \
             "frontend_layers"
     fi
+
+    # inland_flood / landslide: Phase 4 sample (frontend GeoJSON fallback 用)
+    deploy_file \
+        "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
+        "${RUNTIME_FRONTEND_LAYERS}/inland_flood_tokyo.geojson" \
+        "frontend_layers"
+    deploy_file \
+        "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
+        "${RUNTIME_FRONTEND_LAYERS}/landslide_tokyo.geojson" \
+        "frontend_layers"
 
     # ── frontend: tiles (Martin が使用する .mbtiles) ──────────────────────────
     # data_lake/tiles/{region}/ → data_runtime/frontend/tiles/{region}/

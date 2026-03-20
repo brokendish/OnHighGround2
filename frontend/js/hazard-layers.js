@@ -61,6 +61,26 @@ const HAZARD_LAYERS = {
         visible: false,
         rawData: null,
         type: 'storm_surge'
+    },
+    inland_flood_tokyo: {
+        name: "内水氾濫（東京都）",
+        path: `${LAYER_BASE_PATH}/inland_flood_tokyo.geojson`,
+        checkboxId: "showInlandFloodTokyo",
+        layer: null,
+        loaded: false,
+        visible: false,
+        rawData: null,
+        type: 'inland_flood'
+    },
+    landslide_tokyo: {
+        name: "土砂災害（東京都）",
+        path: `${LAYER_BASE_PATH}/landslide_tokyo.geojson`,
+        checkboxId: "showLandslideTokyo",
+        layer: null,
+        loaded: false,
+        visible: false,
+        rawData: null,
+        type: 'landslide'
     }
 };
 
@@ -233,6 +253,41 @@ const STORM_SURGE_BORDER = {
     dashArray: '4,4'
 };
 
+// 内水氾濫スタイル（青系）
+const INLAND_FLOOD_BORDER = {
+    color: '#0277bd',
+    weight: 0.4,
+    opacity: 0.35,
+    dashArray: '4,4'
+};
+
+function getInlandFloodFeatureStyle(feature) {
+    return {
+        ...INLAND_FLOOD_BORDER,
+        fillColor: '#29b6f6',
+        fillOpacity: 0.38
+    };
+}
+
+// 土砂災害スタイル（茶色系）
+const LANDSLIDE_BORDER = {
+    color: '#6d4c41',
+    weight: 0.4,
+    opacity: 0.35,
+    dashArray: '4,4'
+};
+
+function getLandslideFeatureStyle(feature) {
+    // 特別警戒区域は濃い色、警戒区域は薄い色
+    const zoneType = feature?.properties?.zone_type || feature?.properties?.区分 || '';
+    const isSpecial = zoneType.includes('特別');
+    return {
+        ...LANDSLIDE_BORDER,
+        fillColor: isSpecial ? '#bf360c' : '#a1887f',
+        fillOpacity: 0.45
+    };
+}
+
 function getStormSurgeFeatureStyle(feature) {
     const rank = feature?.properties?.['storm_surge_rank'];
     const fillColor = STORM_SURGE_RANK_COLORS[rank] || STORM_SURGE_UNKNOWN_COLOR;
@@ -367,6 +422,10 @@ async function loadHazardLayer(layerKey) {
         ? (feature) => getFloodFeatureStyle(feature)
         : hazard.type === 'storm_surge'
         ? (feature) => getStormSurgeFeatureStyle(feature)
+        : hazard.type === 'inland_flood'
+        ? (feature) => getInlandFloodFeatureStyle(feature)
+        : hazard.type === 'landslide'
+        ? (feature) => getLandslideFeatureStyle(feature)
         : (feature) => getTsunamiFeatureStyle(feature, depthKey);
     hazard.layer = L.geoJSON(featureCollection, {
         renderer: L.canvas(),
@@ -407,6 +466,8 @@ async function setHazardLayerVisibility(layerKey, visible) {
             map.fitBounds(hazardBounds.pad(0.02), { maxZoom: 9, animate: true });
             const statusMsg = `${hazard.name}: ON（現在表示範囲にデータがないため、データ範囲へ移動しました）`;
             if (hazard.type === 'flood') setFloodStatus(statusMsg);
+            else if (hazard.type === 'inland_flood') setInlandFloodStatus(statusMsg);
+            else if (hazard.type === 'landslide') setLandslideStatus(statusMsg);
             else setHazardStatus(statusMsg);
         } else {
             updateHazardStatusSummary();
@@ -520,4 +581,34 @@ function updateHazardStatusSummary() {
         if (stormSurgeStatusEl) stormSurgeStatusEl.textContent = `高潮浸水想定レイヤー: ON（${stormSurgeVisible.join(' / ')}）`;
         if (stormSurgeLegend) stormSurgeLegend.style.display = 'block';
     }
+
+    const inlandFloodVisible = Object.values(HAZARD_LAYERS)
+        .filter((h) => h.type === 'inland_flood' && h.visible)
+        .map((h) => h.name);
+    const inlandFloodStatusEl = document.getElementById('inlandFloodStatus');
+    if (inlandFloodVisible.length === 0) {
+        if (inlandFloodStatusEl) inlandFloodStatusEl.textContent = '内水氾濫レイヤー: OFF';
+    } else {
+        if (inlandFloodStatusEl) inlandFloodStatusEl.textContent = `内水氾濫レイヤー: ON（${inlandFloodVisible.join(' / ')}）`;
+    }
+
+    const landslideVisible = Object.values(HAZARD_LAYERS)
+        .filter((h) => h.type === 'landslide' && h.visible)
+        .map((h) => h.name);
+    const landslideStatusEl = document.getElementById('landslideStatus');
+    if (landslideVisible.length === 0) {
+        if (landslideStatusEl) landslideStatusEl.textContent = '土砂災害レイヤー: OFF';
+    } else {
+        if (landslideStatusEl) landslideStatusEl.textContent = `土砂災害レイヤー: ON（${landslideVisible.join(' / ')}）`;
+    }
+}
+
+function setInlandFloodStatus(msg) {
+    const el = document.getElementById('inlandFloodStatus');
+    if (el) el.textContent = msg;
+}
+
+function setLandslideStatus(msg) {
+    const el = document.getElementById('landslideStatus');
+    if (el) el.textContent = msg;
 }

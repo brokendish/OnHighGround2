@@ -108,34 +108,34 @@ HAZARD_DEFINITIONS: List[HazardDefinition] = [
         notes="複数都県ファイル対応（tokyo/kanagawa/chiba）。TTI は重心距離近似 (v1 案A)。",
     ),
 
-    # ── 将来追加予定 (Phase 3.x 以降) ─────────────────────────────────────────
+    # ── Phase 4 追加ハザード ─────────────────────────────────────────────────
 
     HazardDefinition(
         name="inland_flood",
-        display_name="内水氾濫想定",
-        backend_enabled=False,
-        frontend_enabled=False,
-        has_polygon_check=False,
-        has_time_to_impact=False,
+        display_name="内水氾濫",
+        backend_enabled=True,
+        frontend_enabled=True,
+        has_polygon_check=True,
+        has_time_to_impact=False,  # TTI は Phase 4.1 以降
         supports_rsa=False,
         source_type="geojson",
-        evaluation_mode="none",
-        notes="Phase 3.x 以降で実装予定。データ未整備。",
-        enabled=False,
+        evaluation_mode="inside_outside",
+        notes="Phase 4 追加。サンプルデータで動作確認。TTI/RSA は将来拡張。",
+        enabled=True,
     ),
 
     HazardDefinition(
         name="landslide",
-        display_name="土砂災害警戒区域",
-        backend_enabled=False,
-        frontend_enabled=False,
-        has_polygon_check=False,
-        has_time_to_impact=False,
+        display_name="土砂災害",
+        backend_enabled=True,
+        frontend_enabled=True,
+        has_polygon_check=True,
+        has_time_to_impact=False,  # TTI は Phase 4.1 以降
         supports_rsa=False,
         source_type="geojson",
-        evaluation_mode="none",
-        notes="Phase 3.x 以降で実装予定。データ未整備。",
-        enabled=False,
+        evaluation_mode="inside_outside",
+        notes="Phase 4 追加。警戒区域・特別警戒区域を保持。TTI/RSA は将来拡張。",
+        enabled=True,
     ),
 ]
 
