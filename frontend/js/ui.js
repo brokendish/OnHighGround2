@@ -14,6 +14,26 @@
 // 表示順: flood → tsunami → storm_surge → inland_flood → landslide → その他
 const HAZARD_DISPLAY_ORDER = ['flood', 'tsunami', 'storm_surge', 'inland_flood', 'landslide', 'urban_flood'];
 
+// safe 表示の文言（一元管理）
+const SAFE_HAZARD_TEXT = '✔ 安全（全ハザード外）';
+
+/**
+ * severity レベルを数値ランクに変換する（ソート用）。
+ * critical > danger > caution > safe > unknown
+ *
+ * @param {string} level
+ * @returns {number}
+ */
+function getSeverityRank(level) {
+    switch (level) {
+        case 'critical': return 4;
+        case 'danger':   return 3;
+        case 'caution':  return 2;
+        case 'safe':     return 1;
+        default:         return 0;
+    }
+}
+
 /**
  * severity レベルから表示情報を返す。
  *
@@ -351,25 +371,33 @@ function displayHazardStatus(hazardStatus) {
             inland_flood: '内水氾濫', landslide: '土砂災害', urban_flood: '内水氾濫'
         };
 
-        const hazardTags = hazards.map(h => {
-            const label    = labelMap[h] || h;
-            const asmValue = assessment[h];
-
-            if (asmValue && typeof asmValue === 'object' && asmValue.status === 'inside') {
-                const level = asmValue.level || 'danger';
-                const sev   = getSeverityInfo(level);
-                const extra = asmValue.depth_m != null
-                    ? `${asmValue.depth_m}m`
-                    : asmValue.zone_type === 'special' ? '特別警戒区域'
-                    : asmValue.zone_type === 'warning'  ? '警戒区域'
-                    : '';
-                const extraHtml = extra
-                    ? `<span style="font-size:10px;margin-left:3px;">(${extra})</span>`
-                    : '';
-                return `<span class="hazard-tag severity-${level}">${sev.icon} ${label}：${sev.text}${extraHtml}</span>`;
-            }
-            return `<span class="hazard-tag">${label}</span>`;
-        }).join('');
+        const hazardTags = hazards
+            .map(h => {
+                const label    = labelMap[h] || h;
+                const asmValue = assessment[h];
+                // dict 形式は level から、string 'inside' は danger 相当でランク付け
+                const level = (asmValue && typeof asmValue === 'object' && asmValue.status === 'inside')
+                    ? (asmValue.level || 'danger')
+                    : 'danger';
+                return { h, label, asmValue, level, rank: getSeverityRank(level) };
+            })
+            .sort((a, b) => b.rank - a.rank)
+            .map(({ label, asmValue, level }) => {
+                if (asmValue && typeof asmValue === 'object' && asmValue.status === 'inside') {
+                    const sev   = getSeverityInfo(level);
+                    const extra = asmValue.depth_m != null
+                        ? `${asmValue.depth_m}m`
+                        : asmValue.zone_type === 'special' ? '特別警戒区域'
+                        : asmValue.zone_type === 'warning'  ? '警戒区域'
+                        : '';
+                    const extraHtml = extra
+                        ? `<span style="font-size:10px;margin-left:3px;">(${extra})</span>`
+                        : '';
+                    return `<span class="hazard-tag severity-${level}">${sev.icon} ${label}：${sev.text}${extraHtml}</span>`;
+                }
+                return `<span class="hazard-tag">${label}</span>`;
+            })
+            .join('');
 
         const activeLabels = hazards.map(h => labelMap[h] || h);
         const mainMessage  = `現在地は${activeLabels.join('・')}の危険区域内です`;
@@ -398,13 +426,18 @@ function hideDangerStatus() {
  * @returns {string} HTML文字列
  */
 function buildHazardReasonBlock(assessment) {
-    if (!assessment || typeof assessment !== 'object') return '';
+    if (!assessment || typeof assessment !== 'object') {
+        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-safe">${SAFE_HAZARD_TEXT}</span></div>`;
+    }
 
-    const items = [];
+    const ranked = [];
     for (const [key, value] of Object.entries(assessment)) {
         if (typeof value === 'string') {
             if (value === 'inside') {
-                items.push(`<span class="hazard-reason-item is-danger">${getHazardLabel(key)}</span>`);
+                ranked.push({
+                    rank: getSeverityRank('danger'),
+                    html: `<span class="hazard-reason-item is-danger">${getHazardLabel(key)}</span>`
+                });
             }
         } else if (value && typeof value === 'object' && value.status === 'inside') {
             const level    = value.level || 'danger';
@@ -414,14 +447,21 @@ function buildHazardReasonBlock(assessment) {
                 : value.zone_type === 'special' ? '特別警戒'
                 : value.zone_type === 'warning'  ? '警戒区域'
                 : '';
-            const label = extra
-                ? `${getHazardLabel(key)}(${extra})`
-                : getHazardLabel(key);
-            items.push(`<span class="hazard-reason-item ${cssClass}">${sev.icon} ${label}</span>`);
+            const label = extra ? `${getHazardLabel(key)}(${extra})` : getHazardLabel(key);
+            ranked.push({
+                rank: getSeverityRank(level),
+                html: `<span class="hazard-reason-item ${cssClass}">${sev.icon} ${label}</span>`
+            });
         }
     }
-    if (items.length === 0) return '';
-    return `<div class="hazard-reason-block">${items.join('')}</div>`;
+
+    // severity 高い順にソート
+    ranked.sort((a, b) => b.rank - a.rank);
+
+    if (ranked.length === 0) {
+        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-safe">${SAFE_HAZARD_TEXT}</span></div>`;
+    }
+    return `<div class="hazard-reason-block">${ranked.map(r => r.html).join('')}</div>`;
 }
 
 // ── 推奨避難先カード ──────────────────────────────────────────────────────
