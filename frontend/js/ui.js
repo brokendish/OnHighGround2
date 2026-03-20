@@ -14,6 +14,21 @@
 // 表示順: flood → tsunami → storm_surge → inland_flood → landslide → その他
 const HAZARD_DISPLAY_ORDER = ['flood', 'tsunami', 'storm_surge', 'inland_flood', 'landslide', 'urban_flood'];
 
+/**
+ * severity レベルから表示情報を返す。
+ *
+ * @param {string} level - "critical" | "danger" | "caution" | "safe"
+ * @returns {{ text: string, icon: string, color: string }}
+ */
+function getSeverityInfo(level) {
+    switch (level) {
+        case 'critical': return { text: '非常に危険', icon: '🚨', color: '#c62828' };
+        case 'danger':   return { text: '危険',       icon: '⚠️', color: '#e65100' };
+        case 'caution':  return { text: '注意',       icon: '⚡', color: '#f57f17' };
+        default:         return { text: '安全',       icon: '✅', color: '#2e7d32' };
+    }
+}
+
 function getHazardLabel(key) {
     const map = {
         flood: '洪水', tsunami: '津波', storm_surge: '高潮',
@@ -47,10 +62,15 @@ function getAssessmentValueLabel(value) {
     return String(value);
 }
 
-// 文字列または構造化 dict から CSS クラス用の status 文字列を返す
+// 文字列または構造化 dict から CSS クラス用の文字列を返す
+// inside + level がある場合は level (caution/danger/critical) を返し色分けに使用する
 function getAssessmentStatusClass(value) {
     if (typeof value === 'string') return value;
-    if (value && typeof value === 'object') return value.status || 'unknown';
+    if (value && typeof value === 'object') {
+        const status = value.status || 'unknown';
+        if (status === 'inside' && value.level) return value.level;
+        return status;
+    }
     return 'unknown';
 }
 
@@ -256,6 +276,7 @@ function displayDestinationsList(dests, recommended) {
             : dest.hazard_safe === false
                 ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
                 : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
+        const hazardReasonBlock = buildHazardReasonBlock(dest.hazard_assessment);
         const unknownNote = (dest.hazard_safe == null)
             ? '<p style="font-size:11px;color:#546e7a;margin:2px 0 0;">ハザードデータが利用できないため安全性は未判定です</p>'
             : '';
@@ -280,6 +301,7 @@ function displayDestinationsList(dests, recommended) {
                 <p>${hazardBadge}
                     <span class="safety-score">スコア ${dest.safety_score.toFixed(1)}</span>
                 </p>
+                ${hazardReasonBlock}
                 <p>📏 ${dest.distance.toFixed(0)}m | ⏱️ ${dest.estimated_time_minutes.toFixed(0)}分</p>
                 <p>⬆️ +${dest.elevation_gain.toFixed(1)}m（標高 ${dest.elevation.toFixed(1)}m）</p>
                 ${renderTimeMarginBlock(dest)}
@@ -312,8 +334,9 @@ function displayHazardStatus(hazardStatus) {
     const panel = document.getElementById('dangerStatusPanel');
     if (!panel) return;
 
-    const hazards = hazardStatus?.hazards || [];
-    const isDanger = hazardStatus?.is_danger === true;
+    const hazards    = hazardStatus?.hazards || [];
+    const isDanger   = hazardStatus?.is_danger === true;
+    const assessment = hazardStatus?.assessment || {};
 
     panel.className = `danger-status-panel ${isDanger ? 'danger' : 'safe'}`;
 
@@ -323,28 +346,33 @@ function displayHazardStatus(hazardStatus) {
             <div style="font-size:12px;">念のため避難先を確認しておきましょう</div>
         `;
     } else {
-        const hasFlood      = hazards.includes('flood');
-        const hasTsunami    = hazards.includes('tsunami');
-        const hasStormSurge = hazards.includes('storm_surge');
+        const labelMap = {
+            flood: '洪水', tsunami: '津波', storm_surge: '高潮',
+            inland_flood: '内水氾濫', landslide: '土砂災害', urban_flood: '内水氾濫'
+        };
 
-        const activeLabels = [];
-        if (hasFlood)      activeLabels.push('洪水');
-        if (hasTsunami)    activeLabels.push('津波');
-        if (hasStormSurge) activeLabels.push('高潮');
+        const hazardTags = hazards.map(h => {
+            const label    = labelMap[h] || h;
+            const asmValue = assessment[h];
 
-        let mainMessage;
-        if (activeLabels.length > 0) {
-            mainMessage = `現在地は${activeLabels.join('・')}の浸水想定区域内です`;
-        } else {
-            const labels = { urban_flood: '内水氾濫' };
-            const names = hazards.map(h => labels[h] || h).join('・');
-            mainMessage = `現在地は${names}の浸水想定区域内です`;
-        }
+            if (asmValue && typeof asmValue === 'object' && asmValue.status === 'inside') {
+                const level = asmValue.level || 'danger';
+                const sev   = getSeverityInfo(level);
+                const extra = asmValue.depth_m != null
+                    ? `${asmValue.depth_m}m`
+                    : asmValue.zone_type === 'special' ? '特別警戒区域'
+                    : asmValue.zone_type === 'warning'  ? '警戒区域'
+                    : '';
+                const extraHtml = extra
+                    ? `<span style="font-size:10px;margin-left:3px;">(${extra})</span>`
+                    : '';
+                return `<span class="hazard-tag severity-${level}">${sev.icon} ${label}：${sev.text}${extraHtml}</span>`;
+            }
+            return `<span class="hazard-tag">${label}</span>`;
+        }).join('');
 
-        const labelMap = { flood: '洪水', tsunami: '津波', storm_surge: '高潮', urban_flood: '内水氾濫' };
-        const hazardTags = hazards
-            .map(h => `<span class="hazard-tag">${labelMap[h] || h}</span>`)
-            .join('');
+        const activeLabels = hazards.map(h => labelMap[h] || h);
+        const mainMessage  = `現在地は${activeLabels.join('・')}の危険区域内です`;
 
         panel.innerHTML = `
             <div class="danger-title">⚠️ ${mainMessage}</div>
@@ -358,6 +386,42 @@ function displayHazardStatus(hazardStatus) {
 function hideDangerStatus() {
     const panel = document.getElementById('dangerStatusPanel');
     if (panel) panel.style.display = 'none';
+}
+
+// ── 危険理由ブロック（避難先カード用）────────────────────────────────────
+
+/**
+ * 避難先の hazard_assessment から危険理由ピルを生成する。
+ * 危険区域内のハザードのみ表示。severity がある場合は色付き。
+ *
+ * @param {Object} assessment - dest.hazard_assessment
+ * @returns {string} HTML文字列
+ */
+function buildHazardReasonBlock(assessment) {
+    if (!assessment || typeof assessment !== 'object') return '';
+
+    const items = [];
+    for (const [key, value] of Object.entries(assessment)) {
+        if (typeof value === 'string') {
+            if (value === 'inside') {
+                items.push(`<span class="hazard-reason-item is-danger">${getHazardLabel(key)}</span>`);
+            }
+        } else if (value && typeof value === 'object' && value.status === 'inside') {
+            const level    = value.level || 'danger';
+            const cssClass = level === 'caution' ? 'is-caution' : 'is-danger';
+            const sev      = getSeverityInfo(level);
+            const extra    = value.depth_m != null ? `${value.depth_m}m`
+                : value.zone_type === 'special' ? '特別警戒'
+                : value.zone_type === 'warning'  ? '警戒区域'
+                : '';
+            const label = extra
+                ? `${getHazardLabel(key)}(${extra})`
+                : getHazardLabel(key);
+            items.push(`<span class="hazard-reason-item ${cssClass}">${sev.icon} ${label}</span>`);
+        }
+    }
+    if (items.length === 0) return '';
+    return `<div class="hazard-reason-block">${items.join('')}</div>`;
 }
 
 // ── 推奨避難先カード ──────────────────────────────────────────────────────

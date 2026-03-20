@@ -1213,6 +1213,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
         hazard_status = {
             "is_danger": point_eval["is_danger"],
             "hazards": point_eval["hazards"],
+            "assessment": point_eval["hazard_assessment"],  # severity 付き詳細（frontend 表示用）
         }
 
         # Time Margin: 現在地の TTI を構造化形式で取得（候補全件で共有）

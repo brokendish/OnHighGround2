@@ -593,6 +593,29 @@
             margin-right: 4px;
             margin-top: 4px;
         }
+        /* severity 付きハザードタグ */
+        .hazard-tag.severity-critical { background: #ffcdd2; color: #c62828; }
+        .hazard-tag.severity-danger   { background: #ffe0b2; color: #e65100; }
+        .hazard-tag.severity-caution  { background: #fff9c4; color: #f57f17; }
+
+        /* ハザード理由ブロック（避難先カード内） */
+        .hazard-reason-block {
+            margin-top: 5px;
+            font-size: 11px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+        }
+        .hazard-reason-item {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 999px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .hazard-reason-item.is-danger   { background: #ffebee; color: #c62828; }
+        .hazard-reason-item.is-caution  { background: #fffde7; color: #f57f17; }
+        .hazard-reason-item.is-safe     { background: #e8f5e9; color: #2e7d32; }
 
         /* ── 推奨避難先カード ─────────────────────────── */
         /* 基本（安全候補 / hazard_safe=true）: 温かみのある琥珀系 */
@@ -841,9 +864,14 @@
         }
         .ha-name { color: #546e7a; min-width: 30px; }
         .ha-value { font-weight: 600; }
-        .ha-value.inside  { color: #c62828; }
-        .ha-value.outside { color: #2e7d32; }
-        .ha-value.unknown { color: #78909c; }
+        .ha-value.inside    { color: #c62828; }
+        .ha-value.outside   { color: #2e7d32; }
+        .ha-value.unknown   { color: #78909c; }
+        /* severity level カラー（inland_flood / landslide） */
+        .ha-value.critical  { color: #c62828; }
+        .ha-value.danger    { color: #e65100; }
+        .ha-value.caution   { color: #f57f17; }
+        .ha-value.safe      { color: #2e7d32; }
 
         /* popup 内の hazard_assessment */
         .popup-ha-block {
