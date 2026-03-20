@@ -715,15 +715,42 @@ def _time_margin_score_bonus(status: str) -> float:
     return -TIME_MARGIN_UNKNOWN_PENALTY  # "unknown"
 
 
+def _calc_severity_penalty(assessment: Dict[str, Any]) -> float:
+    """
+    inland_flood / landslide の severity レベルに基づく追加ペナルティ。
+
+    hazard_safe=False による既存ペナルティに加算し、
+    同じ「危険区域内」でも重症度によってスコアを差別化する。
+
+    level penalties:
+        critical → -50pt
+        danger   → -20pt
+        caution / safe → 0pt
+    """
+    penalty = 0.0
+    for v in assessment.values():
+        if not isinstance(v, dict):
+            continue
+        if v.get("status") != "inside":
+            continue
+        level = v.get("level", "")
+        if level == "critical":
+            penalty += 50.0
+        elif level == "danger":
+            penalty += 20.0
+    return penalty
+
+
 def _calc_safety_score(
     elevation_gain: float,
     distance: float,
     max_distance: float,
     hazard_safe: Optional[bool],
     time_margin_status: str = "unknown",
+    severity_penalty: float = 0.0,
 ) -> float:
     """
-    安全性スコア計算 (基礎 0-100、hazard_safe + time_margin に応じて補正)。
+    安全性スコア計算 (基礎 0-100、hazard_safe + time_margin + severity に応じて補正)。
 
     - elevation_score:    標高差が 30m 以上で満点 50pt
     - distance_score:     距離が短いほど高スコア、max_distance で 0pt
@@ -736,6 +763,9 @@ def _calc_safety_score(
         tight   →   0pt  (ギリギリ・中立)
         danger  → -80pt  (間に合わない)
         unknown → -10pt  (算定不能・軽微減点)
+    - severity_penalty:  inland_flood / landslide の危険度による追加減点
+        critical → -50pt
+        danger   → -20pt
     """
     elevation_score = min(elevation_gain / 30.0 * 50, 50)
     distance_score = max(50 - (distance / max_distance * 50), 0)
@@ -747,7 +777,7 @@ def _calc_safety_score(
     else:
         penalty = HAZARD_UNKNOWN_PENALTY
     time_bonus = _time_margin_score_bonus(time_margin_status)
-    return base_score - penalty + time_bonus
+    return base_score - penalty - severity_penalty + time_bonus
 
 
 def _select_recommended(candidates: List[Dict[str, Any]]) -> tuple:
@@ -906,8 +936,9 @@ def search_shelter_destinations(
         tm_minutes = (tti_minutes - et_minutes) if tti_minutes is not None else None
         tm_status = _classify_time_margin(tm_minutes)
 
+        severity_penalty = _calc_severity_penalty(hazard_assessment)
         safety_score = _calc_safety_score(
-            elevation_gain, distance, max_distance, hazard_safe, tm_status
+            elevation_gain, distance, max_distance, hazard_safe, tm_status, severity_penalty
         )
 
         # 最初の3件をデバッグログに出力（判定が動いているか確認用）
@@ -986,8 +1017,9 @@ def search_grid_destinations(
         tm_minutes = (tti_minutes - et_minutes) if tti_minutes is not None else None
         tm_status = _classify_time_margin(tm_minutes)
 
+        severity_penalty = _calc_severity_penalty(hazard_assessment)
         safety_score = _calc_safety_score(
-            d["elevation_gain"], d["distance"], max_distance, hazard_safe, tm_status
+            d["elevation_gain"], d["distance"], max_distance, hazard_safe, tm_status, severity_penalty
         )
         results.append({
             "name": "高台候補地点",

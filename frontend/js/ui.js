@@ -11,17 +11,47 @@
  */
 
 // ── hazard_assessment ヘルパー ────────────────────────────────────────────
-// 表示順: flood → tsunami → storm_surge → urban_flood → その他
-const HAZARD_DISPLAY_ORDER = ['flood', 'tsunami', 'storm_surge', 'urban_flood'];
+// 表示順: flood → tsunami → storm_surge → inland_flood → landslide → その他
+const HAZARD_DISPLAY_ORDER = ['flood', 'tsunami', 'storm_surge', 'inland_flood', 'landslide', 'urban_flood'];
 
 function getHazardLabel(key) {
-    const map = { flood: '洪水', tsunami: '津波', storm_surge: '高潮', urban_flood: '内水' };
+    const map = {
+        flood: '洪水', tsunami: '津波', storm_surge: '高潮',
+        inland_flood: '内水氾濫', landslide: '土砂災害', urban_flood: '内水'
+    };
     return map[key] || key;
 }
 
+// 文字列または構造化 dict から表示ラベルを生成する
 function getAssessmentValueLabel(value) {
-    const map = { inside: '危険区域内', outside: '区域外', unknown: '未判定' };
-    return map[value] || value;
+    // 既存ハザード: 文字列
+    if (typeof value === 'string') {
+        const map = { inside: '危険区域内', outside: '区域外', unknown: '未判定' };
+        return map[value] || value;
+    }
+    // severity 付き: 構造化 dict
+    if (value && typeof value === 'object') {
+        const status = value.status;
+        if (status === 'outside') return '区域外';
+        if (status === 'unknown') return '未判定';
+        // inside + level
+        const levelMap = { critical: '非常に危険', danger: '危険', caution: '注意', safe: '安全' };
+        const levelLabel = levelMap[value.level] || value.level || '';
+        const extra = value.depth_m != null
+            ? `（${value.depth_m}m）`
+            : value.zone_type === 'special' ? '（特別警戒区域）'
+            : value.zone_type === 'warning' ? '（警戒区域）'
+            : '';
+        return `危険区域内・${levelLabel}${extra}`;
+    }
+    return String(value);
+}
+
+// 文字列または構造化 dict から CSS クラス用の status 文字列を返す
+function getAssessmentStatusClass(value) {
+    if (typeof value === 'string') return value;
+    if (value && typeof value === 'object') return value.status || 'unknown';
+    return 'unknown';
 }
 
 function sortedAssessmentEntries(assessment) {
@@ -35,11 +65,14 @@ function sortedAssessmentEntries(assessment) {
 function renderHazardAssessmentBlock(assessment) {
     const entries = sortedAssessmentEntries(assessment);
     if (entries.length === 0) return '';
-    const rows = entries.map(({ key, value }) => `
+    const rows = entries.map(({ key, value }) => {
+        const statusClass = getAssessmentStatusClass(value);
+        return `
         <div class="ha-row">
             <span class="ha-name">${getHazardLabel(key)}</span>
-            <span class="ha-value ${value}">${getAssessmentValueLabel(value)}</span>
-        </div>`).join('');
+            <span class="ha-value ${statusClass}">${getAssessmentValueLabel(value)}</span>
+        </div>`;
+    }).join('');
     return `<div class="hazard-assessment-block">
         <div class="ha-title">ハザード判定</div>
         ${rows}
@@ -49,9 +82,11 @@ function renderHazardAssessmentBlock(assessment) {
 function renderHazardAssessmentPopup(assessment) {
     const entries = sortedAssessmentEntries(assessment);
     if (entries.length === 0) return '';
-    const rows = entries.map(({ key, value }) =>
-        `・${getHazardLabel(key)}: <span style="font-weight:700;color:${value === 'inside' ? '#c62828' : value === 'outside' ? '#2e7d32' : '#78909c'}">${getAssessmentValueLabel(value)}</span>`
-    ).join('<br>');
+    const rows = entries.map(({ key, value }) => {
+        const statusClass = getAssessmentStatusClass(value);
+        const color = statusClass === 'inside' ? '#c62828' : statusClass === 'outside' ? '#2e7d32' : '#78909c';
+        return `・${getHazardLabel(key)}: <span style="font-weight:700;color:${color}">${getAssessmentValueLabel(value)}</span>`;
+    }).join('<br>');
     return `<div class="popup-ha-block">
         <div class="ha-title">ハザード判定</div>
         ${rows}

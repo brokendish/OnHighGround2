@@ -253,7 +253,8 @@ const STORM_SURGE_BORDER = {
     dashArray: '4,4'
 };
 
-// 内水氾濫スタイル（青系）
+// 内水氾濫スタイル（深度ベース青系グラデーション）
+// level: safe → caution → danger → critical
 const INLAND_FLOOD_BORDER = {
     color: '#0277bd',
     weight: 0.4,
@@ -261,11 +262,19 @@ const INLAND_FLOOD_BORDER = {
     dashArray: '4,4'
 };
 
+function getInlandFloodDepthColor(depthM) {
+    if (depthM >= 3.0) return '#b71c1c';   // critical — 濃赤（3m以上）
+    if (depthM >= 1.0) return '#f4511e';   // danger   — オレンジ（1〜3m）
+    if (depthM > 0)    return '#29b6f6';   // caution  — 水色（0〜1m）
+    return '#b3e5fc';                      // safe/不明 — 薄水色
+}
+
 function getInlandFloodFeatureStyle(feature) {
+    const depthM = feature?.properties?.depth_min_m ?? feature?.properties?.depth ?? 0;
     return {
         ...INLAND_FLOOD_BORDER,
-        fillColor: '#29b6f6',
-        fillOpacity: 0.38
+        fillColor: getInlandFloodDepthColor(depthM),
+        fillOpacity: 0.45
     };
 }
 

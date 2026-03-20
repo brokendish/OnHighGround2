@@ -234,9 +234,15 @@ class HazardEngine:
         assessment = self._service.assess_candidate(lat, lon)
         summary: Dict[str, Dict] = {}
 
-        for hazard_name, status in assessment.items():
+        for hazard_name, raw_value in assessment.items():
             defn = get_definition(hazard_name)
             has_tti = defn.capabilities["time_to_impact"] if defn else False
+
+            # 文字列（既存ハザード）と dict（severity 付きハザード）の両方を扱う
+            if isinstance(raw_value, dict):
+                status_str = raw_value.get("status", "unknown")
+            else:
+                status_str = raw_value
 
             if has_tti:
                 tti_detail = self._tti_service.compute_tti(hazard_name, lat, lon)
@@ -249,8 +255,8 @@ class HazardEngine:
                 }
 
             summary[hazard_name] = {
-                "status": status,
-                "safe": status == "outside",
+                "status": raw_value,  # inland_flood/landslide は dict ごと格納
+                "safe": status_str == "outside",
                 "tti": tti_detail,
             }
 

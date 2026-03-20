@@ -29,6 +29,24 @@ HazardResult = Literal["inside", "outside", "unknown"]
 # 既知のハザードタイプ一覧（拡張時はここに追加）
 KNOWN_HAZARD_TYPES: List[str] = ["flood", "tsunami", "storm_surge", "urban_flood"]
 
+# severity 判定が有効なハザードタイプ（structured dict を返す）
+SEVERITY_HAZARD_TYPES: List[str] = ["inland_flood", "landslide"]
+
+
+def _classify_depth(depth: float) -> str:
+    """浸水深（m）から危険度レベルを返す。
+
+    Returns:
+        "critical" | "danger" | "caution" | "safe"
+    """
+    if depth >= 3.0:
+        return "critical"
+    if depth >= 1.0:
+        return "danger"
+    if depth > 0:
+        return "caution"
+    return "safe"
+
 
 def _point_in_polygon(lat: float, lon: float, ring: List[List[float]]) -> bool:
     """
@@ -80,7 +98,7 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
 
-def derive_hazard_safe(assessment: Dict[str, HazardResult]) -> Optional[bool]:
+def derive_hazard_safe(assessment: Dict) -> Optional[bool]:
     """
     hazard_assessment dict から hazard_safe (Optional[bool]) を決定する。
 
@@ -91,7 +109,11 @@ def derive_hazard_safe(assessment: Dict[str, HazardResult]) -> Optional[bool]:
       - assessment が空           → None  (データなし)
 
     Args:
-        assessment: {"flood": "inside"|"outside"|"unknown", ...}
+        assessment: {
+            "flood": "inside"|"outside"|"unknown",  # 既存ハザード（文字列）
+            "inland_flood": {"status": "inside", "level": "danger", ...},  # severity 付き
+            ...
+        }
 
     Returns:
         True / False / None
@@ -99,12 +121,17 @@ def derive_hazard_safe(assessment: Dict[str, HazardResult]) -> Optional[bool]:
     if not assessment:
         return None
 
-    values = list(assessment.values())
+    statuses = []
+    for v in assessment.values():
+        if isinstance(v, dict):
+            statuses.append(v.get("status", "unknown"))
+        else:
+            statuses.append(v)
 
-    if "inside" in values:
+    if "inside" in statuses:
         return False
 
-    if "unknown" in values:
+    if "unknown" in statuses:
         return None
 
     # 全件 "outside"
@@ -186,6 +213,7 @@ class HazardService:
             for feature in data.get("features", []):
                 geom = feature.get("geometry") or {}
                 geom_type = geom.get("type")
+                props = feature.get("properties") or {}
                 outer_rings: List[List] = []
 
                 if geom_type == "Polygon":
@@ -203,7 +231,7 @@ class HazardService:
                     lons = [c[0] for c in ring]
                     lats = [c[1] for c in ring]
                     bbox = (min(lats), min(lons), max(lats), max(lons))  # (s, w, n, e)
-                    new_polygons.append({"bbox": bbox, "coords": ring})
+                    new_polygons.append({"bbox": bbox, "coords": ring, "properties": props})
 
             # 累積: 同じハザードタイプへの複数ファイルロードをサポート
             existing = self._polygons.get(hazard_type, [])
@@ -451,29 +479,108 @@ class HazardService:
             return "unknown"
         return "inside" if self.check_point(lat, lon, hazard_type) else "outside"
 
-    def assess_candidate(self, lat: float, lon: float) -> Dict[str, HazardResult]:
+    def check_inland_flood_detail(self, lat: float, lon: float) -> Dict:
+        """
+        内水氾濫の詳細評価を返す（浸水深ベースの危険度付き）。
+
+        Returns:
+            {"status": "inside", "level": "critical"|"danger"|"caution"|"safe", "depth_m": float}
+            {"status": "outside"}
+            {"status": "unknown"}  # データ未ロード
+        """
+        if not self.is_loaded("inland_flood"):
+            return {"status": "unknown"}
+
+        polygons = self._polygons.get("inland_flood", [])
+        for poly in polygons:
+            s, w, n, e = poly["bbox"]
+            if not (s <= lat <= n and w <= lon <= e):
+                continue
+            coords = poly.get("coords", [])
+            if coords and _point_in_polygon(lat, lon, coords):
+                props = poly.get("properties", {})
+                # depth プロパティを試みる（spec: "depth"、sample: "depth_min_m"）
+                raw_depth = props.get("depth") or props.get("depth_min_m") or 0
+                depth = float(raw_depth) if raw_depth else 0.0
+                return {
+                    "status": "inside",
+                    "level": _classify_depth(depth),
+                    "depth_m": depth,
+                }
+        return {"status": "outside"}
+
+    def check_landslide_detail(self, lat: float, lon: float) -> Dict:
+        """
+        土砂災害の詳細評価を返す（区域種別ベースの危険度付き）。
+
+        重なり合うポリゴンがある場合（特別警戒区域が警戒区域に内包されるケースなど）、
+        最も高い危険度（critical > danger）のポリゴンを採用する。
+
+        Returns:
+            {"status": "inside", "level": "critical"|"danger", "zone_type": "special"|"warning"}
+            {"status": "outside"}
+            {"status": "unknown"}  # データ未ロード
+        """
+        if not self.is_loaded("landslide"):
+            return {"status": "unknown"}
+
+        best: Optional[Dict] = None
+        polygons = self._polygons.get("landslide", [])
+        for poly in polygons:
+            s, w, n, e = poly["bbox"]
+            if not (s <= lat <= n and w <= lon <= e):
+                continue
+            coords = poly.get("coords", [])
+            if not coords or not _point_in_polygon(lat, lon, coords):
+                continue
+            props = poly.get("properties", {})
+            zone_type = str(props.get("zone_type") or props.get("区分") or "")
+            if "特別" in zone_type or zone_type == "special":
+                # critical が確定したら即返す（これ以上高い危険度はない）
+                return {"status": "inside", "level": "critical", "zone_type": "special"}
+            # danger 候補として記録（より高い危険度の polygon が後で見つかる可能性あり）
+            if best is None:
+                best = {"status": "inside", "level": "danger", "zone_type": "warning"}
+
+        if best is not None:
+            return best
+        return {"status": "outside"}
+
+    def assess_candidate(self, lat: float, lon: float) -> Dict:
         """
         候補地点の全ロード済みハザードに対する評価 dict を返す。
 
-        ロードされていないハザードタイプは "unknown" として含める。
-        現時点でロード済みタイプが 0件なら空 dict を返す。
+        inland_flood / landslide は severity 付き構造化 dict を返す。
+        その他の既存ハザードは後方互換の文字列 ("inside"|"outside"|"unknown") を返す。
 
         Returns:
             {
-                "flood": "inside" | "outside" | "unknown",
-                "tsunami": "unknown",   # 未ロード時
+                "flood": "inside" | "outside" | "unknown",        # 既存ハザード（文字列）
+                "inland_flood": {                                  # severity 付き
+                    "status": "inside"|"outside"|"unknown",
+                    "level": "critical"|"danger"|"caution"|"safe",
+                    "depth_m": float,
+                },
+                "landslide": {
+                    "status": "inside"|"outside"|"unknown",
+                    "level": "critical"|"danger",
+                    "zone_type": "special"|"warning",
+                },
                 ...
             }
-            ※ 返却される key はロード済みタイプのみ（"unknown" は含めない）
-            ※ ただし将来の拡張に備え、ロード済みタイプに対して値を保証する
         """
         loaded = self.loaded_hazard_types()
         if not loaded:
             return {}
 
-        assessment: Dict[str, HazardResult] = {}
+        assessment: Dict = {}
         for hazard_type in loaded:
-            assessment[hazard_type] = self.check_point_assessment(lat, lon, hazard_type)
+            if hazard_type == "inland_flood":
+                assessment[hazard_type] = self.check_inland_flood_detail(lat, lon)
+            elif hazard_type == "landslide":
+                assessment[hazard_type] = self.check_landslide_detail(lat, lon)
+            else:
+                assessment[hazard_type] = self.check_point_assessment(lat, lon, hazard_type)
         return assessment
 
     def get_tsunami_centroid_distance_m(
