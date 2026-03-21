@@ -183,6 +183,16 @@ rsync -avz --progress \
 rsync -avz --progress \
   data_lake/raw/tokyo/osm/kanto-260214.osm.pbf \
   ${VPS}:${REMOTE}/data_lake/raw/tokyo/osm/
+
+# ── tile を転送
+rsync -avz --progress \
+  data_lake/tiles/ \
+  ${VPS}:${REMOTE}/data_lake/tiles/
+
+# ── 避難所 を転送
+rsync -avz --progress \
+  data_lake/validated/tokyo/shelter/ \
+  ${VPS}:${REMOTE}/data_lake/validated/tokyo/shelter/
 ```
 
 転送後の内訳（参考）：
