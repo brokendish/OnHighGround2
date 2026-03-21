@@ -101,14 +101,19 @@ _LAYER_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         ],
     },
     "landslide_tokyo": {
-        "name": "土砂災害（東京都）",
+        "name": "土砂災害警戒区域（東京都）",
         "type": "polygon",
         "region": "tokyo",
         "tileset_id": None,
         "api_url": "/api/hazards/landslide/tokyo",
         "severity": True,
-        "notes": "zone_type based severity. タイル化未実装 (sample data).",
-        "source_path": "data_lake/normalized/tokyo/landslide/landslide_sample.geojson",
+        "notes": (
+            "国土数値情報 A33（土砂災害警戒区域）。"
+            "zone_type / severity_level による severity 色分け（warning=danger / special_warning=critical）。"
+            "landslide_type 属性保持（steep_slope / debris_flow / landslide）。"
+            "タイル化未実装。"
+        ),
+        "source_path": "data_lake/normalized/tokyo/landslide/tokyo_landslide_A33.geojson",
         "runtime_tiles_path": None,
         "docs": [
             "docs/hazard_layers.md",

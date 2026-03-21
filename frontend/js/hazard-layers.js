@@ -105,9 +105,8 @@ const HAZARD_LAYERS = {
         type: 'inland_flood'
     },
     landslide_tokyo: {
-        name: "土砂災害（東京都）",
+        name: "土砂災害警戒区域（東京都）",
         apiUrl: '/api/hazards/landslide/tokyo',
-        metaUrl: '/api/hazards/landslide/tokyo/meta',
         path: `${LAYER_BASE_PATH}/landslide_tokyo.geojson`,
         checkboxId: "showLandslideTokyo",
         layer: null,
