@@ -140,21 +140,25 @@ mkdir -p data_lake/validated/tokyo/osm/walking
 | 内水氾濫 | `data_runtime/backend/hazard/inland_flood/tokyo_inland_flood_A51.geojson` | ~184KB | 必須 |
 | 土砂災害 | `data_runtime/backend/hazard/landslide/tokyo_landslide_A33.geojson` | ~29MB | 必須 |
 | 避難所 | `data_runtime/backend/shelters/tokyo_shelter.geojson` | ~2MB | 必須 |
-| 洪水タイル | `data_runtime/frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles` | ~167MB | 必須 |
-| 高潮タイル | `data_runtime/frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles` | ~19MB | 必須 |
-| 津波タイル | `data_runtime/frontend/tiles/tokyo/tsunami/*.mbtiles` | ~67MB合計 | 必須 |
-| GeoJSON layers | `data_runtime/frontend/layers/*.geojson` | ~200MB合計 | 必須 |
+| 洪水タイル | `data_runtime/frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles` | ~167MB | 必須（Martin 配信） |
+| 高潮タイル | `data_runtime/frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles` | ~19MB | 必須（Martin 配信） |
+| 津波タイル | `data_runtime/frontend/tiles/tokyo/tsunami/*.mbtiles` | ~67MB合計 | 必須（Martin 配信） |
+| GeoJSON layers | `data_runtime/frontend/layers/*.geojson` | ~200MB合計 | 必須（タイル不在時の fallback） |
 | OSM データ | `data_lake/raw/tokyo/osm/kanto-260214.osm.pbf` | ~436MB | OSRM 未構築の場合のみ |
 
+> **タイルについて**: MBTiles（`data_runtime/frontend/tiles/`）は Martin コンテナが配信する。タイルがなくても地図は表示されるが、各ハザードレイヤーが GeoJSON 直接取得（API fallback）に切り替わり、ズーム・パン時の描画が重くなる。
+>
 > **OSRM について**: VPS 上で `.osrm` インデックスが未生成の場合、初回 `docker compose up` 時に自動生成される（数十分かかる）。すでに `data_lake/validated/tokyo/osm/` にインデックスがあればスキップされる。
 
 ### rsync コマンド
+
+タイルを含む `data_runtime/` 全体を一括転送する（合計 **約1.5GB**）。
 
 ```bash
 VPS=user@your-vps-ip
 REMOTE=~/Development/GitHub/OnHighGround2
 
-# data_runtime を一括転送（最初の転送は時間がかかる）
+# data_runtime を一括転送（タイル・ハザードデータ・避難所・DEM すべて含む）
 rsync -avz --progress \
   data_runtime/ \
   ${VPS}:${REMOTE}/data_runtime/
@@ -163,6 +167,14 @@ rsync -avz --progress \
 rsync -avz --progress \
   data_lake/raw/tokyo/osm/kanto-260214.osm.pbf \
   ${VPS}:${REMOTE}/data_lake/raw/tokyo/osm/
+```
+
+転送後の内訳（参考）：
+
+```text
+data_runtime/backend/         ~1.1GB（DEM 426MB + 洪水判定 476MB + その他）
+data_runtime/frontend/tiles/  ~253MB（洪水 167MB + 高潮 19MB + 津波 67MB）
+data_runtime/frontend/layers/ ~200MB（GeoJSON fallback 用）
 ```
 
 ---
