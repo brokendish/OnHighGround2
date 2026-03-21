@@ -1,6 +1,6 @@
 # レイヤー配信戦略: GeoJSON fallback vs Vector Tiles
 
-**Phase 2.1 時点のポリシー**
+**Phase 4.2 時点のポリシー**
 
 ---
 
@@ -14,7 +14,7 @@ OnHighGround2 のフロントエンドは、ハザードデータを 2 種類の
 | Vector Tiles | `/tiles/` | MBTiles (Martin) | 大規模・高密度データ |
 
 frontend は起動時に Martin タイルの可用性を確認し、タイルが利用可能であればタイルを優先表示する。
-タイルがない場合は `/layers/` の GeoJSON にフォールバックする。
+タイルがない場合は、`apiUrl` が定義されていれば API モードで有効化し、なければチェックボックスを非活性化する。
 
 ---
 
@@ -30,10 +30,9 @@ frontend は起動時に Martin タイルの可用性を確認し、タイルが
 
 | レイヤー | ファイル | 規模感 |
 |---|---|---|
-| 東京高潮 | `tokyo_storm_surge.geojson` | 中規模 |
-| 東京津波 | `tsunami_tokyo.geojson` | 中規模 |
-| 神奈川津波 | `tsunami_kanagawa.geojson` | 中規模 |
-| 千葉津波 | `tsunami_chiba.geojson` | 中規模 |
+| 東京津波 | `tokyo_tsunami_A40-23_13.geojson` | 中規模 |
+| 神奈川津波 | `kanagawa_tsunami_A40-16_14.geojson` | 中規模 |
+| 千葉津波 | `chiba_tsunami_A40-18_12.geojson` | 中規模 |
 
 ### 配備フロー
 
@@ -66,9 +65,8 @@ data_lake/validated/tokyo/hazard/...
 | レイヤー | MBTiles ファイル | 規模感 |
 |---|---|---|
 | 東京洪水 | `tokyo_flood_max.mbtiles` | 大規模（数百MB） |
-| 東京津波（広域） | `tokyo_tsunami.mbtiles` | 大規模 |
-| 高潮（タイル版） | `tokyo_storm_surge.mbtiles` | 中〜大 |
-| 内水氾濫 | `tokyo_urban_flood.mbtiles` | 中〜大 |
+| 東京津波 | `tokyo_tsunami_A40-23_13.mbtiles` | 大規模 |
+| 高潮 | `tokyo_storm_surge.mbtiles` | 中〜大 |
 
 ### 配備フロー
 
@@ -96,8 +94,8 @@ data_lake/tiles/tokyo/...
 `initializeHazardToggles()` は起動時に次の順序でレイヤーの可用性を確認する:
 
 1. Martin が起動中かつ該当タイルセットが存在 → タイル表示モードでチェックボックスを有効化
-2. Martin が利用不可または該当タイルセットなし → `/layers/...` に HEAD リクエスト
-3. HEAD が 404 → チェックボックスを非活性化（データ未配備）
+2. タイルが存在しないが `apiUrl` が定義されている → `_vectorTilesUnavailable = true` を設定し、API モード（GeoJSON 相当）でチェックボックスを有効化
+3. タイルなし・`apiUrl` もなし → チェックボックスを非活性化（データ未配備）
 
 ---
 
@@ -105,7 +103,7 @@ data_lake/tiles/tokyo/...
 
 **Q. なぜ津波は GeoJSON と Vector Tiles の両方があるのか？**
 
-A. 津波 GeoJSON (`/layers/`) は範囲が限定的で軽量なため fallback として維持。広域津波や高解像度タイルは MBTiles で管理。両方存在する場合、フロントエンドはタイルを優先表示する。
+A. 津波は MBTiles（`tokyo_tsunami_A40-23_13.mbtiles`）が主経路。MBTiles が存在しない場合は `_vectorTilesUnavailable = true` となり、`apiUrl`（バックエンド API）経由で GeoJSON 相当を表示する。`/layers/` の GeoJSON は deploy_to_runtime.sh で配備される開発・検証用 fallback として維持している。
 
 **Q. 洪水に `/layers/` ファイルがないのはなぜか？**
 

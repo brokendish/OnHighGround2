@@ -122,27 +122,32 @@ tippecanoe --version
 python scripts/build_tiles.py
 ```
 
-`data_lake/validated/tokyo/` を標準入力として再帰的に GeoJSON を読み込み、
+`data_lake/normalized/tokyo/` を標準入力として再帰的に GeoJSON を読み込み、
 `.mbtiles` ファイルを `data_lake/tiles/tokyo/` に出力します。
 
 ### オプション
 
 | オプション | デフォルト | 説明 |
 | --------- | --------- | ---- |
+| `--profile` | `current` | ビルドプロファイル（`current` / `drop`） |
 | `--minzoom` | 5 | 最小ズームレベル |
-| `--maxzoom` | 14 | 最大ズームレベル |
-| `--input DIR` | `data_lake/validated/tokyo` | GeoJSON ファイルが置かれたディレクトリ |
+| `--maxzoom` | 16 | 最大ズームレベル |
+| `--input DIR` | `data_lake/normalized/tokyo` | GeoJSON ファイルが置かれたディレクトリ |
 | `--output DIR` | `data_lake/tiles/tokyo` | .mbtiles ファイルの出力ディレクトリ |
 | `--dry-run` | — | コマンドを実行せずに表示のみ行う |
+
+プロファイル:
+- `current` — `--no-tile-compression` のみ（ベースライン）
+- `drop` — `current` + `--drop-densest-as-needed`（低ズームの描画負荷を削減）
 
 ### 実行例
 
 ```bash
-# デフォルト実行（data_lake/validated/tokyo/ から再帰読み込み）
+# デフォルト実行（current プロファイル）
 python scripts/build_tiles.py
 
-# ズーム範囲をカスタム指定
-python scripts/build_tiles.py --minzoom 8 --maxzoom 16
+# drop プロファイルでビルド（低ズーム描画負荷削減）
+python scripts/build_tiles.py --profile drop
 
 # 旧処理済み GeoJSON を一時入力として使用
 python scripts/build_tiles.py --input data/processed/hazard

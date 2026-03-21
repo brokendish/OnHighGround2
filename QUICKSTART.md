@@ -21,7 +21,7 @@
 | `tokyo_shelter.geojson` | `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` | 指定緊急避難場所 |
 | `tokyo_flood_max.geojson` | `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` | 洪水浸水想定（表示用・666K ポリゴン） |
 | `tokyo_flood_check.geojsonl` | `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` | 洪水浸水想定（判定用 GeoJSONL・ストリーミング読み込み） |
-| `tsunami_tokyo.geojson` | `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` | 津波浸水想定（東京都） |
+| `tokyo_tsunami_A40-23_13.geojson` | `data_lake/normalized/tokyo/tsunami/tokyo_tsunami_A40-23_13.geojson` | 津波浸水想定（東京都） |
 
 ハザードデータが存在しない場合もバックエンドは起動しますが、該当ハザードの判定は `unknown` 扱いになります。
 tsunami は `app.properties` の `hazard.tsunami.targets=tokyo` で制御します（デフォルト: 東京のみ）。
@@ -194,7 +194,7 @@ curl http://localhost:8000/health
 
 - flood（判定用）: `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` が存在するか
 - flood（表示用）: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在するか
-- tsunami: `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` が存在するか
+- tsunami: `data_lake/normalized/tokyo/tsunami/tokyo_tsunami_A40-23_13.geojson` が存在するか
 - `backend/app.properties` の `hazard.flood.enabled=true` / `hazard.flood.check_path` / `hazard.tsunami.dir` が正しいか
 
 データが存在しない場合、バックエンドは起動しますが `hazard_safe: null`（未判定）を返します。

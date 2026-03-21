@@ -123,7 +123,8 @@ TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
 - **データ**: `inland_flood_sample.geojson`（サンプル）
   - 参照順位: `data_runtime/backend/hazard/inland_flood/` → `data_lake/normalized/tokyo/inland_flood/` → `data/hazard/`
   - 設定キー: `hazard.inland_flood.enabled` / `hazard.inland_flood.path`
-- **将来拡張**: 浸水深評価（severity）、タイル化（Phase 4.1）
+- **Severity（危険度）表示**: 実装済み（Phase 4.1/4.2）— 浸水深ランクによる色分け・理由ブロック表示
+- **タイル化**: 未実装（GeoJSON ポリゴン判定のまま）
 - **データソース（予定）**: 自治体オープンデータ（浸水深別ポリゴン）
 
 ### landslide（土砂災害）
@@ -132,8 +133,9 @@ TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
 - **データ**: `landslide_sample.geojson`（サンプル）
   - 参照順位: `data_runtime/backend/hazard/landslide/` → `data_lake/normalized/tokyo/landslide/` → `data/hazard/`
   - 設定キー: `hazard.landslide.enabled` / `hazard.landslide.path`
-- **属性**: `zone_type`（警戒区域 / 特別警戒区域）— 将来の危険度レベル分岐に使用予定
-- **将来拡張**: 危険度レベル分岐、タイル化（Phase 4.1）
+- **属性**: `zone_type`（警戒区域 / 特別警戒区域）
+- **Severity（危険度）表示**: 実装済み（Phase 4.1/4.2）— zone_type による色分け・理由ブロック表示
+- **タイル化**: 未実装（GeoJSON ポリゴン判定のまま）
 - **データソース（予定）**: 都道府県別土砂災害警戒区域データ
 
 ---
@@ -145,8 +147,8 @@ TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
 | tsunami | 重心距離近似 (`distance_based_estimation`) | 津波伝播シミュレーション |
 | flood | 未対応 (`not_supported`) | 浸水タイムラインデータ連携 |
 | storm_surge | 未対応 (`not_supported`) | 潮位予報データ連携 |
-| inland_flood | 未対応 (`not_supported`) | 浸水深評価・タイムライン連携（Phase 4.1） |
-| landslide | 未対応 (`not_supported`) | 危険度レベル分岐・降雨連携（Phase 4.1） |
+| inland_flood | 未対応 (`not_supported`) | 浸水深評価・タイムライン連携 |
+| landslide | 未対応 (`not_supported`) | 降雨量連携・タイムライン |
 
 ---
 

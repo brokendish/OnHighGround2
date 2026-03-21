@@ -102,7 +102,7 @@ Data (`data_lake/`)
 
 - DEM: `validated/tokyo/dem/elevation.tif`
 - Shelter: `normalized/tokyo/shelter/tokyo_shelter.geojson`
-- Flood hazard: `normalized/tokyo/flood/tokyo_flood_max.geojson`（58,539 polygons, 90 MB）
+- Flood hazard: `normalized/tokyo/flood/tokyo_flood_max.geojson`（925,958 polygons, A31a + A31b 統合）
 - Tsunami hazard: `normalized/tokyo/tsunami/*.geojson`
 - MBTiles（frontend tile delivery）: `tiles/tokyo/`
 
@@ -148,14 +148,12 @@ Current implementation direction:
 
 Currently active in backend hazard assessment:
 
-- **flood** — `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` (58,539 polygons)
-- **tsunami** — `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` (33,124 polygons, Tokyo default)
+- **flood** — `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` (925,958 polygons, A31a + A31b)
+- **tsunami** — `data_lake/normalized/tokyo/tsunami/tokyo_tsunami_A40-23_13.geojson` (Tokyo default)
   - Configurable via `hazard.tsunami.targets=tokyo` (CSV; extend to kanagawa, chiba for wide-area mode)
-
-Not yet active (planned):
-
-- storm_surge
-- urban_flood
+- **storm_surge** — `data_lake/normalized/tokyo/storm_surge/tokyo_storm_surge.geojson`
+- **inland_flood** — GeoJSON polygon check + Severity display (Phase 4)
+- **landslide** — GeoJSON polygon check + Severity display (Phase 4)
 
 The current scaffold introduces:
 
