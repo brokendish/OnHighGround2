@@ -19,6 +19,7 @@
 | data_runtime / deploy の仕組みを知りたい | [docs/architecture/runtime_data_policy.md](docs/architecture/runtime_data_policy.md) |
 | 本番 runtime への切替手順を確認したい | [docs/operations/runtime_cutover_checklist.md](docs/operations/runtime_cutover_checklist.md) |
 | AI ツールにプロジェクトを説明させたい | [AI_CONTEXT.md](AI_CONTEXT.md) |
+| ハザードレイヤーの runtime 状態を確認したい | `http://localhost:8080/admin/hazards`（管理UI） |
 
 ---
 

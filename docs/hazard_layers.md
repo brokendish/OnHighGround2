@@ -2,6 +2,8 @@
 
 ハザードレイヤー一覧。詳細は [layer_strategy.md](architecture/layer_strategy.md) と [hazard_capability_matrix.md](architecture/hazard_capability_matrix.md) を参照。
 
+runtime の実態（catalog 状態・fallback 可否）は管理UIで確認できる: `http://localhost:8080/admin/hazards`
+
 | layer | 表示名 | tileset | 主経路 | fallback | severity | notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | flood | 洪水浸水想定 | `tokyo_flood_max` | Vector Tile | API | ✅ 浸水深ランク | `drop-densest-as-needed` 適用 |

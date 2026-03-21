@@ -1,7 +1,15 @@
 """
 admin_hazard_service.py — ハザードレイヤー管理情報の集約サービス
 
-admin API が参照する唯一の情報源。
+【Single Source of Truth】
+  _LAYER_DEFINITIONS がハザードレイヤーの正式な定義源。
+  admin API はここから情報を組み立てて返す。
+
+  frontend 側（hazards.js）はこの API の JSON を描画するだけでよく、
+  レイヤー定義を別途 layers = [...] のような形で持ってはいけない。
+  新しいレイヤーを追加・変更するときは _LAYER_DEFINITIONS だけを編集すること。
+
+提供する情報:
 - レイヤー定義（固定）
 - runtime 実態（MBTiles ファイル存在確認）
 - Martin catalog チェック
