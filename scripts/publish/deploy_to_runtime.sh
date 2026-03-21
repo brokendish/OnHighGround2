@@ -191,12 +191,28 @@ else
         "backend"
 fi
 
-# ─── backend: hazard / landslide (Phase 4 sample) ────────────────────────────
-log_info "--- landslide (Phase 4 sample) ---"
-deploy_file \
-    "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
-    "${RUNTIME_BACKEND}/hazard/landslide/landslide_sample.geojson" \
-    "backend"
+# ─── backend: hazard / landslide ─────────────────────────────────────────────
+# normalized/ を正規参照先とする。未配置の場合は legacy sample にフォールバック。
+# 正規化: python scripts/normalize/normalize_landslide.py
+# データ: 国土数値情報 A33（土砂災害警戒区域）→ data_lake/raw/tokyo/landslide/
+log_info "--- landslide ---"
+if [[ -d "${NORMALIZED}/landslide" ]] && compgen -G "${NORMALIZED}/landslide/*.geojson" > /dev/null 2>&1; then
+    if ! "${DRY_RUN}" && [[ -d "${RUNTIME_BACKEND}/hazard/landslide" ]]; then
+        find "${RUNTIME_BACKEND}/hazard/landslide" -maxdepth 1 -name "*.geojson" -delete
+        log_info "Cleared stale GeoJSON from ${RUNTIME_BACKEND}/hazard/landslide"
+    fi
+    deploy_dir \
+        "${NORMALIZED}/landslide" \
+        "${RUNTIME_BACKEND}/hazard/landslide" \
+        "*.geojson" \
+        "backend"
+else
+    log_warn "landslide normalized data not found — deploying legacy sample"
+    deploy_file \
+        "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
+        "${RUNTIME_BACKEND}/hazard/landslide/landslide_sample.geojson" \
+        "backend"
+fi
 
 # ─── backend: shelters ────────────────────────────────────────────────────────
 log_info "--- shelters ---"
@@ -244,10 +260,16 @@ else
             "${RUNTIME_FRONTEND_LAYERS}/inland_flood_tokyo.geojson" \
             "frontend_layers"
     fi
-    deploy_file \
-        "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
-        "${RUNTIME_FRONTEND_LAYERS}/landslide_tokyo.geojson" \
-        "frontend_layers"
+    # landslide: normalized を優先、未配置なら legacy sample
+    if [[ -d "${NORMALIZED}/landslide" ]] && compgen -G "${NORMALIZED}/landslide/*.geojson" > /dev/null 2>&1; then
+        _ls_src="$(find "${NORMALIZED}/landslide" -maxdepth 1 -name "*.geojson" | sort | head -1)"
+        deploy_file "${_ls_src}" "${RUNTIME_FRONTEND_LAYERS}/landslide_tokyo.geojson" "frontend_layers"
+    else
+        deploy_file \
+            "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
+            "${RUNTIME_FRONTEND_LAYERS}/landslide_tokyo.geojson" \
+            "frontend_layers"
+    fi
 
     # ── frontend: tiles (Martin が使用する .mbtiles) ──────────────────────────
     # data_lake/tiles/{region}/ → data_runtime/frontend/tiles/{region}/

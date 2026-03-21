@@ -486,19 +486,20 @@ if INLAND_FLOOD_ENABLED:
 else:
     logger.info("内水氾濫ハザード判定は無効（hazard.inland_flood.enabled=false）")
 
-# landslide: 土砂災害警戒区域（サンプルデータ）
-# [Phase 4] data_runtime/backend/hazard/landslide/ を優先。
+# landslide: 土砂災害警戒区域
+# [Phase 5] data_runtime/backend/hazard/landslide/ を優先。
 # 未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
+# 正規化: python scripts/normalize/normalize_landslide.py
 LANDSLIDE_ENABLED = parse_bool(APP_CONFIG.get("hazard.landslide.enabled", "true"), True)
 if LANDSLIDE_ENABLED:
     _landslide_path_value = APP_CONFIG.get(
         "hazard.landslide.path",
-        "../data_runtime/backend/hazard/landslide/landslide_sample.geojson",
+        "../data_runtime/backend/hazard/landslide/tokyo_landslide_A33.geojson",
     )
     _landslide_path = resolve_existing_path(
         _landslide_path_value,
         legacy_candidates=[
-            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "landslide" / "landslide_sample.geojson",
+            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "landslide" / "tokyo_landslide_A33.geojson",
             BASE_DIR.parent / "data" / "hazard" / "landslide_sample.geojson",
         ],
         label="Landslide",

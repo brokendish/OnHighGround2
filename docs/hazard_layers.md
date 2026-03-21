@@ -10,7 +10,7 @@ runtime の実態（catalog 状態・fallback 可否）は管理UIで確認で�
 | storm_surge | 高潮浸水想定 | `tokyo_storm_surge` | Vector Tile | API | ✅ 浸水深ランク | `coalesce` + `drop` 適用 |
 | tsunami | 津波浸水想定 | `tokyo_tsunami_A40-23_13` | Vector Tile | API | — | 複数都県対応（kanagawa / chiba） |
 | inland_flood | 内水氾濫 | — | API (`/api/hazards/inland_flood/tokyo`) | — | ✅ depth_min_m ランク | タイル化未実装 |
-| landslide | 土砂災害 | — | `/layers/` GeoJSON | — | ✅ zone_type | タイル化未実装 |
+| landslide | 土砂災害警戒区域 | — | API (`/api/hazards/landslide/tokyo`) | — | ✅ zone_type / severity_level | タイル化未実装。データ: A33 |
 
 ## レイヤー追加手順
 

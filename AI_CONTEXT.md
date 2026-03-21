@@ -160,7 +160,7 @@ Currently active in backend hazard assessment:
 - **inland_flood** — `data_runtime/backend/hazard/inland_flood/inland_flood_sample.geojson`
   - frontend: API delivery (`/api/hazards/inland_flood/tokyo`); Severity by `depth_min_m`
   - backend: polygon check + depth-based severity (critical/danger/caution)
-- **landslide** — GeoJSON polygon check; Severity（危険度）display implemented (Phase 4.1/4.2)
+- **landslide** — 国土数値情報 A33（土砂災害警戒区域）; API delivery (`/api/hazards/landslide/tokyo`); severity by `zone_type` (warning→danger / special_warning→critical); `landslide_type` attribute preserved (steep_slope / debris_flow / landslide)
 
 The current scaffold introduces:
 

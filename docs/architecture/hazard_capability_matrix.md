@@ -1,6 +1,6 @@
 # Hazard Capability Matrix
 
-## Phase 4 時点の対応状況
+## Phase 5 時点の対応状況
 
 ---
 
@@ -11,8 +11,8 @@
 | `flood` | 洪水浸水想定 | polygon | `tokyo_flood_max` | ✅ | API | ✅ 浸水深ランク | active |
 | `storm_surge` | 高潮浸水想定 | polygon | `tokyo_storm_surge` | ✅ | API | ✅ 浸水深ランク | active |
 | `tsunami` | 津波浸水想定 | polygon | `tokyo_tsunami_A40-23_13` | ✅ | API | — | active |
-| `inland_flood` | 内水氾濫 | polygon | `inland_flood_sample` | — | API | ✅ depth_min_m ランク | active |
-| `landslide` | 土砂災害 | polygon | `landslide_sample` | — | `/layers/` GeoJSON | ✅ zone_type | active |
+| `inland_flood` | 内水氾濫 | polygon | `A51` | — | API | ✅ depth_min_m ランク | active |
+| `landslide` | 土砂災害警戒区域 | polygon | `A33` | — | API | ✅ zone_type / severity_level | active |
 
 ---
 
@@ -128,16 +128,21 @@ TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
 - **タイル化**: 未実装（GeoJSON ポリゴン判定のまま）
 - **データソース（予定）**: 自治体オープンデータ（浸水深別ポリゴン）
 
-### landslide（土砂災害）
+### landslide（土砂災害警戒区域）
 
-- **状態**: `enabled=True` / `backend_enabled=True` / `frontend_enabled=True`（Phase 4）
-- **データ**: `landslide_sample.geojson`（サンプル）
-  - 参照順位: `data_runtime/backend/hazard/landslide/` → `data_lake/normalized/tokyo/landslide/` → `data/hazard/`
+- **状態**: `enabled=True` / `backend_enabled=True` / `frontend_enabled=True`（Phase 5）
+- **データ**: 国土数値情報 A33（土砂災害警戒区域）
+  - 正規化: `scripts/normalize/normalize_landslide.py`
+  - 参照順位: `data_runtime/backend/hazard/landslide/` → `data_lake/normalized/tokyo/landslide/` → `data/hazard/`（legacy sample）
   - 設定キー: `hazard.landslide.enabled` / `hazard.landslide.path`
-- **属性**: `zone_type`（警戒区域 / 特別警戒区域）
-- **Severity（危険度）表示**: 実装済み（Phase 4.1/4.2）— zone_type による色分け・理由ブロック表示
-- **タイル化**: 未実装（GeoJSON ポリゴン判定のまま）
-- **データソース（予定）**: 都道府県別土砂災害警戒区域データ
+- **属性**:
+  - `zone_type`: `warning`（警戒区域）/ `special_warning`（特別警戒区域）
+  - `landslide_type`: `steep_slope`（急傾斜地の崩壊）/ `debris_flow`（土石流）/ `landslide`（地すべり）
+  - `severity_level`: `danger`（warning）/ `critical`（special_warning）
+- **API**: `GET /api/hazards/landslide/tokyo`
+- **Severity（危険度）表示**: 実装済み（Phase 4.1/4.2）— zone_type / severity_level による色分け
+- **タイル化**: 未実装（GeoJSON API 配信）
+- **データ取得**: 国土数値情報ダウンロードサービス A33 → `data_lake/raw/tokyo/landslide/` に配置
 
 ---
 
