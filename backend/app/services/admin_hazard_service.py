@@ -90,9 +90,9 @@ _LAYER_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "type": "polygon",
         "region": "tokyo",
         "tileset_id": None,
-        "api_url": None,
+        "api_url": "/api/hazards/inland_flood/tokyo",
         "severity": True,
-        "notes": "タイル化未実装。GeoJSON via /layers/ のみ (sample data).",
+        "notes": "API 配信（GeoJSON）。depth_min_m による severity 色分け対応。タイル化未実装。",
         "source_path": "data_lake/normalized/tokyo/inland_flood/inland_flood_sample.geojson",
         "runtime_tiles_path": None,
         "docs": [

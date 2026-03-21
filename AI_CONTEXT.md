@@ -157,7 +157,9 @@ Currently active in backend hazard assessment:
 - **storm_surge** — `normalized/tokyo/storm_surge/tokyo_storm_surge.geojson`
   - frontend: vector tile (`tokyo_storm_surge.mbtiles`); API fallback
   - tile build: `drop-densest-as-needed` + `coalesce-densest-as-needed` + `detect-shared-borders`
-- **inland_flood** — GeoJSON polygon check; Severity（危険度）display implemented (Phase 4.1/4.2)
+- **inland_flood** — `data_runtime/backend/hazard/inland_flood/inland_flood_sample.geojson`
+  - frontend: API delivery (`/api/hazards/inland_flood/tokyo`); Severity by `depth_min_m`
+  - backend: polygon check + depth-based severity (critical/danger/caution)
 - **landslide** — GeoJSON polygon check; Severity（危険度）display implemented (Phase 4.1/4.2)
 
 The current scaffold introduces:

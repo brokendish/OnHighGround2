@@ -94,6 +94,7 @@ const HAZARD_LAYERS = {
     },
     inland_flood_tokyo: {
         name: "内水氾濫（東京都）",
+        apiUrl: '/api/hazards/inland_flood/tokyo',
         path: `${LAYER_BASE_PATH}/inland_flood_tokyo.geojson`,
         checkboxId: "showInlandFloodTokyo",
         layer: null,

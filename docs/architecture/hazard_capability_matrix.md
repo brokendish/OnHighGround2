@@ -11,7 +11,7 @@
 | `flood` | 洪水浸水想定 | polygon | `tokyo_flood_max` | ✅ | API | ✅ 浸水深ランク | active |
 | `storm_surge` | 高潮浸水想定 | polygon | `tokyo_storm_surge` | ✅ | API | ✅ 浸水深ランク | active |
 | `tsunami` | 津波浸水想定 | polygon | `tokyo_tsunami_A40-23_13` | ✅ | API | — | active |
-| `inland_flood` | 内水氾濫 | polygon | `inland_flood_sample` | — | `/layers/` GeoJSON | ✅ zone_type | active |
+| `inland_flood` | 内水氾濫 | polygon | `inland_flood_sample` | — | API | ✅ depth_min_m ランク | active |
 | `landslide` | 土砂災害 | polygon | `landslide_sample` | — | `/layers/` GeoJSON | ✅ zone_type | active |
 
 ---
