@@ -20,6 +20,7 @@ from elevation_service import ElevationService
 from hazard_service import HazardService, derive_hazard_safe
 from geometry_utils import calc_reachable_safe_area, SHAPELY_AVAILABLE
 from hazard_engine import HazardEngine
+from app.api.hazards import router as hazards_router
 
 # 設定ファイル読み込み
 BASE_DIR = Path(__file__).resolve().parent
@@ -151,6 +152,7 @@ app.add_middleware(
     allow_methods=CORS_ALLOW_METHODS,
     allow_headers=CORS_ALLOW_HEADERS,
 )
+app.include_router(hazards_router)
 
 # 標高サービスの初期化
 # [Phase 1] data_runtime/backend/elevation/ を優先参照。

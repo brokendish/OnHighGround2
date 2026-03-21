@@ -8,27 +8,42 @@ Usage:
     python scripts/build_tiles.py [options]
 
 Options:
+    --profile PROF    ビルドプロファイル (デフォルト: current)
     --minzoom INT     最小ズームレベル (デフォルト: 5)
-    --maxzoom INT     最大ズームレベル (デフォルト: 14)
-    --input DIR       GeoJSON ファイルが置かれたディレクトリ (デフォルト: data_lake/validated/tokyo)
-    --output DIR      .mbtiles 出力ディレクトリ (デフォルト: data_lake/tiles/tokyo)
+    --maxzoom INT     最大ズームレベル (デフォルト: 16)
+    --input DIR       GeoJSON ファイルが置かれたディレクトリ
+                      (デフォルト: data_lake/normalized/tokyo)
+    --output DIR      .mbtiles 出力ディレクトリ
+                      (デフォルト: data_lake/tiles/tokyo)
     --dry-run         実行せずにコマンドを表示のみ
 
+プロファイル:
+    current  ベースライン。--no-tile-compression のみ。現行 runtime と同等。
+    drop     描画削減プロファイル。--drop-densest-as-needed で低ズームの
+             フィーチャ密度を間引く。storm_surge は追加で coalesce +
+             detect-shared-borders を適用。
+
+評価観点:
+    current → drop で改善すべき指標:
+      - 低ズーム（z8/z10）の 1 タイルあたり feature 数
+      - ブラウザの描画 CPU 負荷（Chrome DevTools Main thread）
+      - パン・ズームの引っかかり感
+    許容されるトレードオフ:
+      - z5〜z10 での小面積浸水域の非表示（防災目的のため要目視確認）
+
 入力ディレクトリについて:
-    デフォルト: data_lake/validated/tokyo/   ← backend 参照後の正規データ
+    デフォルト: data_lake/normalized/tokyo/   ← 正規化済みデータ
     互換:       data/processed/hazard/        ← 旧処理済み GeoJSON
     暫定:       frontend/hazard/              ← 旧フロント直読場所
-    frontend/hazard/ は長期的なソースの置き場として使用しないこと。
-    データパイプラインの方針については scripts/README.md を参照。
 
-出力ディレクトリ構成について:
-    現在:   data_lake/tiles/tokyo/{hazard_type}/{dataset}.mbtiles
-    互換:   tiles/{dataset}.mbtiles は縮退対象
-    長期的なレイアウトは scripts/README.md に記載。
+出力ディレクトリ構成:
+    data_lake/tiles/tokyo/{hazard_type}/{dataset}.mbtiles
 """
 
 import argparse
+import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -36,9 +51,46 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# ── プロファイル定義 ──────────────────────────────────────────────────────────
+#
+# DATASET_PROFILES[dataset][profile] = 追加フラグのリスト
+# すべてのプロファイルに共通するフラグ:
+#   --no-tile-compression（転送量の観点で CURRENT が最良と確認済み）
+#   --minimum-zoom / --maximum-zoom / --output / --force / --layer
+#
+# flood へ --coalesce-densest-as-needed を適用すると 66 万フィーチャで
+# tippecanoe が収束不能になるため、flood には適用しない。
+#
+DATASET_PROFILES: dict[str, dict[str, list[str]]] = {
+    "tokyo_flood_max": {
+        "current": [],
+        "drop": [
+            "--drop-densest-as-needed",
+        ],
+    },
+    "tokyo_storm_surge": {
+        "current": [],
+        "drop": [
+            "--drop-densest-as-needed",
+            "--coalesce-densest-as-needed",
+            "--detect-shared-borders",
+        ],
+    },
+}
+
+# 上記に定義のないデータセットへのフォールバック
+DEFAULT_PROFILES: dict[str, list[str]] = {
+    "current": [],
+    "drop": ["--drop-densest-as-needed"],
+}
+
 
 def find_geojson_files(input_dir: Path) -> list[Path]:
     return sorted(input_dir.rglob("*.geojson"))
+
+
+def extra_flags(dataset: str, profile: str) -> list[str]:
+    return DATASET_PROFILES.get(dataset, DEFAULT_PROFILES).get(profile, [])
 
 
 def build_tiles(
@@ -47,9 +99,10 @@ def build_tiles(
     output_dir: Path,
     minzoom: int,
     maxzoom: int,
+    profile: str,
     dry_run: bool,
 ) -> bool:
-    dataset = geojson_path.stem  # 例: "tsunami_tokyo"
+    dataset = geojson_path.stem
     relative_parent = geojson_path.parent.relative_to(input_dir)
     output_path = output_dir / relative_parent / f"{dataset}.mbtiles"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,13 +112,12 @@ def build_tiles(
         f"--minimum-zoom={minzoom}",
         f"--maximum-zoom={maxzoom}",
         "--output", str(output_path),
-        "--force",              # 既存の出力を上書き
+        "--force",
         "--no-tile-compression",
         "--layer", dataset,
-        str(geojson_path),
-    ]
+    ] + extra_flags(dataset, profile) + [str(geojson_path)]
 
-    print(f"\n[build] {geojson_path.name} → {output_path.relative_to(ROOT)}")
+    print(f"\n[build:{profile}] {geojson_path.name} → {output_path.relative_to(ROOT)}")
     print("  " + " ".join(cmd))
 
     if dry_run:
@@ -79,18 +131,67 @@ def build_tiles(
 
     size_mb = output_path.stat().st_size / (1024 ** 2)
     print(f"  [OK] {size_mb:.1f} MB")
+    _print_tile_stats(output_path)
     return True
 
 
+def _print_tile_stats(mbtiles_path: Path) -> None:
+    """ズーム別タイルサイズと feature 数サマリーを表示する。"""
+    try:
+        con = sqlite3.connect(mbtiles_path)
+
+        # ズーム別タイルサイズ
+        rows = con.execute(
+            "SELECT zoom_level, COUNT(*), "
+            "ROUND(AVG(LENGTH(tile_data))/1024.0,1), "
+            "ROUND(MAX(LENGTH(tile_data))/1024.0,1) "
+            "FROM tiles GROUP BY zoom_level ORDER BY zoom_level"
+        ).fetchall()
+        print("  zoom  tiles   avg_kb   max_kb")
+        for z, cnt, avg, mx in rows:
+            print(f"    {z:2d}  {cnt:5d}  {avg:7.1f}  {mx:7.1f}")
+
+        # tippecanoe strategies から zoom ごとの tiny_polygons を取得
+        meta = con.execute(
+            "SELECT value FROM metadata WHERE name='strategies'"
+        ).fetchone()
+        if meta:
+            strategies = json.loads(meta[0])
+            print("  zoom  tiny_polygons  detail_reduced  tile_size_desired")
+            for z_idx, s in enumerate(strategies):
+                if s:
+                    tp  = s.get("tiny_polygons", "-")
+                    dr  = s.get("detail_reduced", "-")
+                    tsd = s.get("tile_size_desired", "-")
+                    print(f"    {z_idx:2d}  {str(tp):>13}  {str(dr):>14}  {str(tsd):>17}")
+
+        con.close()
+    except Exception as e:
+        print(f"  [warn] stats unavailable: {e}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="ハザード GeoJSON ファイルからベクタータイルを生成します。")
+    parser = argparse.ArgumentParser(
+        description="ハザード GeoJSON ファイルからベクタータイルを生成します。"
+    )
     parser.add_argument("--minzoom", type=int, default=5)
-    parser.add_argument("--maxzoom", type=int, default=14)
+    parser.add_argument("--maxzoom", type=int, default=16)
+    parser.add_argument(
+        "--profile",
+        choices=["current", "drop"],
+        default="current",
+        help=(
+            "ビルドプロファイル:\n"
+            "  current = --no-tile-compression のみ（baseline）\n"
+            "  drop    = current + --drop-densest-as-needed（描画削減）\n"
+            "(デフォルト: current)"
+        ),
+    )
     parser.add_argument(
         "--input",
         type=Path,
-        default=ROOT / "data_lake" / "validated" / "tokyo",
-        help="GeoJSON ファイルが置かれたディレクトリ (デフォルト: data_lake/validated/tokyo)",
+        default=ROOT / "data_lake" / "normalized" / "tokyo",
+        help="GeoJSON ファイルが置かれたディレクトリ",
     )
     parser.add_argument(
         "--output",
@@ -101,7 +202,6 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    # tippecanoe の存在確認（dry-run 時はスキップし、インストールなしでもパイプラインを検証できるようにする）
     if not args.dry_run and not shutil.which("tippecanoe"):
         print(
             "ERROR: tippecanoe がインストールされていないか、PATH に含まれていません。\n"
@@ -145,11 +245,15 @@ def main():
     print(f"Input:    {input_dir.relative_to(ROOT)}")
     print(f"Output:   {output_dir.relative_to(ROOT)}")
     print(f"Zoom:     {args.minzoom} – {args.maxzoom}")
+    print(f"Profile:  {args.profile}")
     print(f"Datasets: {[f.name for f in geojson_files]}")
 
     results = []
     for geojson_path in geojson_files:
-        ok = build_tiles(geojson_path, input_dir, output_dir, args.minzoom, args.maxzoom, args.dry_run)
+        ok = build_tiles(
+            geojson_path, input_dir, output_dir,
+            args.minzoom, args.maxzoom, args.profile, args.dry_run,
+        )
         results.append((geojson_path.name, ok))
 
     print("\n--- Summary ---")

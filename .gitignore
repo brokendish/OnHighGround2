@@ -15,7 +15,21 @@ build/
 *.tif
 *.xml
 *.zip
-data/
+/data/
+!/data/
+/data/*
+!/data/datasets/
+!/data/datasets/**/
+/data/datasets/**/*.geojson
+!/data/datasets/**/meta.json
+!/data/registry/
+!/data/registry/*.json
+!/data/runtime/
+/data/runtime/*
+!/data/runtime/cache/
+!/data/runtime/temp/
+!/data/runtime/generated/
+!/data/runtime/**/.gitkeep
 
 # IDE
 .vscode/

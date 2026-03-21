@@ -14,12 +14,15 @@
 const HAZARD_LAYERS = {
     tsunami_tokyo: {
         name: "津波浸水想定（東京都）",
+        apiUrl: '/api/hazards/tsunami/tokyo',
+        metaUrl: '/api/hazards/tsunami/tokyo/meta',
         path: `${LAYER_BASE_PATH}/tsunami_tokyo.geojson`,
         checkboxId: "showTsunamiHazardTokyo",
         layer: null,
         loaded: false,
         visible: false,
         rawData: null,
+        lastError: null,
         type: 'tsunami'
     },
     tsunami_kanagawa: {
@@ -30,6 +33,7 @@ const HAZARD_LAYERS = {
         loaded: false,
         visible: false,
         rawData: null,
+        lastError: null,
         type: 'tsunami'
     },
     tsunami_chiba: {
@@ -40,26 +44,33 @@ const HAZARD_LAYERS = {
         loaded: false,
         visible: false,
         rawData: null,
+        lastError: null,
         type: 'tsunami'
     },
     flood_tokyo_max: {
         name: "洪水浸水想定（東京都・想定最大規模）",
+        apiUrl: '/api/hazards/flood/tokyo',
+        metaUrl: '/api/hazards/flood/tokyo/meta',
         path: `${LAYER_BASE_PATH}/tokyo_flood_max.geojson`,
         checkboxId: "showFloodTokyoMax",
         layer: null,
         loaded: false,
         visible: false,
         rawData: null,
+        lastError: null,
         type: 'flood'
     },
     storm_surge_tokyo: {
         name: "高潮浸水想定（東京都）",
+        apiUrl: '/api/hazards/storm_surge/tokyo',
+        metaUrl: '/api/hazards/storm_surge/tokyo/meta',
         path: `${LAYER_BASE_PATH}/tokyo_storm_surge.geojson`,
         checkboxId: "showStormSurgeTokyo",
         layer: null,
         loaded: false,
         visible: false,
         rawData: null,
+        lastError: null,
         type: 'storm_surge'
     },
     inland_flood_tokyo: {
@@ -70,19 +81,35 @@ const HAZARD_LAYERS = {
         loaded: false,
         visible: false,
         rawData: null,
+        lastError: null,
         type: 'inland_flood'
     },
     landslide_tokyo: {
         name: "土砂災害（東京都）",
+        apiUrl: '/api/hazards/landslide/tokyo',
+        metaUrl: '/api/hazards/landslide/tokyo/meta',
         path: `${LAYER_BASE_PATH}/landslide_tokyo.geojson`,
         checkboxId: "showLandslideTokyo",
         layer: null,
         loaded: false,
         visible: false,
         rawData: null,
+        lastError: null,
         type: 'landslide'
     }
 };
+
+// ── カラー定数（VECTOR_TILE_SOURCES の colorFn / borderStyle から参照するため先に定義）────
+const FLOOD_RANK_COLORS = { 1: '#ffe082', 2: '#ffca28', 3: '#ff8f00', 4: '#f4511e', 5: '#b71c1c' };
+const FLOOD_UNKNOWN_COLOR = '#ffe0b2';
+function getFloodRankColor(rank) { return FLOOD_RANK_COLORS[rank] || FLOOD_UNKNOWN_COLOR; }
+const FLOOD_BORDER = { color: '#b71c1c', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
+const STORM_SURGE_RANK_COLORS = {
+    1: '#b3e5fc', 2: '#4fc3f7', 3: '#0288d1', 4: '#01579b',
+    5: '#7b1fa2', 6: '#4a148c', 7: '#1a0033',
+};
+const STORM_SURGE_UNKNOWN_COLOR = '#e1f5fe';
+const STORM_SURGE_BORDER = { color: '#01579b', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
 
 // ── Martin ベクタータイルソース定義 ──────────────────────────────────────
 // キー: HAZARD_LAYERS と同じ
@@ -103,12 +130,44 @@ const VECTOR_TILE_SOURCES = {
             tilesetId: 'tokyo_flood_max',
             sourceLayer: 'tokyo_flood_max',
             colorFn: (props) => getFloodRankColor(props['A31a_205']),
+            borderStyle: FLOOD_BORDER,
+            maxNativeZoom: 16
+        }
+    ],
+    storm_surge_tokyo: [
+        {
+            tilesetId: 'tokyo_storm_surge',
+            sourceLayer: 'tokyo_storm_surge',
+            colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
+            borderStyle: STORM_SURGE_BORDER,
             maxNativeZoom: 16
         }
     ]
 };
 
 let useMartinTiles = false;
+const DEBUG_HAZARD_LAYERS = false;
+
+function debugHazardLayer(stage, layerKey, payload = {}) {
+    if (!DEBUG_HAZARD_LAYERS) {
+        return;
+    }
+    console.info(`[hazard:${stage}] ${layerKey}`, payload);
+}
+
+function shouldUseVectorTiles(layerKey, hazard) {
+    if (!useMartinTiles || !VECTOR_TILE_SOURCES[layerKey]) {
+        return false;
+    }
+
+    // flood / storm_surge は Martin タイル優先。タイルが存在しない場合は
+    // _vectorTilesUnavailable フラグで API フォールバックに切り替える。
+    if (hazard?._vectorTilesUnavailable) {
+        return false;
+    }
+
+    return layerKey === 'flood_tokyo_max' || layerKey === 'storm_surge_tokyo' || !hazard?.apiUrl;
+}
 
 // ── GeoJSON 正規化 ────────────────────────────────────────────────────────
 
@@ -216,42 +275,6 @@ function getDepthColor(depthMeters) {
     if (depthMeters <= 5.0) return '#f4511e';
     return '#b71c1c';
 }
-
-// 洪水浸水想定 A31a_205 ランク（1〜5）→ 表示色
-// 1: 0.5m未満 / 2: 0.5〜3m / 3: 3〜5m / 4: 5〜10m / 5: 10m以上
-// 凡例（#floodLegend）と同一の色定義を使用すること
-const FLOOD_RANK_COLORS = { 1: '#ffe082', 2: '#ffca28', 3: '#ff8f00', 4: '#f4511e', 5: '#b71c1c' };
-const FLOOD_UNKNOWN_COLOR = '#ffe0b2';  // 深さ不明時のフォールバック（薄いオレンジ）
-
-function getFloodRankColor(rank) {
-    return FLOOD_RANK_COLORS[rank] || FLOOD_UNKNOWN_COLOR;
-}
-
-// 洪水ポリゴン境界線スタイル（細線・半透明）
-const FLOOD_BORDER = {
-    color: '#b71c1c',
-    weight: 0.4,
-    opacity: 0.35,
-    dashArray: '4,4'
-};
-
-// 高潮浸水想定カラー（青紫系グラデーション、rank 1-7）
-const STORM_SURGE_RANK_COLORS = {
-    1: '#b3e5fc',  // 0.3m未満
-    2: '#4fc3f7',  // 0.3〜0.5m
-    3: '#0288d1',  // 0.5〜1m
-    4: '#01579b',  // 1〜3m
-    5: '#7b1fa2',  // 3〜5m
-    6: '#4a148c',  // 5〜10m
-    7: '#1a0033',  // 10m以上
-};
-const STORM_SURGE_UNKNOWN_COLOR = '#e1f5fe';
-const STORM_SURGE_BORDER = {
-    color: '#01579b',
-    weight: 0.4,
-    opacity: 0.35,
-    dashArray: '4,4'
-};
 
 // 内水氾濫スタイル（深度ベース青系グラデーション）
 // level: safe → caution → danger → critical
@@ -403,30 +426,40 @@ async function loadHazardLayer(layerKey) {
     if (!hazard) {
         throw new Error(`未知のハザードレイヤーです: ${layerKey}`);
     }
-    if (hazard.loaded && hazard.layer) {
+    debugHazardLayer('load:start', layerKey, {
+        hasLayer: Boolean(hazard.layer),
+        loaded: hazard.loaded,
+        apiUrl: hazard.apiUrl || null,
+        path: hazard.path || null,
+        useMartinTiles,
+        prefersVectorTiles: shouldUseVectorTiles(layerKey, hazard),
+    });
+    if (hazard.layer) {
         return hazard.layer;
     }
 
-    // Martin が利用可能な場合はベクタータイルを使用する
-    if (useMartinTiles && VECTOR_TILE_SOURCES[layerKey]) {
-        const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer, colorFn, maxNativeZoom }) =>
-            createVectorTileLayer(tilesetId, sourceLayer, colorFn, undefined, maxNativeZoom)
+    if (shouldUseVectorTiles(layerKey, hazard)) {
+        const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom }) =>
+            createVectorTileLayer(tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom)
         );
         hazard.layer = L.layerGroup(vtLayers);
         hazard.loaded = true;
         return hazard.layer;
     }
 
-    const response = await fetch(hazard.path, { cache: 'no-cache' });
+    const response = hazard.apiUrl
+        ? await apiFetch(hazard.apiUrl, { cache: 'no-cache' })
+        : await fetch(hazard.path, { cache: 'no-cache' });
     if (!response.ok) {
-        throw new Error(`${hazard.name}データの取得に失敗しました (HTTP ${response.status})`);
+        hazard.lastError = `${hazard.name}データの取得に失敗しました (HTTP ${response.status})`;
+        throw new Error(hazard.lastError);
     }
 
     const rawGeoJson = await response.json();
     const featureCollection = normalizeToFeatureCollection(rawGeoJson);
     const depthKey = detectDepthPropertyKey(featureCollection);
-
     hazard.rawData = featureCollection;
+    hazard.lastError = null;
     const styleFn = hazard.type === 'flood'
         ? (feature) => getFloodFeatureStyle(feature)
         : hazard.type === 'storm_surge'
@@ -437,7 +470,6 @@ async function loadHazardLayer(layerKey) {
         ? (feature) => getLandslideFeatureStyle(feature)
         : (feature) => getTsunamiFeatureStyle(feature, depthKey);
     hazard.layer = L.geoJSON(featureCollection, {
-        renderer: L.canvas(),
         style: styleFn
     });
     hazard.loaded = true;
@@ -449,7 +481,6 @@ async function setHazardLayerVisibility(layerKey, visible) {
     if (!hazard) {
         return;
     }
-
     hazard.visible = visible;
 
     if (!visible) {
@@ -461,44 +492,44 @@ async function setHazardLayerVisibility(layerKey, visible) {
     }
 
     const layer = await loadHazardLayer(layerKey);
+    if (!layer || typeof layer.addTo !== 'function') {
+        throw new Error(`${hazard.name}レイヤーの生成結果が Leaflet Layer ではありません`);
+    }
     if (!map.hasLayer(layer)) {
         layer.addTo(map);
     }
     if (typeof layer.bringToFront === 'function') {
         layer.bringToFront();
     }
-
-    const hazardBounds = layer.getBounds?.();
-    if (hazardBounds && hazardBounds.isValid()) {
-        const isInCurrentView = map.getBounds().intersects(hazardBounds);
-        if (!isInCurrentView) {
-            map.fitBounds(hazardBounds.pad(0.02), { maxZoom: 9, animate: true });
-            const statusMsg = `${hazard.name}: ON（現在表示範囲にデータがないため、データ範囲へ移動しました）`;
-            if (hazard.type === 'flood') setFloodStatus(statusMsg);
-            else if (hazard.type === 'inland_flood') setInlandFloodStatus(statusMsg);
-            else if (hazard.type === 'landslide') setLandslideStatus(statusMsg);
-            else setHazardStatus(statusMsg);
-        } else {
-            updateHazardStatusSummary();
-        }
-    } else {
-        updateHazardStatusSummary();
-    }
+    updateHazardStatusSummary();
 }
 
 // ── データ存在確認・チェックボックス初期化 ───────────────────────────────
 
-async function hazardDataExists(path) {
+async function hazardDataExists(hazard) {
     try {
-        const response = await fetch(path, { method: 'HEAD', cache: 'no-cache' });
+        const response = hazard.metaUrl
+            ? await apiFetch(hazard.metaUrl, { cache: 'no-cache' })
+            : await fetch(hazard.path, { method: 'HEAD', cache: 'no-cache' });
+        if (!response.ok) {
+            hazard.lastError = `${hazard.name}データの存在確認に失敗しました (HTTP ${response.status})`;
+            console.warn(hazard.lastError);
+            return false;
+        }
+        hazard.lastError = null;
         return response.ok;
     } catch (error) {
-        console.warn('ハザードデータ存在確認に失敗:', path, error);
+        hazard.lastError = `${hazard.name}データの存在確認に失敗しました`;
+        console.warn('ハザードデータ存在確認に失敗:', hazard.apiUrl || hazard.path, error);
         return false;
     }
 }
 
 function attachHazardToggle(checkbox, layerKey) {
+    if (checkbox.dataset.hazardToggleBound === 'true') {
+        return;
+    }
+    checkbox.dataset.hazardToggleBound = 'true';
     checkbox.addEventListener('change', async (event) => {
         try {
             await setHazardLayerVisibility(layerKey, event.target.checked);
@@ -523,19 +554,43 @@ async function initializeHazardToggles() {
             }
             attachHazardToggle(checkbox, layerKey);
 
-            let checkPath;
-            if (useMartinTiles && VECTOR_TILE_SOURCES[layerKey]) {
+            if (shouldUseVectorTiles(layerKey, hazard)) {
                 const firstTileset = VECTOR_TILE_SOURCES[layerKey][0];
-                checkPath = `/tiles/${firstTileset.tilesetId}`;
-            } else {
-                checkPath = hazard.path;
+                const checkPath = `/tiles/${firstTileset.tilesetId}`;
+                const tilesExist = await hazardDataExists({ ...hazard, path: checkPath, metaUrl: null, apiUrl: null });
+                if (!tilesExist) {
+                    if (hazard.apiUrl) {
+                        // タイルが未整備 → API フォールバックで有効化
+                        hazard._vectorTilesUnavailable = true;
+                        console.info(`[hazard:init] ${layerKey}: tiles not found, falling back to API`);
+                        checkbox.disabled = false;
+                        checkbox.title = '';
+                        return { layerKey, enabled: true, reason: 'vector-tiles-fallback-to-api' };
+                    }
+                    checkbox.disabled = true;
+                    checkbox.checked = false;
+                    checkbox.title = `${checkPath} が見つかりません`;
+                    return { layerKey, enabled: false, reason: 'tiles-not-found' };
+                }
+
+                checkbox.disabled = false;
+                checkbox.title = '';
+                return { layerKey, enabled: true, reason: 'vector-tiles' };
             }
 
-            const exists = await hazardDataExists(checkPath);
+            // API 配信レイヤーは起動時の事前確認で無効化しない。
+            // 実際の読込失敗はチェック時に処理し、UI を触れる状態に保つ。
+            if (hazard.apiUrl) {
+                checkbox.disabled = false;
+                checkbox.title = '';
+                return { layerKey, enabled: true, reason: 'api-backed' };
+            }
+
+            const exists = await hazardDataExists(hazard);
             if (!exists) {
                 checkbox.disabled = true;
                 checkbox.checked = false;
-                checkbox.title = `${checkPath} が見つかりません`;
+                checkbox.title = hazard.lastError || `${hazard.path} が見つかりません`;
                 return { layerKey, enabled: false, reason: 'data-not-found' };
             }
 
@@ -546,6 +601,10 @@ async function initializeHazardToggles() {
     );
 
     const enabledLayers = availabilityChecks.filter((item) => item.enabled);
+    if (DEBUG_HAZARD_LAYERS) {
+        console.info('[hazard:init] availability check results:', availabilityChecks);
+        console.info('[hazard:init] enabled layers:', enabledLayers.map((x) => `${x.layerKey}(${x.reason})`));
+    }
     updateHazardStatusSummary();
     if (enabledLayers.length === 0) {
         return;

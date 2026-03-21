@@ -12,27 +12,41 @@ function logApiFetch(level, ...args) {
     console[level](...args);
 }
 
+function normalizeApiPath(path) {
+    if (typeof path !== 'string' || path.length === 0) {
+        return path;
+    }
+    if (path === '/api') {
+        return '';
+    }
+    if (path.startsWith('/api/')) {
+        return path.slice(4);
+    }
+    return path;
+}
+
 async function apiFetch(path, options = {}) {
     let lastError = null;
+    const normalizedPath = normalizeApiPath(path);
 
     for (const baseUrl of API_BASE_URL_CANDIDATES) {
         try {
-            const response = await fetch(`${baseUrl}${path}`, options);
+            const response = await fetch(`${baseUrl}${normalizedPath}`, options);
             const contentType = (response.headers.get('content-type') || '').toLowerCase();
 
             // API でない HTML レスポンス（index.html 等）をつかんだ場合は次候補へ
             if (!contentType.includes('application/json')) {
-                logApiFetch('warn', `[apiFetch] rejected candidate: ${baseUrl}${path} (content-type: ${contentType || 'unknown'})`);
+                logApiFetch('warn', `[apiFetch] rejected candidate: ${baseUrl}${normalizedPath} (content-type: ${contentType || 'unknown'})`);
                 lastError = new Error(
                     `API候補 ${baseUrl} がJSONを返しませんでした (content-type: ${contentType || 'unknown'})`
                 );
                 continue;
             }
 
-            logApiFetch('info', `[apiFetch] using candidate: ${baseUrl}${path}`);
+            logApiFetch('info', `[apiFetch] using candidate: ${baseUrl}${normalizedPath}`);
             return response;
         } catch (error) {
-            logApiFetch('warn', `[apiFetch] candidate failed: ${baseUrl}${path}`, error);
+            logApiFetch('warn', `[apiFetch] candidate failed: ${baseUrl}${normalizedPath}`, error);
             lastError = error;
         }
     }
