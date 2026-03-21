@@ -166,6 +166,7 @@ REMOTE=~/Development/GitHub/OnHighGround2
 bash scripts/publish/deploy_to_runtime.sh --region tokyo
 
 # data_runtime を一括転送（タイル・ハザードデータ・避難所・DEM すべて含む）
+# ※ MBTiles（data_runtime/frontend/tiles/）もここで転送される。Martin に必要。
 rsync -avz --progress \
   data_runtime/ \
   ${VPS}:${REMOTE}/data_runtime/
