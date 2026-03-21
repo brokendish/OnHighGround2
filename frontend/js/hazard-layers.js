@@ -308,22 +308,36 @@ function getInlandFloodFeatureStyle(feature) {
     };
 }
 
-// 土砂災害スタイル（茶色系）
+// 土砂災害スタイル
+// zone_type: 'special_warning'（特別警戒）→ 濃赤  / 'warning'（警戒）→ オレンジ
+const LANDSLIDE_COLORS = {
+    special_warning: '#b71c1c',   // 特別警戒区域 — 濃赤（critical）
+    warning:         '#e65100',   // 警戒区域     — 深オレンジ（danger）
+};
+const LANDSLIDE_UNKNOWN_COLOR = '#a1887f';   // 未分類 — 薄茶
 const LANDSLIDE_BORDER = {
     color: '#6d4c41',
     weight: 0.4,
-    opacity: 0.35,
+    opacity: 0.4,
     dashArray: '4,4'
 };
 
 function getLandslideFeatureStyle(feature) {
-    // 特別警戒区域は濃い色、警戒区域は薄い色
-    const zoneType = feature?.properties?.zone_type || feature?.properties?.区分 || '';
-    const isSpecial = zoneType.includes('特別');
+    const props = feature?.properties || {};
+    // A33 正規化データ: zone_type = 'warning' | 'special_warning'
+    // legacy サンプルデータ: zone_type = '土砂災害警戒区域' | '土砂災害特別警戒区域'
+    const zoneType = props.zone_type || '';
+    const isSpecial = zoneType === 'special_warning' || zoneType.includes('特別');
+    const isWarning = zoneType === 'warning' || zoneType.includes('警戒');
+    const fillColor = isSpecial
+        ? LANDSLIDE_COLORS.special_warning
+        : isWarning
+        ? LANDSLIDE_COLORS.warning
+        : LANDSLIDE_UNKNOWN_COLOR;
     return {
         ...LANDSLIDE_BORDER,
-        fillColor: isSpecial ? '#bf360c' : '#a1887f',
-        fillOpacity: 0.45
+        fillColor,
+        fillOpacity: isSpecial ? 0.55 : 0.42
     };
 }
 
@@ -680,10 +694,13 @@ function updateHazardStatusSummary() {
         .filter((h) => h.type === 'landslide' && h.visible)
         .map((h) => h.name);
     const landslideStatusEl = document.getElementById('landslideStatus');
+    const landslideLegend = document.getElementById('landslideLegend');
     if (landslideVisible.length === 0) {
         if (landslideStatusEl) landslideStatusEl.textContent = '土砂災害レイヤー: OFF';
+        if (landslideLegend) landslideLegend.style.display = 'none';
     } else {
         if (landslideStatusEl) landslideStatusEl.textContent = `土砂災害レイヤー: ON（${landslideVisible.join(' / ')}）`;
+        if (landslideLegend) landslideLegend.style.display = 'block';
     }
 }
 
