@@ -83,6 +83,7 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
             displayHazardStatus({
                 is_danger: hazardData.is_danger,
                 hazards: hazardData.hazards,
+                assessment: hazardData.hazard_assessment,
             });
         }
     } catch (e) {

@@ -56,6 +56,10 @@ services:
       - ./data_runtime:/data_runtime:ro
       # data_lake を正本としてマウント（フォールバック用）
       - ./data_lake:/data_lake:ro
+      # dataset registry / normalized hazard datasets を backend から参照可能にする
+      - ./data:/app/data:ro
+      # backend/app/services 配下からのパス解決で /data を参照しても読めるようにする
+      - ./data:/data:ro
       # legacy shelter fallback 用
       - ./国土地理院避難所データ:/app/shelter_data:ro
       # 開発時のホットリロード用
@@ -100,7 +104,7 @@ services:
       # [fallback] data_runtime/frontend/tiles が空の場合に備え data_lake/tiles も残す。
       # Phase 3 で data_runtime/frontend/tiles が安定したら削除予定。
       - ./data_lake/tiles:/tiles_legacy:ro
-    command: /tiles/tokyo/flood /tiles/tokyo/tsunami /tiles/tokyo/storm_surge /tiles/tokyo/urban_flood
+    command: /tiles/tokyo/flood /tiles/tokyo/tsunami /tiles/tokyo/storm_surge
     restart: unless-stopped
 
 networks:
