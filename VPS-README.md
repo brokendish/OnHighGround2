@@ -167,7 +167,15 @@ rsync -avz --progress \
   data_runtime/ \
   ${VPS}:${REMOTE}/data_runtime/
 
-# OSM データ（OSRM インデックス未構築の場合のみ）
+# ── パターン A: OSRM インデックス構築済みの場合（推奨・VPS での再ビルド不要）
+rsync -avz --progress \
+  data_lake/validated/tokyo/osm/driving/ \
+  ${VPS}:${REMOTE}/data_lake/validated/tokyo/osm/driving/
+rsync -avz --progress \
+  data_lake/validated/tokyo/osm/walking/ \
+  ${VPS}:${REMOTE}/data_lake/validated/tokyo/osm/walking/
+
+# ── パターン B: OSRM インデックス未構築の場合（VPS 起動時に自動ビルド・数十分かかる）
 rsync -avz --progress \
   data_lake/raw/tokyo/osm/kanto-260214.osm.pbf \
   ${VPS}:${REMOTE}/data_lake/raw/tokyo/osm/
