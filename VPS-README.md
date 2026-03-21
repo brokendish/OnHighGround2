@@ -152,6 +152,9 @@ mkdir -p data_lake/validated/tokyo/osm/walking
 
 ### rsync コマンド
 
+> **注意: このセクションのコマンドはすべてローカルマシンで実行する。**
+> `deploy_to_runtime.sh` は `data_lake/normalized/` がないと何もデプロイできないため、VPS 上では実行しないこと。
+
 タイルを含む `data_runtime/` 全体を一括転送する（合計 **約1.5GB**）。
 
 ```bash
