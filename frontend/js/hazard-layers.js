@@ -5,7 +5,26 @@
  * - VECTOR_TILE_SOURCES: Martin タイルセット定義
  * - レイヤーの読み込み・表示切り替え・カラースタイリング
  * - ハザードチェックボックスの初期化
+ *
+ * ★ 定数宣言順序の制約 ★
+ *   VECTOR_TILE_SOURCES の初期化式（colorFn / borderStyle）から参照するため、
+ *   以下のカラー定数は VECTOR_TILE_SOURCES より前に宣言しなければならない。
+ *   新しいカラー定数を追加するときは必ずこのブロック内に追記すること。
+ *     FLOOD_RANK_COLORS / FLOOD_UNKNOWN_COLOR / getFloodRankColor / FLOOD_BORDER
+ *     STORM_SURGE_RANK_COLORS / STORM_SURGE_UNKNOWN_COLOR / STORM_SURGE_BORDER
  */
+
+// ── VECTOR_TILE_SOURCES 依存定数（宣言順制約: このブロックを下へ移動しないこと）─
+const FLOOD_RANK_COLORS = { 1: '#ffe082', 2: '#ffca28', 3: '#ff8f00', 4: '#f4511e', 5: '#b71c1c' };
+const FLOOD_UNKNOWN_COLOR = '#ffe0b2';
+function getFloodRankColor(rank) { return FLOOD_RANK_COLORS[rank] || FLOOD_UNKNOWN_COLOR; }
+const FLOOD_BORDER = { color: '#b71c1c', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
+const STORM_SURGE_RANK_COLORS = {
+    1: '#b3e5fc', 2: '#4fc3f7', 3: '#0288d1', 4: '#01579b',
+    5: '#7b1fa2', 6: '#4a148c', 7: '#1a0033',
+};
+const STORM_SURGE_UNKNOWN_COLOR = '#e1f5fe';
+const STORM_SURGE_BORDER = { color: '#01579b', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
 
 // ── ハザードレイヤー定義 ──────────────────────────────────────────────────
 // [Phase 1] path は /hazard/ からの GeoJSON フォールバック（legacy 配信）。
@@ -98,18 +117,6 @@ const HAZARD_LAYERS = {
         type: 'landslide'
     }
 };
-
-// ── カラー定数（VECTOR_TILE_SOURCES の colorFn / borderStyle から参照するため先に定義）────
-const FLOOD_RANK_COLORS = { 1: '#ffe082', 2: '#ffca28', 3: '#ff8f00', 4: '#f4511e', 5: '#b71c1c' };
-const FLOOD_UNKNOWN_COLOR = '#ffe0b2';
-function getFloodRankColor(rank) { return FLOOD_RANK_COLORS[rank] || FLOOD_UNKNOWN_COLOR; }
-const FLOOD_BORDER = { color: '#b71c1c', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
-const STORM_SURGE_RANK_COLORS = {
-    1: '#b3e5fc', 2: '#4fc3f7', 3: '#0288d1', 4: '#01579b',
-    5: '#7b1fa2', 6: '#4a148c', 7: '#1a0033',
-};
-const STORM_SURGE_UNKNOWN_COLOR = '#e1f5fe';
-const STORM_SURGE_BORDER = { color: '#01579b', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
 
 // ── Martin ベクタータイルソース定義 ──────────────────────────────────────
 // キー: HAZARD_LAYERS と同じ
@@ -543,6 +550,15 @@ function attachHazardToggle(checkbox, layerKey) {
 }
 
 async function initializeHazardToggles() {
+    try {
+        await _initializeHazardTogglesImpl();
+    } catch (err) {
+        console.error('[hazard-layers] initializeHazardToggles で予期しないエラーが発生しました。' +
+            'すべてのチェックボックスが無効のままになります。', err);
+    }
+}
+
+async function _initializeHazardTogglesImpl() {
     useMartinTiles = await checkMartinAvailable();
     console.info('Martin タイルサーバー:', useMartinTiles ? '利用可能（ベクタータイル使用）' : '利用不可（GeoJSON フォールバック）');
 
@@ -562,7 +578,7 @@ async function initializeHazardToggles() {
                     if (hazard.apiUrl) {
                         // タイルが未整備 → API フォールバックで有効化
                         hazard._vectorTilesUnavailable = true;
-                        console.info(`[hazard:init] ${layerKey}: tiles not found, falling back to API`);
+                        console.warn(`[hazard:init] ${layerKey}: HEAD ${checkPath} が 404/失敗。apiUrl フォールバックで有効化します。`);
                         checkbox.disabled = false;
                         checkbox.title = '';
                         return { layerKey, enabled: true, reason: 'vector-tiles-fallback-to-api' };
@@ -680,3 +696,25 @@ function setLandslideStatus(msg) {
     const el = document.getElementById('landslideStatus');
     if (el) el.textContent = msg;
 }
+
+// ── モジュール自己診断 ─────────────────────────────────────────────────────
+// モジュール評価が最後まで到達したことを確認し、定数の欠落を早期検出する。
+// TDZ クラッシュや宣言順序の崩れがあればここに到達せず、その前のエラーがコンソールに表示される。
+(function _hazardLayersSelfCheck() {
+    const required = {
+        FLOOD_RANK_COLORS,
+        FLOOD_BORDER,
+        STORM_SURGE_RANK_COLORS,
+        STORM_SURGE_BORDER,
+        VECTOR_TILE_SOURCES,
+        HAZARD_LAYERS,
+    };
+    const missing = Object.entries(required)
+        .filter(([, v]) => v == null)
+        .map(([k]) => k);
+    if (missing.length > 0) {
+        console.error('[hazard-layers] モジュール初期化エラー: 以下の定数が未定義です。宣言順序を確認してください。', missing);
+    } else {
+        console.debug('[hazard-layers] モジュール評価完了。全定数 OK。');
+    }
+}());
