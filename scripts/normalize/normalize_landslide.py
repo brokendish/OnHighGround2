@@ -13,11 +13,11 @@
   - zone_type / landslide_type / severity_level を付与
   - CRS を EPSG:4326 に統一
 
-A33 属性マッピング（バージョンによって番号が異なる場合あり）:
-  A33_001 or A33_002 : 市区町村コード → city_code
-  A33_003 or A33_006 : 区域名 → zone_name
-  A33_004 or A33_003 : 区域区分コード → zone_type
-  A33_005 or A33_004 : 現象種別コード → landslide_type
+A33-24 属性マッピング（東京都 GeoJSON 版で確認済み）:
+  A33_001 : 現象種別コード → landslide_type
+  A33_002 : 区域区分コード → zone_type
+  A33_003 : 都道府県コード → pref_code
+  A33_006 : 区域名 → zone_name
 
 zone_type コード:
   1 / "1" / "土砂災害警戒区域"     → warning    (severity: danger)
@@ -43,7 +43,7 @@ OUT_DEFAULT = "data_lake/normalized/tokyo/landslide/tokyo_landslide_A33.geojson"
 
 # ── zone_type 正規化マップ ────────────────────────────────────────────────────
 # コード（int/str）またはテキストから正規化形式へ
-_ZONE_TYPE_MAP: dict[str | int, str] = {
+_ZONE_TYPE_MAP: dict = {
     1: "warning",
     "1": "warning",
     "土砂災害警戒区域": "warning",
@@ -54,13 +54,13 @@ _ZONE_TYPE_MAP: dict[str | int, str] = {
     "特別警戒区域": "special_warning",
 }
 
-_ZONE_TYPE_TO_SEVERITY: dict[str, str] = {
+_ZONE_TYPE_TO_SEVERITY: dict = {
     "warning": "danger",
     "special_warning": "critical",
 }
 
 # ── landslide_type 正規化マップ ───────────────────────────────────────────────
-_LANDSLIDE_TYPE_MAP: dict[str | int, str] = {
+_LANDSLIDE_TYPE_MAP: dict = {
     1: "steep_slope",
     "1": "steep_slope",
     "急傾斜地の崩壊": "steep_slope",
@@ -73,41 +73,13 @@ _LANDSLIDE_TYPE_MAP: dict[str | int, str] = {
     "地すべり": "landslide",
 }
 
-# ── A33 属性キー候補（バージョン違いを吸収） ─────────────────────────────────
-# 複数候補を定義し、実際のデータに存在する最初のキーを採用する。
-_CITY_CODE_KEYS   = ["A33_002", "A33_001"]
-_ZONE_NAME_KEYS   = ["A33_006", "A33_003", "A33_007"]
-_ZONE_TYPE_KEYS   = ["A33_004", "A33_003"]
-_LANDSLIDE_TYPE_KEYS = ["A33_005", "A33_004"]
-_PREF_CODE_KEYS   = ["A33_001"]
-
-
-def _pick_key(props: dict, candidates: list[str]) -> tuple[str | None, object]:
-    """候補キーリストから最初に存在するキーとその値を返す。なければ (None, None)。"""
-    for key in candidates:
-        if key in props:
-            return key, props[key]
-    return None, None
-
-
-def _detect_key_mapping(sample_features: list[dict]) -> dict[str, str | None]:
-    """サンプルフィーチャから実際に使われているキーを検出する。"""
-    mapping: dict[str, str | None] = {}
-    for feat in sample_features[:20]:
-        props = feat.get("properties") or {}
-        for label, candidates in [
-            ("city_code",      _CITY_CODE_KEYS),
-            ("zone_name",      _ZONE_NAME_KEYS),
-            ("zone_type",      _ZONE_TYPE_KEYS),
-            ("landslide_type", _LANDSLIDE_TYPE_KEYS),
-            ("pref_code",      _PREF_CODE_KEYS),
-        ]:
-            if label not in mapping:
-                for key in candidates:
-                    if key in props:
-                        mapping[label] = key
-                        break
-    return mapping
+# ── A33 属性キーマッピング（A33-24 東京都 GeoJSON 版で確認済み） ─────────────
+# A33_001: 現象種別コード  A33_002: 区域区分コード
+# A33_003: 都道府県コード  A33_006: 区域名
+_KEY_LANDSLIDE_TYPE = "A33_001"
+_KEY_ZONE_TYPE      = "A33_002"
+_KEY_PREF_CODE      = "A33_003"
+_KEY_ZONE_NAME      = "A33_006"
 
 
 def parse_args() -> argparse.Namespace:
@@ -131,19 +103,7 @@ def normalize(input_dir: Path, output_path: Path) -> int:
     for p in geojson_files:
         print(f"  {p}")
 
-    # 最初のファイルからキーマッピングを検出
-    with geojson_files[0].open("r", encoding="utf-8") as f:
-        first_data = json.load(f)
-    key_map = _detect_key_mapping(first_data.get("features", []))
-    print(f"\n検出キーマッピング: {key_map}")
-
-    # 未検出キーを警告
-    for label in ["zone_type", "landslide_type"]:
-        if label not in key_map:
-            print(f"  警告: {label} のキーが検出できませんでした。unknown として扱います。",
-                  file=sys.stderr)
-
-    features_out: list[dict] = []
+    features_out: list = []
     skipped = 0
     unknown_zone: set = set()
     unknown_type: set = set()
@@ -160,25 +120,23 @@ def normalize(input_dir: Path, output_path: Path) -> int:
                 skipped += 1
                 continue
 
-            # zone_type
-            raw_zone = props.get(key_map.get("zone_type", ""), "") if key_map.get("zone_type") else ""
+            # zone_type (A33_002: 1=警戒, 2=特別警戒)
+            raw_zone = props.get(_KEY_ZONE_TYPE, "")
             zone_type = _ZONE_TYPE_MAP.get(raw_zone) or _ZONE_TYPE_MAP.get(str(raw_zone).strip())
             if zone_type is None:
                 unknown_zone.add(raw_zone)
                 zone_type = "unknown"
             severity_level = _ZONE_TYPE_TO_SEVERITY.get(zone_type, "unknown")
 
-            # landslide_type
-            raw_ltype = props.get(key_map.get("landslide_type", ""), "") if key_map.get("landslide_type") else ""
+            # landslide_type (A33_001: 1=急傾斜地崩壊, 2=土石流, 3=地すべり)
+            raw_ltype = props.get(_KEY_LANDSLIDE_TYPE, "")
             landslide_type = _LANDSLIDE_TYPE_MAP.get(raw_ltype) or _LANDSLIDE_TYPE_MAP.get(str(raw_ltype).strip())
             if landslide_type is None:
                 unknown_type.add(raw_ltype)
                 landslide_type = "unknown"
 
-            # その他属性
-            zone_name  = props.get(key_map.get("zone_name",  ""), "") if key_map.get("zone_name") else ""
-            city_code  = props.get(key_map.get("city_code",  ""), "") if key_map.get("city_code") else ""
-            pref_code  = props.get(key_map.get("pref_code",  ""), "") if key_map.get("pref_code") else ""
+            zone_name = props.get(_KEY_ZONE_NAME, "")
+            pref_code = props.get(_KEY_PREF_CODE, "")
 
             features_out.append({
                 "type": "Feature",
@@ -187,8 +145,7 @@ def normalize(input_dir: Path, output_path: Path) -> int:
                     "landslide_type":  landslide_type,   # steep_slope / debris_flow / landslide / unknown
                     "zone_type":       zone_type,         # warning / special_warning / unknown
                     "severity_level":  severity_level,    # danger / critical / unknown
-                    "zone_name":       zone_name,
-                    "city_code":       str(city_code),
+                    "zone_name":       str(zone_name),
                     "pref_code":       str(pref_code),
                     "source":          "A33",
                 },
