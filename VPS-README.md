@@ -158,6 +158,10 @@ mkdir -p data_lake/validated/tokyo/osm/walking
 VPS=user@your-vps-ip
 REMOTE=~/Development/GitHub/OnHighGround2
 
+# ── ローカルで実行 ──────────────────────────────────────────
+# 転送前に data_runtime/ を最新状態にする（初回は必須）
+bash scripts/publish/deploy_to_runtime.sh --region tokyo
+
 # data_runtime を一括転送（タイル・ハザードデータ・避難所・DEM すべて含む）
 rsync -avz --progress \
   data_runtime/ \
