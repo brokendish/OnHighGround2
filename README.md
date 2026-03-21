@@ -5,6 +5,23 @@
 
 津波・高潮・洪水から身を守るための避難経路案内システム。基盤地図情報（数値標高モデル）を使用して、現在地よりも標高の高い安全な避難先を検索し、経路をナビゲートします。
 
+## ドキュメント案内
+
+| やりたいこと | 参照先 |
+| --- | --- |
+| とにかく動かしたい | [QUICKSTART.md](QUICKSTART.md) |
+| ハザードレイヤーの全体像を把握したい | [docs/hazard_layers.md](docs/hazard_layers.md) |
+| タイルビルドの手順・設計判断を知りたい | [scripts/README.md](scripts/README.md) |
+| GeoJSON / Vector Tile の配信戦略を知りたい | [docs/architecture/layer_strategy.md](docs/architecture/layer_strategy.md) |
+| 各ハザードの機能対応状況を確認したい | [docs/architecture/hazard_capability_matrix.md](docs/architecture/hazard_capability_matrix.md) |
+| バグ修正・変更後の動作確認をしたい | [docs/checklists/hazard-layer-regression.md](docs/checklists/hazard-layer-regression.md) |
+| hazard エンジンの設計詳細を知りたい | [docs/architecture/hazard_engine_design.md](docs/architecture/hazard_engine_design.md) |
+| data_runtime / deploy の仕組みを知りたい | [docs/architecture/runtime_data_policy.md](docs/architecture/runtime_data_policy.md) |
+| 本番 runtime への切替手順を確認したい | [docs/operations/runtime_cutover_checklist.md](docs/operations/runtime_cutover_checklist.md) |
+| AI ツールにプロジェクトを説明させたい | [AI_CONTEXT.md](AI_CONTEXT.md) |
+
+---
+
 ## Docker起動の前提データ
 
 `docker compose up -d osrm-driving osrm-walking backend frontend` を実行する前に、以下を配置してください。
