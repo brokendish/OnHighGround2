@@ -168,12 +168,28 @@ for target in tokyo kanagawa chiba; do
     fi
 done
 
-# ─── backend: hazard / inland_flood (Phase 4 sample) ─────────────────────────
-log_info "--- inland_flood (Phase 4 sample) ---"
-deploy_file \
-    "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
-    "${RUNTIME_BACKEND}/hazard/inland_flood/inland_flood_sample.geojson" \
-    "backend"
+# ─── backend: hazard / inland_flood ──────────────────────────────────────────
+# normalized/ を正規参照先とする。未配置の場合は legacy sample にフォールバック。
+# 正規化: python scripts/normalize/normalize_inland_flood.py
+log_info "--- inland_flood ---"
+if [[ -d "${NORMALIZED}/inland_flood" ]] && compgen -G "${NORMALIZED}/inland_flood/*.geojson" > /dev/null 2>&1; then
+    # デプロイ前に既存 GeoJSON を削除（旧ファイル名が残ってアルファベット順で誤選択されるのを防ぐ）
+    if ! "${DRY_RUN}" && [[ -d "${RUNTIME_BACKEND}/hazard/inland_flood" ]]; then
+        find "${RUNTIME_BACKEND}/hazard/inland_flood" -maxdepth 1 -name "*.geojson" -delete
+        log_info "Cleared stale GeoJSON from ${RUNTIME_BACKEND}/hazard/inland_flood"
+    fi
+    deploy_dir \
+        "${NORMALIZED}/inland_flood" \
+        "${RUNTIME_BACKEND}/hazard/inland_flood" \
+        "*.geojson" \
+        "backend"
+else
+    log_warn "inland_flood normalized data not found — deploying legacy sample"
+    deploy_file \
+        "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
+        "${RUNTIME_BACKEND}/hazard/inland_flood/inland_flood_sample.geojson" \
+        "backend"
+fi
 
 # ─── backend: hazard / landslide (Phase 4 sample) ────────────────────────────
 log_info "--- landslide (Phase 4 sample) ---"
@@ -217,11 +233,17 @@ else
             "frontend_layers"
     fi
 
-    # inland_flood / landslide: Phase 4 sample (frontend GeoJSON fallback 用)
-    deploy_file \
-        "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
-        "${RUNTIME_FRONTEND_LAYERS}/inland_flood_tokyo.geojson" \
-        "frontend_layers"
+    # inland_flood: normalized を優先、未配置なら legacy sample
+    if [[ -d "${NORMALIZED}/inland_flood" ]] && compgen -G "${NORMALIZED}/inland_flood/*.geojson" > /dev/null 2>&1; then
+        # 複数ファイルがある場合は最初のものを inland_flood_tokyo.geojson として配備
+        _if_src="$(find "${NORMALIZED}/inland_flood" -maxdepth 1 -name "*.geojson" | sort | head -1)"
+        deploy_file "${_if_src}" "${RUNTIME_FRONTEND_LAYERS}/inland_flood_tokyo.geojson" "frontend_layers"
+    else
+        deploy_file \
+            "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
+            "${RUNTIME_FRONTEND_LAYERS}/inland_flood_tokyo.geojson" \
+            "frontend_layers"
+    fi
     deploy_file \
         "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
         "${RUNTIME_FRONTEND_LAYERS}/landslide_tokyo.geojson" \
