@@ -6,13 +6,13 @@
 
 ## ハザード種別対応マトリクス
 
-| ハザード | 表示名 | enabled | polygon | TTI | RSA | データ形式 | 状態 |
+| layer | 表示名 | type | source | vector_tile | fallback | severity | status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `flood` | 洪水浸水想定 | ✅ | ✅ | ❌ | ❌ | GeoJSONL | 実装済み |
-| `storm_surge` | 高潮浸水想定 | ✅ | ✅ | ❌ | ❌ | GeoJSON | 実装済み |
-| `tsunami` | 津波浸水想定 | ✅ | ✅ | ✅ (v1) | ✅ | GeoJSON (dir) | 実装済み |
-| `inland_flood` | 内水氾濫 | ✅ | ✅ | ❌ | ❌ | GeoJSON | Phase4 |
-| `landslide` | 土砂災害 | ✅ | ✅ | ❌ | ❌ | GeoJSON | Phase4 |
+| `flood` | 洪水浸水想定 | polygon | `tokyo_flood_max` | ✅ | API | ✅ 浸水深ランク | active |
+| `storm_surge` | 高潮浸水想定 | polygon | `tokyo_storm_surge` | ✅ | API | ✅ 浸水深ランク | active |
+| `tsunami` | 津波浸水想定 | polygon | `tokyo_tsunami_A40-23_13` | ✅ | API | — | active |
+| `inland_flood` | 内水氾濫 | polygon | `inland_flood_sample` | — | `/layers/` GeoJSON | ✅ zone_type | active |
+| `landslide` | 土砂災害 | polygon | `landslide_sample` | — | `/layers/` GeoJSON | ✅ zone_type | active |
 
 ---
 
@@ -21,7 +21,7 @@
 | 記号 | 意味 |
 | --- | --- |
 | ✅ | 実装済み・有効 |
-| ❌ | 未実装 / 無効 |
+| — | 未実装 / 対象外 |
 | ✅ (v1) | v1 実装済み（近似実装、将来改善予定） |
 
 ---
@@ -30,11 +30,12 @@
 
 | 列 | 定義 |
 | --- | --- |
-| **enabled** | `HazardDefinition.enabled` — ハザードが全体として有効か（backend + frontend 両方が有効な場合 True） |
-| **polygon** | `capabilities["polygon_check"]` — ポリゴン内外判定が機能しているか |
-| **TTI** | `capabilities["time_to_impact"]` — 到達時間計算が実装されているか |
-| **RSA** | `capabilities["rsa_support"]` — 到達可能安全エリア計算に関与するか |
-| **データ形式** | backend が読み込むデータ形式 |
+| **type** | ハザードのジオメトリ種別（polygon = ポリゴン内外判定） |
+| **source** | MBTiles / GeoJSON のデータセット名（stem） |
+| **vector_tile** | Martin ベクタータイル配信が有効か |
+| **fallback** | タイル不在時の代替配信経路 |
+| **severity** | 危険度（浸水深ランク / zone_type）の色分け表示が有効か |
+| **status** | active = 本番稼働中 |
 
 ---
 

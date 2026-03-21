@@ -111,8 +111,6 @@ tippecanoe --version
 
 ## build_tiles.py
 
-以下は既存のレガシー寄りタイル生成フローです。東京版 v1 の基盤スクリプトとは独立しており、移行期間中は両方が存在します。
-
 入力ディレクトリ内のすべての `.geojson` ファイルを、tippecanoe を使って
 `.mbtiles` ベクタータイルファイルに変換します。
 
@@ -137,6 +135,7 @@ python scripts/build_tiles.py
 | `--dry-run` | — | コマンドを実行せずに表示のみ行う |
 
 プロファイル:
+
 - `current` — `--no-tile-compression` のみ（ベースライン）
 - `drop` — `current` + `--drop-densest-as-needed`（低ズームの描画負荷を削減）
 
@@ -155,6 +154,32 @@ python scripts/build_tiles.py --input data/processed/hazard
 # 実行せずにプレビューのみ
 python scripts/build_tiles.py --dry-run
 ```
+
+### タイルビルド戦略（per-dataset プロファイル）
+
+データセットごとに tippecanoe フラグが異なる（`DATASET_PROFILES` で定義）。
+
+#### flood（`tokyo_flood_max`）
+
+- 全プロファイル共通: `--no-tile-compression`
+- `drop`: `--drop-densest-as-needed`
+- **`--coalesce-densest-as-needed` は使用不可** — 66 万フィーチャで tippecanoe が収束不能になるため除外
+
+#### storm_surge（`tokyo_storm_surge`）
+
+- `drop`: `--drop-densest-as-needed` + `--coalesce-densest-as-needed` + `--detect-shared-borders`
+- flood と異なり coalesce が有効に機能する
+
+#### その他のデータセット（デフォルト）
+
+- `drop`: `--drop-densest-as-needed` のみ
+
+### 設計判断: `drop` プロファイルを使う理由
+
+- ボトルネックは **転送量ではなく描画 CPU 負荷**（Chrome DevTools Main thread）
+- タイル圧縮は NGINX 側で行うため、tippecanoe は `--no-tile-compression` で非圧縮出力
+- 低ズーム（z8〜z10）の feature 数削減でパン・ズーム時の引っかかりを解消
+- トレードオフ: z5〜z10 で小面積浸水域が非表示になる可能性あり（防災目的のため目視確認推奨）
 
 ---
 

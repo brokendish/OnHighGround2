@@ -1,6 +1,6 @@
 # レイヤー配信戦略: GeoJSON fallback vs Vector Tiles
 
-**Phase 4.2 時点のポリシー**
+> Phase 4.2 時点のポリシー
 
 ---
 
@@ -9,7 +9,7 @@
 OnHighGround2 のフロントエンドは、ハザードデータを 2 種類の経路で配信・表示する。
 
 | 経路 | エンドポイント | 形式 | 用途 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | GeoJSON fallback | `/layers/` | GeoJSON | 軽量・限定範囲のレイヤー、検証用 |
 | Vector Tiles | `/tiles/` | MBTiles (Martin) | 大規模・高密度データ |
 
@@ -20,23 +20,23 @@ frontend は起動時に Martin タイルの可用性を確認し、タイルが
 
 ## GeoJSON fallback (`/layers/`)
 
-### 用途
+### 用途（GeoJSON）
 
 - **軽量または限定範囲のレイヤー**に使用
 - ブラウザが全件ロードしても許容できる規模のデータ向け
 - タイルサーバーが不要な単純な配信が可能
 
-### 現在の対象レイヤー
+### 現在の対象レイヤー（GeoJSON）
 
 | レイヤー | ファイル | 規模感 |
-|---|---|---|
+| --- | --- | --- |
 | 東京津波 | `tokyo_tsunami_A40-23_13.geojson` | 中規模 |
 | 神奈川津波 | `kanagawa_tsunami_A40-16_14.geojson` | 中規模 |
 | 千葉津波 | `chiba_tsunami_A40-18_12.geojson` | 中規模 |
 
-### 配備フロー
+### 配備フロー（GeoJSON）
 
-```
+```text
 data_lake/validated/tokyo/hazard/...
   → deploy_to_runtime.sh
   → data_runtime/frontend/layers/
@@ -44,7 +44,7 @@ data_lake/validated/tokyo/hazard/...
   → nginx /layers/ で配信
 ```
 
-### ルール
+### ルール（GeoJSON）
 
 - `frontend/hazard/` は **legacy 扱い** — 新規データを追加しない
 - 新規 GeoJSON は `frontend/layers/` に配置し、`deploy_to_runtime.sh` 経由で管理する
@@ -54,23 +54,23 @@ data_lake/validated/tokyo/hazard/...
 
 ## Vector Tiles (`/tiles/`)
 
-### 用途
+### 用途（Vector Tiles）
 
 - **大規模・高密度データ**に使用
 - ズームレベルに応じた間引き・クリップが必要なデータ向け
 - Martin (MBTiles) + Leaflet.VectorGrid で表示
 
-### 現在の対象レイヤー
+### 現在の対象レイヤー（Vector Tiles）
 
 | レイヤー | MBTiles ファイル | 規模感 |
-|---|---|---|
+| --- | --- | --- |
 | 東京洪水 | `tokyo_flood_max.mbtiles` | 大規模（数百MB） |
 | 東京津波 | `tokyo_tsunami_A40-23_13.mbtiles` | 大規模 |
 | 高潮 | `tokyo_storm_surge.mbtiles` | 中〜大 |
 
-### 配備フロー
+### 配備フロー（Vector Tiles）
 
-```
+```text
 data_lake/tiles/tokyo/...
   → deploy_to_runtime.sh
   → data_runtime/frontend/tiles/
@@ -78,7 +78,7 @@ data_lake/tiles/tokyo/...
   → nginx /tiles/ プロキシで配信
 ```
 
-### ルール
+### ルール（Vector Tiles）
 
 - タイルの正本は `data_lake/tiles/` に置く
 - `data_runtime/frontend/tiles/` は deploy artifact — 直接編集しない
@@ -87,15 +87,23 @@ data_lake/tiles/tokyo/...
 
 ---
 
-## frontend の挙動
+## フォールバック戦略
 
-`frontend/js/config.js` の `LAYER_BASE_PATH = '/layers'` が GeoJSON fallback の基準パスを定義する。
+`initializeHazardToggles()` は起動時に次の優先順位でレイヤーを有効化する:
 
-`initializeHazardToggles()` は起動時に次の順序でレイヤーの可用性を確認する:
+1. **Vector Tile 優先** — Martin が起動中かつ該当タイルセットが存在する場合、タイル表示モードで有効化
+2. **API fallback** — タイルが存在しないが `apiUrl` が定義されている場合、`_vectorTilesUnavailable = true` を設定し API モードで有効化
+3. **無効化** — タイルも `apiUrl` も存在しない場合のみチェックボックスを非活性化
 
-1. Martin が起動中かつ該当タイルセットが存在 → タイル表示モードでチェックボックスを有効化
-2. タイルが存在しないが `apiUrl` が定義されている → `_vectorTilesUnavailable = true` を設定し、API モード（GeoJSON 相当）でチェックボックスを有効化
-3. タイルなし・`apiUrl` もなし → チェックボックスを非活性化（データ未配備）
+現状の各レイヤーの経路:
+
+| layer | 主経路 | fallback |
+| --- | --- | --- |
+| flood | Vector Tile | API |
+| storm_surge | Vector Tile | API |
+| tsunami | Vector Tile | API |
+| inland_flood | `/layers/` GeoJSON | — |
+| landslide | `/layers/` GeoJSON | — |
 
 ---
 

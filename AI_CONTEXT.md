@@ -148,12 +148,17 @@ Current implementation direction:
 
 Currently active in backend hazard assessment:
 
-- **flood** — `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` (925,958 polygons, A31a + A31b)
-- **tsunami** — `data_lake/normalized/tokyo/tsunami/tokyo_tsunami_A40-23_13.geojson` (Tokyo default)
+- **flood** — `normalized/tokyo/flood/tokyo_flood_max.geojson` (~660,000 polygons, A31a + A31b)
+  - frontend: vector tile (`tokyo_flood_max.mbtiles`); API fallback when tiles unavailable
+  - tile build: `drop-densest-as-needed` applied; `coalesce` not applicable (convergence failure at 660K features)
+- **tsunami** — `normalized/tokyo/tsunami/tokyo_tsunami_A40-23_13.geojson` (Tokyo default)
+  - frontend: vector tile (`tokyo_tsunami_A40-23_13.mbtiles`); API fallback
   - Configurable via `hazard.tsunami.targets=tokyo` (CSV; extend to kanagawa, chiba for wide-area mode)
-- **storm_surge** — `data_lake/normalized/tokyo/storm_surge/tokyo_storm_surge.geojson`
-- **inland_flood** — GeoJSON polygon check + Severity display (Phase 4)
-- **landslide** — GeoJSON polygon check + Severity display (Phase 4)
+- **storm_surge** — `normalized/tokyo/storm_surge/tokyo_storm_surge.geojson`
+  - frontend: vector tile (`tokyo_storm_surge.mbtiles`); API fallback
+  - tile build: `drop-densest-as-needed` + `coalesce-densest-as-needed` + `detect-shared-borders`
+- **inland_flood** — GeoJSON polygon check; Severity（危険度）display implemented (Phase 4.1/4.2)
+- **landslide** — GeoJSON polygon check; Severity（危険度）display implemented (Phase 4.1/4.2)
 
 The current scaffold introduces:
 

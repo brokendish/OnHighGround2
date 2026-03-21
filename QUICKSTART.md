@@ -45,6 +45,22 @@ docker compose up -d
 
 ---
 
+## Hazard Layer 動作仕様
+
+| レイヤー | 主配信 | タイル不在時 |
+| --- | --- | --- |
+| flood（洪水） | Vector Tile (`tokyo_flood_max.mbtiles`) | API fallback |
+| storm_surge（高潮） | Vector Tile (`tokyo_storm_surge.mbtiles`) | API fallback |
+| tsunami（津波） | Vector Tile (`tokyo_tsunami_A40-23_13.mbtiles`) | API fallback |
+| inland_flood（内水） | GeoJSON via `/layers/` | — |
+| landslide（土砂） | GeoJSON via `/layers/` | — |
+
+- タイルは Martin タイルサーバー（`/tiles/`）から配信される
+- タイルが存在しない場合は `/api/hazards/{type}/{region}` の API fallback で表示
+- タイルも API も利用できない場合のみチェックボックスが非活性化される
+
+---
+
 ## ローカル実行（Docker 不使用）
 
 ### 1. バックエンドの起動
