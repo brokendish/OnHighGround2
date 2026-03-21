@@ -65,7 +65,7 @@ services:
       # 開発時のホットリロード用
       - ./backend:/app
     environment:
-      - DEM_FILE_PATH=/data_lake/validated/tokyo/dem/elevation.tif
+      - DEM_FILE_PATH=/data_runtime/backend/elevation/elevation.tif
       - API_HOST=0.0.0.0
       - API_PORT=8000
     logging:
