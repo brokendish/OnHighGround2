@@ -1,206 +1,478 @@
-# OnHighGround2 VPS 運用メモ
+# OnHighGround2 VPS デプロイ手順書
 
-最終更新: 2026-03-16
+最終更新: 2026-03-21
 
 ---
 
 ## 目次
 
-1. [サービス構成概要](#1-サービス構成概要)
-2. [Docker 起動・停止手順](#2-docker-起動停止手順)
-3. [OSRM 再構築（データ更新時）](#3-osrm-再構築データ更新時)
-4. [動作確認コマンド](#4-動作確認コマンド)
-5. [トラブルシュート](#5-トラブルシュート)
-6. [データマウント構成](#6-データマウント構成)
+1. [構成概要](#1-構成概要)
+2. [前提条件](#2-前提条件)
+3. [初回セットアップ](#3-初回セットアップ)
+4. [データ転送（ローカル → VPS）](#4-データ転送ローカル--vps)
+5. [本番設定の変更](#5-本番設定の変更)
+6. [Docker 起動](#6-docker-起動)
+7. [Caddy HTTPS 設定](#7-caddy-https-設定)
+8. [動作確認](#8-動作確認)
+9. [コード更新時の手順](#9-コード更新時の手順)
+10. [データ更新時の手順](#10-データ更新時の手順)
+11. [トラブルシュート](#11-トラブルシュート)
 
 ---
 
-## 1. サービス構成概要
+## 1. 構成概要
 
-注記:
-東京版データ基盤 v1 の `data_lake/` は、現時点ではローカル開発用の取得・正規化・検証基盤です。
-この運用メモにある VPS 構成には、まだ `data_lake` パイプラインの定期実行や配信同期は組み込まれていません。
+### サービス一覧
 
-### 🌐 公開ドメイン
+| コンテナ | 役割 | 内部ポート |
+| --- | --- | --- |
+| `evacuation-navi-frontend` | nginx（静的配信 + API プロキシ） | 8080 |
+| `evacuation-navi-backend` | FastAPI（ハザード判定・避難ルート） | 8000 |
+| `evacuation-navi-martin` | Martin（MBTiles ベクタータイル配信） | 3000（内部のみ） |
+| `evacuation-navi-osrm-driving` | OSRM 車ルーティング | 5500 |
+| `evacuation-navi-osrm-walking` | OSRM 徒歩ルーティング | 5501 |
 
-| サービス | URL | 説明 |
-|----------|-----|------|
-| フロント | https://ohg.brokendish.org | WebアプリUI（Leaflet + Routing） |
-| API | https://api.brokendish.org | FastAPI バックエンド |
-| OSRM | https://osrm.brokendish.org | ルーティング専用サーバ |
+### リクエストの流れ
 
----
+```
+ブラウザ
+  ↓ HTTPS
+Caddy（HTTPS 終端・ドメイン振り分け）
+  ↓ HTTP
+nginx コンテナ（:8080）
+  ├── /api/       → backend:8000
+  ├── /tiles/     → martin:3000
+  ├── /osrm/driving/ → osrm-driving:5000
+  ├── /osrm/walking/ → osrm-walking:5001
+  ├── /layers/    → frontend/layers/ （静的 GeoJSON）
+  └── /admin/     → frontend/admin/ （管理画面）
+```
 
-### 🐳 Dockerコンテナ構成
+### 公開ドメイン（現在）
 
-| コンテナ名 | 役割 | 公開ポート |
-|-----------|------|-----------|
-| evacuation-navi-frontend | nginx 静的配信 | 8080 |
-| evacuation-navi-backend | FastAPI | 8000 |
-| evacuation-navi-osrm-walking | OSRM (foot.lua) | 5501 |
-| evacuation-navi-osrm-driving | OSRM (car.lua) | 5500 |
-
----
-
-### 🔀 リバースプロキシ（Caddy）
-
-Caddy が HTTPS 終端およびドメイン振り分けを行う。
-
-| ドメイン | 転送先 |
-|---------|--------|
-| ohg.brokendish.org | 127.0.0.1:8080 |
-| api.brokendish.org | 127.0.0.1:8000 |
-| osrm.brokendish.org | 127.0.0.1:5501 |
-
-> CORS は `osrm.brokendish.org` 側で制御している。
+| URL | 説明 |
+| --- | --- |
+| `https://ohg.brokendish.org` | Web アプリ UI |
+| `https://api.brokendish.org` | FastAPI（直接アクセス用、Caddy 経由） |
 
 ---
 
-## 2. Docker 起動・停止手順
+## 2. 前提条件
 
-作業ディレクトリ:
+### VPS 要件
+
+| 項目 | 最低 | 推奨 |
+| --- | --- | --- |
+| CPU | 2コア | 4コア |
+| RAM | 4GB | 8GB以上（洪水ハザード全件ロード時に必要） |
+| ディスク | 30GB | 60GB以上 |
+| OS | Ubuntu 22.04 LTS | Ubuntu 22.04 LTS |
+
+### インストール済みツール
+
+```bash
+# Docker + Docker Compose
+docker --version       # 24.x 以上
+docker compose version # 2.x 以上
+
+# Caddy（HTTPS 終端）
+caddy version
+
+# rsync（データ転送用）
+rsync --version
+```
+
+---
+
+## 3. 初回セットアップ
+
+### 3-1. リポジトリのクローン
+
+```bash
+cd ~/Development/GitHub
+git clone https://github.com/YOUR_USER/OnHighGround2.git
+cd OnHighGround2
+```
+
+### 3-2. data_runtime ディレクトリの作成
+
+`data_runtime/` はgitignore 対象のため、ディレクトリ構造だけ作成する。
+
+```bash
+mkdir -p data_runtime/backend/elevation
+mkdir -p data_runtime/backend/hazard/flood
+mkdir -p data_runtime/backend/hazard/storm_surge
+mkdir -p data_runtime/backend/hazard/tsunami
+mkdir -p data_runtime/backend/hazard/inland_flood
+mkdir -p data_runtime/backend/hazard/landslide
+mkdir -p data_runtime/backend/shelters
+mkdir -p data_runtime/frontend/layers
+mkdir -p data_runtime/frontend/tiles/tokyo/flood
+mkdir -p data_runtime/frontend/tiles/tokyo/storm_surge
+mkdir -p data_runtime/frontend/tiles/tokyo/tsunami
+mkdir -p data_runtime/manifests
+```
+
+### 3-3. OSRM インデックス用ディレクトリ
+
+```bash
+mkdir -p data_lake/raw/tokyo/osm
+mkdir -p data_lake/validated/tokyo/osm/driving
+mkdir -p data_lake/validated/tokyo/osm/walking
+```
+
+---
+
+## 4. データ転送（ローカル → VPS）
+
+### 転送が必要なファイル一覧
+
+以下はすべて gitignore 対象のため、rsync で手動転送する。
+
+| カテゴリ | ローカルパス | サイズ | 備考 |
+| --- | --- | --- | --- |
+| DEM（標高） | `data_runtime/backend/elevation/elevation.tif` | ~426MB | 必須 |
+| 洪水判定 | `data_runtime/backend/hazard/flood/tokyo_flood_check.geojsonl` | ~476MB | 必須 |
+| 高潮 | `data_runtime/backend/hazard/storm_surge/tokyo_storm_surge.geojson` | ~48MB | 必須 |
+| 津波（東京） | `data_runtime/backend/hazard/tsunami/tsunami_tokyo.geojson` | ~16MB | 必須 |
+| 津波（神奈川） | `data_runtime/backend/hazard/tsunami/tsunami_kanagawa.geojson` | ~100MB | 任意 |
+| 津波（千葉） | `data_runtime/backend/hazard/tsunami/tsunami_chiba.geojson` | ~138MB | 任意 |
+| 内水氾濫 | `data_runtime/backend/hazard/inland_flood/tokyo_inland_flood_A51.geojson` | ~184KB | 必須 |
+| 土砂災害 | `data_runtime/backend/hazard/landslide/tokyo_landslide_A33.geojson` | ~29MB | 必須 |
+| 避難所 | `data_runtime/backend/shelters/tokyo_shelter.geojson` | ~2MB | 必須 |
+| 洪水タイル | `data_runtime/frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles` | ~167MB | 必須 |
+| 高潮タイル | `data_runtime/frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles` | ~19MB | 必須 |
+| 津波タイル | `data_runtime/frontend/tiles/tokyo/tsunami/*.mbtiles` | ~67MB合計 | 必須 |
+| GeoJSON layers | `data_runtime/frontend/layers/*.geojson` | ~200MB合計 | 必須 |
+| OSM データ | `data_lake/raw/tokyo/osm/kanto-260214.osm.pbf` | ~436MB | OSRM 未構築の場合のみ |
+
+> **OSRM について**: VPS 上で `.osrm` インデックスが未生成の場合、初回 `docker compose up` 時に自動生成される（数十分かかる）。すでに `data_lake/validated/tokyo/osm/` にインデックスがあればスキップされる。
+
+### rsync コマンド
+
+```bash
+VPS=user@your-vps-ip
+REMOTE=~/Development/GitHub/OnHighGround2
+
+# data_runtime を一括転送（最初の転送は時間がかかる）
+rsync -avz --progress \
+  data_runtime/ \
+  ${VPS}:${REMOTE}/data_runtime/
+
+# OSM データ（OSRM インデックス未構築の場合のみ）
+rsync -avz --progress \
+  data_lake/raw/tokyo/osm/kanto-260214.osm.pbf \
+  ${VPS}:${REMOTE}/data_lake/raw/tokyo/osm/
+```
+
+---
+
+## 5. 本番設定の変更
+
+### app.properties の変更点
+
+**本番では `api.reload=false` にする**（uvicorn のホットリロードは開発専用）。
+
+VPS 上で編集：
+
+```bash
+vi backend/app.properties
+```
+
+変更箇所：
+
+```properties
+# 開発用（ローカルでは true のまま）
+api.reload=false   # ← false に変更
+
+# 津波広域モードを使う場合
+hazard.tsunami.targets=tokyo,kanagawa,chiba
+```
+
+> その他の設定（ハザードパス等）は `data_runtime/` を参照しているため変更不要。
+
+---
+
+## 6. Docker 起動
 
 ```bash
 cd ~/Development/GitHub/OnHighGround2
-```
 
-### ▶ 起動
-
-```bash
+# バックグラウンド起動
 docker compose up -d
-```
 
-### 📋 状態・ログ確認
-
-```bash
-# 状態確認
-docker compose ps
-
-# 全ログ
-docker compose logs -f
-
-# 特定サービスのみ
-docker compose logs -f osrm-walking
+# ログ確認
 docker compose logs -f backend
+docker compose logs -f martin
 ```
 
-### ⏹ 停止
+### 起動順序と確認
 
 ```bash
-docker compose down
-```
-
-> ボリュームは削除されない。
-
-### 🔁 再起動
-
-```bash
-# 全コンテナ
-docker compose restart
-
-# 特定コンテナのみ
-docker compose restart frontend
-```
-
----
-
-## 3. OSRM 再構築（データ更新時）
-
-OSMデータを更新した場合は `.osrm` ファイルを削除して再生成する。
-
-```bash
-rm -rf ./data_lake/validated/tokyo/osm/walking/*
-rm -rf ./data_lake/validated/tokyo/osm/driving/*
-docker compose up -d --build
-```
-
----
-
-## 4. 動作確認コマンド
-
-### API 確認
-
-```bash
-curl https://api.brokendish.org/health
-```
-
-### OSRM 確認
-
-```bash
-curl "https://osrm.brokendish.org/route/v1/walking/139.7671,35.6812;139.7600,35.6850?overview=false"
-```
-
-### フロント確認
-
-ブラウザで以下にアクセス:
-
-```
-https://ohg.brokendish.org
-```
-
----
-
-## 5. トラブルシュート
-
-### 502 Bad Gateway
-
-1. コンテナ状態を確認する
-
-```bash
+# コンテナ状態確認
 docker compose ps
+
+# backend ヘルスチェック（ハザードロード状況を確認）
+curl http://localhost:8000/health | python3 -m json.tool
 ```
 
-2. OSRM が落ちていないか確認する
-3. Caddy ログを確認する
-
-```bash
-sudo journalctl -u caddy -n 50
-```
-
----
-
-### CORS エラー
-
-Caddyfile の `osrm.brokendish.org` 設定を確認する。
-
-```bash
-curl -sSI -H "Origin: https://ohg.brokendish.org" \
-  "https://osrm.brokendish.org/route/v1/walking/139.7671,35.6812;139.7600,35.6850?overview=false"
-```
-
----
-
-## 6. データマウント構成
-
-Docker Compose では backend に `./data_lake:/data_lake:ro` をマウントし、以下を直接参照します:
-
-- DEM: `data_lake/validated/tokyo/dem/elevation.tif`
-- 避難所: `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson`
-- 洪水ハザード（表示用）: `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson`（ベクタータイル生成元）
-- 洪水ハザード（判定用）: `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl`（GeoJSONL ストリーミング読み込み。`hazard.flood.enabled=true` で有効化）
-- 津波ハザード: `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson`（起動時にメモリ展開。`hazard.tsunami.targets=tokyo` で制御）
-
-Martin は `./data_lake/tiles:/tiles:ro` をマウントし、`/tiles/tokyo/*` 配下の MBTiles を配信します。
-
-### バックエンド /health の確認例
-
-```bash
-curl https://api.brokendish.org/health
-```
-
-正常時のレスポンス（抜粋）:
+正常時のレスポンス例：
 
 ```json
 {
   "status": "ok",
-  "hazard_loaded": ["flood", "tsunami"],
-  "hazard_polygon_counts": { "flood": 925958, "tsunami": 33124 },
-  "hazard_sources": {
-    "flood": ["tokyo_flood_max"],
-    "tsunami": ["tsunami_tokyo"]
+  "hazard_loaded": ["flood", "tsunami", "storm_surge", "inland_flood", "landslide"],
+  "hazard_polygon_counts": {
+    "flood": 666000,
+    "tsunami": 33124,
+    "storm_surge": 12000,
+    "inland_flood": 194,
+    "landslide": 29943
   },
   "shelters_loaded": 2500
 }
 ```
 
-`hazard_loaded` が空配列の場合は、ハザードデータの配置パスを確認してください。
+`hazard_loaded` に `inland_flood` と `landslide` が含まれていることを確認する。
+
+---
+
+## 7. Caddy HTTPS 設定
+
+Caddyfile（`/etc/caddy/Caddyfile`）の設定例：
+
+```caddyfile
+ohg.brokendish.org {
+    reverse_proxy localhost:8080
+}
+
+api.brokendish.org {
+    reverse_proxy localhost:8000
+}
+```
+
+```bash
+# Caddy 再起動
+sudo systemctl reload caddy
+
+# 証明書取得確認
+sudo journalctl -u caddy -n 30
+```
+
+---
+
+## 8. 動作確認
+
+### API
+
+```bash
+# ヘルスチェック
+curl https://api.brokendish.org/health
+
+# 内水氾濫データ（件数確認）
+curl https://ohg.brokendish.org/api/hazards/inland_flood/tokyo | python3 -c "import sys,json; d=json.load(sys.stdin); print('features:', len(d['features']))"
+
+# 土砂災害データ（件数確認）
+curl https://ohg.brokendish.org/api/hazards/landslide/tokyo | python3 -c "import sys,json; d=json.load(sys.stdin); print('features:', len(d['features']))"
+```
+
+### ベクタータイル
+
+```bash
+# Martin カタログ確認
+curl http://localhost:3000/catalog | python3 -m json.tool
+
+# nginx 経由でも確認
+curl https://ohg.brokendish.org/tiles/catalog | python3 -m json.tool
+```
+
+### 管理 UI
+
+```
+https://ohg.brokendish.org/admin/hazards
+```
+
+- 全レイヤーが `active` になっていることを確認
+- `inland_flood_tokyo` と `landslide_tokyo` のステータスが `api_only / active` であることを確認
+
+### 地図表示
+
+```
+https://ohg.brokendish.org
+```
+
+チェックボックスを ON にして各レイヤーが表示されることを確認：
+
+| レイヤー | 表示エリア | 色 |
+| --- | --- | --- |
+| 津波浸水想定 | 東京湾岸エリア | 青系 |
+| 洪水浸水想定 | 多摩川・隅田川流域 | 黄〜赤系 |
+| 高潮浸水想定 | 湾岸低地 | 水色〜紫系 |
+| 内水氾濫 | 福生市周辺（西東京） | 水色〜赤系 |
+| 土砂災害警戒区域 | 多摩丘陵・奥多摩方面 | オレンジ〜濃赤 |
+
+---
+
+## 9. コード更新時の手順
+
+```bash
+cd ~/Development/GitHub/OnHighGround2
+
+# コードを pull
+git pull
+
+# backend を再ビルド・再起動
+docker compose build backend
+docker compose up -d backend
+
+# frontend（nginx）は静的ファイルのため再起動のみ
+docker compose restart frontend
+```
+
+> `app.properties` を変更した場合は backend の再起動が必要。
+
+---
+
+## 10. データ更新時の手順
+
+### ハザードデータを追加・更新した場合
+
+ローカルで実施：
+
+```bash
+# 1. 正規化
+python scripts/normalize/normalize_inland_flood.py  # 内水氾濫
+python scripts/normalize/normalize_landslide.py     # 土砂災害
+
+# 2. data_runtime へデプロイ
+bash scripts/publish/deploy_to_runtime.sh
+
+# 3. VPS に転送
+rsync -avz --progress data_runtime/ user@your-vps-ip:~/Development/GitHub/OnHighGround2/data_runtime/
+
+# 4. VPS 上で backend 再起動（ハザードデータはメモリロードのため）
+ssh user@your-vps-ip "cd ~/Development/GitHub/OnHighGround2 && docker compose restart backend"
+```
+
+> **注意**: `inland_flood` と `landslide` は API エンドポイントがリクエスト毎にファイルを読むため、backend 再起動は**ポリゴン判定（hazard_service への反映）**に必要。フロントエンド表示だけなら再起動不要。
+
+### OSRM データを更新した場合
+
+```bash
+# インデックスを削除（VPS 上）
+rm -rf data_lake/validated/tokyo/osm/driving/*
+rm -rf data_lake/validated/tokyo/osm/walking/*
+
+# OSM データを転送（ローカルから）
+rsync -avz data_lake/raw/tokyo/osm/kanto-260214.osm.pbf \
+  user@your-vps-ip:~/Development/GitHub/OnHighGround2/data_lake/raw/tokyo/osm/
+
+# コンテナ再起動（インデックス自動生成、数十分かかる）
+docker compose up -d osrm-driving osrm-walking
+docker compose logs -f osrm-walking  # 完了を確認
+```
+
+---
+
+## 11. トラブルシュート
+
+### backend が起動しない / hazard_loaded が空
+
+```bash
+docker compose logs backend | tail -50
+```
+
+よくある原因：
+
+| 症状 | 確認箇所 |
+| --- | --- |
+| `elevation.tif not found` | `data_runtime/backend/elevation/elevation.tif` の存在確認 |
+| `inland_flood` がロードされない | `data_runtime/backend/hazard/inland_flood/` にファイルがあるか確認 |
+| `landslide` がロードされない | `data_runtime/backend/hazard/landslide/` にファイルがあるか確認 |
+| OOM Killer に殺される | RAM 不足。`hazard.flood.enabled=false` にしてメモリを削減 |
+
+### Martin がカタログを返さない
+
+```bash
+docker compose logs martin
+```
+
+`/tiles/tokyo/flood` など、コンテナ起動コマンドのパスにファイルがあるか確認：
+
+```bash
+ls data_runtime/frontend/tiles/tokyo/flood/
+ls data_runtime/frontend/tiles/tokyo/tsunami/
+ls data_runtime/frontend/tiles/tokyo/storm_surge/
+```
+
+### 502 Bad Gateway
+
+```bash
+# コンテナ全体の状態確認
+docker compose ps
+
+# Caddy ログ
+sudo journalctl -u caddy -n 50
+```
+
+### 地図上にレイヤーが表示されない
+
+1. ブラウザの開発者ツール（F12）→ Network タブで API レスポンスを確認
+2. `https://ohg.brokendish.org/api/hazards/landslide/tokyo` が 200 を返しているか確認
+3. 管理 UI `https://ohg.brokendish.org/admin/hazards` でレイヤーステータスを確認
+
+### 土砂災害・内水氾濫が表示されるエリアが狭い
+
+データカバレッジの問題。現在の収録範囲：
+
+| ハザード | データソース | カバレッジ |
+| --- | --- | --- |
+| 内水氾濫 | A51-24（国土数値情報） | 福生市のみ（13218） |
+| 土砂災害 | A33-24（国土数値情報） | 東京都全域（29,943件） |
+
+内水氾濫を広げるには、他市区町村の A51 データを `data_lake/raw/tokyo/inland_flood/` に追加して再正規化する。
+
+---
+
+## Appendix: data_runtime ディレクトリ構造
+
+```text
+data_runtime/
+├── backend/
+│   ├── elevation/
+│   │   └── elevation.tif              # DEM（~426MB）
+│   ├── hazard/
+│   │   ├── flood/
+│   │   │   └── tokyo_flood_check.geojsonl    # 洪水判定用（~476MB）
+│   │   ├── storm_surge/
+│   │   │   └── tokyo_storm_surge.geojson     # 高潮（~48MB）
+│   │   ├── tsunami/
+│   │   │   ├── tsunami_tokyo.geojson          # 東京（~16MB）
+│   │   │   ├── tsunami_kanagawa.geojson       # 神奈川（~100MB）任意
+│   │   │   └── tsunami_chiba.geojson          # 千葉（~138MB）任意
+│   │   ├── inland_flood/
+│   │   │   └── tokyo_inland_flood_A51.geojson # 内水氾濫（~184KB）
+│   │   └── landslide/
+│   │       └── tokyo_landslide_A33.geojson    # 土砂災害（~29MB）
+│   └── shelters/
+│       └── tokyo_shelter.geojson              # 避難所（~2MB）
+├── frontend/
+│   ├── layers/                                # API fallback 用 GeoJSON
+│   │   ├── tsunami_tokyo.geojson
+│   │   ├── tokyo_storm_surge.geojson
+│   │   ├── inland_flood_tokyo.geojson
+│   │   └── landslide_tokyo.geojson
+│   └── tiles/
+│       └── tokyo/
+│           ├── flood/
+│           │   └── tokyo_flood_max.mbtiles    # 洪水タイル（~167MB）
+│           ├── storm_surge/
+│           │   └── tokyo_storm_surge.mbtiles  # 高潮タイル（~19MB）
+│           └── tsunami/
+│               ├── tokyo_tsunami_A40-23_13.mbtiles
+│               ├── kanagawa_tsunami_A40-16_14.mbtiles
+│               ├── kanagawa_tsunami_A40-20_14.mbtiles
+│               └── chiba_tsunami_A40-18_12.mbtiles
+└── manifests/
+    └── latest.json                            # 最終デプロイ記録
+```
