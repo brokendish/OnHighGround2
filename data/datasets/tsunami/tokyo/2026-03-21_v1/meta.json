@@ -1,0 +1,24 @@
+{
+  "dataset_id": "tsunami_tokyo_2026-03-21_v1",
+  "dataset_type": "hazard",
+  "hazard_type": "tsunami",
+  "region_code": "tokyo",
+  "region_name": "東京都",
+  "title": "津波浸水想定（東京都）",
+  "source_name": "国土交通省 国土数値情報",
+  "source_url": "",
+  "acquired_at": "2026-03-21T09:00:00+09:00",
+  "published_at": "",
+  "registered_at": "2026-03-21T09:30:00+09:00",
+  "version": "v1",
+  "status": "active",
+  "is_active": true,
+  "file_format": "GeoJSON",
+  "coordinate_system": "EPSG:4326",
+  "bbox": [],
+  "files": {
+    "raw": "raw/source.geojson",
+    "normalized": "normalized/data.geojson"
+  },
+  "notes": "既存の東京津波 GeoJSON を dataset registry 構造へ移行。"
+}

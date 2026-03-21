@@ -1,0 +1,6 @@
+{
+  "hazard:tsunami:tokyo": "tsunami_tokyo_2026-03-21_v1",
+  "hazard:storm_surge:tokyo": "storm_surge_tokyo_2026-03-21_v1",
+  "hazard:flood:tokyo": "flood_tokyo_2026-03-21_v1",
+  "hazard:landslide:tokyo": "landslide_tokyo_2026-03-21_v1"
+}

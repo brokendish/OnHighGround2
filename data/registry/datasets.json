@@ -1,0 +1,42 @@
+[
+  {
+    "dataset_id": "tsunami_tokyo_2026-03-21_v1",
+    "dataset_type": "hazard",
+    "hazard_type": "tsunami",
+    "region_code": "tokyo",
+    "title": "津波浸水想定（東京都）",
+    "status": "active",
+    "is_active": true,
+    "path": "data/datasets/tsunami/tokyo/2026-03-21_v1"
+  },
+  {
+    "dataset_id": "storm_surge_tokyo_2026-03-21_v1",
+    "dataset_type": "hazard",
+    "hazard_type": "storm_surge",
+    "region_code": "tokyo",
+    "title": "高潮浸水想定（東京都）",
+    "status": "active",
+    "is_active": true,
+    "path": "data/datasets/storm_surge/tokyo/2026-03-21_v1"
+  },
+  {
+    "dataset_id": "flood_tokyo_2026-03-21_v1",
+    "dataset_type": "hazard",
+    "hazard_type": "flood",
+    "region_code": "tokyo",
+    "title": "洪水浸水想定（東京都・想定最大規模）",
+    "status": "active",
+    "is_active": true,
+    "path": "data/datasets/flood/tokyo/2026-03-21_v1"
+  },
+  {
+    "dataset_id": "landslide_tokyo_2026-03-21_v1",
+    "dataset_type": "hazard",
+    "hazard_type": "landslide",
+    "region_code": "tokyo",
+    "title": "土砂災害（東京都）",
+    "status": "active",
+    "is_active": true,
+    "path": "data/datasets/landslide/tokyo/2026-03-21_v1"
+  }
+]

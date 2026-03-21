@@ -1,0 +1,24 @@
+{
+  "dataset_id": "landslide_tokyo_2026-03-21_v1",
+  "dataset_type": "hazard",
+  "hazard_type": "landslide",
+  "region_code": "tokyo",
+  "region_name": "東京都",
+  "title": "土砂災害（東京都）",
+  "source_name": "既存サンプルデータ",
+  "source_url": "",
+  "acquired_at": "2026-03-21T09:00:00+09:00",
+  "published_at": "",
+  "registered_at": "2026-03-21T09:30:00+09:00",
+  "version": "v1",
+  "status": "active",
+  "is_active": true,
+  "file_format": "GeoJSON",
+  "coordinate_system": "EPSG:4326",
+  "bbox": [],
+  "files": {
+    "raw": "raw/source.geojson",
+    "normalized": "normalized/data.geojson"
+  },
+  "notes": "既存の土砂災害サンプル GeoJSON を dataset registry 構造へ移行。"
+}
