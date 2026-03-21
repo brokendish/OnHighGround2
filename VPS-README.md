@@ -418,6 +418,36 @@ docker compose logs backend | tail -50
 | `landslide` がロードされない | `data_runtime/backend/hazard/landslide/` にファイルがあるか確認 |
 | OOM Killer に殺される | RAM 不足。`hazard.flood.enabled=false` にしてメモリを削減 |
 
+### Martin が `Unrecognizable connection strings` エラーで起動しない
+
+```text
+ERROR martin: Unrecognizable connection strings: ["/tiles/tokyo/flood", ...]
+```
+
+`.mbtiles` ファイルが VPS に届いていない場合に発生する。
+
+**原因**: `deploy_to_runtime.sh` を VPS 上で実行しても `data_lake/` がないため何もデプロイされない。タイルは**ローカルから rsync で転送**する必要がある。
+
+**対処（ローカルで実行）**:
+
+```bash
+VPS=user@your-vps-ip
+REMOTE=~/Development/GitHub/OnHighGround2
+
+rsync -avz --progress \
+  data_runtime/frontend/tiles/ \
+  ${VPS}:${REMOTE}/data_runtime/frontend/tiles/
+```
+
+転送後、VPS で再起動：
+
+```bash
+git pull   # docker-compose.yml も最新化する
+docker compose restart martin
+docker compose logs --tail=20 martin
+# → INFO: Discovered X sources が出れば正常
+```
+
 ### Martin がカタログを返さない
 
 ```bash
