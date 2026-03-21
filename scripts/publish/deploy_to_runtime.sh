@@ -297,7 +297,7 @@ else
         else
             # rsync が使えない環境でも cp で代替
             if command -v rsync &>/dev/null; then
-                rsync -a --ignore-existing "${RUNTIME_FRONTEND_LAYERS}/" "${FRONTEND_LAYERS_DIR}/"
+                rsync -a "${RUNTIME_FRONTEND_LAYERS}/" "${FRONTEND_LAYERS_DIR}/"
             else
                 find "${RUNTIME_FRONTEND_LAYERS}" -name "*.geojson" -print0 |
                     while IFS= read -r -d '' f; do
