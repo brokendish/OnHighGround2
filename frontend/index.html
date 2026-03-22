@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>避難ナビゲーション OnHighGround - 津波・高潮・洪水対策</title>
     
     <!-- Leaflet CSS -->
@@ -206,6 +206,15 @@
         #map {
             flex: 1;
             position: relative;
+            touch-action: none;
+            -webkit-tap-highlight-color: rgba(0,0,0,0);
+        }
+
+        /* iOS Safari: Leaflet コンテナのタッチ操作を有効化 */
+        .leaflet-container {
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         
         .current-location {
