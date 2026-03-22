@@ -221,9 +221,11 @@ function _updateNavUI() {
 
     // 各ボタンの表示制御
     const isActive = mode === 'navigation_active' || mode === 'navigation_warning' || mode === 'navigation_paused';
-    if (el('navStartBtn'))      el('navStartBtn').style.display      = isActive ? 'none'  : 'block';
     if (el('navStopFloating'))  el('navStopFloating').style.display  = isActive ? 'block' : 'none';
-    // カード内ナビ停止ボタン（動的注入された要素）
+    // カード内ボタン（動的注入）
+    document.querySelectorAll('.nav-start-in-card').forEach(btn => {
+        btn.style.display = isActive ? 'none' : 'block';
+    });
     document.querySelectorAll('.nav-stop-in-card').forEach(btn => {
         btn.style.display = isActive ? 'block' : 'none';
     });

@@ -607,17 +607,31 @@ function updateNavigatingState(index) {
 }
 
 function _injectNavStopBtn(afterElement) {
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-danger nav-stop-in-card';
-    btn.textContent = '⏹ ナビ停止';
-    btn.style.display = 'none'; // _updateNavUI が制御
-    btn.style.marginTop = '8px';
-    btn.style.width = '100%';
-    btn.addEventListener('click', function(e) {
+    // ナビ開始ボタン
+    const startBtn = document.createElement('button');
+    startBtn.className = 'btn btn-primary nav-start-in-card';
+    startBtn.textContent = '🚶 ナビ開始';
+    startBtn.style.marginTop = '8px';
+    startBtn.style.width = '100%';
+    startBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof startNavigation === 'function') startNavigation();
+    });
+
+    // ナビ停止ボタン
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'btn btn-danger nav-stop-in-card';
+    stopBtn.textContent = '⏹ ナビ停止';
+    stopBtn.style.display = 'none'; // _updateNavUI が制御
+    stopBtn.style.marginTop = '8px';
+    stopBtn.style.width = '100%';
+    stopBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         if (typeof stopNavigation === 'function') stopNavigation();
     });
-    afterElement.insertAdjacentElement('afterend', btn);
+
+    afterElement.insertAdjacentElement('afterend', stopBtn);
+    afterElement.insertAdjacentElement('afterend', startBtn);
 }
 
 // ── RSA（到達可能安全エリア） ─────────────────────────────────────────────
