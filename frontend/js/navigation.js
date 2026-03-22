@@ -271,6 +271,9 @@ function _updateNavUI() {
     // フローティング停止ボタン
     if (el('navStopFloating')) el('navStopFloating').style.display = isActive ? 'block' : 'none';
 
+    // フローティング開始ボタン（route_preview のみ表示）
+    if (el('navStartFloating')) el('navStartFloating').style.display = (mode === 'route_preview') ? 'block' : 'none';
+
     // カード内ボタン（動的注入）
     document.querySelectorAll('.nav-start-in-card').forEach(btn => {
         btn.style.display = isActive ? 'none' : 'block';
