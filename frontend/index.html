@@ -1079,6 +1079,47 @@
         }
         .nav-stop-floating:hover { background: #b71c1c; }
 
+        /* オフルート再ルートパネル（地図中央下部に重なる） */
+        .nav-reroute-panel {
+            position: absolute;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(198, 40, 40, 0.95);
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 12px;
+            z-index: 1000;
+            text-align: center;
+            min-width: 260px;
+            max-width: 90vw;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        }
+        .nav-reroute-panel p {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .nav-reroute-panel button {
+            display: block;
+            width: 100%;
+            margin: 4px 0;
+            padding: 9px 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .nav-reroute-panel .btn-reroute-same {
+            background: #fff;
+            color: #c62828;
+        }
+        .nav-reroute-panel .btn-reroute-new {
+            background: rgba(255,255,255,0.25);
+            color: #fff;
+        }
+
         /* Time Margin: 津波到達時間と避難時間の余裕表示 */
         .time-margin {
             margin-top: 5px;
@@ -1288,7 +1329,6 @@
                 <h3>🧭 ナビモード</h3>
                 <div id="navStatus" class="nav-status"></div>
                 <button class="btn btn-small btn-follow-on" id="navFollowBtn" onclick="toggleNavFollow()" style="display:none;">📍 追従 ON</button>
-                <button class="btn btn-secondary" id="navRerouteBtn" onclick="searchDestinations()" style="display:none;">🔄 現在地から再検索</button>
             </div>
         </div>
         </div>
@@ -1301,6 +1341,12 @@
             <div id="navBanner" class="nav-banner" style="display:none;"></div>
             <!-- 地図上フローティング ナビ停止ボタン（ナビ中は常に表示） -->
             <button id="navStopFloating" class="nav-stop-floating" onclick="stopNavigation()" style="display:none;">⏹ ナビ停止</button>
+            <!-- オフルート再ルートパネル（navigation_warning 時に表示） -->
+            <div id="navReroutePanel" class="nav-reroute-panel" style="display:none;">
+                <p>📍 今の場所から立て直しましょう</p>
+                <button id="navRerouteSameBtn" class="btn-reroute-same" onclick="rerouteToSameDestination()">🔄 同じ避難先へ再ルート</button>
+                <button class="btn-reroute-new" onclick="rerouteWithNewSearch()">🔍 避難先を再検索</button>
+            </div>
             <div class="legend collapsed" id="mapLegend">
                 <h4 onclick="document.getElementById('mapLegend').classList.toggle('collapsed')">凡例</h4>
                 <div class="legend-body">
