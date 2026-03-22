@@ -1460,11 +1460,20 @@
             }
 
             handle.addEventListener('mousedown', startDrag);
-            handle.addEventListener('touchstart', startDrag, { passive: false });
             document.addEventListener('mousemove', onDrag);
-            document.addEventListener('touchmove', onDrag, { passive: false });
             document.addEventListener('mouseup', endDrag);
-            document.addEventListener('touchend', endDrag);
+
+            // タッチ: 非パッシブ touchmove はドラッグ中のみ動的に追加・削除
+            // （常時登録すると Safari で Leaflet の地図タッチ操作が妨げられる）
+            handle.addEventListener('touchstart', function(e) {
+                startDrag(e);
+                document.addEventListener('touchmove', onDrag, { passive: false });
+                document.addEventListener('touchend', function onTouchEnd() {
+                    endDrag();
+                    document.removeEventListener('touchmove', onDrag);
+                    document.removeEventListener('touchend', onTouchEnd);
+                });
+            }, { passive: false });
         })();
     </script>
 
