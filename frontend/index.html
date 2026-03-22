@@ -995,6 +995,81 @@
         .rsa-warning { background: #fff8e1; border-left: 4px solid #f9a825; padding: 6px 8px;
             border-radius: 3px; font-size: 12px; margin-top: 6px; color: #5d4037; }
 
+        /* ── ナビゲーションモード ───────────────────────────────────── */
+        .nav-status {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1e88e5;
+            margin-bottom: 10px;
+            min-height: 18px;
+        }
+
+        .btn-follow-on  { background: #1e88e5; color: #fff; border: none; }
+        .btn-follow-off { background: #78909c; color: #fff; border: none; }
+        .btn-follow-on:hover  { background: #1565c0; }
+        .btn-follow-off:hover { background: #546e7a; }
+
+        .btn-small {
+            padding: 5px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 6px;
+        }
+
+        .btn-danger {
+            background: #e53935;
+            color: #fff;
+            border: none;
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+        .btn-danger:hover { background: #b71c1c; }
+
+        /* ナビ警告バナー（地図上部に重なる） */
+        .nav-banner {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1100;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+            white-space: nowrap;
+            pointer-events: none;
+        }
+        .nav-banner-info    { background: #1e88e5; color: #fff; }
+        .nav-banner-success { background: #2e7d32; color: #fff; }
+        .nav-banner-warning { background: #f57f17; color: #fff; }
+        .nav-banner-danger  { background: #c62828; color: #fff; pointer-events: auto; }
+
+        /* 地図上フローティング ナビ停止ボタン */
+        .nav-stop-floating {
+            position: absolute;
+            bottom: 32px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1100;
+            background: #e53935;
+            color: #fff;
+            border: none;
+            border-radius: 24px;
+            padding: 10px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.3);
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .nav-stop-floating:hover { background: #b71c1c; }
+
         /* Time Margin: 津波到達時間と避難時間の余裕表示 */
         .time-margin {
             margin-top: 5px;
@@ -1198,6 +1273,16 @@
                 <h3>🎯 避難先候補一覧</h3>
                 <div id="destinationsList"></div>
             </div>
+
+            <!-- ナビゲーションパネル（ルート選択後に表示） -->
+            <div class="control-group" id="navPanel" style="display: none;">
+                <h3>🧭 ナビモード</h3>
+                <div id="navStatus" class="nav-status"></div>
+                <button class="btn btn-primary" id="navStartBtn" onclick="startNavigation()">🚶 ナビ開始</button>
+                <button class="btn btn-danger"   id="navStopBtn"  onclick="stopNavigation()" style="display:none;">⏹ ナビ停止</button>
+                <button class="btn btn-small btn-follow-on" id="navFollowBtn" onclick="toggleNavFollow()" style="display:none;">📍 追従 ON</button>
+                <button class="btn btn-secondary" id="navRerouteBtn" onclick="searchDestinations()" style="display:none;">🔄 現在地から再検索</button>
+            </div>
         </div>
         </div>
         
@@ -1205,6 +1290,10 @@
 
         <!-- 地図エリア -->
         <div id="map">
+            <!-- ナビ警告バナー -->
+            <div id="navBanner" class="nav-banner" style="display:none;"></div>
+            <!-- 地図上フローティング ナビ停止ボタン（ナビ中は常に表示） -->
+            <button id="navStopFloating" class="nav-stop-floating" onclick="stopNavigation()" style="display:none;">⏹ ナビ停止</button>
             <div class="legend collapsed" id="mapLegend">
                 <h4 onclick="document.getElementById('mapLegend').classList.toggle('collapsed')">凡例</h4>
                 <div class="legend-body">
@@ -1290,6 +1379,8 @@
     <script src="js/shelters.js"></script>
     <!-- アプリ初期化・イベントバインディング -->
     <script src="js/app.js"></script>
+    <!-- ナビゲーションモード -->
+    <script src="js/navigation.js"></script>
     <script>
         (function() {
             // サイドバー折りたたみトグル

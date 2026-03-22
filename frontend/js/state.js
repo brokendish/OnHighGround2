@@ -42,3 +42,11 @@ let reachableSafeAreaLayer = null;
 
 // ── ルートカラーパレット ──────────────────────────────────────────────────
 const ROUTE_COLOR_PALETTE = ['#ff9800', '#1e88e5', '#43a047', '#8e24aa', '#fb8c00'];
+
+// ── ナビゲーションモード ──────────────────────────────────────────────────
+let navigationMode = 'browse'; // browse | route_preview | navigation_active | navigation_warning | navigation_paused | navigation_finished
+let navWatchId     = null;     // watchPosition の ID
+let navOffRouteCount = 0;      // 連続逸脱カウント
+let navIsAutoFollow  = true;   // 地図自動追従フラグ
+let navActiveRoute   = null;   // 現在案内中のルートオブジェクト { coordinates: [{lat,lng}] }
+let navDestination   = null;   // 目的地 { lat, lon }

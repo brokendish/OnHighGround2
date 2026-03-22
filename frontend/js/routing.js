@@ -737,8 +737,17 @@ function showRoute(destination, index, options = {}) {
         scrollDestinationCardIntoView(index);
     }
 
+    // ルート取得前にナビモードへ目的地を即時通知（navPanel を即表示）
+    if (typeof onNavRouteSelected === 'function') {
+        onNavRouteSelected(null, destination);
+    }
+
     const routed = drawRouteTo(destination.lat, destination.lon, {
         onRoutesAvailable: ({ routes, selectedRouteIndex, selectedRouteColor, routeColors, formatter, transportMode, selectRouteIndex }) => {
+            // ナビモードにルート・目的地を通知
+            if (typeof onNavRouteSelected === 'function') {
+                onNavRouteSelected(routes[selectedRouteIndex], destination);
+            }
             renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
             renderDestinationRouteGuidance(
                 index,
