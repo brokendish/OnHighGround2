@@ -22,11 +22,12 @@
             flex-direction: column;
         }
         
-        header {
+        .sidebar-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 15px 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 15px;
+            margin: -20px -20px 20px -20px;
+            flex-shrink: 0;
         }
 
         .header-content {
@@ -36,21 +37,21 @@
         }
 
         .header-icon {
-            width: 88px;
-            height: 88px;
+            width: 64px;
+            height: 64px;
             object-fit: contain;
             flex-shrink: 0;
         }
 
-        header h1 {
-            font-size: 24px;
+        .sidebar-header h1 {
+            font-size: 18px;
             font-weight: 600;
         }
-        
-        header p {
-            font-size: 14px;
+
+        .sidebar-header p {
+            font-size: 11px;
             opacity: 0.9;
-            margin-top: 5px;
+            margin-top: 3px;
         }
         
         .container {
@@ -635,10 +636,6 @@
                 border-radius: 0 0 8px 8px;
             }
 
-            .header-icon {
-                width: 64px;
-                height: 64px;
-            }
         }
 
         /* ── 危険判定ステータスパネル ─────────────────── */
@@ -1012,20 +1009,19 @@
     </style>
 </head>
 <body>
-    <header>
-        <div class="header-content">
-            <img class="header-icon" src="./icon.png" alt="OnHighGround アイコン">
-            <div class="header-text">
-                <h1>OnHighGround</h1>
-                <p>津波・高潮・洪水から身を守る避難経路案内</p>
-            </div>
-        </div>
-    </header>
-    
     <div class="container">
         <div class="sidebar-wrapper" id="sidebarWrapper">
         <button class="sidebar-toggle" id="sidebarToggle" title="サイドバーを開閉">◀</button>
         <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="header-content">
+                    <img class="header-icon" src="./icon.png" alt="OnHighGround アイコン">
+                    <div class="header-text">
+                        <h1>OnHighGround</h1>
+                        <p>津波・高潮・洪水から身を守る避難経路案内</p>
+                    </div>
+                </div>
+            </div>
             <!-- 設定パネル -->
             <div class="control-group">
                 <h3>📍 現在地設定</h3>
