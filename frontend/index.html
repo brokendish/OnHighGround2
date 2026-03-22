@@ -1326,6 +1326,8 @@
                     btn.textContent = '◀';
                     btn.title = 'サイドバーを閉じる';
                 }
+                // トランジション完了後に地図サイズを再計算
+                setTimeout(function() { map.invalidateSize(); }, 320);
             });
 
             // リサイズハンドル
@@ -1365,6 +1367,7 @@
                 document.body.style.userSelect = '';
                 document.body.style.cursor = '';
                 wrapper.querySelector('.sidebar').style.transition = '';
+                map.invalidateSize();
             }
 
             handle.addEventListener('mousedown', startDrag);
