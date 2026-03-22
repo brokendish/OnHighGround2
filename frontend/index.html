@@ -59,12 +59,51 @@
             overflow: hidden;
         }
         
+        .sidebar-wrapper {
+            position: relative;
+            flex-shrink: 0;
+        }
+
         .sidebar {
             width: 350px;
+            height: 100%;
             background: #f8f9fa;
             padding: 20px;
             overflow-y: auto;
             box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+            transition: width 0.3s ease, padding 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        .sidebar-wrapper.collapsed .sidebar {
+            width: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .sidebar-toggle {
+            position: absolute;
+            right: -28px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 56px;
+            background: #f8f9fa;
+            border: none;
+            border-radius: 0 8px 8px 0;
+            box-shadow: 2px 2px 6px rgba(0,0,0,0.15);
+            cursor: pointer;
+            z-index: 1001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #555;
+            transition: background 0.2s;
+        }
+
+        .sidebar-toggle:hover {
+            background: #e9ecef;
         }
         
         .control-group {
@@ -572,9 +611,28 @@
                 flex-direction: column;
             }
 
+            .sidebar-wrapper {
+                width: 100%;
+            }
+
             .sidebar {
                 width: 100%;
                 max-height: 30vh;
+            }
+
+            .sidebar-wrapper.collapsed .sidebar {
+                width: 100%;
+                max-height: 0;
+                padding: 0;
+            }
+
+            .sidebar-toggle {
+                right: 16px;
+                top: auto;
+                bottom: -28px;
+                width: 56px;
+                height: 28px;
+                border-radius: 0 0 8px 8px;
             }
 
             .header-icon {
@@ -965,6 +1023,8 @@
     </header>
     
     <div class="container">
+        <div class="sidebar-wrapper" id="sidebarWrapper">
+        <button class="sidebar-toggle" id="sidebarToggle" title="サイドバーを開閉">◀</button>
         <div class="sidebar">
             <!-- 設定パネル -->
             <div class="control-group">
@@ -1132,6 +1192,7 @@
                 <div id="destinationsList"></div>
             </div>
         </div>
+        </div>
         
         <!-- 地図エリア -->
         <div id="map">
@@ -1220,6 +1281,17 @@
     <script src="js/shelters.js"></script>
     <!-- アプリ初期化・イベントバインディング -->
     <script src="js/app.js"></script>
+    <script>
+        (function() {
+            var wrapper = document.getElementById('sidebarWrapper');
+            var btn = document.getElementById('sidebarToggle');
+            btn.addEventListener('click', function() {
+                wrapper.classList.toggle('collapsed');
+                btn.textContent = wrapper.classList.contains('collapsed') ? '▶' : '◀';
+                btn.title = wrapper.classList.contains('collapsed') ? 'サイドバーを開く' : 'サイドバーを閉じる';
+            });
+        })();
+    </script>
 
 </body>
 </html>
