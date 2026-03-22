@@ -1079,6 +1079,30 @@
         }
         .nav-stop-floating:hover { background: #b71c1c; }
 
+        /* 地図下部フローティングアクションバー */
+        .map-action-bar {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            z-index: 800;
+            display: flex;
+            gap: 8px;
+        }
+        .map-action-bar button {
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            border: none;
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .map-action-bar button:hover  { background: #f0f0f0; }
+        .map-action-bar button:active { background: #e0e0e0; }
+
         /* オフルート再ルートパネル（地図中央下部に重なる） */
         .nav-reroute-panel {
             position: absolute;
@@ -1349,6 +1373,11 @@
 
         <!-- 地図エリア -->
         <div id="map">
+            <!-- 地図下部フローティングアクションバー -->
+            <div class="map-action-bar">
+                <button onclick="document.getElementById('getCurrentLocation').click()">📍 現在地取得</button>
+                <button onclick="document.getElementById('searchDestinations').click()">🔍 避難先検索</button>
+            </div>
             <!-- ナビ警告バナー -->
             <div id="navBanner" class="nav-banner" style="display:none;"></div>
             <!-- 地図上フローティング ナビ停止ボタン（ナビ中は常に表示） -->
