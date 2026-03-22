@@ -322,19 +322,21 @@ function _updateNavUI() {
     });
 
     // 緊急避難場所カードのナビボタン
+    // activeNavigatingIndex が null = 避難先候補ナビ非使用 → shelter がナビ対象
+    const shelterIsTarget = (typeof activeNavigatingIndex === 'undefined' || activeNavigatingIndex === null);
     const shelterStartBtn = el('shelterNavStartBtn');
-    if (shelterStartBtn) shelterStartBtn.style.display = (!isActive && mode !== 'browse') ? 'block' : 'none';
+    if (shelterStartBtn) shelterStartBtn.style.display = (!isActive && mode !== 'browse' && shelterIsTarget) ? 'block' : 'none';
     const shelterStopBtn = el('shelterNavStopBtn');
-    if (shelterStopBtn) shelterStopBtn.style.display = isActive ? 'block' : 'none';
+    if (shelterStopBtn) shelterStopBtn.style.display = (isActive && shelterIsTarget) ? 'block' : 'none';
     const shelterRerouteSameBtn = el('shelterRerouteSameBtn');
     if (shelterRerouteSameBtn) {
-        shelterRerouteSameBtn.style.display = isWarning ? 'block' : 'none';
+        shelterRerouteSameBtn.style.display = (isWarning && shelterIsTarget) ? 'block' : 'none';
         shelterRerouteSameBtn.disabled     = navRerouteInProgress;
         shelterRerouteSameBtn.textContent  = navRerouteInProgress ? '🔄 再ルート中...' : '🔄 同じ避難先へ再ルート';
     }
     const shelterRerouteNewBtn = el('shelterRerouteNewBtn');
     if (shelterRerouteNewBtn) {
-        shelterRerouteNewBtn.style.display = isWarning ? 'block' : 'none';
+        shelterRerouteNewBtn.style.display = (isWarning && shelterIsTarget) ? 'block' : 'none';
         shelterRerouteNewBtn.disabled      = navRerouteInProgress;
     }
 
