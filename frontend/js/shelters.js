@@ -71,6 +71,17 @@ async function refreshEmergencyShelters() {
 }
 
 function showRouteToEmergencyShelter(site, marker) {
+    // 避難先候補ナビが動いていれば停止し、カード状態をリセット
+    if (typeof navigationMode !== 'undefined' &&
+        (navigationMode === 'navigation_active' ||
+         navigationMode === 'navigation_warning' ||
+         navigationMode === 'navigation_paused')) {
+        if (typeof stopNavigation === 'function') stopNavigation();
+    }
+    if (typeof updateNavigatingState === 'function') {
+        updateNavigatingState(null);
+    }
+
     showSelectedEmergencyShelter(site);
 
     // ナビモードに目的地を即時通知（navPanel 表示・navDestination 設定）
