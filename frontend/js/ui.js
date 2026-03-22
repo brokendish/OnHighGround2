@@ -559,8 +559,8 @@ function setSelectedDestinationCard(index) {
 function updateNavigatingState(index) {
     activeNavigatingIndex = index;
 
-    // 既存のナビ停止ボタン（カード内）を全削除
-    document.querySelectorAll('.nav-stop-in-card').forEach(el => el.remove());
+    // 既存のナビ開始・停止ボタン（カード内）を全削除
+    document.querySelectorAll('.nav-start-in-card, .nav-stop-in-card').forEach(el => el.remove());
 
     document.querySelectorAll('.destination-card').forEach((card, cardIndex) => {
         card.classList.toggle('navigating', cardIndex === index);
