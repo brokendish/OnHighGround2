@@ -1281,6 +1281,12 @@
                     移動手段: <span id="selectedShelterTransport">-</span><br>
                     距離: <span id="selectedShelterDistance">-</span><br>
                     時間: <span id="selectedShelterDuration">-</span>
+                    <div style="margin-top:10px; display:flex; flex-direction:column; gap:4px;">
+                        <button id="shelterNavStartBtn" class="btn btn-primary" style="display:none;" onclick="startNavigation()">🚶 ナビ開始</button>
+                        <button id="shelterNavStopBtn" class="btn btn-danger" style="display:none;" onclick="stopNavigation()">⏹ ナビ停止</button>
+                        <button id="shelterRerouteSameBtn" class="btn btn-secondary" style="display:none;" onclick="rerouteToSameDestination()">🔄 同じ避難先へ再ルート</button>
+                        <button id="shelterRerouteNewBtn" class="btn btn-secondary" style="display:none;" onclick="rerouteWithNewSearch()">🔍 避難先を再検索</button>
+                    </div>
                     <div class="route-guidance" id="selectedShelterRouteGuidance"></div>
                 </div>
             </div>

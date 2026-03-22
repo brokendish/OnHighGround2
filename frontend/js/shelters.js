@@ -73,6 +73,11 @@ async function refreshEmergencyShelters() {
 function showRouteToEmergencyShelter(site, marker) {
     showSelectedEmergencyShelter(site);
 
+    // ナビモードに目的地を即時通知（navPanel 表示・navDestination 設定）
+    if (typeof onNavRouteSelected === 'function') {
+        onNavRouteSelected(null, { lat: site.lat, lon: site.lon, name: site.name });
+    }
+
     const routed = drawRouteTo(site.lat, site.lon, {
         onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
             const selectedRoute = Array.isArray(routes) ? routes[selectedRouteIndex] : null;
@@ -82,6 +87,10 @@ function showRouteToEmergencyShelter(site, marker) {
                     selectedRoute.summary.totalTime,
                     transportMode
                 );
+            }
+            // ナビモードにルートを通知
+            if (typeof onNavRouteSelected === 'function') {
+                onNavRouteSelected(routes[selectedRouteIndex], null);
             }
             renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
             renderSelectedEmergencyShelterRouteGuidance(

@@ -321,6 +321,23 @@ function _updateNavUI() {
         btn.disabled      = navRerouteInProgress;
     });
 
+    // 緊急避難場所カードのナビボタン
+    const shelterStartBtn = el('shelterNavStartBtn');
+    if (shelterStartBtn) shelterStartBtn.style.display = (!isActive && mode !== 'browse') ? 'block' : 'none';
+    const shelterStopBtn = el('shelterNavStopBtn');
+    if (shelterStopBtn) shelterStopBtn.style.display = isActive ? 'block' : 'none';
+    const shelterRerouteSameBtn = el('shelterRerouteSameBtn');
+    if (shelterRerouteSameBtn) {
+        shelterRerouteSameBtn.style.display = isWarning ? 'block' : 'none';
+        shelterRerouteSameBtn.disabled     = navRerouteInProgress;
+        shelterRerouteSameBtn.textContent  = navRerouteInProgress ? '🔄 再ルート中...' : '🔄 同じ避難先へ再ルート';
+    }
+    const shelterRerouteNewBtn = el('shelterRerouteNewBtn');
+    if (shelterRerouteNewBtn) {
+        shelterRerouteNewBtn.style.display = isWarning ? 'block' : 'none';
+        shelterRerouteNewBtn.disabled      = navRerouteInProgress;
+    }
+
     // ステータステキスト
     const statusMap = {
         'browse':              '',
