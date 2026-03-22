@@ -121,6 +121,10 @@ function rerouteToSameDestination() {
     _updateNavUI();
     _showNavBanner('🔄 現在地からルートを再計算しています...', 'info');
 
+    // 古いルートレイヤーを消してから再描画
+    if (typeof clearRouteCandidateLayers === 'function') clearRouteCandidateLayers();
+    if (typeof clearSelectedRouteHighlight === 'function') clearSelectedRouteHighlight();
+
     drawRouteTo(navDestination.lat, navDestination.lon, {
         onRoutesAvailable: ({ routes, selectedRouteIndex }) => {
             navActiveRoute       = routes[selectedRouteIndex];
@@ -295,7 +299,7 @@ function _updateNavUI() {
         destNameEl.textContent = name;
     }
 
-    // 再ルート中はボタンを無効化（両方）
+    // 再ルート中はボタンを無効化（両方・地図パネル）
     const rerouteSameBtn = el('navRerouteSameBtn');
     if (rerouteSameBtn) {
         rerouteSameBtn.disabled    = navRerouteInProgress;
@@ -305,6 +309,17 @@ function _updateNavUI() {
     if (rerouteNewBtn) {
         rerouteNewBtn.disabled = navRerouteInProgress;
     }
+
+    // カード内再ルートボタン（逸脱時のみ表示）
+    document.querySelectorAll('.nav-reroute-same-in-card').forEach(btn => {
+        btn.style.display  = isWarning ? 'block' : 'none';
+        btn.disabled       = navRerouteInProgress;
+        btn.textContent    = navRerouteInProgress ? '🔄 再ルート中...' : '🔄 同じ避難先へ再ルート';
+    });
+    document.querySelectorAll('.nav-reroute-new-in-card').forEach(btn => {
+        btn.style.display = isWarning ? 'block' : 'none';
+        btn.disabled      = navRerouteInProgress;
+    });
 
     // ステータステキスト
     const statusMap = {

@@ -559,8 +559,8 @@ function setSelectedDestinationCard(index) {
 function updateNavigatingState(index) {
     activeNavigatingIndex = index;
 
-    // 既存のナビ開始・停止ボタン（カード内）を全削除
-    document.querySelectorAll('.nav-start-in-card, .nav-stop-in-card').forEach(el => el.remove());
+    // 既存のナビ開始・停止・再ルートボタン（カード内）を全削除
+    document.querySelectorAll('.nav-start-in-card, .nav-stop-in-card, .nav-reroute-same-in-card, .nav-reroute-new-in-card').forEach(el => el.remove());
 
     document.querySelectorAll('.destination-card').forEach((card, cardIndex) => {
         card.classList.toggle('navigating', cardIndex === index);
@@ -630,6 +630,32 @@ function _injectNavStopBtn(afterElement) {
         if (typeof stopNavigation === 'function') stopNavigation();
     });
 
+    // 同じ避難先へ再ルートボタン（逸脱時のみ表示・navigation.js が制御）
+    const rerouteSameBtn = document.createElement('button');
+    rerouteSameBtn.className = 'btn btn-secondary nav-reroute-same-in-card';
+    rerouteSameBtn.textContent = '🔄 同じ避難先へ再ルート';
+    rerouteSameBtn.style.display = 'none';
+    rerouteSameBtn.style.marginTop = '4px';
+    rerouteSameBtn.style.width = '100%';
+    rerouteSameBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof rerouteToSameDestination === 'function') rerouteToSameDestination();
+    });
+
+    // 避難先を再検索ボタン（逸脱時のみ表示）
+    const rerouteNewBtn = document.createElement('button');
+    rerouteNewBtn.className = 'btn btn-secondary nav-reroute-new-in-card';
+    rerouteNewBtn.textContent = '🔍 避難先を再検索';
+    rerouteNewBtn.style.display = 'none';
+    rerouteNewBtn.style.marginTop = '4px';
+    rerouteNewBtn.style.width = '100%';
+    rerouteNewBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof rerouteWithNewSearch === 'function') rerouteWithNewSearch();
+    });
+
+    afterElement.insertAdjacentElement('afterend', rerouteNewBtn);
+    afterElement.insertAdjacentElement('afterend', rerouteSameBtn);
     afterElement.insertAdjacentElement('afterend', stopBtn);
     afterElement.insertAdjacentElement('afterend', startBtn);
 }
