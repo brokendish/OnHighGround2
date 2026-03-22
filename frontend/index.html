@@ -76,12 +76,6 @@
             box-sizing: border-box;
         }
 
-        .sidebar-wrapper.collapsed .sidebar {
-            width: 0;
-            padding: 0;
-            overflow: hidden;
-        }
-
         .sidebar-toggle {
             position: absolute;
             right: -28px;
@@ -105,6 +99,28 @@
 
         .sidebar-toggle:hover {
             background: #e9ecef;
+        }
+
+        .resize-handle {
+            flex-shrink: 0;
+            width: 6px;
+            background: #dee2e6;
+            cursor: col-resize;
+            transition: background 0.2s;
+            z-index: 100;
+        }
+
+        .resize-handle:hover,
+        .resize-handle.dragging {
+            background: #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .resize-handle {
+                width: 100%;
+                height: 10px;
+                cursor: row-resize;
+            }
         }
         
         .control-group {
@@ -618,13 +634,7 @@
 
             .sidebar {
                 width: 100%;
-                max-height: 30vh;
-            }
-
-            .sidebar-wrapper.collapsed .sidebar {
-                width: 100%;
-                max-height: 0;
-                padding: 0;
+                max-height: 40vh;
             }
 
             .sidebar-toggle {
@@ -634,6 +644,7 @@
                 width: 56px;
                 height: 28px;
                 border-radius: 0 0 8px 8px;
+                transform: none;
             }
 
         }
@@ -1190,6 +1201,8 @@
         </div>
         </div>
         
+        <div class="resize-handle" id="resizeHandle"></div>
+
         <!-- 地図エリア -->
         <div id="map">
             <div class="legend collapsed" id="mapLegend">
@@ -1279,13 +1292,87 @@
     <script src="js/app.js"></script>
     <script>
         (function() {
+            // サイドバー折りたたみトグル
             var wrapper = document.getElementById('sidebarWrapper');
             var btn = document.getElementById('sidebarToggle');
             btn.addEventListener('click', function() {
+                var sidebar = wrapper.querySelector('.sidebar');
+                var mobile = window.innerWidth <= 768;
+                var collapsing = !wrapper.classList.contains('collapsed');
                 wrapper.classList.toggle('collapsed');
-                btn.textContent = wrapper.classList.contains('collapsed') ? '▶' : '◀';
-                btn.title = wrapper.classList.contains('collapsed') ? 'サイドバーを開く' : 'サイドバーを閉じる';
+                sidebar.style.transition = 'width 0.3s ease, max-height 0.3s ease, padding 0.3s ease';
+                if (collapsing) {
+                    sidebar._savedWidth = sidebar.style.width;
+                    sidebar._savedMaxHeight = sidebar.style.maxHeight;
+                    if (mobile) {
+                        sidebar.style.maxHeight = '0';
+                        sidebar.style.padding = '0';
+                        sidebar.style.overflow = 'hidden';
+                    } else {
+                        sidebar.style.width = '0';
+                        sidebar.style.padding = '0';
+                        sidebar.style.overflow = 'hidden';
+                    }
+                    btn.textContent = '▶';
+                    btn.title = 'サイドバーを開く';
+                } else {
+                    if (mobile) {
+                        sidebar.style.maxHeight = sidebar._savedMaxHeight || '40vh';
+                    } else {
+                        sidebar.style.width = sidebar._savedWidth || '350px';
+                    }
+                    sidebar.style.padding = '';
+                    sidebar.style.overflow = '';
+                    btn.textContent = '◀';
+                    btn.title = 'サイドバーを閉じる';
+                }
             });
+
+            // リサイズハンドル
+            var handle = document.getElementById('resizeHandle');
+            var isMobile = function() { return window.innerWidth <= 768; };
+            var dragging = false;
+
+            function startDrag(e) {
+                dragging = true;
+                handle.classList.add('dragging');
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor = isMobile() ? 'row-resize' : 'col-resize';
+                wrapper.querySelector('.sidebar').style.transition = 'none';
+                e.preventDefault();
+            }
+
+            function onDrag(e) {
+                if (!dragging) return;
+                var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                var sidebar = wrapper.querySelector('.sidebar');
+                if (isMobile()) {
+                    var newH = clientY - wrapper.getBoundingClientRect().top;
+                    newH = Math.max(80, Math.min(newH, window.innerHeight * 0.75));
+                    sidebar.style.maxHeight = newH + 'px';
+                } else {
+                    var newW = clientX - wrapper.getBoundingClientRect().left;
+                    newW = Math.max(200, Math.min(newW, window.innerWidth * 0.6));
+                    sidebar.style.width = newW + 'px';
+                }
+            }
+
+            function endDrag() {
+                if (!dragging) return;
+                dragging = false;
+                handle.classList.remove('dragging');
+                document.body.style.userSelect = '';
+                document.body.style.cursor = '';
+                wrapper.querySelector('.sidebar').style.transition = '';
+            }
+
+            handle.addEventListener('mousedown', startDrag);
+            handle.addEventListener('touchstart', startDrag, { passive: false });
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('touchmove', onDrag, { passive: false });
+            document.addEventListener('mouseup', endDrag);
+            document.addEventListener('touchend', endDrag);
         })();
     </script>
 
