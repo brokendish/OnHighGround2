@@ -518,7 +518,31 @@
         
         .legend h4 {
             font-size: 14px;
-            margin-bottom: 10px;
+            margin: 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+
+        .legend h4::after {
+            content: '▲';
+            font-size: 10px;
+            margin-left: 8px;
+            transition: transform 0.2s;
+        }
+
+        .legend.collapsed h4::after {
+            content: '▼';
+        }
+
+        .legend-body {
+            margin-top: 10px;
+        }
+
+        .legend.collapsed .legend-body {
+            display: none;
         }
         
         .legend-item {
@@ -1111,8 +1135,9 @@
         
         <!-- 地図エリア -->
         <div id="map">
-            <div class="legend">
-                <h4>凡例</h4>
+            <div class="legend collapsed" id="mapLegend">
+                <h4 onclick="document.getElementById('mapLegend').classList.toggle('collapsed')">凡例</h4>
+                <div class="legend-body">
                 <div class="legend-item">
                     <div class="legend-color" style="background: #2196f3;"></div>
                     <span>現在地</span>
@@ -1160,6 +1185,7 @@
                 <div class="legend-item">
                     <div class="legend-line" style="border-top-color: #43a047;"></div>
                     <span>避難ルート候補3</span>
+                </div>
                 </div>
             </div>
         </div>
