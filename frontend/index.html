@@ -1082,11 +1082,13 @@
         /* 地図下部フローティングアクションバー */
         .map-action-bar {
             position: absolute;
-            bottom: 60px;
+            bottom: 80px;
             left: 8px;
             z-index: 800;
             display: flex;
+            flex-wrap: wrap;
             gap: 8px;
+            max-width: calc(100vw - 16px);
         }
         .map-action-bar button {
             background: rgba(255, 255, 255, 0.95);
