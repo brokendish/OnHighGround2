@@ -184,7 +184,7 @@ function _onNavPosition(position) {
             navOffRouteCount++;
             if (navOffRouteCount >= NAV_CONSECUTIVE && navigationMode === 'navigation_active') {
                 setNavMode('navigation_warning');
-                _showNavBanner('📍 今の場所から立て直しましょう', 'danger');
+                _showNavBanner('現在地から避難ルートを見直せます', 'danger');
             }
         } else {
             if (navOffRouteCount > 0) {
@@ -288,11 +288,22 @@ function _updateNavUI() {
         reroutePanel.style.display = isWarning ? 'block' : 'none';
     }
 
-    // 再ルート中はボタンを無効化
+    // 現在の避難先名を表示
+    const destNameEl = el('navRerouteDestName');
+    if (destNameEl) {
+        const name = navDestination && navDestination.name ? '避難先: ' + navDestination.name : '';
+        destNameEl.textContent = name;
+    }
+
+    // 再ルート中はボタンを無効化（両方）
     const rerouteSameBtn = el('navRerouteSameBtn');
     if (rerouteSameBtn) {
         rerouteSameBtn.disabled    = navRerouteInProgress;
         rerouteSameBtn.textContent = navRerouteInProgress ? '🔄 再ルート中...' : '🔄 同じ避難先へ再ルート';
+    }
+    const rerouteNewBtn = el('navRerouteNewBtn');
+    if (rerouteNewBtn) {
+        rerouteNewBtn.disabled = navRerouteInProgress;
     }
 
     // ステータステキスト

@@ -1098,6 +1098,12 @@
         .nav-reroute-panel p {
             font-size: 14px;
             font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .nav-reroute-panel .nav-reroute-dest-name {
+            font-size: 12px;
+            font-weight: 400;
+            opacity: 0.85;
             margin-bottom: 10px;
         }
         .nav-reroute-panel button {
@@ -1343,9 +1349,10 @@
             <button id="navStopFloating" class="nav-stop-floating" onclick="stopNavigation()" style="display:none;">⏹ ナビ停止</button>
             <!-- オフルート再ルートパネル（navigation_warning 時に表示） -->
             <div id="navReroutePanel" class="nav-reroute-panel" style="display:none;">
-                <p>📍 今の場所から立て直しましょう</p>
+                <p>ルートから外れた可能性があります</p>
+                <p id="navRerouteDestName" class="nav-reroute-dest-name"></p>
                 <button id="navRerouteSameBtn" class="btn-reroute-same" onclick="rerouteToSameDestination()">🔄 同じ避難先へ再ルート</button>
-                <button class="btn-reroute-new" onclick="rerouteWithNewSearch()">🔍 避難先を再検索</button>
+                <button id="navRerouteNewBtn" class="btn-reroute-new" onclick="rerouteWithNewSearch()">🔍 避難先を再検索</button>
             </div>
             <div class="legend collapsed" id="mapLegend">
                 <h4 onclick="document.getElementById('mapLegend').classList.toggle('collapsed')">凡例</h4>
