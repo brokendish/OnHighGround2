@@ -559,6 +559,9 @@ function setSelectedDestinationCard(index) {
 function updateNavigatingState(index) {
     activeNavigatingIndex = index;
 
+    // 既存のナビ停止ボタン（カード内）を全削除
+    document.querySelectorAll('.nav-stop-in-card').forEach(el => el.remove());
+
     document.querySelectorAll('.destination-card').forEach((card, cardIndex) => {
         card.classList.toggle('navigating', cardIndex === index);
     });
@@ -569,6 +572,7 @@ function updateNavigatingState(index) {
         if (btnIndex === index) {
             btn.textContent = '✅ 案内中';
             btn.classList.add('navigating');
+            _injectNavStopBtn(btn);
         } else {
             btn.textContent = (dest && dest.hazard_safe === false) ? '⚠️ 案内' : '案内';
             btn.classList.remove('navigating');
@@ -584,6 +588,7 @@ function updateNavigatingState(index) {
         if (isRecNavigating) {
             recBtn.textContent = '✅ 案内中';
             recBtn.classList.add('navigating');
+            _injectNavStopBtn(recBtn);
         } else {
             const recSafe = evacuationRecommended.hazard_safe;
             recBtn.classList.remove('navigating', 'safe', 'unsafe', 'unknown');
@@ -599,6 +604,20 @@ function updateNavigatingState(index) {
             }
         }
     }
+}
+
+function _injectNavStopBtn(afterElement) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-danger nav-stop-in-card';
+    btn.textContent = '⏹ ナビ停止';
+    btn.style.display = 'none'; // _updateNavUI が制御
+    btn.style.marginTop = '8px';
+    btn.style.width = '100%';
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof stopNavigation === 'function') stopNavigation();
+    });
+    afterElement.insertAdjacentElement('afterend', btn);
 }
 
 // ── RSA（到達可能安全エリア） ─────────────────────────────────────────────
