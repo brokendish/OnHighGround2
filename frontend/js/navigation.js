@@ -276,12 +276,15 @@ function _updateNavUI() {
     // フローティング停止ボタン
     if (el('navStopFloating')) el('navStopFloating').style.display = isActive ? 'block' : 'none';
 
-    // フローティング開始ボタン（route_preview のみ表示）
-    if (el('navStartFloating')) el('navStartFloating').style.display = (mode === 'route_preview') ? 'block' : 'none';
+    // 手動位置選択モード中はナビ開始不可
+    const canStartNav = !isManualLocationMode;
+
+    // フローティング開始ボタン（route_preview かつ手動選択モードでない場合のみ表示）
+    if (el('navStartFloating')) el('navStartFloating').style.display = (mode === 'route_preview' && canStartNav) ? 'block' : 'none';
 
     // カード内ボタン（動的注入）
     document.querySelectorAll('.nav-start-in-card').forEach(btn => {
-        btn.style.display = isActive ? 'none' : 'block';
+        btn.style.display = (!isActive && canStartNav) ? 'block' : 'none';
     });
     document.querySelectorAll('.nav-stop-in-card').forEach(btn => {
         btn.style.display = isActive ? 'block' : 'none';
@@ -333,7 +336,7 @@ function _updateNavUI() {
     // activeNavigatingIndex が null = 避難先候補ナビ非使用 → shelter がナビ対象
     const shelterIsTarget = (typeof activeNavigatingIndex === 'undefined' || activeNavigatingIndex === null);
     const shelterStartBtn = el('shelterNavStartBtn');
-    if (shelterStartBtn) shelterStartBtn.style.display = (!isActive && mode !== 'browse' && shelterIsTarget) ? 'block' : 'none';
+    if (shelterStartBtn) shelterStartBtn.style.display = (!isActive && mode !== 'browse' && shelterIsTarget && canStartNav) ? 'block' : 'none';
     const shelterStopBtn = el('shelterNavStopBtn');
     if (shelterStopBtn) shelterStopBtn.style.display = (isActive && shelterIsTarget) ? 'block' : 'none';
     const shelterRerouteSameBtn = el('shelterRerouteSameBtn');

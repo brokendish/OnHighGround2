@@ -16,6 +16,7 @@ const showEmergencySheltersCheckbox = document.getElementById('showEmergencyShel
 manualLocationModeCheckbox.addEventListener('change', (event) => {
     isManualLocationMode = event.target.checked;
     manualLocationHint.style.display = isManualLocationMode ? 'block' : 'none';
+    if (typeof _updateNavUI === 'function') _updateNavUI();
 });
 
 autoRefreshOnManualUpdateCheckbox.addEventListener('change', (event) => {
