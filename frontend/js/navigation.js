@@ -130,7 +130,12 @@ function rerouteToSameDestination() {
             navActiveRoute       = routes[selectedRouteIndex];
             navOffRouteCount     = 0;
             navRerouteInProgress = false;
-            setNavMode('navigation_active');
+            // GPS 追跡が停止していた場合は再開、継続中ならモードだけ更新
+            if (navWatchId === null) {
+                startNavigation();
+            } else {
+                setNavMode('navigation_active');
+            }
             _showNavBanner('✅ ルートを更新しました。このまま避難を続けてください。', 'success', 4000);
         },
         onRouteError: () => {
