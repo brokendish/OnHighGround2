@@ -8,6 +8,41 @@
 // ── マップ初期化 ──────────────────────────────────────────────────────────
 const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初期位置
 
+// ── ダブルタップでズームイン（iOS Safari 用） ─────────────────────────────
+(function _setupDoubleTapZoom() {
+    let lastTapTime = 0;
+    let lastTapPos  = null;
+    const mapEl = document.getElementById('map');
+
+    mapEl.addEventListener('touchend', function(e) {
+        // 複数指 or 指が残っている場合は無視
+        if (e.changedTouches.length !== 1 || e.touches.length > 0) return;
+
+        const touch = e.changedTouches[0];
+        const now   = Date.now();
+        const pos   = { x: touch.clientX, y: touch.clientY };
+
+        if (lastTapPos && now - lastTapTime < 300) {
+            const dx = pos.x - lastTapPos.x;
+            const dy = pos.y - lastTapPos.y;
+            if (Math.sqrt(dx * dx + dy * dy) < 30) {
+                e.preventDefault();
+                const rect = mapEl.getBoundingClientRect();
+                const containerPoint = L.point(
+                    touch.clientX - rect.left,
+                    touch.clientY - rect.top
+                );
+                map.setZoomAround(containerPoint, map.getZoom() + 1, { animate: true });
+                lastTapTime = 0;
+                lastTapPos  = null;
+                return;
+            }
+        }
+        lastTapTime = now;
+        lastTapPos  = pos;
+    }, { passive: false });
+})();
+
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors',
     maxZoom: 19
