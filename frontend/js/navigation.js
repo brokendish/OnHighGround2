@@ -126,13 +126,30 @@ function rerouteToSameDestination() {
     if (typeof clearSelectedRouteHighlight === 'function') clearSelectedRouteHighlight();
 
     drawRouteTo(navDestination.lat, navDestination.lon, {
-        onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors }) => {
+        onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
             navActiveRoute       = routes[selectedRouteIndex];
             navOffRouteCount     = 0;
             navRerouteInProgress = false;
             // 地図上に新しいルートを描画
             if (typeof renderRouteCandidatesOnMap === 'function') {
                 renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
+            }
+            // サイドバーの経路ステップを更新
+            if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
+                // 避難先カードナビ
+                if (typeof renderDestinationRouteGuidance === 'function') {
+                    renderDestinationRouteGuidance(activeNavigatingIndex, routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                }
+            } else if (typeof userDestination !== 'undefined' && userDestination) {
+                // 「ここへ行く」ナビ
+                if (typeof renderUserDestRouteGuidance === 'function') {
+                    renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                }
+            } else {
+                // 緊急避難場所ナビ
+                if (typeof renderSelectedEmergencyShelterRouteGuidance === 'function') {
+                    renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                }
             }
             // GPS 追跡が停止していた場合は再開、継続中ならモードだけ更新
             if (navWatchId === null) {
