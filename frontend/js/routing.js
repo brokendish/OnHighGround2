@@ -426,18 +426,22 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
 
 function clearSelectedEmergencyShelterRouteGuidance() {
     const panel = document.getElementById('selectedShelterRouteGuidance');
-    if (!panel) {
-        return;
-    }
+    if (!panel) { return; }
     panel.innerHTML = '';
     panel.classList.remove('active');
 }
 
-function renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
-    const panel = document.getElementById('selectedShelterRouteGuidance');
-    if (!panel) {
-        return;
-    }
+function clearUserDestRouteGuidance() {
+    const panel = document.getElementById('userDestRouteGuidance');
+    if (!panel) { return; }
+    panel.innerHTML = '';
+    panel.classList.remove('active');
+}
+
+// ── 共通: ルート案内を指定パネルへ描画 ────────────────────────────────────
+function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
+    const panel = document.getElementById(panelId);
+    if (!panel) { return; }
 
     const routeList = Array.isArray(routes) ? routes : [];
     const hasRoutes = routeList.length > 0;
@@ -530,6 +534,14 @@ function renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex,
     }
     panel.appendChild(list);
     panel.classList.add('active');
+}
+
+function renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
+    _renderRouteGuidanceToPanelId('selectedShelterRouteGuidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
+}
+
+function renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
+    _renderRouteGuidanceToPanelId('userDestRouteGuidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
 }
 
 function drawRouteTo(lat, lon, options = {}) {

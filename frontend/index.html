@@ -1019,6 +1019,7 @@
         .btn-follow-off:hover { background: #546e7a; }
 
         .btn-small {
+            width: auto;
             padding: 5px 12px;
             font-size: 12px;
             border-radius: 6px;
@@ -1107,14 +1108,15 @@
 
         /* 目的地設定UI */
         .dest-hint { font-size: 12px; color: #666; margin-bottom: 8px; }
-        .dest-search-row { display: flex; gap: 6px; margin-bottom: 6px; }
+        .dest-search-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
         .dest-search-input {
-            flex: 1; min-width: 0;
+            width: 100%;
             padding: 6px 10px;
             border: 1px solid #ddd;
             border-radius: 6px;
             font-size: 13px;
         }
+        .dest-search-row .btn { width: 100%; }
         #destinationSearchResults {
             max-height: 180px;
             overflow-y: auto;
@@ -1134,7 +1136,7 @@
         .dest-result-item:hover { background: #f5f5f5; }
         .dest-status-msg { font-size: 12px; color: #666; padding: 8px 10px; }
         .dest-status-error { color: #c62828; }
-        #destConfirmedInfo { align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+        #destConfirmedInfo { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
         #destConfirmedName { font-size: 12px; flex: 1; word-break: break-all; color: #333; }
 
         /* オフルート再ルートパネル（地図中央下部に重なる） */
@@ -1412,6 +1414,8 @@
                 </div>
                 <!-- 検索結果 -->
                 <div id="destinationSearchResults" style="display:none;"></div>
+                <!-- ルート案内 -->
+                <div class="route-guidance" id="userDestRouteGuidance"></div>
             </div>
 
             <!-- ナビゲーションパネル（ルート選択後に表示） -->

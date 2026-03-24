@@ -145,6 +145,7 @@ function clearUserDestination() {
 
     clearRouteCandidateLayers();
     clearSelectedRouteHighlight();
+    if (typeof clearUserDestRouteGuidance === 'function') clearUserDestRouteGuidance();
 
     const input = document.getElementById('destinationSearchInput');
     if (input) input.value = '';
@@ -199,11 +200,16 @@ function _drawRouteToUserDestination() {
     }
 
     drawRouteTo(userDestination.lat, userDestination.lon, {
-        onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors }) => {
+        onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
             if (typeof onNavRouteSelected === 'function') {
                 onNavRouteSelected(routes[selectedRouteIndex], null);
             }
             renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
+            if (typeof renderUserDestRouteGuidance === 'function') {
+                renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, (newIndex) => {
+                    if (typeof selectRouteIndex === 'function') selectRouteIndex(newIndex);
+                }, routeColors);
+            }
         },
         onRouteError: () => {
             _showDestinationStatusMsg('ルートを取得できませんでした');
