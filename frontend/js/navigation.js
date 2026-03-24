@@ -126,10 +126,14 @@ function rerouteToSameDestination() {
     if (typeof clearSelectedRouteHighlight === 'function') clearSelectedRouteHighlight();
 
     drawRouteTo(navDestination.lat, navDestination.lon, {
-        onRoutesAvailable: ({ routes, selectedRouteIndex }) => {
+        onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors }) => {
             navActiveRoute       = routes[selectedRouteIndex];
             navOffRouteCount     = 0;
             navRerouteInProgress = false;
+            // 地図上に新しいルートを描画
+            if (typeof renderRouteCandidatesOnMap === 'function') {
+                renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
+            }
             // GPS 追跡が停止していた場合は再開、継続中ならモードだけ更新
             if (navWatchId === null) {
                 startNavigation();
