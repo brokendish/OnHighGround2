@@ -44,11 +44,16 @@ map.on('moveend', () => {
 });
 
 map.on('click', async (event) => {
+    const { lat, lng } = event.latlng;
+
     if (!isManualLocationMode) {
+        // 手動選択モードでなければ目的地候補を設定
+        if (typeof setDestinationCandidate === 'function') {
+            setDestinationCandidate(lat, lng);
+        }
         return;
     }
 
-    const { lat, lng } = event.latlng;
     const shouldRefreshDestinations = hasSearchedDestinations;
 
     try {

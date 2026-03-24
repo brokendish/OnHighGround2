@@ -43,6 +43,15 @@ let reachableSafeAreaLayer = null;
 // ── ルートカラーパレット ──────────────────────────────────────────────────
 const ROUTE_COLOR_PALETTE = ['#ff9800', '#1e88e5', '#43a047', '#8e24aa', '#fb8c00'];
 
+// ── 日常目的地 ────────────────────────────────────────────────────────────
+let userDestination                = null;  // 確定済み目的地 { lat, lon, name, type, source }
+let userDestinationCandidate       = null;  // 仮目的地 { lat, lon, name }
+let userDestinationMarker          = null;  // Leaflet marker（確定）
+let userDestinationCandidateMarker = null;  // Leaflet marker（仮）
+let userDestinationSearchResults   = [];    // 検索候補 [{ lat, lon, name }]
+let userDestinationSearchLoading   = false;
+let userDestinationSearchError     = null;
+
 // ── ナビゲーションモード ──────────────────────────────────────────────────
 let navigationMode = 'browse'; // browse | route_preview | navigation_active | navigation_warning | navigation_paused | navigation_finished
 let navWatchId     = null;     // watchPosition の ID

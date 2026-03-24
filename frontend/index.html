@@ -1105,6 +1105,38 @@
         .map-action-bar button:hover  { background: #f0f0f0; }
         .map-action-bar button:active { background: #e0e0e0; }
 
+        /* 目的地設定UI */
+        .dest-hint { font-size: 12px; color: #666; margin-bottom: 8px; }
+        .dest-search-row { display: flex; gap: 6px; margin-bottom: 6px; }
+        .dest-search-input {
+            flex: 1; min-width: 0;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        #destinationSearchResults {
+            max-height: 180px;
+            overflow-y: auto;
+            border-radius: 4px;
+            border: 1px solid #eee;
+        }
+        .dest-result-item {
+            padding: 8px 10px;
+            font-size: 12px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .dest-result-item:last-child { border-bottom: none; }
+        .dest-result-item:hover { background: #f5f5f5; }
+        .dest-status-msg { font-size: 12px; color: #666; padding: 8px 10px; }
+        .dest-status-error { color: #c62828; }
+        #destConfirmedInfo { align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+        #destConfirmedName { font-size: 12px; flex: 1; word-break: break-all; color: #333; }
+
         /* オフルート再ルートパネル（地図中央下部に重なる） */
         .nav-reroute-panel {
             position: absolute;
@@ -1362,6 +1394,26 @@
                 <div id="destinationsList"></div>
             </div>
 
+            <!-- 目的地設定パネル -->
+            <div class="control-group" id="destinationPanel">
+                <h3>🗺 目的地設定</h3>
+                <p class="dest-hint" id="destHint">地図をタップ、または検索で目的地を設定できます</p>
+                <!-- 確定済み目的地 -->
+                <div id="destConfirmedInfo" style="display:none;">
+                    <span id="destConfirmedName"></span>
+                    <button class="btn btn-small btn-secondary" onclick="clearUserDestination()" style="flex-shrink:0;">✕ クリア</button>
+                </div>
+                <!-- 検索ボックス -->
+                <div class="dest-search-row">
+                    <input type="text" id="destinationSearchInput" placeholder="行き先を入力..."
+                           class="dest-search-input"
+                           onkeydown="if(event.key==='Enter') searchUserDestination()">
+                    <button class="btn btn-small btn-primary" onclick="searchUserDestination()">検索</button>
+                </div>
+                <!-- 検索結果 -->
+                <div id="destinationSearchResults" style="display:none;"></div>
+            </div>
+
             <!-- ナビゲーションパネル（ルート選択後に表示） -->
             <div class="control-group" id="navPanel" style="display: none;">
                 <h3>🧭 ナビモード</h3>
@@ -1475,6 +1527,8 @@
     <script src="js/evacuation.js"></script>
     <!-- 指定緊急避難場所 -->
     <script src="js/shelters.js"></script>
+    <!-- 日常目的地設定 -->
+    <script src="js/destination.js"></script>
     <!-- アプリ初期化・イベントバインディング -->
     <script src="js/app.js"></script>
     <!-- ナビゲーションモード -->
