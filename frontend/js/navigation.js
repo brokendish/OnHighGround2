@@ -79,6 +79,7 @@ function stopNavigation() {
     }
     navOffRouteCount    = 0;
     navRerouteInProgress = false;
+    if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     setNavMode('browse');
 }
 
@@ -225,6 +226,11 @@ function _onNavPosition(position) {
                 }
             }
         }
+    }
+
+    // 経路ステップハイライト更新
+    if (typeof updateNavStepHighlight === 'function') {
+        updateNavStepHighlight(lat, lon);
     }
 }
 

@@ -396,6 +396,8 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
                 const item = document.createElement('li');
                 item.textContent = step.distanceLabel ? `${step.text}（${step.distanceLabel}）` : step.text;
                 if (step.latLng) {
+                    item.dataset.stepLat = step.latLng.lat;
+                    item.dataset.stepLon = step.latLng.lng;
                     item.classList.add('route-guidance-step-clickable');
                     item.title = 'クリックすると地図上の位置を表示';
                     item.addEventListener('click', (event) => {
@@ -509,6 +511,8 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
             const item = document.createElement('li');
             item.textContent = step.distanceLabel ? `${step.text}（${step.distanceLabel}）` : step.text;
             if (step.latLng) {
+                item.dataset.stepLat = step.latLng.lat;
+                item.dataset.stepLon = step.latLng.lng;
                 item.classList.add('route-guidance-step-clickable');
                 item.title = 'クリックすると地図上の位置を表示';
                 item.addEventListener('click', (event) => {
@@ -542,6 +546,47 @@ function renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex,
 
 function renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
     _renderRouteGuidanceToPanelId('userDestRouteGuidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
+}
+
+// ── ナビ中ステップハイライト ───────────────────────────────────────────────
+function _highlightNavStepInPanel(panelEl, lat, lon) {
+    if (!panelEl) return;
+    const items = panelEl.querySelectorAll('li[data-step-lat]');
+    if (items.length === 0) return;
+
+    let minDist = Infinity;
+    let closestItem = null;
+    items.forEach((item) => {
+        const sLat = parseFloat(item.dataset.stepLat);
+        const sLon = parseFloat(item.dataset.stepLon);
+        const dlat = (lat - sLat) * 111000;
+        const dlon = (lon - sLon) * 111000 * Math.cos(lat * Math.PI / 180);
+        const dist = Math.sqrt(dlat * dlat + dlon * dlon);
+        if (dist < minDist) { minDist = dist; closestItem = item; }
+    });
+    if (!closestItem) return;
+    if (closestItem.classList.contains('nav-step-current')) return; // 変化なし
+    items.forEach(el => el.classList.remove('nav-step-current'));
+    closestItem.classList.add('nav-step-current');
+    closestItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function updateNavStepHighlight(lat, lon) {
+    let panelEl = null;
+    if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
+        const cards = document.querySelectorAll('.destination-card');
+        const card = cards[activeNavigatingIndex];
+        if (card) panelEl = card.querySelector('[data-route-guidance]');
+    } else if (typeof userDestination !== 'undefined' && userDestination) {
+        panelEl = document.getElementById('userDestRouteGuidance');
+    } else {
+        panelEl = document.getElementById('selectedShelterRouteGuidance');
+    }
+    _highlightNavStepInPanel(panelEl, lat, lon);
+}
+
+function clearNavStepHighlight() {
+    document.querySelectorAll('li.nav-step-current').forEach(el => el.classList.remove('nav-step-current'));
 }
 
 function drawRouteTo(lat, lon, options = {}) {
