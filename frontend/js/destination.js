@@ -302,8 +302,6 @@ function _showDestinationStatusMsg(msg) {
     // contextmenu イベントを発火する。iOS 含む全環境で安定動作。
     map.on('contextmenu', (e) => {
         if (isManualLocationMode) return;
-        // デスクトップ右クリック由来は mousedown 側で処理するためスキップ
-        if (e.originalEvent && e.originalEvent.type === 'contextmenu') return;
         _suppressNextClick = true;
         setDestinationCandidate(e.latlng.lat, e.latlng.lng);
     });
