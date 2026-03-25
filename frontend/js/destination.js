@@ -301,14 +301,13 @@ function _showDestinationStatusMsg(msg) {
     // Leaflet は touchstart/touchend のタイミングを管理して
     // contextmenu イベントを発火する。iOS 含む全環境で安定動作。
     map.on('contextmenu', (e) => {
-        if (isManualLocationMode) return;
         _suppressNextClick = true;
         setDestinationCandidate(e.latlng.lat, e.latlng.lng);
     });
 
     // ── デスクトップ: マウス長押し（左ボタン 600ms）
     mapEl.addEventListener('mousedown', (e) => {
-        if (isManualLocationMode || e.button !== 0) return;
+        if (e.button !== 0) return;
         _startPos = { x: e.clientX, y: e.clientY };
         _timer = setTimeout(() => fireFromClient(e.clientX, e.clientY), DURATION);
     });
