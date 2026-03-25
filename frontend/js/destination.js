@@ -267,76 +267,58 @@ function _showDestinationStatusMsg(msg) {
 }
 
 // ── 長押し検出（モバイル・デスクトップ共通） ──────────────────────────────
-// Leaflet の map.on ではなくネイティブ DOM イベントで実装。
-// 理由: map.on('touchstart') は Leaflet 内部処理と競合しやすく
-//      モバイルで安定しない。DOM イベントは必ず届く。
 (function _setupDestinationLongPress() {
-    const mapEl    = document.getElementById('map');
-    const DURATION = 600;  // 長押し判定 ms
-    const MOVE_PX  = 10;   // これ以上動いたらキャンセル px
+    const mapEl   = document.getElementById('map');
+    const DURATION = 600;
+    const MOVE_PX  = 10;
 
     let _timer             = null;
     let _startPos          = null;
-    let _suppressNextClick = false; // 長押し後の click でポップアップが閉じるのを防ぐ
+    let _suppressNextClick = false;
 
     const cancel = () => {
         if (_timer) { clearTimeout(_timer); _timer = null; }
         _startPos = null;
     };
 
-    const fire = (clientX, clientY) => {
+    const fireFromClient = (clientX, clientY) => {
         _timer    = null;
         _startPos = null;
         _suppressNextClick = true;
-        const rect = mapEl.getBoundingClientRect();
+        const rect   = mapEl.getBoundingClientRect();
         const latlng = map.containerPointToLatLng(
             L.point(clientX - rect.left, clientY - rect.top)
         );
         setDestinationCandidate(latlng.lat, latlng.lng);
     };
 
-    // 長押し直後に発火する click を捕捉フェーズで抑制
-    // → Leaflet の closePopupOnClick がポップアップを閉じないようにする
+    // 長押し後に発火する click でポップアップが閉じないよう抑制
     mapEl.addEventListener('click', (e) => {
         if (_suppressNextClick) { e.stopPropagation(); _suppressNextClick = false; }
-    }, true); // capture
+    }, true);
 
-    // iOS Safari / デスクトップの右クリックメニューを抑制
-    mapEl.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+    // ── モバイル: Leaflet 内蔵の長押し検出（tap: true がデフォルト）
+    // Leaflet は touchstart/touchend のタイミングを管理して
+    // contextmenu イベントを発火する。iOS 含む全環境で安定動作。
+    map.on('contextmenu', (e) => {
+        if (isManualLocationMode) return;
+        // デスクトップ右クリック由来は mousedown 側で処理するためスキップ
+        if (e.originalEvent && e.originalEvent.type === 'contextmenu') return;
+        _suppressNextClick = true;
+        setDestinationCandidate(e.latlng.lat, e.latlng.lng);
+    });
 
-    // ── タッチ（スマホ）
-    mapEl.addEventListener('touchstart', (e) => {
-        if (isManualLocationMode || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        _startPos = { x: t.clientX, y: t.clientY };
-        _timer = setTimeout(() => fire(t.clientX, t.clientY), DURATION);
-    }, { passive: true });
-
-    mapEl.addEventListener('touchmove', (e) => {
-        if (!_timer || !_startPos) return;
-        const t = e.touches[0];
-        if (!t) { cancel(); return; }
-        const dx = t.clientX - _startPos.x;
-        const dy = t.clientY - _startPos.y;
-        if (Math.sqrt(dx * dx + dy * dy) > MOVE_PX) cancel();
-    }, { passive: true });
-
-    mapEl.addEventListener('touchend',    cancel, { passive: true });
-    mapEl.addEventListener('touchcancel', cancel, { passive: true });
-
-    // ── マウス（デスクトップ）
+    // ── デスクトップ: マウス長押し（左ボタン 600ms）
     mapEl.addEventListener('mousedown', (e) => {
         if (isManualLocationMode || e.button !== 0) return;
         _startPos = { x: e.clientX, y: e.clientY };
-        _timer = setTimeout(() => fire(e.clientX, e.clientY), DURATION);
+        _timer = setTimeout(() => fireFromClient(e.clientX, e.clientY), DURATION);
     });
-
     mapEl.addEventListener('mousemove', (e) => {
         if (!_timer || !_startPos) return;
         const dx = e.clientX - _startPos.x;
         const dy = e.clientY - _startPos.y;
         if (Math.sqrt(dx * dx + dy * dy) > MOVE_PX) cancel();
     });
-
     mapEl.addEventListener('mouseup', cancel);
 })();
