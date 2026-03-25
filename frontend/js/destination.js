@@ -268,22 +268,35 @@ function _showDestinationStatusMsg(msg) {
 
 // ── 長押し検出（モバイル・デスクトップ共通） ──────────────────────────────
 (function _setupDestinationLongPress() {
-    let _timer = null;
-    const LONG_PRESS_MS = 600;
+    let _timer    = null;
+    let _startPos = null;
+    const LONG_PRESS_MS    = 600;
+    const MOVE_THRESHOLD   = 10; // px — これ以上動いたらキャンセル
+
     const cancel = () => { if (_timer) { clearTimeout(_timer); _timer = null; } };
 
-    // モバイル（タッチ）
+    // モバイル（タッチ）— touchmove は移動距離が閾値を超えた時だけキャンセル
     map.on('touchstart', (e) => {
         if (isManualLocationMode) return;
         if (e.originalEvent.touches.length !== 1) return;
+        const touch = e.originalEvent.touches[0];
+        _startPos = { x: touch.clientX, y: touch.clientY };
         const latlng = e.latlng;
         _timer = setTimeout(() => {
             _timer = null;
             setDestinationCandidate(latlng.lat, latlng.lng);
         }, LONG_PRESS_MS);
     });
-    map.on('touchmove', cancel);
-    map.on('touchend',  cancel);
+    map.on('touchmove', (e) => {
+        if (!_timer || !_startPos) return;
+        const touch = e.originalEvent.touches[0];
+        if (!touch) { cancel(); return; }
+        const dx = touch.clientX - _startPos.x;
+        const dy = touch.clientY - _startPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > MOVE_THRESHOLD) cancel();
+    });
+    map.on('touchend',    cancel);
+    map.on('touchcancel', cancel);
 
     // デスクトップ（マウス）
     map.on('mousedown', (e) => {
