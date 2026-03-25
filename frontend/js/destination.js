@@ -301,6 +301,9 @@ function _showDestinationStatusMsg(msg) {
         if (_suppressNextClick) { e.stopPropagation(); _suppressNextClick = false; }
     }, true); // capture
 
+    // iOS Safari / デスクトップの右クリックメニューを抑制
+    mapEl.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+
     // ── タッチ（スマホ）
     mapEl.addEventListener('touchstart', (e) => {
         if (isManualLocationMode || e.touches.length !== 1) return;

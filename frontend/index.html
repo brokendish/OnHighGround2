@@ -208,6 +208,9 @@
             position: relative;
             touch-action: none;
             -webkit-tap-highlight-color: rgba(0,0,0,0);
+            -webkit-touch-callout: none; /* iOS長押しコールアウトを抑制 */
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         /* iOS Safari: Leaflet コンテナのタッチ操作を有効化 */
