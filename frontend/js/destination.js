@@ -266,9 +266,13 @@ function _showDestinationStatusMsg(msg) {
     list.style.display = 'block';
 }
 
-// ── モバイル長押し検出 ────────────────────────────────────────────────────
+// ── 長押し検出（モバイル・デスクトップ共通） ──────────────────────────────
 (function _setupDestinationLongPress() {
     let _timer = null;
+    const LONG_PRESS_MS = 600;
+    const cancel = () => { if (_timer) { clearTimeout(_timer); _timer = null; } };
+
+    // モバイル（タッチ）
     map.on('touchstart', (e) => {
         if (isManualLocationMode) return;
         if (e.originalEvent.touches.length !== 1) return;
@@ -276,8 +280,21 @@ function _showDestinationStatusMsg(msg) {
         _timer = setTimeout(() => {
             _timer = null;
             setDestinationCandidate(latlng.lat, latlng.lng);
-        }, 600);
+        }, LONG_PRESS_MS);
     });
-    map.on('touchmove', () => { if (_timer) { clearTimeout(_timer); _timer = null; } });
-    map.on('touchend',  () => { if (_timer) { clearTimeout(_timer); _timer = null; } });
+    map.on('touchmove', cancel);
+    map.on('touchend',  cancel);
+
+    // デスクトップ（マウス）
+    map.on('mousedown', (e) => {
+        if (isManualLocationMode) return;
+        if (e.originalEvent.button !== 0) return;
+        const latlng = e.latlng;
+        _timer = setTimeout(() => {
+            _timer = null;
+            setDestinationCandidate(latlng.lat, latlng.lng);
+        }, LONG_PRESS_MS);
+    });
+    map.on('mouseup',   cancel);
+    map.on('mousemove', cancel);
 })();

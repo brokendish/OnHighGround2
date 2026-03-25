@@ -100,7 +100,7 @@ function onNavRouteSelected(route, destination) {
         navDestination = destination;
         if (!navOriginalDestination) navOriginalDestination = destination;
     }
-    if (navigationMode === 'browse') {
+    if (navigationMode === 'browse' || navigationMode === 'navigation_finished') {
         setNavMode('route_preview');
     }
 }
@@ -193,6 +193,11 @@ function _onNavPosition(position) {
         map.setView([lat, lon], map.getZoom());
     }
 
+    // 経路ステップハイライト更新（精度に関わらず実施）
+    if (typeof updateNavStepHighlight === 'function') {
+        updateNavStepHighlight(lat, lon);
+    }
+
     // GPS 精度警告（逸脱・到達判定はスキップ）
     if (accuracy > NAV_LOW_ACCURACY_M) {
         _showNavBanner('⚠ 位置情報の精度が低下しています（±' + Math.round(accuracy) + 'm）', 'warning');
@@ -228,10 +233,6 @@ function _onNavPosition(position) {
         }
     }
 
-    // 経路ステップハイライト更新
-    if (typeof updateNavStepHighlight === 'function') {
-        updateNavStepHighlight(lat, lon);
-    }
 }
 
 function _onNavPositionError(err) {

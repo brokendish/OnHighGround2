@@ -47,10 +47,7 @@ map.on('click', async (event) => {
     const { lat, lng } = event.latlng;
 
     if (!isManualLocationMode) {
-        // 手動選択モードでなければ目的地候補を設定
-        if (typeof setDestinationCandidate === 'function') {
-            setDestinationCandidate(lat, lng);
-        }
+        // 手動選択モードでなければ何もしない（目的地ピン立ては長押しで行う）
         return;
     }
 
