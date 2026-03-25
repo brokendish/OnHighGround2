@@ -266,10 +266,7 @@ function _showDestinationStatusMsg(msg) {
     list.style.display = 'block';
 }
 
-// ── 長押し検出（Pointer Events API — タッチ・マウス共通） ────────────────
-// touchstart/touchcancel の代わりに Pointer Events を使用。
-// #map に touch-action: none が設定されている環境では pointercancel が
-// 発生しにくく、iOS Safari の touchcancel 問題を回避できる。
+// ── 長押し検出（モバイル・デスクトップ共通） ──────────────────────────────
 (function _setupDestinationLongPress() {
     const mapEl   = document.getElementById('map');
     const DURATION = 600;
@@ -284,7 +281,7 @@ function _showDestinationStatusMsg(msg) {
         _startPos = null;
     };
 
-    const fire = (clientX, clientY) => {
+    const fireFromClient = (clientX, clientY) => {
         _timer    = null;
         _startPos = null;
         _suppressNextClick = true;
@@ -295,25 +292,31 @@ function _showDestinationStatusMsg(msg) {
         setDestinationCandidate(latlng.lat, latlng.lng);
     };
 
-    // 長押し後の click でポップアップが閉じないよう捕捉フェーズで抑制
+    // 長押し後に発火する click でポップアップが閉じないよう抑制
     mapEl.addEventListener('click', (e) => {
         if (_suppressNextClick) { e.stopPropagation(); _suppressNextClick = false; }
     }, true);
 
-    mapEl.addEventListener('pointerdown', (e) => {
+    // ── モバイル: Leaflet 内蔵の長押し検出（tap: true がデフォルト）
+    // Leaflet は touchstart/touchend のタイミングを管理して
+    // contextmenu イベントを発火する。iOS 含む全環境で安定動作。
+    map.on('contextmenu', (e) => {
         if (isManualLocationMode) return;
-        if (e.pointerType === 'mouse' && e.button !== 0) return;
-        _startPos = { x: e.clientX, y: e.clientY };
-        _timer = setTimeout(() => fire(e.clientX, e.clientY), DURATION);
-    }, { passive: true });
+        _suppressNextClick = true;
+        setDestinationCandidate(e.latlng.lat, e.latlng.lng);
+    });
 
-    mapEl.addEventListener('pointermove', (e) => {
+    // ── デスクトップ: マウス長押し（左ボタン 600ms）
+    mapEl.addEventListener('mousedown', (e) => {
+        if (isManualLocationMode || e.button !== 0) return;
+        _startPos = { x: e.clientX, y: e.clientY };
+        _timer = setTimeout(() => fireFromClient(e.clientX, e.clientY), DURATION);
+    });
+    mapEl.addEventListener('mousemove', (e) => {
         if (!_timer || !_startPos) return;
         const dx = e.clientX - _startPos.x;
         const dy = e.clientY - _startPos.y;
         if (Math.sqrt(dx * dx + dy * dy) > MOVE_PX) cancel();
     });
-
-    mapEl.addEventListener('pointerup',     cancel);
-    mapEl.addEventListener('pointercancel', cancel);
+    mapEl.addEventListener('mouseup', cancel);
 })();
