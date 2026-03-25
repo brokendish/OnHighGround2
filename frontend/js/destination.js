@@ -267,47 +267,73 @@ function _showDestinationStatusMsg(msg) {
 }
 
 // ── 長押し検出（モバイル・デスクトップ共通） ──────────────────────────────
+// Leaflet の map.on ではなくネイティブ DOM イベントで実装。
+// 理由: map.on('touchstart') は Leaflet 内部処理と競合しやすく
+//      モバイルで安定しない。DOM イベントは必ず届く。
 (function _setupDestinationLongPress() {
-    let _timer    = null;
-    let _startPos = null;
-    const LONG_PRESS_MS    = 600;
-    const MOVE_THRESHOLD   = 10; // px — これ以上動いたらキャンセル
+    const mapEl    = document.getElementById('map');
+    const DURATION = 600;  // 長押し判定 ms
+    const MOVE_PX  = 10;   // これ以上動いたらキャンセル px
 
-    const cancel = () => { if (_timer) { clearTimeout(_timer); _timer = null; } };
+    let _timer             = null;
+    let _startPos          = null;
+    let _suppressNextClick = false; // 長押し後の click でポップアップが閉じるのを防ぐ
 
-    // モバイル（タッチ）— touchmove は移動距離が閾値を超えた時だけキャンセル
-    map.on('touchstart', (e) => {
-        if (isManualLocationMode) return;
-        if (e.originalEvent.touches.length !== 1) return;
-        const touch = e.originalEvent.touches[0];
-        _startPos = { x: touch.clientX, y: touch.clientY };
-        const latlng = e.latlng;
-        _timer = setTimeout(() => {
-            _timer = null;
-            setDestinationCandidate(latlng.lat, latlng.lng);
-        }, LONG_PRESS_MS);
-    });
-    map.on('touchmove', (e) => {
+    const cancel = () => {
+        if (_timer) { clearTimeout(_timer); _timer = null; }
+        _startPos = null;
+    };
+
+    const fire = (clientX, clientY) => {
+        _timer    = null;
+        _startPos = null;
+        _suppressNextClick = true;
+        const rect = mapEl.getBoundingClientRect();
+        const latlng = map.containerPointToLatLng(
+            L.point(clientX - rect.left, clientY - rect.top)
+        );
+        setDestinationCandidate(latlng.lat, latlng.lng);
+    };
+
+    // 長押し直後に発火する click を捕捉フェーズで抑制
+    // → Leaflet の closePopupOnClick がポップアップを閉じないようにする
+    mapEl.addEventListener('click', (e) => {
+        if (_suppressNextClick) { e.stopPropagation(); _suppressNextClick = false; }
+    }, true); // capture
+
+    // ── タッチ（スマホ）
+    mapEl.addEventListener('touchstart', (e) => {
+        if (isManualLocationMode || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        _startPos = { x: t.clientX, y: t.clientY };
+        _timer = setTimeout(() => fire(t.clientX, t.clientY), DURATION);
+    }, { passive: true });
+
+    mapEl.addEventListener('touchmove', (e) => {
         if (!_timer || !_startPos) return;
-        const touch = e.originalEvent.touches[0];
-        if (!touch) { cancel(); return; }
-        const dx = touch.clientX - _startPos.x;
-        const dy = touch.clientY - _startPos.y;
-        if (Math.sqrt(dx * dx + dy * dy) > MOVE_THRESHOLD) cancel();
-    });
-    map.on('touchend',    cancel);
-    map.on('touchcancel', cancel);
+        const t = e.touches[0];
+        if (!t) { cancel(); return; }
+        const dx = t.clientX - _startPos.x;
+        const dy = t.clientY - _startPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > MOVE_PX) cancel();
+    }, { passive: true });
 
-    // デスクトップ（マウス）
-    map.on('mousedown', (e) => {
-        if (isManualLocationMode) return;
-        if (e.originalEvent.button !== 0) return;
-        const latlng = e.latlng;
-        _timer = setTimeout(() => {
-            _timer = null;
-            setDestinationCandidate(latlng.lat, latlng.lng);
-        }, LONG_PRESS_MS);
+    mapEl.addEventListener('touchend',    cancel, { passive: true });
+    mapEl.addEventListener('touchcancel', cancel, { passive: true });
+
+    // ── マウス（デスクトップ）
+    mapEl.addEventListener('mousedown', (e) => {
+        if (isManualLocationMode || e.button !== 0) return;
+        _startPos = { x: e.clientX, y: e.clientY };
+        _timer = setTimeout(() => fire(e.clientX, e.clientY), DURATION);
     });
-    map.on('mouseup',   cancel);
-    map.on('mousemove', cancel);
+
+    mapEl.addEventListener('mousemove', (e) => {
+        if (!_timer || !_startPos) return;
+        const dx = e.clientX - _startPos.x;
+        const dy = e.clientY - _startPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > MOVE_PX) cancel();
+    });
+
+    mapEl.addEventListener('mouseup', cancel);
 })();
