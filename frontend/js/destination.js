@@ -285,6 +285,8 @@ function _showDestinationStatusMsg(msg) {
         _timer    = null;
         _startPos = null;
         _suppressNextClick = true;
+        // iOS では長押し後に click が発火しないため自動リセット
+        setTimeout(() => { _suppressNextClick = false; }, 300);
         const rect   = mapEl.getBoundingClientRect();
         const latlng = map.containerPointToLatLng(
             L.point(clientX - rect.left, clientY - rect.top)

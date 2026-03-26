@@ -128,3 +128,25 @@ document.getElementById('clearMap').addEventListener('click', () => {
 
 scheduleEmergencyShelterRefresh();
 initializeHazardToggles();
+
+// ── 起動時の自動現在地取得 ────────────────────────────────────────────────
+if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+        async (position) => {
+            try {
+                await updateCurrentLocation(
+                    position.coords.latitude,
+                    position.coords.longitude,
+                    '現在地',
+                    Number(position.coords.accuracy)
+                );
+            } catch (e) {
+                console.warn('起動時の現在地取得エラー:', e);
+            }
+        },
+        (error) => {
+            console.warn('起動時の位置情報取得失敗:', error.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+}
