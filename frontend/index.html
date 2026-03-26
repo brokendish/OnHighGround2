@@ -1177,6 +1177,11 @@
             opacity: 0.85;
             margin-bottom: 10px;
         }
+        .nav-auto-reroute-msg {
+            font-size: 12px;
+            color: #555;
+            margin-bottom: 8px;
+        }
         .nav-reroute-panel button {
             display: block;
             width: 100%;
@@ -1456,6 +1461,7 @@
             <div id="navReroutePanel" class="nav-reroute-panel" style="display:none;">
                 <p>ルートから外れた可能性があります</p>
                 <p id="navRerouteDestName" class="nav-reroute-dest-name"></p>
+                <p id="navAutoRerouteMsg" class="nav-auto-reroute-msg" style="display:none;"></p>
                 <button id="navRerouteSameBtn" class="btn-reroute-same" onclick="rerouteToSameDestination()">🔄 同じ避難先へ再ルート</button>
                 <button id="navRerouteNewBtn" class="btn-reroute-new" onclick="rerouteWithNewSearch()">🔍 避難先を再検索</button>
             </div>

@@ -62,3 +62,12 @@ let navDestination          = null;  // 現在の目的地 { lat, lon }
 let navOriginalDestination  = null;  // 最初に選んだ目的地（再検索後も保持）
 let navRerouteInProgress    = false; // 再ルート処理中フラグ
 let navLastRerouteAt        = 0;     // 最後に再ルートした時刻（ms）
+
+// ── オート再ルート ─────────────────────────────────────────────────────────
+let navAutoRerouteEnabled         = true;  // 自動再ルート ON/OFF
+let navAutoRerouteInProgress      = false; // 自動再ルート処理中
+let navLastAutoRerouteAt          = 0;     // 最終自動再ルート時刻（ms）
+let navAutoRerouteCount           = 0;     // ウィンドウ内回数カウント
+let navAutoRerouteWindowStartedAt = 0;     // 回数ウィンドウ開始時刻（ms）
+let navAutoRerouteSuspended       = false; // 暴走防止で一時停止中
+let navLastKnownAccuracy          = null;  // 直近GPS精度（m）
