@@ -1304,8 +1304,10 @@
             background: rgba(235, 235, 235, 0.98);
         }
         .map-overlay-btn .mou-icon {
-            font-size: 18px;
-            line-height: 1;
+            width: 22px;
+            height: 22px;
+            display: block;
+            flex-shrink: 0;
         }
         .map-overlay-btn--danger {
             color: #c62828;
@@ -1527,7 +1529,8 @@
                 font-size: 9px;
             }
             .map-overlay-btn .mou-icon {
-                font-size: 16px;
+                width: 20px;
+                height: 20px;
             }
         }
     </style>
@@ -1762,7 +1765,9 @@
                     <!-- レイヤー選択 -->
                     <div class="mou-btn-wrap">
                         <button id="layer-toggle-btn" class="map-overlay-btn" title="ハザードレイヤー選択">
-                            <span class="mou-icon">🗺</span>
+                            <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zm.01-2.49l7.36-5.73L21 8.93l-9-7-9 7 1.63 1.26 7.37 5.85z"/>
+                            </svg>
                             <span>レイヤー</span>
                         </button>
                         <div id="layer-panel" class="mou-panel" style="display:none;">
@@ -1773,20 +1778,26 @@
 
                     <!-- 指定緊急避難場所トグル -->
                     <button id="shelter-toggle-btn" class="map-overlay-btn map-overlay-btn--active" title="指定緊急避難場所の表示切替">
-                        <span class="mou-icon">🏠</span>
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+                        </svg>
                         <span>避難場所</span>
                     </button>
 
                     <!-- 地図クリア -->
                     <button id="map-clear-overlay-btn" class="map-overlay-btn map-overlay-btn--danger" title="地図をクリア">
-                        <span class="mou-icon">✕</span>
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                        </svg>
                         <span>クリア</span>
                     </button>
 
                     <!-- 凡例 -->
                     <div class="mou-btn-wrap">
                         <button id="legend-toggle-btn" class="map-overlay-btn" title="凡例">
-                            <span class="mou-icon">📋</span>
+                            <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                            </svg>
                             <span>凡例</span>
                         </button>
                         <div id="legend-panel" class="mou-panel" style="display:none;">
