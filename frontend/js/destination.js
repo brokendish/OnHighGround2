@@ -9,6 +9,7 @@
  */
 
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
+const GSI_GEOCODER_URL     = 'https://msearch.gsi.go.jp/address-search/AddressSearch';
 
 // ── Phase 1: 仮目的地マーカー設定（地図クリック時） ───────────────────────
 function setDestinationCandidate(lat, lon, name) {
@@ -65,7 +66,7 @@ function confirmUserDestination() {
     _applyUserDestination();
 }
 
-// ── Phase 2: テキスト検索 ─────────────────────────────────────────────────
+// ── Phase 2: テキスト検索（GSI住所検索 → Nominatimフォールバック） ─────────
 async function searchUserDestination() {
     const input = document.getElementById('destinationSearchInput');
     const query = input ? input.value.trim() : '';
@@ -76,19 +77,18 @@ async function searchUserDestination() {
     userDestinationSearchResults = [];
     _renderSearchResults();
 
-    try {
-        const params = new URLSearchParams({
-            q: query, format: 'json', limit: '5', 'accept-language': 'ja'
-        });
-        const res = await fetch(`${NOMINATIM_SEARCH_URL}?${params}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+    const loc = (typeof currentLocation !== 'undefined') ? currentLocation : null;
 
-        userDestinationSearchResults = data.map(item => ({
-            lat:  parseFloat(item.lat),
-            lon:  parseFloat(item.lon),
-            name: item.display_name
-        }));
+    try {
+        // ── Step 1: 国土地理院ジオコーダーで住所検索 ────────────────────────
+        let results = await _searchGsi(query, loc);
+
+        // ── Step 2: 結果が空なら Nominatim にフォールバック ─────────────────
+        if (results.length === 0) {
+            results = await _searchNominatim(query, loc);
+        }
+
+        userDestinationSearchResults = results;
         if (userDestinationSearchResults.length === 0) {
             userDestinationSearchError = '候補が見つかりません';
         }
@@ -99,6 +99,43 @@ async function searchUserDestination() {
         userDestinationSearchLoading = false;
         _renderSearchResults();
     }
+}
+
+async function _searchGsi(query, loc) {
+    const res = await fetch(`${GSI_GEOCODER_URL}?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data.map(item => {
+        const [lon, lat] = item.geometry.coordinates;
+        return {
+            lat,
+            lon,
+            name:     item.properties.title,
+            distance: loc ? _calcDistance(loc.lat, loc.lon, lat, lon) : null
+        };
+    });
+}
+
+async function _searchNominatim(query, loc) {
+    const params = new URLSearchParams({
+        q: query, format: 'json', limit: '20', 'accept-language': 'ja',
+        addressdetails: '1'
+    });
+    if (loc) {
+        const R = 0.1; // 約10km
+        params.set('viewbox', `${loc.lon - R},${loc.lat + R},${loc.lon + R},${loc.lat - R}`);
+        params.set('bounded', '1');
+    }
+    const res = await fetch(`${NOMINATIM_SEARCH_URL}?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.map(item => ({
+        lat:      parseFloat(item.lat),
+        lon:      parseFloat(item.lon),
+        name:     item.display_name,
+        distance: loc ? _calcDistance(loc.lat, loc.lon, parseFloat(item.lat), parseFloat(item.lon)) : null
+    }));
 }
 
 // ── Phase 2: 検索結果から目的地確定 ──────────────────────────────────────
@@ -234,7 +271,10 @@ function _renderSearchResults() {
     }
     if (userDestinationSearchResults.length > 0) {
         list.innerHTML = userDestinationSearchResults.map((r, i) =>
-            `<div class="dest-result-item" onclick="selectUserDestinationResult(${i})">${r.name}</div>`
+            `<div class="dest-result-item" onclick="selectUserDestinationResult(${i})">
+                <div class="dest-result-name">${r.name}</div>
+                ${r.distance !== null ? `<div class="dest-result-distance">${r.distance}</div>` : ''}
+            </div>`
         ).join('');
         list.style.display = 'block';
         return;
@@ -328,3 +368,17 @@ function _showDestinationStatusMsg(msg) {
     });
     mapEl.addEventListener('mouseup', cancel);
 })();
+
+// ── 現在地からの距離計算（ハバーサイン） ─────────────────────────────────
+function _calcDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+            * Math.sin(dLon / 2) ** 2;
+    const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return d < 1000
+        ? `${Math.round(d / 10) * 10}m`
+        : `${(d / 1000).toFixed(1)}km`;
+}
