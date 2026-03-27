@@ -726,6 +726,8 @@ function clearDestinationMarkers() {
 }
 
 function clearSearchResults() {
+    // 手動設定のゴールピン・ルートもクリア
+    if (typeof clearUserDestination === 'function') clearUserDestination();
     clearDestinationMarkers();
     clearRsaLayer();
     document.getElementById('rsaPanel').style.display = 'none';
