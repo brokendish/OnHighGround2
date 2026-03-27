@@ -95,12 +95,13 @@ function stopNavigation() {
     setNavMode('browse');
 }
 
-// ── 自動追従トグル ────────────────────────────────────────────────────────
-function toggleNavFollow() {
-    navIsAutoFollow = !navIsAutoFollow;
+// ── 自動再ルート ON/OFF トグル ────────────────────────────────────────────
+function toggleNavAutoReroute() {
+    navAutoRerouteEnabled   = !navAutoRerouteEnabled;
+    navAutoRerouteSuspended = false; // 一時停止も解除
     _updateNavUI();
     _showNavBanner(
-        navIsAutoFollow ? '📍 地図の自動追従をONにしました' : '🗺 地図の自動追従をOFFにしました',
+        navAutoRerouteEnabled ? '🔄 自動再ルートをONにしました' : '⏸ 自動再ルートをOFFにしました',
         'info', 2500
     );
 }
@@ -191,7 +192,7 @@ function rerouteWithNewSearch() {
 
 // ── 位置更新ハンドラ ──────────────────────────────────────────────────────
 function _onNavPosition(position) {
-    const { latitude: lat, longitude: lon, accuracy } = position.coords;
+    const { latitude: lat, longitude: lon, accuracy, heading } = position.coords;
 
     // 微小移動は無視
     if (currentLocation) {
@@ -199,7 +200,7 @@ function _onNavPosition(position) {
         if (moved < NAV_MIN_DELTA_M) return;
     }
 
-    _updateNavMarker(lat, lon, accuracy);
+    _updateNavMarker(lat, lon, accuracy, heading);
 
     if (navIsAutoFollow) {
         map.setView([lat, lon], map.getZoom());
@@ -353,7 +354,7 @@ function _onNavPositionError(err) {
 }
 
 // ── 軽量マーカー更新 ─────────────────────────────────────────────────────
-function _updateNavMarker(lat, lon, accuracy) {
+function _updateNavMarker(lat, lon, accuracy, heading) {
     currentLocation = { lat, lon, accuracyMeters: accuracy };
 
     const el = id => document.getElementById(id);
@@ -365,10 +366,27 @@ function _updateNavMarker(lat, lon, accuracy) {
     if (currentMarker)        { map.removeLayer(currentMarker);        currentMarker        = null; }
     if (currentAccuracyCircle){ map.removeLayer(currentAccuracyCircle); currentAccuracyCircle = null; }
 
-    currentMarker = L.circleMarker([lat, lon], {
-        radius: 10, fillColor: '#2196f3', color: '#fff',
-        weight: 3, opacity: 1, fillOpacity: 0.9
-    }).bindPopup('🧭 現在地（ナビ中）<br>精度: ±' + Math.round(accuracy) + 'm').addTo(map);
+    // heading が有効な場合は方向矢印アイコン、無効な場合は通常の円マーカー
+    const hasHeading = heading !== null && heading !== undefined && !isNaN(heading);
+    if (hasHeading) {
+        const icon = L.divIcon({
+            className: '',
+            html: `<svg width="28" height="28" viewBox="0 0 28 28" style="transform:rotate(${heading}deg);display:block;">
+                     <circle cx="14" cy="14" r="11" fill="#2196f3" stroke="white" stroke-width="2.5"/>
+                     <polygon points="14,3 10,16 14,13 18,16" fill="white"/>
+                   </svg>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+        });
+        currentMarker = L.marker([lat, lon], { icon })
+            .bindPopup(`🧭 現在地（ナビ中）<br>精度: ±${Math.round(accuracy)}m<br>方向: ${Math.round(heading)}°`)
+            .addTo(map);
+    } else {
+        currentMarker = L.circleMarker([lat, lon], {
+            radius: 10, fillColor: '#2196f3', color: '#fff',
+            weight: 3, opacity: 1, fillOpacity: 0.9
+        }).bindPopup(`🧭 現在地（ナビ中）<br>精度: ±${Math.round(accuracy)}m`).addTo(map);
+    }
 
     if (accuracy) {
         currentAccuracyCircle = L.circle([lat, lon], {
@@ -382,7 +400,7 @@ function _updateNavMarker(lat, lon, accuracy) {
 function _onNavArrival() {
     stopNavigation();
     setNavMode('navigation_finished');
-    _showNavBanner('🏁 避難先に到達しました！お疲れさまでした。', 'success');
+    _showNavBanner('🏁 目的地に到達しました！お疲れさまでした。', 'success');
 }
 
 // ── バナー表示 ────────────────────────────────────────────────────────────
@@ -430,11 +448,11 @@ function _updateNavUI() {
         btn.style.display = isActive ? 'block' : 'none';
     });
 
-    // 追従ボタン
+    // 自動再ルートON/OFFボタン
     if (el('navFollowBtn')) {
         el('navFollowBtn').style.display = isActive ? 'inline-block' : 'none';
-        el('navFollowBtn').textContent   = navIsAutoFollow ? '📍 追従 ON' : '🗺 追従 OFF';
-        el('navFollowBtn').className     = 'btn btn-small ' + (navIsAutoFollow ? 'btn-follow-on' : 'btn-follow-off');
+        el('navFollowBtn').textContent   = navAutoRerouteEnabled ? '🔄 自動再ルート ON' : '⏸ 自動再ルート OFF';
+        el('navFollowBtn').className     = 'btn btn-small ' + (navAutoRerouteEnabled ? 'btn-follow-on' : 'btn-follow-off');
     }
 
     // 再ルートパネル（地図上）
