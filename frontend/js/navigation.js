@@ -424,14 +424,14 @@ function _updateNavUI() {
     const isActive = mode === 'navigation_active' || mode === 'navigation_warning' || mode === 'navigation_paused';
     const isWarning = mode === 'navigation_warning';
 
-    // フローティング停止ボタン
-    if (el('navStopFloating')) el('navStopFloating').style.display = isActive ? 'block' : 'none';
-
     // 手動位置選択モード中はナビ開始不可
     const canStartNav = !isManualLocationMode;
 
-    // フローティング開始ボタン（route_preview かつ手動選択モードでない場合のみ表示）
-    if (el('navStartFloating')) el('navStartFloating').style.display = (mode === 'route_preview' && canStartNav) ? 'block' : 'none';
+    // 下部オーバーレイ ナビ開始/停止ボタン（常時表示・disabled で活性制御）
+    const navStartOverlay = el('nav-start-overlay-btn');
+    const navStopOverlay  = el('nav-stop-overlay-btn');
+    if (navStartOverlay) navStartOverlay.disabled = !(mode === 'route_preview' && canStartNav);
+    if (navStopOverlay)  navStopOverlay.disabled  = !isActive;
 
     // カード内ボタン（動的注入）
     document.querySelectorAll('.nav-start-in-card').forEach(btn => {

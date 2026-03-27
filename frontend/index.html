@@ -1242,6 +1242,294 @@
         .time-margin.danger .tm-warning { font-weight: 700; color: #b71c1c; font-size: 13px; }
         .time-margin.danger .tm-detail  { color: #b71c1c; }
         .recommended-warning { background: #ffcdd2; color: #b71c1c; font-weight: 700; padding: 6px; margin-bottom: 6px; border-radius: 4px; font-size: 12px; }
+
+        /* ═══════════════════════════════════════════════════════════════
+           地図オーバーレイUI (map-overlay-ui)
+           ═══════════════════════════════════════════════════════════════ */
+
+        /* オーバーレイ全体ラッパー: 地図エリアを覆うが pointer-events は子要素のみ */
+        #map-ui-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 900;
+        }
+        #map-ui-overlay > * {
+            pointer-events: auto;
+        }
+
+        /* ── 右上コントロール群 ──────────────────────────────── */
+        #map-top-right-controls {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .mou-btn-wrap {
+            position: relative;
+        }
+
+        /* 共通ボタン */
+        .map-overlay-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 52px;
+            min-height: 52px;
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 14px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+            cursor: pointer;
+            font-size: 10px;
+            font-family: inherit;
+            color: #333;
+            transition: background 0.15s, box-shadow 0.15s;
+            padding: 6px 4px;
+            gap: 2px;
+            line-height: 1.2;
+        }
+        .map-overlay-btn:hover {
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        }
+        .map-overlay-btn:active {
+            background: rgba(235, 235, 235, 0.98);
+        }
+        .map-overlay-btn .mou-icon {
+            font-size: 18px;
+            line-height: 1;
+        }
+        .map-overlay-btn--danger {
+            color: #c62828;
+        }
+        .map-overlay-btn--danger:hover {
+            background: rgba(255, 235, 238, 0.96);
+        }
+        .map-overlay-btn--active {
+            background: rgba(21, 101, 192, 0.12);
+            border-color: rgba(21, 101, 192, 0.4);
+            color: #1565c0;
+            box-shadow: 0 4px 16px rgba(21, 101, 192, 0.18);
+        }
+
+        /* 展開パネル（レイヤー・凡例共通） */
+        .mou-panel {
+            position: absolute;
+            top: 0;
+            right: 60px;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.55);
+            border-radius: 14px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+            padding: 12px;
+            min-width: 210px;
+            max-width: 260px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        .mou-panel-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #888;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        /* レイヤーパネル: アコーディオン */
+        .layer-panel-category {
+            margin-bottom: 2px;
+        }
+        .layer-panel-category-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 4px;
+            cursor: pointer;
+            user-select: none;
+            font-size: 12px;
+            font-weight: 600;
+            color: #333;
+            border-radius: 6px;
+            transition: background 0.1s;
+        }
+        .layer-panel-category-header:hover {
+            background: rgba(0, 0, 0, 0.04);
+        }
+        .lpc-arrow {
+            font-size: 9px;
+            color: #999;
+            transition: transform 0.15s;
+            flex-shrink: 0;
+        }
+        .layer-panel-category.open .lpc-arrow {
+            transform: rotate(90deg);
+        }
+        .layer-panel-prefectures {
+            display: none;
+            padding-left: 16px;
+        }
+        .layer-panel-category.open .layer-panel-prefectures {
+            display: block;
+        }
+        .layer-panel-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 4px;
+            font-size: 12px;
+            color: #444;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.1s;
+            user-select: none;
+        }
+        .layer-panel-item:hover {
+            background: rgba(0, 0, 0, 0.04);
+        }
+        .layer-panel-item input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
+            cursor: pointer;
+            flex-shrink: 0;
+            accent-color: #1565c0;
+            margin: 0;
+        }
+        .layer-panel-item.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        /* 凡例パネル */
+        #legend-panel .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 3px 0;
+            font-size: 12px;
+            color: #444;
+        }
+
+        /* ── 下部コントロール ────────────────────────────────── */
+        #map-bottom-controls {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(100% - 24px);
+            max-width: 620px;
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.55);
+            border-radius: 18px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .mbc-action-row {
+            display: flex;
+            gap: 8px;
+        }
+        .mbc-btn {
+            flex: 1;
+            padding: 7px 6px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+            white-space: nowrap;
+        }
+        .mbc-btn--primary {
+            background: #1e88e5;
+            color: white;
+        }
+        .mbc-btn--primary:hover { background: #1565c0; }
+        .mbc-btn--primary:active { transform: scale(0.97); }
+        .mbc-btn--nav-start {
+            background: #1976d2;
+            color: white;
+        }
+        .mbc-btn--nav-start:not(:disabled):hover  { background: #1565c0; }
+        .mbc-btn--nav-start:not(:disabled):active { transform: scale(0.97); }
+        .mbc-btn--nav-stop {
+            background: #e53935;
+            color: white;
+        }
+        .mbc-btn--nav-stop:not(:disabled):hover  { background: #b71c1c; }
+        .mbc-btn--nav-stop:not(:disabled):active { transform: scale(0.97); }
+        .mbc-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+        .mbc-sliders-row {
+            display: flex;
+            gap: 16px;
+        }
+        .mbc-slider-group {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .mbc-slider-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            font-weight: 600;
+            color: #666;
+        }
+        .mbc-slider-label span {
+            font-weight: 700;
+            color: #1565c0;
+        }
+        .mbc-slider-group input[type="range"] {
+            width: 100%;
+            height: 4px;
+            accent-color: #1e88e5;
+            cursor: pointer;
+            margin: 0;
+            /* スライダのドラッグを地図パンと競合させない */
+            touch-action: pan-x;
+        }
+
+        /* ── レスポンシブ ────────────────────────────────────── */
+        @media (max-width: 480px) {
+            .mbc-sliders-row {
+                flex-direction: column;
+                gap: 8px;
+            }
+            #map-bottom-controls {
+                bottom: 8px;
+                width: calc(100% - 16px);
+                padding: 10px 12px;
+                border-radius: 14px;
+            }
+            .map-overlay-btn {
+                width: 46px;
+                min-height: 46px;
+                font-size: 9px;
+            }
+            .map-overlay-btn .mou-icon {
+                font-size: 16px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1465,16 +1753,84 @@
 
         <!-- 地図エリア -->
         <div id="map">
-            <!-- 地図下部フローティングアクションバー -->
-            <div class="map-action-bar">
-                <button onclick="document.getElementById('getCurrentLocation').click()">📍 現在地取得</button>
-                <button onclick="document.getElementById('searchDestinations').click()">🔍 避難先検索</button>
-                <button id="navStartFloating" onclick="startNavigation()" style="display:none; background:#1976d2; color:#fff;">🚶 ナビ開始</button>
-            </div>
+            <!-- ══ 地図オーバーレイUI ══════════════════════════════ -->
+            <div id="map-ui-overlay">
+
+                <!-- 右上: レイヤー / クリア / 凡例 -->
+                <div id="map-top-right-controls">
+
+                    <!-- レイヤー選択 -->
+                    <div class="mou-btn-wrap">
+                        <button id="layer-toggle-btn" class="map-overlay-btn" title="ハザードレイヤー選択">
+                            <span class="mou-icon">🗺</span>
+                            <span>レイヤー</span>
+                        </button>
+                        <div id="layer-panel" class="mou-panel" style="display:none;">
+                            <div class="mou-panel-title">ハザードレイヤー</div>
+                            <!-- JS で buildLayerPanel() により生成 -->
+                        </div>
+                    </div>
+
+                    <!-- 指定緊急避難場所トグル -->
+                    <button id="shelter-toggle-btn" class="map-overlay-btn map-overlay-btn--active" title="指定緊急避難場所の表示切替">
+                        <span class="mou-icon">🏠</span>
+                        <span>避難場所</span>
+                    </button>
+
+                    <!-- 地図クリア -->
+                    <button id="map-clear-overlay-btn" class="map-overlay-btn map-overlay-btn--danger" title="地図をクリア">
+                        <span class="mou-icon">✕</span>
+                        <span>クリア</span>
+                    </button>
+
+                    <!-- 凡例 -->
+                    <div class="mou-btn-wrap">
+                        <button id="legend-toggle-btn" class="map-overlay-btn" title="凡例">
+                            <span class="mou-icon">📋</span>
+                            <span>凡例</span>
+                        </button>
+                        <div id="legend-panel" class="mou-panel" style="display:none;">
+                            <div class="mou-panel-title">凡例</div>
+                            <!-- JS で buildLegendPanel() により生成 -->
+                        </div>
+                    </div>
+
+                </div><!-- /#map-top-right-controls -->
+
+                <!-- 下部: 現在地 / 検索 / ナビ / スライダ -->
+                <div id="map-bottom-controls">
+                    <div class="mbc-action-row">
+                        <button id="locate-overlay-btn" class="mbc-btn mbc-btn--primary">📍 現在地</button>
+                        <button id="search-overlay-btn" class="mbc-btn mbc-btn--primary">🔍 避難先検索</button>
+                    </div>
+                    <div class="mbc-action-row">
+                        <button id="nav-start-overlay-btn" class="mbc-btn mbc-btn--nav-start" disabled onclick="startNavigation()">🚶 ナビ開始</button>
+                        <button id="nav-stop-overlay-btn"  class="mbc-btn mbc-btn--nav-stop"  disabled onclick="stopNavigation()">⏹ ナビ停止</button>
+                    </div>
+                    <div class="mbc-sliders-row">
+                        <div class="mbc-slider-group">
+                            <div class="mbc-slider-label">
+                                最大距離 <span id="distance-value-overlay">2000m</span>
+                            </div>
+                            <input type="range" id="distance-slider-overlay"
+                                   min="100" max="10000" step="100" value="2000"
+                                   aria-label="最大移動距離">
+                        </div>
+                        <div class="mbc-slider-group">
+                            <div class="mbc-slider-label">
+                                高低差 <span id="elevation-value-overlay">10m</span>
+                            </div>
+                            <input type="range" id="elevation-slider-overlay"
+                                   min="1" max="100" step="1" value="10"
+                                   aria-label="必要高低差">
+                        </div>
+                    </div>
+                </div><!-- /#map-bottom-controls -->
+
+            </div><!-- /#map-ui-overlay -->
+
             <!-- ナビ警告バナー -->
             <div id="navBanner" class="nav-banner" style="display:none;"></div>
-            <!-- 地図上フローティング ナビ停止ボタン（ナビ中は常に表示） -->
-            <button id="navStopFloating" class="nav-stop-floating" onclick="stopNavigation()" style="display:none;">⏹ ナビ停止</button>
             <!-- オフルート再ルートパネル（navigation_warning 時に表示） -->
             <div id="navReroutePanel" class="nav-reroute-panel" style="display:none;">
                 <p>ルートから外れた可能性があります</p>
@@ -1483,7 +1839,7 @@
                 <button id="navRerouteSameBtn" class="btn-reroute-same" onclick="rerouteToSameDestination()">🔄 同じ避難先へ再ルート</button>
                 <button id="navRerouteNewBtn" class="btn-reroute-new" onclick="rerouteWithNewSearch()">🔍 避難先を再検索</button>
             </div>
-            <div class="legend collapsed" id="mapLegend">
+            <div class="legend collapsed" id="mapLegend" style="display:none;">
                 <h4 onclick="document.getElementById('mapLegend').classList.toggle('collapsed')">凡例</h4>
                 <div class="legend-body">
                 <div class="legend-item">
@@ -1572,6 +1928,8 @@
     <script src="js/app.js"></script>
     <!-- ナビゲーションモード -->
     <script src="js/navigation.js"></script>
+    <!-- 地図オーバーレイUI -->
+    <script src="js/map-overlay-ui.js"></script>
     <script>
         (function() {
             // サイドバー折りたたみトグル
