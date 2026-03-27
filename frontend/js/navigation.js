@@ -427,7 +427,19 @@ function _updateNavUI() {
     // 手動位置選択モード中はナビ開始不可
     const canStartNav = !isManualLocationMode;
 
-    // 下部オーバーレイ ナビ開始/停止ボタン（常時表示・disabled で活性制御）
+    // 下部オーバーレイ ボタン行・スライダーの表示切り替え
+    // browse:          現在地/検索行＋スライダー表示、ナビ行非表示
+    // route_preview:   現在地/検索行＋スライダー＋ナビ行すべて表示（停止は非活性）
+    // ナビ中:          ナビ行のみ表示、現在地/検索行＋スライダー非表示
+    const rowNormal  = el('mbc-row-normal');
+    const rowNav     = el('mbc-row-nav');
+    const rowSliders = el('mbc-row-sliders');
+    const showNavRow    = isActive || mode === 'route_preview';
+    const showNormalRow = !isActive;
+    if (rowNormal)  rowNormal.style.display  = showNormalRow ? '' : 'none';
+    if (rowNav)     rowNav.style.display     = showNavRow    ? '' : 'none';
+    if (rowSliders) rowSliders.style.display = showNormalRow ? '' : 'none';
+
     const navStartOverlay = el('nav-start-overlay-btn');
     const navStopOverlay  = el('nav-stop-overlay-btn');
     if (navStartOverlay) navStartOverlay.disabled = !(mode === 'route_preview' && canStartNav);
