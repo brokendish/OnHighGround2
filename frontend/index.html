@@ -1423,7 +1423,7 @@
         /* ── 下部コントロール ────────────────────────────────── */
         #map-bottom-controls {
             position: absolute;
-            bottom: 12px;
+            bottom: 56px;
             left: 50%;
             transform: translateX(-50%);
             width: calc(100% - 24px);
@@ -1479,28 +1479,31 @@
         }
         .mbc-sliders-row {
             display: flex;
-            gap: 16px;
-        }
-        .mbc-slider-group {
-            flex: 1;
-            display: flex;
             flex-direction: column;
             gap: 5px;
         }
-        .mbc-slider-label {
+        .mbc-slider-group {
             display: flex;
-            justify-content: space-between;
+            flex-direction: row;
             align-items: center;
+            gap: 8px;
+        }
+        .mbc-slider-label {
+            flex-shrink: 0;
+            width: 88px;
             font-size: 11px;
             font-weight: 600;
             color: #666;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         .mbc-slider-label span {
             font-weight: 700;
             color: #1565c0;
         }
         .mbc-slider-group input[type="range"] {
-            width: 100%;
+            flex: 1;
             height: 4px;
             accent-color: #1e88e5;
             cursor: pointer;
@@ -1511,10 +1514,6 @@
 
         /* ── レスポンシブ ────────────────────────────────────── */
         @media (max-width: 480px) {
-            .mbc-sliders-row {
-                flex-direction: column;
-                gap: 8px;
-            }
             #map-bottom-controls {
                 bottom: 8px;
                 width: calc(100% - 16px);
