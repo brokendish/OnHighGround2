@@ -73,6 +73,8 @@ function startNavigation() {
     navAutoRerouteCount           = 0;
     navAutoRerouteWindowStartedAt = 0;
     navLastAutoRerouteAt          = 0;
+    // コンパス初期化（iOS はユーザー操作後でないと許可ダイアログが出ないためここで呼ぶ）
+    if (typeof initOrientation === 'function') initOrientation();
     navWatchId = navigator.geolocation.watchPosition(
         _onNavPosition,
         _onNavPositionError,
@@ -366,26 +368,17 @@ function _updateNavMarker(lat, lon, accuracy, heading) {
     if (currentMarker)        { map.removeLayer(currentMarker);        currentMarker        = null; }
     if (currentAccuracyCircle){ map.removeLayer(currentAccuracyCircle); currentAccuracyCircle = null; }
 
-    // heading が有効な場合は方向矢印アイコン、無効な場合は通常の円マーカー
+    // 共通の矢印アイコン（map.js の _makeCurrentLocationIcon を使用）
+    currentMarker = L.marker([lat, lon], { icon: _makeCurrentLocationIcon() })
+        .bindPopup(`🧭 現在地（ナビ中）<br>精度: ±${Math.round(accuracy)}m`)
+        .addTo(map);
+
+    // GPS heading をコンパス未取得時のフォールバックとして使用
     const hasHeading = heading !== null && heading !== undefined && !isNaN(heading);
     if (hasHeading) {
-        const icon = L.divIcon({
-            className: '',
-            html: `<svg width="28" height="28" viewBox="0 0 28 28" style="transform:rotate(${heading}deg);display:block;">
-                     <circle cx="14" cy="14" r="11" fill="#2196f3" stroke="white" stroke-width="2.5"/>
-                     <polygon points="14,3 10,16 14,13 18,16" fill="white"/>
-                   </svg>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14]
-        });
-        currentMarker = L.marker([lat, lon], { icon })
-            .bindPopup(`🧭 現在地（ナビ中）<br>精度: ±${Math.round(accuracy)}m<br>方向: ${Math.round(heading)}°`)
-            .addTo(map);
-    } else {
-        currentMarker = L.circleMarker([lat, lon], {
-            radius: 10, fillColor: '#2196f3', color: '#fff',
-            weight: 3, opacity: 1, fillOpacity: 0.9
-        }).bindPopup(`🧭 現在地（ナビ中）<br>精度: ±${Math.round(accuracy)}m`).addTo(map);
+        updateUserMarkerHeading(heading);
+    } else if (_currentHeading !== null) {
+        updateUserMarkerHeading(_currentHeading);
     }
 
     if (accuracy) {

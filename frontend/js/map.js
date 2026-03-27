@@ -48,6 +48,71 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19
 }).addTo(map);
 
+// ── 現在地マーカー（矢印アイコン共通） ───────────────────────────────────
+
+let _currentHeading = null; // コンパス or GPS heading（北を0°として時計回り）
+
+/** 現在の heading を使って divIcon を生成する */
+function _makeCurrentLocationIcon() {
+    return L.divIcon({
+        className: 'user-arrow-marker',
+        html: '<div class="arrow"></div>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+    });
+}
+
+/** heading を更新してマーカーの矢印を回転させる（再生成不要） */
+function updateUserMarkerHeading(heading) {
+    _currentHeading = heading;
+    if (!currentMarker) return;
+    const el = currentMarker.getElement ? currentMarker.getElement() : null;
+    if (!el) return;
+    const arrow = el.querySelector('.arrow');
+    if (arrow) arrow.style.transform = `rotate(${heading}deg)`;
+}
+
+/** DeviceOrientation イベントハンドラ */
+function _handleOrientation(event) {
+    let heading = null;
+    if (event.webkitCompassHeading != null) {
+        // iOS: 磁北から時計回り（そのまま使用）
+        heading = event.webkitCompassHeading;
+    } else if (event.alpha != null) {
+        // Android 等: alpha は反時計回りなので変換
+        heading = (360 - event.alpha + 360) % 360;
+    }
+    if (heading === null) return;
+    updateUserMarkerHeading(heading);
+}
+
+/**
+ * コンパス（DeviceOrientation）取得を初期化する。
+ * iOS は必ずユーザー操作後（ナビ開始ボタン押下時）に呼ぶこと。
+ */
+function initOrientation() {
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+        // iOS 13+: ユーザー許可が必要
+        DeviceOrientationEvent.requestPermission()
+            .then(state => {
+                if (state === 'granted') {
+                    window.addEventListener('deviceorientation', _handleOrientation, true);
+                    console.log('[Orientation] iOS compass enabled');
+                }
+            })
+            .catch(err => console.warn('[Orientation] permission error:', err));
+    } else if ('ondeviceorientationabsolute' in window) {
+        // Android: absolute（真北基準）を優先
+        window.addEventListener('deviceorientationabsolute', _handleOrientation, true);
+        console.log('[Orientation] absolute compass enabled');
+    } else {
+        // フォールバック
+        window.addEventListener('deviceorientation', _handleOrientation, true);
+        console.log('[Orientation] relative compass enabled');
+    }
+}
+
 // ── 現在地更新 ────────────────────────────────────────────────────────────
 
 async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accuracyMeters = null) {
@@ -81,12 +146,10 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
         map.removeLayer(currentAccuracyCircle);
     }
 
-    currentMarker = L.circleMarker([lat, lon], {
-        color: '#2196f3',
-        fillColor: '#2196f3',
-        fillOpacity: 0.8,
-        radius: 10
-    }).addTo(map);
+    currentMarker = L.marker([lat, lon], { icon: _makeCurrentLocationIcon() }).addTo(map);
+
+    // 直前の heading があれば即時反映
+    if (_currentHeading !== null) updateUserMarkerHeading(_currentHeading);
 
     currentMarker.bindPopup(`
         <strong>${sourceLabel}</strong><br>
