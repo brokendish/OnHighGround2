@@ -68,9 +68,21 @@ function initMapOverlayUI() {
     bindLegendPanelToggle();
     bindClearButton();
     bindShelterButton();
+    bindBottomPanelToggle();
     bindOutsideClick();
     syncSlidersFromInputs();
     preventMapPanOnOverlay();
+}
+
+// ── 下部パネル折りたたみ ──────────────────────────────────────────────────
+function bindBottomPanelToggle() {
+    const handle   = document.getElementById('map-bottom-handle');
+    const controls = document.getElementById('map-bottom-controls');
+    if (!handle || !controls) return;
+
+    handle.addEventListener('click', () => {
+        controls.classList.toggle('mbc-collapsed');
+    });
 }
 
 // ── Leaflet へのイベント伝播を防止 ────────────────────────────────────────
