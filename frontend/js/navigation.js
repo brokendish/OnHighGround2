@@ -33,6 +33,36 @@ function _navHaversine(lat1, lon1, lat2, lon2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// ── 距離フォーマット（ナビ用） ────────────────────────────────────────────
+function _fmtNavDist(meters) {
+    if (!Number.isFinite(meters)) return '—';
+    return meters < 1000
+        ? `${Math.round(meters / 10) * 10}m`
+        : `${(meters / 1000).toFixed(1)}km`;
+}
+
+// ── ルート沿い残距離（現在地に最近傍の点から終点まで積算） ────────────────
+function _remainingRouteDistance(lat, lon) {
+    if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) return null;
+    const coords = navActiveRoute.coordinates;
+    if (coords.length === 0) return null;
+
+    // 最近傍インデックスを探す
+    let nearestIdx = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < coords.length; i++) {
+        const d = _navHaversine(lat, lon, coords[i].lat, coords[i].lng);
+        if (d < minDist) { minDist = d; nearestIdx = i; }
+    }
+
+    // 最近傍点から終点まで積算
+    let total = 0;
+    for (let i = nearestIdx; i < coords.length - 1; i++) {
+        total += _navHaversine(coords[i].lat, coords[i].lng, coords[i + 1].lat, coords[i + 1].lng);
+    }
+    return total;
+}
+
 // ── ルートへの最近傍距離 ──────────────────────────────────────────────────
 function _distanceToRoute(lat, lon) {
     if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) return Infinity;
@@ -116,7 +146,9 @@ function onNavRouteSelected(route, destination) {
         if (!navOriginalDestination) navOriginalDestination = destination;
     }
     if (navigationMode === 'browse' || navigationMode === 'navigation_finished') {
-        setNavMode('route_preview');
+        setNavMode('route_preview'); // 内部で _updateNavUI() を呼ぶ
+    } else {
+        _updateNavUI(); // route_preview / ナビ中に再ルートされた場合も総距離を更新
     }
 }
 
@@ -212,6 +244,11 @@ function _onNavPosition(position) {
     if (typeof updateNavStepHighlight === 'function') {
         updateNavStepHighlight(lat, lon);
     }
+
+    // 残距離更新（ルート沿い）
+    const remM = _remainingRouteDistance(lat, lon);
+    const remEl = document.getElementById('mbc-remain-dist');
+    if (remEl && remM !== null) remEl.textContent = _fmtNavDist(remM);
 
     // GPS 精度警告（逸脱・到達判定はスキップ）
     if (accuracy > NAV_LOW_ACCURACY_M) {
@@ -439,6 +476,20 @@ function _updateNavUI() {
     if (rowNormal)  rowNormal.style.display  = showNormalRow ? '' : 'none';
     if (rowNav)     rowNav.style.display     = showNavRow    ? '' : 'none';
     if (rowSliders) rowSliders.style.display = showNormalRow ? '' : 'none';
+
+    // 距離情報行: ルート確認中・ナビ中に表示
+    const distInfo = el('mbc-dist-info');
+    if (distInfo) distInfo.style.display = showNavRow ? 'flex' : 'none';
+    // 総距離をルート確定時に更新
+    if (showNavRow && navActiveRoute && navActiveRoute.summary) {
+        const totalM = Number(navActiveRoute.summary.totalDistance);
+        el('mbc-total-dist').textContent = _fmtNavDist(totalM);
+    } else if (!showNavRow) {
+        const td = el('mbc-total-dist');
+        const rd = el('mbc-remain-dist');
+        if (td) td.textContent = '—';
+        if (rd) rd.textContent = '—';
+    }
 
     const navStartOverlay = el('nav-start-overlay-btn');
     const navStopOverlay  = el('nav-stop-overlay-btn');

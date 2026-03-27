@@ -1545,6 +1545,19 @@
             opacity: 0.35;
             cursor: not-allowed;
         }
+        #mbc-dist-info {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 12px;
+            padding: 2px 0;
+            color: #333;
+        }
+        .mbc-dist-label { color: #888; font-size: 11px; }
+        .mbc-dist-sep   { color: #ccc; }
+        #mbc-total-dist { font-weight: 700; color: #1976d2; }
+        #mbc-remain-dist { font-weight: 700; color: #e53935; }
         .mbc-sliders-row {
             display: flex;
             flex-direction: column;
@@ -1893,6 +1906,13 @@
                             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                             避難先検索
                         </button>
+                    </div>
+                    <div id="mbc-dist-info" style="display:none;">
+                        <span class="mbc-dist-label">総距離</span>
+                        <span id="mbc-total-dist">—</span>
+                        <span class="mbc-dist-sep">|</span>
+                        <span class="mbc-dist-label">残り</span>
+                        <span id="mbc-remain-dist">—</span>
                     </div>
                     <div id="mbc-row-nav" class="mbc-action-row" style="display:none;">
                         <button id="nav-start-overlay-btn" class="mbc-btn mbc-btn--nav-start" disabled onclick="startNavigation()">
