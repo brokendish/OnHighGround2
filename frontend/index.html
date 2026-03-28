@@ -1179,9 +1179,10 @@
         #shelter-card-resize-handle:hover::before { background: #999; }
         #shelter-card-dest-info {
             margin: 4px 0 6px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
+            display: block;
+        }
+        #shelter-card-dest-info > * {
+            margin-bottom: 4px;
         }
         #shelter-card-elev-score {
             font-size: 11px;

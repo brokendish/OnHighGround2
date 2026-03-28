@@ -813,44 +813,53 @@ function updateSelectedEmergencyShelterRouteInfo(distanceMeters, durationSeconds
 
 // 番号付きピン（①②③）タップ時にフロートカードへ全情報を表示
 function showDestInFloatCard(dest) {
-    const transportLabel = document.getElementById('transportMode').value === 'walking' ? '徒歩' : '車';
+    try {
+        const transportLabel = document.getElementById('transportMode').value === 'walking' ? '徒歩' : '車';
 
-    document.getElementById('shelter-card-name').textContent = dest.name || '避難先候補';
+        document.getElementById('shelter-card-name').textContent = dest.name || '避難先候補';
 
-    // ハザードバッジ＋スコアを designation 欄に表示
-    const hazardBadge = dest.hazard_safe === true
-        ? '<span class="hazard-safe-badge safe">✅ 危険区域外</span>'
-        : dest.hazard_safe === false
-            ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
-            : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
-    document.getElementById('shelter-card-designation').innerHTML =
-        `${hazardBadge}&nbsp;<span class="safety-score">スコア ${dest.safety_score.toFixed(1)}</span>`;
+        // ハザードバッジ＋スコアを designation 欄に表示
+        const hazardBadge = dest.hazard_safe === true
+            ? '<span class="hazard-safe-badge safe">✅ 危険区域外</span>'
+            : dest.hazard_safe === false
+                ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
+                : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
+        const score = dest.safety_score != null ? Number(dest.safety_score).toFixed(1) : '—';
+        document.getElementById('shelter-card-designation').innerHTML =
+            `${hazardBadge}&nbsp;<span class="safety-score">スコア ${score}</span>`;
 
-    document.getElementById('shelter-card-address').style.display = 'none';
+        document.getElementById('shelter-card-address').style.display = 'none';
 
-    document.getElementById('shelter-card-transport').textContent = transportLabel;
-    document.getElementById('shelter-card-distance').textContent  = `${dest.distance.toFixed(0)} m`;
-    document.getElementById('shelter-card-duration').textContent  = `${dest.estimated_time_minutes.toFixed(0)} 分`;
+        document.getElementById('shelter-card-transport').textContent = transportLabel;
+        document.getElementById('shelter-card-distance').textContent =
+            dest.distance != null ? `${Number(dest.distance).toFixed(0)} m` : '—';
+        document.getElementById('shelter-card-duration').textContent =
+            dest.estimated_time_minutes != null ? `${Number(dest.estimated_time_minutes).toFixed(0)} 分` : '—';
 
-    // ハザード詳細
-    document.getElementById('shelter-card-hazard-block').innerHTML =
-        buildHazardReasonBlock(dest.hazard_assessment);
+        // ハザード詳細
+        document.getElementById('shelter-card-hazard-block').innerHTML =
+            buildHazardReasonBlock(dest.hazard_assessment);
 
-    // 標高情報
-    document.getElementById('shelter-card-elev-score').textContent =
-        `⬆️ +${dest.elevation_gain.toFixed(1)}m ｜ 標高 ${dest.elevation.toFixed(1)}m`;
+        // 標高情報
+        const elevGain = dest.elevation_gain != null ? Number(dest.elevation_gain).toFixed(1) : '—';
+        const elev     = dest.elevation     != null ? Number(dest.elevation).toFixed(1)      : '—';
+        document.getElementById('shelter-card-elev-score').textContent =
+            `⬆️ +${elevGain}m ｜ 標高 ${elev}m`;
 
-    // コメント
-    const commentEl = document.getElementById('shelter-card-comment');
-    if (dest.comment) {
-        commentEl.textContent = '💬 ' + dest.comment;
-        commentEl.style.display = 'block';
-    } else {
-        commentEl.style.display = 'none';
+        // コメント
+        const commentEl = document.getElementById('shelter-card-comment');
+        if (dest.comment) {
+            commentEl.textContent = '💬 ' + dest.comment;
+            commentEl.style.display = 'block';
+        } else {
+            commentEl.style.display = 'none';
+        }
+
+        document.getElementById('shelter-card-dest-info').style.display = 'block';
+        document.getElementById('shelter-card-route-guidance').innerHTML = '';
+    } catch (e) {
+        console.error('[showDestInFloatCard] error:', e);
     }
-
-    document.getElementById('shelter-card-dest-info').style.display = 'flex';
-    document.getElementById('shelter-card-route-guidance').innerHTML = '';
 
     _showFloatCardCentered();
 }
