@@ -1177,6 +1177,27 @@
             border-radius: 2px;
         }
         #shelter-card-resize-handle:hover::before { background: #999; }
+        #shelter-card-dest-info {
+            margin: 4px 0 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        #shelter-card-elev-score {
+            font-size: 11px;
+            color: #444;
+            background: #f0f4f0;
+            border-radius: 5px;
+            padding: 4px 7px;
+        }
+        #shelter-card-comment {
+            font-size: 11px;
+            color: #555;
+            background: #fffde7;
+            border-radius: 5px;
+            padding: 4px 7px;
+            border-left: 3px solid #f9a825;
+        }
         #shelter-card-name {
             font-size: 13px;
             font-weight: 700;
@@ -2029,6 +2050,12 @@
                         <span id="shelter-card-transport">-</span>
                         <span>📏 <span id="shelter-card-distance">-</span></span>
                         <span>⏱ <span id="shelter-card-duration">-</span></span>
+                    </div>
+                    <!-- 避難先候補のみ表示（標高・スコア・ハザード・コメント） -->
+                    <div id="shelter-card-dest-info" style="display:none;">
+                        <div id="shelter-card-hazard-block"></div>
+                        <div id="shelter-card-elev-score"></div>
+                        <div id="shelter-card-comment" style="display:none;"></div>
                     </div>
                     <div class="route-guidance" id="shelter-card-route-guidance"></div>
                     <div id="shelter-card-resize-handle"></div>

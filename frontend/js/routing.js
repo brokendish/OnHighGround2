@@ -506,6 +506,9 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
         }
         panel.appendChild(list);
         panel.classList.add('active');
+
+        // フロートウィンドウにも同じ経路案内を表示
+        _renderRouteGuidanceToPanelId('shelter-card-route-guidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
     });
 }
 
@@ -661,6 +664,8 @@ function updateNavStepHighlight(lat, lon) {
         const cards = document.querySelectorAll('.destination-card');
         const card = cards[activeNavigatingIndex];
         if (card) panelEl = card.querySelector('[data-route-guidance]');
+        // フロートウィンドウも同時ハイライト
+        _highlightNavStepInPanel(document.getElementById('shelter-card-route-guidance'), lat, lon);
     } else if (typeof userDestination !== 'undefined' && userDestination) {
         panelEl = document.getElementById('userDestRouteGuidance');
     } else {
