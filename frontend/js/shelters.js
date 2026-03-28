@@ -58,15 +58,24 @@ async function refreshEmergencyShelters() {
                 color: 'transparent',
                 fillColor: 'transparent',
                 fillOpacity: 0,
-                radius: 30,
+                radius: 44,
                 weight: 0,
                 bubblingMouseEvents: false
             }).addTo(map);
 
             marker.bindPopup(_buildShelterPopupHtml(site), { maxWidth: 240 });
             marker.on('click', () => {
+                // 同じ避難場所を再タップ → ポップアップで確認
+                if (selectedEmergencyShelterSite &&
+                    Math.abs(site.lat - selectedEmergencyShelterSite.lat) < 1e-8 &&
+                    Math.abs(site.lon - selectedEmergencyShelterSite.lon) < 1e-8) {
+                    marker.openPopup();
+                    return;
+                }
+                // 新しい避難場所 → 即ルート計算 + フロートウィンドウ表示
                 selectedEmergencyShelterSite   = site;
                 selectedEmergencyShelterMarker = marker;
+                showRouteToEmergencyShelter(site, marker);
             });
             emergencyShelterMarkers.push(visMarker);
             emergencyShelterMarkers.push(marker);

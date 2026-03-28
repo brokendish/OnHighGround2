@@ -665,6 +665,8 @@ function updateNavStepHighlight(lat, lon) {
         panelEl = document.getElementById('userDestRouteGuidance');
     } else {
         panelEl = document.getElementById('selectedShelterRouteGuidance');
+        // 地図カードのルート案内も同時にハイライト
+        _highlightNavStepInPanel(document.getElementById('shelter-card-route-guidance'), lat, lon);
     }
     _highlightNavStepInPanel(panelEl, lat, lon);
 }

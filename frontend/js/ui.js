@@ -806,6 +806,44 @@ function updateSelectedEmergencyShelterRouteInfo(distanceMeters, durationSeconds
     document.getElementById('shelter-card-duration').textContent = durText;
 }
 
+// ゴールピンタップ時にフロートカードへルート案内を表示
+function showUserDestInFloatCard() {
+    if (!userDestination) return;
+    const transportLabel = document.getElementById('transportMode').value === 'walking' ? '徒歩' : '車';
+
+    document.getElementById('shelter-card-name').textContent = userDestination.name || '目的地';
+    document.getElementById('shelter-card-designation').textContent = '手動設定の目的地';
+    const addrEl = document.getElementById('shelter-card-address');
+    addrEl.style.display = 'none';
+    document.getElementById('shelter-card-transport').textContent = transportLabel;
+
+    // userDestRouteGuidance の内容をカードにコピー
+    const srcPanel = document.getElementById('userDestRouteGuidance');
+    const dstPanel = document.getElementById('shelter-card-route-guidance');
+    if (srcPanel && dstPanel) {
+        dstPanel.innerHTML = srcPanel.innerHTML;
+        // summaryから距離・時間を読み取る
+        const summary = srcPanel.querySelector('.route-guidance-summary');
+        if (summary) {
+            const text = summary.textContent;
+            const distMatch = text.match(/距離:\s*([^\s/]+)/);
+            const durMatch  = text.match(/所要時間:\s*(.+)/);
+            document.getElementById('shelter-card-distance').textContent = distMatch ? distMatch[1] : '-';
+            document.getElementById('shelter-card-duration').textContent = durMatch  ? durMatch[1]  : '-';
+        } else {
+            document.getElementById('shelter-card-distance').textContent = '-';
+            document.getElementById('shelter-card-duration').textContent = '-';
+        }
+    }
+
+    const card = document.getElementById('shelter-map-card');
+    card.style.top       = '50%';
+    card.style.left      = '50%';
+    card.style.bottom    = 'auto';
+    card.style.transform = 'translate(-50%, -50%)';
+    card.style.display   = 'block';
+}
+
 function hideSelectedEmergencyShelter() {
     clearSelectedEmergencyShelterRouteGuidance();
     document.getElementById('selectedShelterInfo').style.display = 'none';

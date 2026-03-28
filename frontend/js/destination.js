@@ -219,6 +219,10 @@ function _setUserDestinationMarker(lat, lon, name) {
             popupAnchor: [0, -30]
         })
     }).bindPopup(`<strong>${name}</strong>`).addTo(map);
+
+    userDestinationMarker.on('click', () => {
+        showUserDestInFloatCard();
+    });
 }
 
 // ── ルート表示（既存 routing/navigation を再利用） ────────────────────────

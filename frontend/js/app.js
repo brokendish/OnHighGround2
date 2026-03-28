@@ -29,6 +29,34 @@ document.getElementById('shelter-map-card-close').addEventListener('click', () =
 });
 // カード内スクロールが地図に伝播しないようにする
 L.DomEvent.disableScrollPropagation(shelterMapCard);
+// リサイズハンドル
+(function makeResizable(card) {
+    const handle = card.querySelector('#shelter-card-resize-handle');
+    if (!handle) return;
+    let resizing = false;
+    let startY, startH;
+
+    function resizeStart(cy) {
+        resizing = true;
+        startY = cy;
+        startH = card.offsetHeight;
+    }
+    function resizeMove(cy) {
+        if (!resizing) return;
+        const dy = cy - startY;
+        const newH = Math.min(Math.max(startH + dy, 140), window.innerHeight * 0.85);
+        card.style.height = newH + 'px';
+    }
+    function resizeEnd() { resizing = false; }
+
+    handle.addEventListener('mousedown',  (e) => { e.preventDefault(); resizeStart(e.clientY); });
+    document.addEventListener('mousemove', (e) => resizeMove(e.clientY));
+    document.addEventListener('mouseup',   resizeEnd);
+
+    handle.addEventListener('touchstart',  (e) => { resizeStart(e.touches[0].clientY); }, { passive: true });
+    document.addEventListener('touchmove',  (e) => { if (!resizing) return; e.preventDefault(); resizeMove(e.touches[0].clientY); }, { passive: false });
+    document.addEventListener('touchend',   resizeEnd);
+})(shelterMapCard);
 // カードをドラッグ可能にする（ヘッダー部分をつかんで移動）
 (function makeDraggable(card) {
     const header = card.querySelector('#shelter-map-card-header');

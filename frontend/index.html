@@ -1131,8 +1131,11 @@
             left: 50%;
             transform: translate(-50%, -50%);
             width: 290px;
-            max-height: 55vh;
+            height: 55vh;
+            min-height: 140px;
+            max-height: 85vh;
             overflow-y: auto;
+            resize: none;
             background: rgba(255, 255, 255, 0.97);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
@@ -1152,6 +1155,28 @@
             user-select: none;
         }
         #shelter-map-card-header:active { cursor: grabbing; }
+        #shelter-card-resize-handle {
+            position: sticky;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: ns-resize;
+            background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.95));
+            margin: 0 -14px -10px;
+            border-radius: 0 0 14px 14px;
+        }
+        #shelter-card-resize-handle::before {
+            content: '';
+            width: 36px;
+            height: 4px;
+            background: #ccc;
+            border-radius: 2px;
+        }
+        #shelter-card-resize-handle:hover::before { background: #999; }
         #shelter-card-name {
             font-size: 13px;
             font-weight: 700;
@@ -2006,6 +2031,7 @@
                         <span>⏱ <span id="shelter-card-duration">-</span></span>
                     </div>
                     <div class="route-guidance" id="shelter-card-route-guidance"></div>
+                    <div id="shelter-card-resize-handle"></div>
                 </div>
 
                 <!-- 下部: 現在地 / 検索 / ナビ / スライダ -->
