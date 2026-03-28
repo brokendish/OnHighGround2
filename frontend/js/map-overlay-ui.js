@@ -24,6 +24,13 @@ const hazardLayerMenu = [
             { checkboxId: 'showTsunamiHazardTokyo',    layerKey: 'tsunami_tokyo',    label: '東京都',   enabled: true },
             { checkboxId: 'showTsunamiHazardKanagawa', layerKey: 'tsunami_kanagawa', label: '神奈川県', enabled: true },
             { checkboxId: 'showTsunamiHazardChiba',    layerKey: 'tsunami_chiba',    label: '千葉県',   enabled: true },
+        ],
+        legend: [
+            { color: '#ffe082', label: '〜0.5m' },
+            { color: '#ffca28', label: '0.5〜1m' },
+            { color: '#ff8f00', label: '1〜3m' },
+            { color: '#f4511e', label: '3〜5m' },
+            { color: '#b71c1c', label: '5m超' },
         ]
     },
     {
@@ -31,6 +38,13 @@ const hazardLayerMenu = [
         label: '洪水浸水想定',
         items: [
             { checkboxId: 'showFloodTokyoMax', layerKey: 'flood_tokyo_max', label: '東京都（想定最大規模）', enabled: true },
+        ],
+        legend: [
+            { color: '#ffe082', label: '0.5m未満' },
+            { color: '#ffca28', label: '0.5〜3m' },
+            { color: '#ff8f00', label: '3〜5m' },
+            { color: '#f4511e', label: '5〜10m' },
+            { color: '#b71c1c', label: '10m以上' },
         ]
     },
     {
@@ -38,6 +52,14 @@ const hazardLayerMenu = [
         label: '高潮浸水想定',
         items: [
             { checkboxId: 'showStormSurgeTokyo', layerKey: 'storm_surge_tokyo', label: '東京都', enabled: true },
+        ],
+        legend: [
+            { color: '#b3e5fc', label: '0.3m未満' },
+            { color: '#4fc3f7', label: '0.3〜0.5m' },
+            { color: '#0288d1', label: '0.5〜1m' },
+            { color: '#01579b', label: '1〜3m' },
+            { color: '#7b1fa2', label: '3〜5m' },
+            { color: '#4a148c', label: '5m超' },
         ]
     },
     {
@@ -45,6 +67,12 @@ const hazardLayerMenu = [
         label: '内水氾濫',
         items: [
             { checkboxId: 'showInlandFloodTokyo', layerKey: 'inland_flood_tokyo', label: '東京都', enabled: true },
+        ],
+        legend: [
+            { color: '#b3e5fc', label: '不明・安全' },
+            { color: '#29b6f6', label: '0〜1m' },
+            { color: '#f4511e', label: '1〜3m' },
+            { color: '#b71c1c', label: '3m以上' },
         ]
     },
     {
@@ -52,6 +80,10 @@ const hazardLayerMenu = [
         label: '土砂災害',
         items: [
             { checkboxId: 'showLandslideTokyo', layerKey: 'landslide_tokyo', label: '東京都', enabled: true },
+        ],
+        legend: [
+            { color: '#b71c1c', label: '特別警戒区域' },
+            { color: '#e65100', label: '警戒区域' },
         ]
     },
 ];
@@ -270,6 +302,19 @@ function buildLayerPanel() {
             labelEl.appendChild(document.createTextNode(item.label));
             prefs.appendChild(labelEl);
         });
+
+        // 凡例
+        if (Array.isArray(cat.legend) && cat.legend.length > 0) {
+            const legendEl = document.createElement('div');
+            legendEl.className = 'lpc-legend';
+            cat.legend.forEach(entry => {
+                const row = document.createElement('div');
+                row.className = 'lpc-legend-entry';
+                row.innerHTML = `<span class="lpc-legend-swatch" style="background:${entry.color};"></span>${entry.label}`;
+                legendEl.appendChild(row);
+            });
+            prefs.appendChild(legendEl);
+        }
 
         catEl.appendChild(header);
         catEl.appendChild(prefs);
