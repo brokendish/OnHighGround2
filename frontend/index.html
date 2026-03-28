@@ -76,6 +76,12 @@
             box-sizing: border-box;
         }
 
+        .sidebar-wrapper.collapsed .sidebar {
+            width: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
         .sidebar-toggle {
             position: absolute;
             right: -28px;
@@ -690,6 +696,13 @@
             .sidebar {
                 width: 100%;
                 max-height: 40vh;
+            }
+
+            .sidebar-wrapper.collapsed .sidebar {
+                max-height: 0;
+                width: 100%;
+                padding: 0;
+                overflow: hidden;
             }
 
             .sidebar-toggle {
@@ -1425,6 +1438,52 @@
             pointer-events: auto;
         }
 
+        /* ── ズームコントロールをバッジの下へ ─────────────────── */
+        #map .leaflet-top.leaflet-left {
+            top: 82px;
+        }
+
+        /* ── 左上ブランドバッジ ──────────────────────────────── */
+        #map-brand-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border-radius: 20px;
+            padding: 5px 12px 5px 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            pointer-events: none;
+        }
+        .map-brand-icon {
+            width: 40px;
+            height: 40px;
+            object-fit: contain;
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+        .map-brand-text {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .map-brand-name {
+            font-size: 14px;
+            font-weight: 700;
+            color: #333;
+            letter-spacing: 0.3px;
+            line-height: 1.2;
+        }
+        .map-brand-sub {
+            font-size: 10px;
+            color: #666;
+            line-height: 1.3;
+        }
+
         /* ── 右上コントロール群 ──────────────────────────────── */
         #map-top-right-controls {
             position: absolute;
@@ -1793,8 +1852,8 @@
 </head>
 <body>
     <div class="container">
-        <div class="sidebar-wrapper" id="sidebarWrapper">
-        <button class="sidebar-toggle" id="sidebarToggle" title="サイドバーを開閉">◀</button>
+        <div class="sidebar-wrapper collapsed" id="sidebarWrapper">
+        <button class="sidebar-toggle" id="sidebarToggle" title="サイドバーを開く">▶</button>
         <div class="sidebar">
             <div class="sidebar-header">
                 <div class="header-content">
@@ -2014,6 +2073,15 @@
         <div id="map">
             <!-- ══ 地図オーバーレイUI ══════════════════════════════ -->
             <div id="map-ui-overlay">
+
+                <!-- 左上: ブランドバッジ -->
+                <div id="map-brand-badge">
+                    <img src="./icon.png" alt="OnHighGround" class="map-brand-icon">
+                    <div class="map-brand-text">
+                        <span class="map-brand-name">OnHighGround</span>
+                        <span class="map-brand-sub">津波・高潮・洪水から身を守る避難経路案内</span>
+                    </div>
+                </div>
 
                 <!-- 右上: レイヤー / クリア / 凡例 -->
                 <div id="map-top-right-controls">
@@ -2355,6 +2423,9 @@
                 });
             }, { passive: false });
         })();
+
+        // 起動時サイドバーが閉じているため地図サイズを再計算
+        setTimeout(function() { if (typeof map !== 'undefined') map.invalidateSize(); }, 50);
     </script>
 
 </body>
