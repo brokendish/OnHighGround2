@@ -16,6 +16,8 @@ let destinationMarkerBaseStyles = []; // 意味色を保持（案内中でも基
 
 // ── 指定緊急避難場所 ──────────────────────────────────────────────────────
 let emergencyShelterMarkers = [];
+let selectedEmergencyShelterSite   = null; // 現在選択中の避難場所（サイトデータ）
+let selectedEmergencyShelterMarker = null; // 現在選択中の避難場所（Leafletマーカー）
 
 // ── ルーティング ──────────────────────────────────────────────────────────
 let routingControl = null;

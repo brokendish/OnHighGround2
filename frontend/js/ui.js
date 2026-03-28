@@ -230,7 +230,10 @@ function displayDestinations(dests, recommended) {
             radius,
             weight: isRecommended ? 3 : 2
         };
-        const marker = L.circleMarker([dest.lat, dest.lon], baseStyle).addTo(map);
+        const marker = L.circleMarker([dest.lat, dest.lon], {
+            ...baseStyle,
+            bubblingMouseEvents: false
+        }).addTo(map);
 
         const hazardLabel = dest.hazard_safe === true ? '✅ 危険区域外'
             : dest.hazard_safe === false ? '⚠️ 危険区域内'
@@ -241,17 +244,10 @@ function displayDestinations(dests, recommended) {
         const nameLabel = dest.name ? `<strong>${dest.name}</strong>` : `<strong>避難先候補 #${index + 1}</strong>`;
         const recLabel = isRecommended ? '<br><span style="color:#e65100;font-weight:700;">⭐ 推奨避難先</span>' : '';
 
-        marker.bindPopup(`
-            ${nameLabel}${recLabel}<br>
-            ${hazardLabel}${hazardNote}
-            ${renderHazardAssessmentPopup(dest.hazard_assessment)}
-            ${renderTimeMarginPopup(dest)}
-            <br>標高: ${dest.elevation.toFixed(1)} m（差: +${dest.elevation_gain.toFixed(1)} m）<br>
-            距離: ${dest.distance.toFixed(0)} m | 約${dest.estimated_time_minutes.toFixed(0)}分<br>
-            安全スコア: ${dest.safety_score.toFixed(1)}
-        `);
-
         marker.on('click', () => {
+            // 左パネルを確実に表示してからカードを選択・スクロール
+            const panel = document.getElementById('destinationsPanel');
+            if (panel) panel.style.display = 'block';
             showRoute(dest, index, { ensureCardVisible: true });
         });
 
@@ -756,29 +752,66 @@ function clearSearchResults() {
 // ── 指定緊急避難場所の選択情報 ───────────────────────────────────────────
 
 function showSelectedEmergencyShelter(site) {
+    const transportLabel = document.getElementById('transportMode').value === 'walking' ? '徒歩' : '車';
+
+    // サイドパネル更新
     document.getElementById('selectedShelterName').textContent = site.name || '名称未設定';
     document.getElementById('selectedShelterDesignation').textContent = site.designation || '指定緊急避難場所';
     document.getElementById('selectedShelterAddress').textContent = site.address || '-';
     document.getElementById('selectedShelterLat').textContent = Number(site.lat).toFixed(6);
     document.getElementById('selectedShelterLon').textContent = Number(site.lon).toFixed(6);
-    document.getElementById('selectedShelterTransport').textContent = document.getElementById('transportMode').value === 'walking' ? '徒歩' : '車';
+    document.getElementById('selectedShelterTransport').textContent = transportLabel;
     document.getElementById('selectedShelterDistance').textContent = '計算中...';
     document.getElementById('selectedShelterDuration').textContent = '計算中...';
     clearSelectedEmergencyShelterRouteGuidance();
     document.getElementById('selectedShelterInfo').style.display = 'block';
+
+    // 地図カード更新
+    document.getElementById('shelter-card-name').textContent = site.name || '名称未設定';
+    document.getElementById('shelter-card-designation').textContent = site.designation || '指定緊急避難場所';
+    const addrEl = document.getElementById('shelter-card-address');
+    if (site.address) {
+        addrEl.textContent = '📍 ' + site.address;
+        addrEl.style.display = 'block';
+    } else {
+        addrEl.style.display = 'none';
+    }
+    document.getElementById('shelter-card-transport').textContent = transportLabel;
+    document.getElementById('shelter-card-distance').textContent = '計算中...';
+    document.getElementById('shelter-card-duration').textContent = '計算中...';
+    const shelterCard = document.getElementById('shelter-map-card');
+    // ドラッグ後に位置がずれないよう中央に戻す
+    shelterCard.style.top       = '50%';
+    shelterCard.style.left      = '50%';
+    shelterCard.style.bottom    = 'auto';
+    shelterCard.style.transform = 'translate(-50%, -50%)';
+    shelterCard.style.display   = 'block';
 }
 
 function updateSelectedEmergencyShelterRouteInfo(distanceMeters, durationSeconds, transportMode) {
     const durationSec = Number(durationSeconds);
     const durationMin = durationSec / 60;
-    document.getElementById('selectedShelterTransport').textContent = transportMode === 'walking' ? '徒歩' : '車';
-    document.getElementById('selectedShelterDistance').textContent = `${Number(distanceMeters).toFixed(0)} m`;
+    const transportLabel = transportMode === 'walking' ? '徒歩' : '車';
+    const distText = `${Number(distanceMeters).toFixed(0)} m`;
+    const durText  = `${durationMin.toFixed(1)} 分`;
+
+    // サイドパネル更新
+    document.getElementById('selectedShelterTransport').textContent = transportLabel;
+    document.getElementById('selectedShelterDistance').textContent = distText;
     document.getElementById('selectedShelterDuration').textContent = `${durationMin.toFixed(1)} 分 (${Math.round(durationSec)} 秒)`;
+
+    // 地図カード更新
+    document.getElementById('shelter-card-transport').textContent = transportLabel;
+    document.getElementById('shelter-card-distance').textContent = distText;
+    document.getElementById('shelter-card-duration').textContent = durText;
 }
 
 function hideSelectedEmergencyShelter() {
     clearSelectedEmergencyShelterRouteGuidance();
     document.getElementById('selectedShelterInfo').style.display = 'none';
+    document.getElementById('shelter-map-card').style.display = 'none';
+    selectedEmergencyShelterSite   = null;
+    selectedEmergencyShelterMarker = null;
 }
 
 // ── メッセージ・ステータステキスト ────────────────────────────────────────

@@ -3,8 +3,9 @@
  *
  * - refreshEmergencyShelters: 現在の地図範囲内の避難場所を取得・表示
  * - scheduleEmergencyShelterRefresh: デバウンスつき更新スケジューラ
- * - showRouteToEmergencyShelter: 避難場所へのルート表示
+ * - showRouteToEmergencyShelter: 避難場所へのルート表示 + 地図カード表示
  * - clearEmergencyShelterMarkers: 避難場所マーカーのクリア
+ * - triggerShelterRoute: ポップアップボタンからルートを起動（グローバル）
  */
 
 function clearEmergencyShelterMarkers() {
@@ -40,27 +41,38 @@ async function refreshEmergencyShelters() {
         }
 
         clearEmergencyShelterMarkers();
+        let reopenMarker = null;
         (data.data || []).forEach((site) => {
             const marker = L.circleMarker([site.lat, site.lon], {
                 color: '#2e7d32',
                 fillColor: '#2e7d32',
                 fillOpacity: 0.65,
                 radius: 6,
-                weight: 1
+                weight: 1,
+                bubblingMouseEvents: false
             }).addTo(map);
 
-            marker.bindPopup(`
-                <strong>${site.name || '指定緊急避難場所'}</strong><br>
-                区分: ${site.designation || '指定緊急避難場所'}<br>
-                ${site.address ? `住所: ${site.address}<br>` : ''}
-                緯度: ${Number(site.lat).toFixed(6)}<br>
-                経度: ${Number(site.lon).toFixed(6)}
-            `);
+            marker.bindPopup(_buildShelterPopupHtml(site), { maxWidth: 240 });
             marker.on('click', () => {
-                showRouteToEmergencyShelter(site, marker);
+                selectedEmergencyShelterSite   = site;
+                selectedEmergencyShelterMarker = marker;
+                // bindPopup により自動的にポップアップが開く
             });
             emergencyShelterMarkers.push(marker);
+
+            // リフレッシュ前に選択されていた避難場所のマーカーを再取得
+            if (selectedEmergencyShelterSite &&
+                Math.abs(site.lat - selectedEmergencyShelterSite.lat) < 1e-8 &&
+                Math.abs(site.lon - selectedEmergencyShelterSite.lon) < 1e-8) {
+                reopenMarker = marker;
+                selectedEmergencyShelterMarker = marker;
+            }
         });
+
+        // 選択中の避難場所が範囲内にあれば、地図カードはそのまま維持（ポップアップは再開しない）
+        if (reopenMarker && document.getElementById('shelter-map-card').style.display !== 'none') {
+            // カードが開いていた場合はマーカー参照のみ更新（ポップアップは開かない）
+        }
 
         const totalCount = data.total_count ?? data.count ?? 0;
         setShelterStatus(`表示中: ${data.count || 0} 件（範囲内合計: ${totalCount} 件）`);
@@ -68,6 +80,36 @@ async function refreshEmergencyShelters() {
         console.error('指定緊急避難場所の取得エラー:', error);
         setShelterStatus(`取得失敗: ${error.message}`);
     }
+}
+
+function _buildShelterPopupHtml(site) {
+    const addrHtml = site.address
+        ? `<div style="font-size:11px;color:#333;margin-bottom:6px;">📍 ${site.address}</div>`
+        : '';
+    return `
+        <div style="font-size:13px;font-weight:700;color:#1b5e20;margin-bottom:3px;">
+            🏠 ${site.name || '指定緊急避難場所'}
+        </div>
+        <div style="font-size:11px;color:#555;margin-bottom:4px;">
+            ${site.designation || '指定緊急避難場所'}
+        </div>
+        ${addrHtml}
+        <div style="font-size:11px;color:#888;margin-bottom:8px;">
+            ${Number(site.lat).toFixed(5)}, ${Number(site.lon).toFixed(5)}
+        </div>
+        <button onclick="triggerShelterRoute()"
+                style="width:100%;padding:7px;background:#2e7d32;color:white;border:none;
+                       border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">
+            🗺️ ルートを表示
+        </button>
+    `;
+}
+
+// ポップアップ内ボタンから呼ばれるグローバル関数
+function triggerShelterRoute() {
+    if (!selectedEmergencyShelterSite || !selectedEmergencyShelterMarker) return;
+    map.closePopup();
+    showRouteToEmergencyShelter(selectedEmergencyShelterSite, selectedEmergencyShelterMarker);
 }
 
 function showRouteToEmergencyShelter(site, marker) {
@@ -82,6 +124,7 @@ function showRouteToEmergencyShelter(site, marker) {
         updateNavigatingState(null);
     }
 
+    // 地図カードに情報を表示
     showSelectedEmergencyShelter(site);
 
     // ナビモードに目的地を即時通知（navPanel 表示・navDestination 設定）
@@ -116,12 +159,12 @@ function showRouteToEmergencyShelter(site, marker) {
         onRouteError: () => {
             document.getElementById('selectedShelterDistance').textContent = '計算失敗';
             document.getElementById('selectedShelterDuration').textContent = '計算失敗';
+            document.getElementById('shelter-card-distance').textContent = '計算失敗';
+            document.getElementById('shelter-card-duration').textContent = '計算失敗';
             clearSelectedEmergencyShelterRouteGuidance();
         }
     });
     if (!routed) {
         return;
     }
-
-    marker.openPopup();
 }

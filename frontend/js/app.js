@@ -23,6 +23,73 @@ autoRefreshOnManualUpdateCheckbox.addEventListener('change', (event) => {
     isAutoRefreshOnManualUpdate = event.target.checked;
 });
 
+const shelterMapCard = document.getElementById('shelter-map-card');
+document.getElementById('shelter-map-card-close').addEventListener('click', () => {
+    hideSelectedEmergencyShelter();
+});
+// カード内スクロールが地図に伝播しないようにする
+L.DomEvent.disableScrollPropagation(shelterMapCard);
+// カードをドラッグ可能にする（ヘッダー部分をつかんで移動）
+(function makeDraggable(card) {
+    const header = card.querySelector('#shelter-map-card-header');
+    if (!header) return;
+    header.style.cursor = 'grab';
+
+    let dragging = false;
+    let startX, startY, origLeft, origTop;
+
+    function dragStart(cx, cy) {
+        dragging = true;
+        const parentRect = card.parentElement.getBoundingClientRect();
+        const cardRect   = card.getBoundingClientRect();
+        // 親要素基準の座標に変換して top/left で固定（bottom 基準を解除）
+        origLeft = cardRect.left - parentRect.left;
+        origTop  = cardRect.top  - parentRect.top;
+        card.style.transform = 'none';
+        card.style.left      = origLeft + 'px';
+        card.style.top       = origTop  + 'px';
+        card.style.bottom    = 'auto';
+        startX = cx;
+        startY = cy;
+        header.style.cursor = 'grabbing';
+        L.DomEvent.disableClickPropagation(card);
+    }
+
+    function dragMove(cx, cy) {
+        if (!dragging) return;
+        const dx = cx - startX;
+        const dy = cy - startY;
+        const parent  = card.parentElement;
+        const newLeft = Math.max(0, Math.min(origLeft + dx, parent.offsetWidth  - card.offsetWidth));
+        const newTop  = Math.max(0, Math.min(origTop  + dy, parent.offsetHeight - card.offsetHeight));
+        card.style.left = newLeft + 'px';
+        card.style.top  = newTop  + 'px';
+    }
+
+    function dragEnd() {
+        dragging = false;
+        header.style.cursor = 'grab';
+    }
+
+    // マウス
+    header.addEventListener('mousedown', (e) => { e.preventDefault(); dragStart(e.clientX, e.clientY); });
+    document.addEventListener('mousemove', (e) => dragMove(e.clientX, e.clientY));
+    document.addEventListener('mouseup',   dragEnd);
+
+    // タッチ
+    header.addEventListener('touchstart', (e) => {
+        const t = e.touches[0];
+        dragStart(t.clientX, t.clientY);
+    }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+        if (!dragging) return;
+        e.preventDefault();
+        const t = e.touches[0];
+        dragMove(t.clientX, t.clientY);
+    }, { passive: false });
+    document.addEventListener('touchend', dragEnd);
+})(shelterMapCard);
+
 showEmergencySheltersCheckbox.addEventListener('change', (event) => {
     isEmergencyShelterVisible = event.target.checked;
     if (!isEmergencyShelterVisible) {
@@ -42,6 +109,7 @@ map.on('moveend', () => {
     }
     scheduleEmergencyShelterRefresh();
 });
+
 
 map.on('click', async (event) => {
     const { lat, lng } = event.latlng;

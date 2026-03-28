@@ -55,7 +55,7 @@ function _setupRouteSelectHandler(routeList, selectedRouteIndex, onSelect) {
             for (let i = 0; i < cand.coords.length - 1; i++) {
                 const a = map.latLngToContainerPoint(cand.coords[i]);
                 const b = map.latLngToContainerPoint(cand.coords[i + 1]);
-                const d = _pointToSegmentDist(containerPt, a, b);
+                const d = _pointToSegmentDist(pt, a, b);
                 if (d < minDist) minDist = d;
             }
         }
@@ -511,9 +511,9 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
 
 function clearSelectedEmergencyShelterRouteGuidance() {
     const panel = document.getElementById('selectedShelterRouteGuidance');
-    if (!panel) { return; }
-    panel.innerHTML = '';
-    panel.classList.remove('active');
+    if (panel) { panel.innerHTML = ''; panel.classList.remove('active'); }
+    const cardPanel = document.getElementById('shelter-card-route-guidance');
+    if (cardPanel) { cardPanel.innerHTML = ''; cardPanel.classList.remove('active'); }
 }
 
 function clearUserDestRouteGuidance() {
@@ -625,6 +625,7 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
 
 function renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
     _renderRouteGuidanceToPanelId('selectedShelterRouteGuidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
+    _renderRouteGuidanceToPanelId('shelter-card-route-guidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
 }
 
 function renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
@@ -701,7 +702,9 @@ function drawRouteTo(lat, lon, options = {}) {
         language: 'ja',
         showAlternatives: true,
         addWaypoints: false,
+        draggableWaypoints: false,
         routeWhileDragging: false,
+        createMarker: () => null,  // LRM の waypoint マーカー（draggable IMG）を生成しない
         fitSelectedRoutes: true,
         show: false,  // ルート説明パネルを非表示
         routeLine: (route, lineOptions) => {

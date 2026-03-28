@@ -615,6 +615,7 @@ function _updateNavUI() {
     if (shelterStartBtn) shelterStartBtn.style.display = (!isActive && mode !== 'browse' && shelterIsTarget && canStartNav) ? 'block' : 'none';
     const shelterStopBtn = el('shelterNavStopBtn');
     if (shelterStopBtn) shelterStopBtn.style.display = (isActive && shelterIsTarget) ? 'block' : 'none';
+
     const shelterRerouteSameBtn = el('shelterRerouteSameBtn');
     if (shelterRerouteSameBtn) {
         shelterRerouteSameBtn.style.display = (isWarning && shelterIsTarget) ? 'block' : 'none';
