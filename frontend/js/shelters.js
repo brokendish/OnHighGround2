@@ -43,12 +43,23 @@ async function refreshEmergencyShelters() {
         clearEmergencyShelterMarkers();
         let reopenMarker = null;
         (data.data || []).forEach((site) => {
-            const marker = L.circleMarker([site.lat, site.lon], {
+            // 視覚マーカー（小さい緑丸・非インタラクティブ）
+            const visMarker = L.circleMarker([site.lat, site.lon], {
                 color: '#2e7d32',
                 fillColor: '#2e7d32',
-                fillOpacity: 0.65,
-                radius: 6,
-                weight: 1,
+                fillOpacity: 0.75,
+                radius: 7,
+                weight: 1.5,
+                interactive: false
+            }).addTo(map);
+
+            // ヒットエリア（大きい透明円・タップ判定用）
+            const marker = L.circleMarker([site.lat, site.lon], {
+                color: 'transparent',
+                fillColor: 'transparent',
+                fillOpacity: 0,
+                radius: 20,
+                weight: 0,
                 bubblingMouseEvents: false
             }).addTo(map);
 
@@ -56,8 +67,8 @@ async function refreshEmergencyShelters() {
             marker.on('click', () => {
                 selectedEmergencyShelterSite   = site;
                 selectedEmergencyShelterMarker = marker;
-                // bindPopup により自動的にポップアップが開く
             });
+            emergencyShelterMarkers.push(visMarker);
             emergencyShelterMarkers.push(marker);
 
             // リフレッシュ前に選択されていた避難場所のマーカーを再取得
