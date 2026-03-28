@@ -22,6 +22,9 @@ const NAV_AUTO_REROUTE_ACCURACY_M  = 30;    // 精度ガード（30m以内なら
 const NAV_AUTO_REROUTE_MAX_COUNT   = 3;     // ウィンドウ内最大回数
 const NAV_AUTO_REROUTE_WINDOW_MS   = 120000;// 回数カウントウィンドウ（ms）
 
+// ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
+const NAV_ELEV_UPDATE_M = 10; // 標高再取得の移動距離しきい値（メートル）
+
 // ── Haversine 距離（メートル） ─────────────────────────────────────────────
 function _navHaversine(lat1, lon1, lat2, lon2) {
     const R = 6371000;
@@ -31,6 +34,18 @@ function _navHaversine(lat1, lon1, lat2, lon2) {
     const a = Math.sin(dLat / 2) ** 2
             + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ── 標高取得（/elevation API） ────────────────────────────────────────────
+async function _fetchElevation(lat, lon) {
+    try {
+        const res = await apiFetch(`/elevation?lat=${lat}&lon=${lon}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return typeof data.elevation === 'number' ? data.elevation : null;
+    } catch {
+        return null;
+    }
 }
 
 // ── 距離フォーマット（ナビ用） ────────────────────────────────────────────
@@ -105,6 +120,18 @@ function startNavigation() {
     navLastAutoRerouteAt          = 0;
     // コンパス初期化（iOS はユーザー操作後でないと許可ダイアログが出ないためここで呼ぶ）
     if (typeof initOrientation === 'function') initOrientation();
+    // 開始地点の標高を取得
+    navStartElevation   = null;
+    navCurrentElevation = null;
+    navLastElevFetchPos = null;
+    if (currentLocation) {
+        _fetchElevation(currentLocation.lat, currentLocation.lon).then(elev => {
+            navStartElevation = elev;
+            const el = document.getElementById('mbc-start-elev');
+            if (el && elev !== null) el.textContent = `${elev.toFixed(0)}m`;
+        });
+    }
+
     navWatchId = navigator.geolocation.watchPosition(
         _onNavPosition,
         _onNavPositionError,
@@ -123,6 +150,13 @@ function stopNavigation() {
     navOffRouteCount         = 0;
     navRerouteInProgress     = false;
     navAutoRerouteInProgress = false;
+    navStartElevation        = null;
+    navCurrentElevation      = null;
+    navLastElevFetchPos      = null;
+    const seEl = document.getElementById('mbc-start-elev');
+    const ceEl = document.getElementById('mbc-current-elev');
+    if (seEl) seEl.textContent = '—';
+    if (ceEl) ceEl.textContent = '—';
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     setNavMode('browse');
 }
@@ -249,6 +283,18 @@ function _onNavPosition(position) {
     const remM = _remainingRouteDistance(lat, lon);
     const remEl = document.getElementById('mbc-remain-dist');
     if (remEl && remM !== null) remEl.textContent = _fmtNavDist(remM);
+
+    // 現在標高更新（NAV_ELEV_UPDATE_M 以上移動した場合のみAPIを叩く）
+    if (!navLastElevFetchPos ||
+        _navHaversine(navLastElevFetchPos.lat, navLastElevFetchPos.lon, lat, lon) >= NAV_ELEV_UPDATE_M) {
+        navLastElevFetchPos = { lat, lon };
+        _fetchElevation(lat, lon).then(elev => {
+            if (elev === null) return;
+            navCurrentElevation = elev;
+            const el = document.getElementById('mbc-current-elev');
+            if (el) el.textContent = `${elev.toFixed(0)}m`;
+        });
+    }
 
     // GPS 精度警告（逸脱・到達判定はスキップ）
     if (accuracy > NAV_LOW_ACCURACY_M) {
@@ -477,13 +523,14 @@ function _updateNavUI() {
     if (rowNav)     rowNav.style.display     = showNavRow    ? '' : 'none';
     if (rowSliders) rowSliders.style.display = showNormalRow ? '' : 'none';
 
-    // 距離情報行: ルート確認中・ナビ中に表示
-    const distInfo = el('mbc-dist-info');
-    if (distInfo) distInfo.style.display = showNavRow ? 'flex' : 'none';
+    // 距離・標高行: ルート確認中・ナビ中に表示
+    const rowDist = el('mbc-row-dist');
+    if (rowDist) rowDist.style.display = showNavRow ? '' : 'none';
     // 総距離をルート確定時に更新
     if (showNavRow && navActiveRoute && navActiveRoute.summary) {
         const totalM = Number(navActiveRoute.summary.totalDistance);
-        el('mbc-total-dist').textContent = _fmtNavDist(totalM);
+        const td = el('mbc-total-dist');
+        if (td) td.textContent = _fmtNavDist(totalM);
     } else if (!showNavRow) {
         const td = el('mbc-total-dist');
         const rd = el('mbc-remain-dist');
