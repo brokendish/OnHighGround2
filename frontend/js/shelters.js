@@ -96,6 +96,11 @@ async function refreshEmergencyShelters() {
 
         const totalCount = data.total_count ?? data.count ?? 0;
         setShelterStatus(`表示中: ${data.count || 0} 件（範囲内合計: ${totalCount} 件）`);
+
+        // 避難先マーカー（①②③）を前面に戻す（避難場所の大きいヒットエリアに隠れないよう）
+        if (typeof destinationMarkers !== 'undefined') {
+            destinationMarkers.forEach(m => { if (typeof m.bringToFront === 'function') m.bringToFront(); });
+        }
     } catch (error) {
         console.error('指定緊急避難場所の取得エラー:', error);
         setShelterStatus(`取得失敗: ${error.message}`);

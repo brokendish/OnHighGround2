@@ -258,6 +258,7 @@ function displayDestinations(dests, recommended) {
             className: 'destination-number-label'
         });
 
+        marker.bringToFront();
         destinationMarkers.push(marker);
         destinationMarkerBaseStyles.push(baseStyle);
     });
