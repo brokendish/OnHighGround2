@@ -58,7 +58,7 @@ async function refreshEmergencyShelters() {
                 color: 'transparent',
                 fillColor: 'transparent',
                 fillOpacity: 0,
-                radius: 20,
+                radius: 30,
                 weight: 0,
                 bubblingMouseEvents: false
             }).addTo(map);
