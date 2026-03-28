@@ -23,7 +23,8 @@ const NAV_AUTO_REROUTE_MAX_COUNT   = 3;     // ウィンドウ内最大回数
 const NAV_AUTO_REROUTE_WINDOW_MS   = 120000;// 回数カウントウィンドウ（ms）
 
 // ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
-const NAV_ELEV_UPDATE_M = 10; // 標高再取得の移動距離しきい値（メートル）
+const NAV_ELEV_UPDATE_M    = 10; // 標高再取得の移動距離しきい値（メートル）
+const NAV_HAZARD_UPDATE_M  = 10; // ハザード再取得の移動距離しきい値（メートル）
 
 // ── Haversine 距離（メートル） ─────────────────────────────────────────────
 function _navHaversine(lat1, lon1, lat2, lon2) {
@@ -46,6 +47,39 @@ async function _fetchElevation(lat, lon) {
     } catch {
         return null;
     }
+}
+
+// ── 現在地ハザードチェック ──────────────────────────────────────────────────
+async function _checkCurrentHazard(lat, lon) {
+    try {
+        const res = await apiFetch(`/hazard-check?lat=${lat}&lon=${lon}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        _updateHazardRow(data.is_danger, data.hazard_assessment);
+    } catch {
+        // ネットワークエラー等は無視
+    }
+}
+
+function _updateHazardRow(isDanger, assessment) {
+    const el = document.getElementById('mbc-current-hazard');
+    if (!el) return;
+    if (!isDanger) {
+        el.innerHTML = '<span class="mbc-hazard-safe">✅ 安全</span>';
+        return;
+    }
+    const dangerLabels = [];
+    if (assessment && typeof assessment === 'object') {
+        for (const [key, value] of Object.entries(assessment)) {
+            const isInside = (typeof value === 'string' && value === 'inside') ||
+                             (value && typeof value === 'object' && value.status === 'inside');
+            if (isInside && typeof getHazardLabel === 'function') {
+                dangerLabels.push(getHazardLabel(key));
+            }
+        }
+    }
+    const labelText = dangerLabels.length > 0 ? dangerLabels.join(' / ') : '危険区域内';
+    el.innerHTML = `<span class="mbc-hazard-danger">⚠️ ${labelText}</span>`;
 }
 
 // ── 距離フォーマット（ナビ用） ────────────────────────────────────────────
@@ -121,15 +155,20 @@ function startNavigation() {
     // コンパス初期化（iOS はユーザー操作後でないと許可ダイアログが出ないためここで呼ぶ）
     if (typeof initOrientation === 'function') initOrientation();
     // 開始地点の標高を取得
-    navStartElevation   = null;
-    navCurrentElevation = null;
-    navLastElevFetchPos = null;
+    navStartElevation     = null;
+    navCurrentElevation   = null;
+    navLastElevFetchPos   = null;
+    navLastHazardFetchPos = null;
+    const hazardEl = document.getElementById('mbc-current-hazard');
+    if (hazardEl) hazardEl.textContent = '確認中...';
     if (currentLocation) {
         _fetchElevation(currentLocation.lat, currentLocation.lon).then(elev => {
             navStartElevation = elev;
             const el = document.getElementById('mbc-start-elev');
             if (el && elev !== null) el.textContent = `${elev.toFixed(0)}m`;
         });
+        _checkCurrentHazard(currentLocation.lat, currentLocation.lon);
+        navLastHazardFetchPos = { lat: currentLocation.lat, lon: currentLocation.lon };
     }
 
     navWatchId = navigator.geolocation.watchPosition(
@@ -153,10 +192,13 @@ function stopNavigation() {
     navStartElevation        = null;
     navCurrentElevation      = null;
     navLastElevFetchPos      = null;
+    navLastHazardFetchPos    = null;
     const seEl = document.getElementById('mbc-start-elev');
     const ceEl = document.getElementById('mbc-current-elev');
+    const hzEl = document.getElementById('mbc-current-hazard');
     if (seEl) seEl.textContent = '—';
     if (ceEl) ceEl.textContent = '—';
+    if (hzEl) hzEl.textContent = '確認中...';
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     setNavMode('browse');
 }
@@ -294,6 +336,13 @@ function _onNavPosition(position) {
             const el = document.getElementById('mbc-current-elev');
             if (el) el.textContent = `${elev.toFixed(0)}m`;
         });
+    }
+
+    // 現在地ハザード更新（NAV_HAZARD_UPDATE_M 以上移動した場合のみAPIを叩く）
+    if (!navLastHazardFetchPos ||
+        _navHaversine(navLastHazardFetchPos.lat, navLastHazardFetchPos.lon, lat, lon) >= NAV_HAZARD_UPDATE_M) {
+        navLastHazardFetchPos = { lat, lon };
+        _checkCurrentHazard(lat, lon);
     }
 
     // GPS 精度警告（逸脱・到達判定はスキップ）
@@ -524,8 +573,11 @@ function _updateNavUI() {
     if (rowSliders) rowSliders.style.display = showNormalRow ? '' : 'none';
 
     // 距離・標高行: ルート確認中・ナビ中に表示
-    const rowDist = el('mbc-row-dist');
-    if (rowDist) rowDist.style.display = showNavRow ? '' : 'none';
+    const rowDist   = el('mbc-row-dist');
+    const rowHazard = el('mbc-row-hazard');
+    if (rowDist)   rowDist.style.display   = showNavRow ? '' : 'none';
+    // ハザード行: ナビ中のみ表示（route_preview では非表示）
+    if (rowHazard) rowHazard.style.display = isActive   ? '' : 'none';
     // 総距離をルート確定時に更新
     if (showNavRow && navActiveRoute && navActiveRoute.summary) {
         const totalM = Number(navActiveRoute.summary.totalDistance);

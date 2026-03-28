@@ -76,3 +76,4 @@ let navLastKnownAccuracy          = null;  // 直近GPS精度（m）
 let navStartElevation             = null;  // ナビ開始地点の標高（m）
 let navCurrentElevation           = null;  // 現在地の標高（m、ナビ中随時更新）
 let navLastElevFetchPos           = null;  // 最後に標高取得した座標
+let navLastHazardFetchPos         = null;  // 最後に現在地ハザード取得した座標
