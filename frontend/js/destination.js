@@ -241,7 +241,7 @@ function _drawRouteToUserDestination() {
             if (typeof onNavRouteSelected === 'function') {
                 onNavRouteSelected(routes[selectedRouteIndex], null);
             }
-            renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
+            renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             if (typeof renderUserDestRouteGuidance === 'function') {
                 renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, (newIndex) => {
                     if (typeof selectRouteIndex === 'function') selectRouteIndex(newIndex);

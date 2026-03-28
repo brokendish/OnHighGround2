@@ -103,7 +103,7 @@ function showRouteToEmergencyShelter(site, marker) {
             if (typeof onNavRouteSelected === 'function') {
                 onNavRouteSelected(routes[selectedRouteIndex], null);
             }
-            renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
+            renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             renderSelectedEmergencyShelterRouteGuidance(
                 routes,
                 selectedRouteIndex,

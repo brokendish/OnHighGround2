@@ -214,7 +214,7 @@ function rerouteToSameDestination() {
             navRerouteInProgress = false;
             // 地図上に新しいルートを描画
             if (typeof renderRouteCandidatesOnMap === 'function') {
-                renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
+                renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             }
             // サイドバーの経路ステップを更新
             if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
@@ -403,7 +403,7 @@ function _executeAutoReroute() {
             navAutoRerouteInProgress = false;
 
             if (typeof renderRouteCandidatesOnMap === 'function') {
-                renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
+                renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             }
             // サイドバー経路ステップ更新
             if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {

@@ -7,6 +7,81 @@
  * - 経路ステップのレンダリング・フォーカス
  */
 
+// ── 経路タップ選択用マップクリックハンドラ ────────────────────────────────
+// Leaflet のレイヤーイベントに依存せず、マップクリック時にピクセル距離で
+// 最近傍の非選択経路を検出して選択する。
+let _routeSelectHandler = null; // 登録中のハンドラ参照
+
+function _clearRouteSelectHandler() {
+    if (_routeSelectHandler) {
+        map.off('click', _routeSelectHandler);
+        map.getContainer().style.cursor = '';
+        _routeSelectHandler = null;
+    }
+    map.off('mousemove', _routeHoverHandler);
+}
+
+let _routeHoverHandler = null; // カーソル変更用
+
+function _setupRouteSelectHandler(routeList, selectedRouteIndex, onSelect) {
+    _clearRouteSelectHandler();
+    if (!onSelect || routeList.length <= 1) return;
+
+    const CLICK_PX = 12;
+
+    // 非選択経路の座標リスト
+    const candidates = routeList
+        .map((r, i) => ({ coords: r.coordinates, index: i }))
+        .filter(c => c.index !== selectedRouteIndex);
+
+    function nearestCandidateIndex(containerPt) {
+        let minDist = Infinity;
+        let found = -1;
+        for (const cand of candidates) {
+            for (let i = 0; i < cand.coords.length - 1; i++) {
+                const a = map.latLngToContainerPoint(cand.coords[i]);
+                const b = map.latLngToContainerPoint(cand.coords[i + 1]);
+                const d = _pointToSegmentDist(containerPt, a, b);
+                if (d < minDist) { minDist = d; found = cand.index; }
+            }
+        }
+        return minDist <= CLICK_PX ? found : -1;
+    }
+
+    _routeHoverHandler = (e) => {
+        const pt = map.latLngToContainerPoint(e.latlng);
+        let minDist = Infinity;
+        for (const cand of candidates) {
+            for (let i = 0; i < cand.coords.length - 1; i++) {
+                const a = map.latLngToContainerPoint(cand.coords[i]);
+                const b = map.latLngToContainerPoint(cand.coords[i + 1]);
+                const d = _pointToSegmentDist(containerPt, a, b);
+                if (d < minDist) minDist = d;
+            }
+        }
+        map.getContainer().style.cursor = minDist <= CLICK_PX ? 'pointer' : '';
+    };
+
+    _routeSelectHandler = (e) => {
+        const pt = map.latLngToContainerPoint(e.latlng);
+        const idx = nearestCandidateIndex(pt);
+        if (idx >= 0) onSelect(idx);
+    };
+
+    map.on('mousemove', _routeHoverHandler);
+    map.on('click',     _routeSelectHandler);
+}
+
+// 点P から線分AB への最短距離（ピクセル）
+function _pointToSegmentDist(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
 // ── 日本語ロケール ────────────────────────────────────────────────────────
 
 function ensureJapaneseRoutingLocalization() {
@@ -127,6 +202,7 @@ function clearSelectedRouteHighlight() {
 }
 
 function clearRouteCandidateLayers() {
+    _clearRouteSelectHandler();
     routeCandidateLayers.forEach((layer) => {
         if (layer && map && map.hasLayer(layer)) {
             map.removeLayer(layer);
@@ -219,7 +295,7 @@ function focusRouteStepOnMap(step, routeColor) {
     map.flyTo(step.latLng, Math.max(map.getZoom(), 17), { duration: 0.45 });
 }
 
-function renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex) {
+function renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, onSelect) {
     clearRouteCandidateLayers();
     clearSelectedRouteHighlight();
 
@@ -238,11 +314,13 @@ function renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex) {
 
         const baseLine = L.polyline(route.coordinates, {
             color,
-            weight: isSelected ? 7 : 5,
-            opacity: isSelected ? 0.95 : 0.55,
+            weight: isSelected ? 7 : 6,
+            opacity: isSelected ? 0.95 : 0.45,
             lineCap: 'round',
-            lineJoin: 'round'
+            lineJoin: 'round',
+            interactive: false  // クリックはマップハンドラで一元管理
         }).addTo(map);
+
         routeCandidateLayers.push(baseLine);
     });
 
@@ -254,19 +332,24 @@ function renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex) {
             weight: 10,
             opacity: 0.9,
             lineCap: 'round',
-            lineJoin: 'round'
+            lineJoin: 'round',
+            interactive: false   // クリックを非選択経路に通過させる
         }).addTo(map);
         const line = L.polyline(selectedRoute.coordinates, {
             color: selectedColor,
             weight: 7,
             opacity: 0.98,
             lineCap: 'round',
-            lineJoin: 'round'
+            lineJoin: 'round',
+            interactive: false   // クリックを非選択経路に通過させる
         }).addTo(map);
         outline.bringToFront();
         line.bringToFront();
         selectedRouteHighlightLayers = [outline, line];
     }
+
+    // マップクリックで非選択経路をタップ選択
+    _setupRouteSelectHandler(routeList, selectedRouteIndex, onSelect);
 }
 
 function resolveInstructionLatLng(route, instruction) {
@@ -805,7 +888,7 @@ function showRoute(destination, index, options = {}) {
             if (typeof onNavRouteSelected === 'function') {
                 onNavRouteSelected(routes[selectedRouteIndex], destination);
             }
-            renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex);
+            renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             renderDestinationRouteGuidance(
                 index,
                 routes,
