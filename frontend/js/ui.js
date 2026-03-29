@@ -894,6 +894,13 @@ function showUserDestInFloatCard() {
 
     document.getElementById('shelter-card-dest-info').style.display = 'none';
 
+    // shelter-card-route-guidance が空の場合（他用途でクリアされた後など）は
+    // サイドバーパネルから innerHTML でフォールバック復元する
+    const dstPanel = document.getElementById('shelter-card-route-guidance');
+    if (dstPanel && !dstPanel.querySelector('.route-guidance-steps') && srcPanel) {
+        dstPanel.innerHTML = srcPanel.innerHTML;
+    }
+
     _showFloatCardCentered();
 }
 
