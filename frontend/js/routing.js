@@ -651,9 +651,20 @@ function renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex,
     _renderRouteGuidanceToPanelId('shelter-card-route-guidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
 }
 
+// 最後の renderUserDestRouteGuidance 呼び出しパラメータを保持（再描画用）
+let _lastUserDestRenderParams = null;
+
 function renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
+    _lastUserDestRenderParams = { routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors };
     _renderRouteGuidanceToPanelId('userDestRouteGuidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
     _renderRouteGuidanceToPanelId('shelter-card-route-guidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
+}
+
+/** shelter-card-route-guidance を最後の userDest パラメータで再描画する */
+function rerenderUserDestFloatCard() {
+    if (!_lastUserDestRenderParams) return;
+    const p = _lastUserDestRenderParams;
+    _renderRouteGuidanceToPanelId('shelter-card-route-guidance', p.routes, p.selectedRouteIndex, p.formatter, p.transportMode, p.onSelectRouteIndex, p.routeColors);
 }
 
 // ── ナビ中ステップハイライト ───────────────────────────────────────────────
