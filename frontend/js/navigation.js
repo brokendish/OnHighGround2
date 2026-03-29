@@ -277,12 +277,13 @@ function stopNavigation() {
     navCurrentElevation      = null;
     navLastElevFetchPos      = null;
     navLastHazardFetchPos    = null;
-    const ceEl = document.getElementById('mbc-current-elev');
-    const hzEl = document.getElementById('mbc-current-hazard');
-    if (ceEl) ceEl.textContent = '—';
-    if (hzEl) hzEl.textContent = '確認中...';
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     setNavMode('browse');
+
+    // 停止直後に現在地のハザード情報・標高を再取得して表示
+    if (currentLocation) {
+        fetchCurrentLocInfo(currentLocation.lat, currentLocation.lon, currentLocation.elevation ?? null);
+    }
 }
 
 // ── 自動再ルート ON/OFF トグル ────────────────────────────────────────────
