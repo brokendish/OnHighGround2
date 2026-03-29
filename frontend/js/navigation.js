@@ -262,6 +262,9 @@ function startNavigation() {
     }
 
     _showNavBanner('🧭 ナビを開始しました。現在地を追跡中です。', 'info', 3000);
+    if (typeof voiceNav !== 'undefined') {
+        voiceNav.announce({ id: 'nav-start', text: '案内を開始します', category: 'start', priority: 'high' });
+    }
 }
 
 // ── ナビ停止 ──────────────────────────────────────────────────────────────
@@ -279,6 +282,7 @@ function stopNavigation() {
     navLastHazardFetchPos    = null;
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     setNavMode('browse');
+    if (typeof voiceNav !== 'undefined') voiceNav.clear();
 
     // 停止直後に現在地のハザード情報・標高を再取得して表示
     if (currentLocation) {
@@ -408,6 +412,21 @@ function _onNavPosition(position) {
         updateNavStepHighlight(lat, lon);
     }
 
+    // 接近通知: 次の曲がり角まで 40m 以内で予告（voiceNav があれば）
+    if (typeof voiceNav !== 'undefined' && navigationMode === 'navigation_active') {
+        const stepEl = document.querySelector('li.nav-step-current[data-step-lat]');
+        if (stepEl) {
+            const sLat   = parseFloat(stepEl.dataset.stepLat);
+            const sLon   = parseFloat(stepEl.dataset.stepLon);
+            const stepId = stepEl.dataset.stepLat + ',' + stepEl.dataset.stepLon;
+            const distToStep = _navHaversine(lat, lon, sLat, sLon);
+            if (distToStep <= 40) {
+                const rawText = stepEl.textContent.split('（')[0].trim();
+                voiceNav.announceApproach(rawText, stepId);
+            }
+        }
+    }
+
     // 残距離・逸脱ステータス更新（共通関数）
     const routeResult = _updateRemainingDistanceDisplay(lat, lon, accuracy);
     const offsetEl    = document.getElementById('mbc-offset-status');
@@ -456,6 +475,9 @@ function _onNavPosition(position) {
                 if (navigationMode === 'navigation_active') {
                     setNavMode('navigation_warning');
                     _showNavBanner('⚠ ルートから外れました。自動で見直しています...', 'danger');
+                    if (typeof voiceNav !== 'undefined') {
+                        voiceNav.announce({ id: 'nav-off-route', text: 'ルートから外れています', category: 'warning', priority: 'high' });
+                    }
                 }
                 // 再ルートしきい値を超えている場合のみオート再ルートを試みる
                 if (offsetM >= NAV_REROUTE_THRESHOLD_M) {
@@ -469,6 +491,9 @@ function _onNavPosition(position) {
                 if (navigationMode === 'navigation_warning') {
                     setNavMode('navigation_active');
                     _showNavBanner('✅ ルートに戻りました', 'success', 3000);
+                    if (typeof voiceNav !== 'undefined') {
+                        voiceNav.announce({ id: 'nav-back-on-route', text: 'ルートに戻りました', category: 'start', priority: 'normal' });
+                    }
                 }
             }
         }
@@ -616,6 +641,9 @@ function _onNavArrival() {
     stopNavigation();
     setNavMode('navigation_finished');
     _showNavBanner('🏁 目的地に到達しました！お疲れさまでした。', 'success');
+    if (typeof voiceNav !== 'undefined') {
+        voiceNav.announce({ id: 'nav-arrival', text: '目的地に到着しました', category: 'arrival', priority: 'high' });
+    }
 }
 
 // ── バナー表示 ────────────────────────────────────────────────────────────

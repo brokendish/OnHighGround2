@@ -1148,6 +1148,30 @@
         .nav-banner-warning { background: #f57f17; color: #fff; }
         .nav-banner-danger  { background: #c62828; color: #fff; pointer-events: auto; }
 
+        /* ── 音声ナビ テキスト案内バー ──────────────────────────── */
+        #nav-announcement-bar {
+            position: absolute;
+            top: calc(var(--ui-safe-top) + 60px);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1050;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.72);
+            color: #fff;
+            padding: 8px 18px;
+            border-radius: 20px;
+            font-size: 15px;
+            font-weight: 600;
+            pointer-events: none;
+            white-space: nowrap;
+            max-width: calc(100% - 32px);
+        }
+        #nav-announcement-bar[data-category="warning"] { background: rgba(198, 40, 40, 0.9); }
+        #nav-announcement-bar[data-category="arrival"] { background: rgba(46, 125, 50, 0.9); }
+        #nav-announcement-bar[data-category="start"]   { background: rgba(30, 136, 229, 0.9); }
+
         /* 指定緊急避難場所 地図上フローティングカード */
         #shelter-map-card {
             position: absolute;
@@ -2151,6 +2175,16 @@
                         </div>
                     </div>
 
+                    <!-- 音声案内 ON/OFF -->
+                    <button id="voice-nav-toggle-btn" class="map-overlay-btn map-overlay-btn--active"
+                            title="音声案内のON/OFF"
+                            onclick="voiceNav.setEnabled(!voiceNav.enabled)">
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                        </svg>
+                        <span>音声</span>
+                    </button>
+
                 </div><!-- /#map-top-right-controls -->
 
                 <!-- 指定緊急避難場所 選択カード -->
@@ -2244,6 +2278,13 @@
 
             <!-- ナビ警告バナー -->
             <div id="navBanner" class="nav-banner" style="display:none;"></div>
+            <!-- 音声ナビ テキスト案内バー（音声と同内容を文字表示） -->
+            <div id="nav-announcement-bar" aria-live="polite" aria-atomic="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                </svg>
+                <span id="nav-announcement-text"></span>
+            </div>
             <!-- オフルート再ルートパネル（navigation_warning 時に表示） -->
             <div id="navReroutePanel" class="nav-reroute-panel" style="display:none;">
                 <p>ルートから外れた可能性があります</p>
@@ -2339,6 +2380,8 @@
     <script src="js/destination.js"></script>
     <!-- アプリ初期化・イベントバインディング -->
     <script src="js/app.js"></script>
+    <!-- 音声ナビゲーション（navigation.js より前に読み込む） -->
+    <script src="js/voice-nav.js"></script>
     <!-- ナビゲーションモード -->
     <script src="js/navigation.js"></script>
     <!-- 地図オーバーレイUI -->
