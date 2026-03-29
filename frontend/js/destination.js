@@ -340,6 +340,16 @@ function _showDestinationStatusMsg(msg) {
             L.point(clientX - rect.left, clientY - rect.top)
         );
         setDestinationCandidate(latlng.lat, latlng.lng);
+        // PC: mouseup 後に Leaflet の map.click がポップアップを閉じるため、
+        // mouseup を検知して直後に再オープンする（stopPropagation では同一要素の
+        // Leaflet リスナーを止められないため再オープン方式で対処）。
+        mapEl.addEventListener('mouseup', function() {
+            setTimeout(() => {
+                if (userDestinationCandidateMarker) {
+                    userDestinationCandidateMarker.openPopup();
+                }
+            }, 50);
+        }, { once: true });
     };
 
     // 長押し後に発火する click でポップアップが閉じないよう抑制
