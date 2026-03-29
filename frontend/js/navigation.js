@@ -623,6 +623,7 @@ function _updateNavUI() {
     }
     if (navStopOverlay) {
         navStopOverlay.style.display = isActive ? '' : 'none';
+        navStopOverlay.disabled = !isActive;
     }
 
     // カード内ボタン（動的注入）
