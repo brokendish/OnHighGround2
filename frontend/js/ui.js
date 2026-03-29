@@ -939,6 +939,28 @@ function hideSearchMessage() {
     messageEl.style.display = 'none';
 }
 
+// ── 地図オーバーレイ トースト ────────────────────────────────────────────
+let _mapToastTimer = null;
+
+function showMapToast(message, { warn = false, durationMs = 6000 } = {}) {
+    const el = document.getElementById('map-toast');
+    if (!el) return;
+    if (_mapToastTimer) { clearTimeout(_mapToastTimer); _mapToastTimer = null; }
+    el.textContent = message;
+    el.className = warn ? 'map-toast--warn' : '';
+    el.style.display = 'block';
+    _mapToastTimer = setTimeout(() => {
+        el.style.display = 'none';
+        _mapToastTimer = null;
+    }, durationMs);
+}
+
+function hideMapToast() {
+    if (_mapToastTimer) { clearTimeout(_mapToastTimer); _mapToastTimer = null; }
+    const el = document.getElementById('map-toast');
+    if (el) el.style.display = 'none';
+}
+
 function setShelterStatus(message) {
     document.getElementById('shelterStatus').textContent = message;
 }

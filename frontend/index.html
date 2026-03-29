@@ -1172,6 +1172,30 @@
         #nav-announcement-bar[data-category="arrival"] { background: rgba(46, 125, 50, 0.9); }
         #nav-announcement-bar[data-category="start"]   { background: rgba(30, 136, 229, 0.9); }
 
+        /* ── 地図オーバーレイ トースト（検索結果なし等） ──────────── */
+        #map-toast {
+            position: absolute;
+            bottom: calc(var(--ui-safe-bottom) + 160px);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1060;
+            display: none;
+            background: rgba(40, 40, 40, 0.92);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.5;
+            text-align: center;
+            max-width: min(340px, calc(100vw - 32px));
+            pointer-events: none;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+        }
+        #map-toast.map-toast--warn {
+            background: rgba(198, 40, 40, 0.92);
+        }
+
         /* 指定緊急避難場所 地図上フローティングカード */
         #shelter-map-card {
             position: absolute;
@@ -2312,6 +2336,8 @@
 
             </div><!-- /#map-ui-overlay -->
 
+            <!-- 地図オーバーレイ トースト（検索結果なし等） -->
+            <div id="map-toast"></div>
             <!-- ナビ警告バナー -->
             <div id="navBanner" class="nav-banner" style="display:none;"></div>
             <!-- 音声ナビ テキスト案内バー（音声と同内容を文字表示） -->

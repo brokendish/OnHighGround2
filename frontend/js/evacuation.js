@@ -66,6 +66,9 @@ async function searchDestinations(isAutoRefresh = false) {
 
         if (destinations.length === 0) {
             showSearchMessage('指定条件で避難先が見つかりませんでした。条件を変更してください。', 'info');
+            if (typeof showMapToast === 'function') {
+                showMapToast('対象が見つかりませんでした。\n最大距離、高低差のスライダーを見直してください', { warn: true, durationMs: 8000 });
+            }
             document.getElementById('destinationsPanel').style.display = 'none';
             document.getElementById('recommendedPanel').style.display = 'none';
             document.getElementById('rsaPanel').style.display = 'none';
