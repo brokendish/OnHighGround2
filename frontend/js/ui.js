@@ -894,13 +894,6 @@ function showUserDestInFloatCard() {
 
     document.getElementById('shelter-card-dest-info').style.display = 'none';
 
-    // ナビ開始/停止ボタンをフロートカードに注入（まだない場合のみ）
-    const floatCard = document.getElementById('shelter-map-card');
-    if (floatCard && !floatCard.querySelector('.nav-start-in-card')) {
-        const guidanceEl = document.getElementById('shelter-card-route-guidance');
-        if (guidanceEl) _injectNavStopBtn(guidanceEl);
-    }
-
     _showFloatCardCentered();
 }
 
