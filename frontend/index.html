@@ -1795,6 +1795,8 @@
         #mbc-start-elev, #mbc-current-elev { font-weight: 700; color: #2e7d32; }
         .mbc-hazard-safe   { font-weight: 700; color: #2e7d32; }
         .mbc-hazard-danger { font-weight: 700; color: #c62828; }
+        #mbc-offset-status { font-size: 0.78em; color: #e65100; margin-left: 4px; }
+        #mbc-offset-status:empty { display: none; }
         .mbc-sliders-row {
             display: flex;
             flex-direction: column;
@@ -2179,6 +2181,7 @@
                     <div id="mbc-row-dist" class="mbc-info-line" style="display:none;">
                         <span class="mbc-dist-label">目的地まで</span>
                         <span id="mbc-remain-dist">—</span>
+                        <span id="mbc-offset-status"></span>
                     </div>
                     <div id="mbc-row-hazard" class="mbc-info-line" style="display:none;">
                         <span class="mbc-dist-label">現在地ハザード情報</span>

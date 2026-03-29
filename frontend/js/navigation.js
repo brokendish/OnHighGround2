@@ -9,9 +9,11 @@
  */
 
 // ── 定数 ──────────────────────────────────────────────────────────────────
-const NAV_OFF_ROUTE_M      = 40;    // 逸脱判定しきい値（メートル）
+const NAV_OFF_ROUTE_M      = 20;    // 逸脱表示しきい値（メートル）
+const NAV_REROUTE_THRESHOLD_M  = 30; // 再ルートしきい値（メートル）
+const NAV_MAX_GPS_ACCURACY_M   = 30; // これ以上の誤差なら逸脱判定を保留
 const NAV_CONSECUTIVE      = 3;     // 連続 N 回外れたら warning
-const NAV_ARRIVAL_M        = 20;    // 到達判定しきい値（メートル）
+const NAV_ARRIVAL_M        = 10;    // 到達判定しきい値（メートル）
 const NAV_MIN_DELTA_M      = 8;     // 移動量がこれ以下なら更新スキップ
 const NAV_LOW_ACCURACY_M   = 50;    // GPS 精度がこれ以上なら精度警告
 const NAV_REROUTE_COOLDOWN = 10000; // 再ルート連打防止（ms）
@@ -113,37 +115,57 @@ function _fmtNavDist(meters) {
         : `${(meters / 1000).toFixed(1)}km`;
 }
 
-// ── ルート沿い残距離（現在地に最近傍の点から終点まで積算） ────────────────
+// ── 線分への投影（緯度経度平面近似） ──────────────────────────────────────
+// coords は {lat, lng} オブジェクト
+function _navProjectOnSegment(p, a, b) {
+    const dx = b.lng - a.lng, dy = b.lat - a.lat;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return { point: a, t: 0 };
+    const t = Math.max(0, Math.min(1,
+        ((p.lng - a.lng) * dx + (p.lat - a.lat) * dy) / len2
+    ));
+    return { point: { lat: a.lat + t * dy, lng: a.lng + t * dx }, t };
+}
+
+// ── ルート上の最近点探索（線分ベース） ────────────────────────────────────
+// 戻り値: { snappedPoint, segmentIndex, routeOffsetMeters } | null
+function _navFindClosestOnRoute(coords, lat, lon) {
+    if (!coords || coords.length < 2) return null;
+    const p = { lat, lng: lon };
+    let minDist = Infinity, best = null;
+    for (let i = 0; i < coords.length - 1; i++) {
+        const proj = _navProjectOnSegment(p, coords[i], coords[i + 1]);
+        const d = _navHaversine(lat, lon, proj.point.lat, proj.point.lng);
+        if (d < minDist) {
+            minDist = d;
+            best = { snappedPoint: proj.point, segmentIndex: i, routeOffsetMeters: d };
+        }
+    }
+    return best;
+}
+
+// ── ルート沿い残距離（線分投影ベース） ────────────────────────────────────
+// 戻り値: { remainingDistanceMeters, routeOffsetMeters } | null
 function _remainingRouteDistance(lat, lon) {
     if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) return null;
     const coords = navActiveRoute.coordinates;
-    if (coords.length === 0) return null;
+    if (coords.length < 2) return null;
 
-    // 最近傍インデックスを探す
-    let nearestIdx = 0;
-    let minDist = Infinity;
-    for (let i = 0; i < coords.length; i++) {
-        const d = _navHaversine(lat, lon, coords[i].lat, coords[i].lng);
-        if (d < minDist) { minDist = d; nearestIdx = i; }
-    }
+    const closest = _navFindClosestOnRoute(coords, lat, lon);
+    if (!closest) return null;
 
-    // 最近傍点から終点まで積算
-    let total = 0;
-    for (let i = nearestIdx; i < coords.length - 1; i++) {
-        total += _navHaversine(coords[i].lat, coords[i].lng, coords[i + 1].lat, coords[i + 1].lng);
+    // スナップ点 → 当該線分終点 + 以降の線分を積算
+    let remaining = _navHaversine(
+        closest.snappedPoint.lat, closest.snappedPoint.lng,
+        coords[closest.segmentIndex + 1].lat, coords[closest.segmentIndex + 1].lng
+    );
+    for (let i = closest.segmentIndex + 1; i < coords.length - 1; i++) {
+        remaining += _navHaversine(
+            coords[i].lat, coords[i].lng,
+            coords[i + 1].lat, coords[i + 1].lng
+        );
     }
-    return total;
-}
-
-// ── ルートへの最近傍距離 ──────────────────────────────────────────────────
-function _distanceToRoute(lat, lon) {
-    if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) return Infinity;
-    let min = Infinity;
-    for (const c of navActiveRoute.coordinates) {
-        const d = _navHaversine(lat, lon, c.lat, c.lng);
-        if (d < min) min = d;
-    }
-    return min;
+    return { remainingDistanceMeters: remaining, routeOffsetMeters: closest.routeOffsetMeters };
 }
 
 // ── モード変更 ────────────────────────────────────────────────────────────
@@ -344,10 +366,25 @@ function _onNavPosition(position) {
         updateNavStepHighlight(lat, lon);
     }
 
-    // 残距離更新（ルート沿い）
-    const remM = _remainingRouteDistance(lat, lon);
-    const remEl = document.getElementById('mbc-remain-dist');
-    if (remEl && remM !== null) remEl.textContent = _fmtNavDist(remM);
+    // 残距離・ルートオフセット更新（線分投影ベース）
+    const routeResult = _remainingRouteDistance(lat, lon);
+    const remEl       = document.getElementById('mbc-remain-dist');
+    const offsetEl    = document.getElementById('mbc-offset-status');
+    if (routeResult !== null) {
+        if (remEl) remEl.textContent = _fmtNavDist(routeResult.remainingDistanceMeters);
+        // 逸脱ステータス表示（GPS精度が悪い場合はスキップ）
+        if (offsetEl) {
+            if (accuracy > NAV_MAX_GPS_ACCURACY_M) {
+                offsetEl.textContent = '';
+            } else if (routeResult.routeOffsetMeters >= NAV_REROUTE_THRESHOLD_M) {
+                offsetEl.textContent = '| 再ルートが必要です';
+            } else if (routeResult.routeOffsetMeters >= NAV_OFF_ROUTE_M) {
+                offsetEl.textContent = '| ルートから外れています';
+            } else {
+                offsetEl.textContent = '';
+            }
+        }
+    }
 
     // 現在標高更新（NAV_ELEV_UPDATE_M 以上移動した場合のみAPIを叩く）
     if (!navLastElevFetchPos ||
@@ -383,22 +420,26 @@ function _onNavPosition(position) {
         }
     }
 
-    // 逸脱判定（再ルート処理中はスキップ）
-    if (navActiveRoute && !navRerouteInProgress && !navAutoRerouteInProgress) {
-        const routeDist = _distanceToRoute(lat, lon);
-        if (routeDist > NAV_OFF_ROUTE_M) {
+    // 逸脱判定（再ルート処理中・GPS精度不良はスキップ）
+    if (navActiveRoute && !navRerouteInProgress && !navAutoRerouteInProgress
+            && routeResult !== null && accuracy <= NAV_MAX_GPS_ACCURACY_M) {
+        const offsetM = routeResult.routeOffsetMeters;
+        if (offsetM >= NAV_OFF_ROUTE_M) {
             navOffRouteCount++;
             if (navOffRouteCount >= NAV_CONSECUTIVE) {
                 if (navigationMode === 'navigation_active') {
                     setNavMode('navigation_warning');
                     _showNavBanner('⚠ ルートから外れました。自動で見直しています...', 'danger');
                 }
-                // オート再ルート試行（warning 継続中も毎 GPS 更新で試みる）
-                _tryAutoReroute(accuracy);
+                // 再ルートしきい値を超えている場合のみオート再ルートを試みる
+                if (offsetM >= NAV_REROUTE_THRESHOLD_M) {
+                    _tryAutoReroute(accuracy);
+                }
             }
         } else {
             if (navOffRouteCount > 0) {
                 navOffRouteCount = 0;
+                if (offsetEl) offsetEl.textContent = '';
                 if (navigationMode === 'navigation_warning') {
                     setNavMode('navigation_active');
                     _showNavBanner('✅ ルートに戻りました', 'success', 3000);
@@ -602,6 +643,8 @@ function _updateNavUI() {
     if (!showNavRow) {
         const rd = el('mbc-remain-dist');
         if (rd) rd.textContent = '—';
+        const os = el('mbc-offset-status');
+        if (os) os.textContent = '';
     }
 
     // ハザード+現在標高行: route_preview とナビ中に表示、navigation_finished は非表示
