@@ -2,13 +2,17 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>避難ナビゲーション OnHighGround - 津波・高潮・洪水対策</title>
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
+        :root {
+            --ui-safe-top: max(20px, calc(env(safe-area-inset-top) + 8px));
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -17,7 +21,7 @@
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
         }
@@ -1446,13 +1450,13 @@
 
         /* ── ズームコントロールをバッジの下へ ─────────────────── */
         #map .leaflet-top.leaflet-left {
-            top: 82px;
+            top: calc(var(--ui-safe-top) + 80px);
         }
 
         /* ── 左上ブランドバッジ ──────────────────────────────── */
         #map-brand-badge {
             position: absolute;
-            top: 10px;
+            top: var(--ui-safe-top);
             left: 10px;
             display: flex;
             align-items: center;
@@ -1493,7 +1497,7 @@
         /* ── 右上コントロール群 ──────────────────────────────── */
         #map-top-right-controls {
             position: absolute;
-            top: 36px;
+            top: calc(var(--ui-safe-top) + 32px);
             right: 12px;
             display: flex;
             flex-direction: column;
@@ -1722,7 +1726,7 @@
 
         #map-bottom-controls {
             position: absolute;
-            bottom: 40px;
+            bottom: calc(40px + env(safe-area-inset-bottom));
             left: 50%;
             transform: translateX(-50%);
             width: calc(100% - 24px);
@@ -1841,7 +1845,7 @@
         /* ── レスポンシブ ────────────────────────────────────── */
         @media (max-width: 480px) {
             #map-bottom-controls {
-                bottom: 40px;
+                bottom: calc(40px + env(safe-area-inset-bottom));
                 width: calc(100% - 16px);
                 padding: 10px 12px;
                 border-radius: 14px;
@@ -1854,6 +1858,13 @@
             .map-overlay-btn .mou-icon {
                 width: 20px;
                 height: 20px;
+            }
+        }
+
+        /* ── iPad 上部余白補正 ──────────────────────────────── */
+        @media (min-width: 768px) and (max-width: 1366px) {
+            :root {
+                --ui-safe-top: max(28px, calc(env(safe-area-inset-top) + 12px));
             }
         }
     </style>
