@@ -948,6 +948,11 @@ function showRoute(destination, index, options = {}) {
                 selectRouteIndex,
                 routeColors
             );
+            // フロートカードの距離・時間を実ルート値に統一
+            const _sr = routes[selectedRouteIndex];
+            if (_sr && _sr.summary && typeof updateShelterCardRouteInfo === 'function') {
+                updateShelterCardRouteInfo(_sr.summary.totalDistance, _sr.summary.totalTime);
+            }
             // 現在地〜目的地が見えるように地図範囲を調整
             if (currentLocation) {
                 const selectedRoute = routes[selectedRouteIndex];

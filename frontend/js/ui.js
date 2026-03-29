@@ -794,22 +794,36 @@ function _showFloatCardCentered() {
     card.style.display   = 'block';
 }
 
+// ── 実ルート値フォーマット（カード表示用）───────────────────────────────────
+function _formatCardDistance(meters) {
+    const m = Number(meters) || 0;
+    if (m < 1000) return `${Math.round(m)} m`;
+    return `${(m / 1000).toFixed(1)} km`;
+}
+function _formatCardDuration(seconds) {
+    const min = Math.floor((Number(seconds) || 0) / 60);
+    return min <= 0 ? '1分未満' : `約${min}分`;
+}
+
+// フロートカードの距離・時間を実ルート値で上書き（候補・避難所共通）
+function updateShelterCardRouteInfo(distanceMeters, durationSeconds) {
+    document.getElementById('shelter-card-distance').textContent = _formatCardDistance(distanceMeters);
+    document.getElementById('shelter-card-duration').textContent = _formatCardDuration(durationSeconds);
+}
+
 function updateSelectedEmergencyShelterRouteInfo(distanceMeters, durationSeconds, transportMode) {
-    const durationSec = Number(durationSeconds);
-    const durationMin = durationSec / 60;
     const transportLabel = transportMode === 'walking' ? '徒歩' : '車';
-    const distText = `${Number(distanceMeters).toFixed(0)} m`;
-    const durText  = `${durationMin.toFixed(1)} 分`;
+    const distText = _formatCardDistance(distanceMeters);
+    const durText  = _formatCardDuration(durationSeconds);
 
     // サイドパネル更新
     document.getElementById('selectedShelterTransport').textContent = transportLabel;
     document.getElementById('selectedShelterDistance').textContent = distText;
-    document.getElementById('selectedShelterDuration').textContent = `${durationMin.toFixed(1)} 分 (${Math.round(durationSec)} 秒)`;
+    document.getElementById('selectedShelterDuration').textContent = durText;
 
     // 地図カード更新
     document.getElementById('shelter-card-transport').textContent = transportLabel;
-    document.getElementById('shelter-card-distance').textContent = distText;
-    document.getElementById('shelter-card-duration').textContent = durText;
+    updateShelterCardRouteInfo(distanceMeters, durationSeconds);
 }
 
 // 番号付きピン（①②③）タップ時にフロートカードへ全情報を表示
@@ -832,10 +846,8 @@ function showDestInFloatCard(dest) {
         document.getElementById('shelter-card-address').style.display = 'none';
 
         document.getElementById('shelter-card-transport').textContent = transportLabel;
-        document.getElementById('shelter-card-distance').textContent =
-            dest.distance != null ? `${Number(dest.distance).toFixed(0)} m` : '—';
-        document.getElementById('shelter-card-duration').textContent =
-            dest.estimated_time_minutes != null ? `${Number(dest.estimated_time_minutes).toFixed(0)} 分` : '—';
+        document.getElementById('shelter-card-distance').textContent = '計算中...';
+        document.getElementById('shelter-card-duration').textContent = '計算中...';
 
         // ハザード詳細
         document.getElementById('shelter-card-hazard-block').innerHTML =
