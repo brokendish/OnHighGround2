@@ -10,7 +10,8 @@
     
     <style>
         :root {
-            --ui-safe-top: max(20px, calc(env(safe-area-inset-top) + 8px));
+            --ui-safe-top:    max(20px, calc(env(safe-area-inset-top)    + 8px));
+            --ui-safe-bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px));
         }
 
         * {
@@ -1361,7 +1362,7 @@
         /* オフルート再ルートパネル（地図中央下部に重なる） */
         .nav-reroute-panel {
             position: absolute;
-            bottom: 80px;
+            bottom: calc(var(--ui-safe-bottom) + 64px);
             left: 50%;
             transform: translateX(-50%);
             background: rgba(198, 40, 40, 0.95);
@@ -1726,7 +1727,7 @@
 
         #map-bottom-controls {
             position: absolute;
-            bottom: calc(40px + env(safe-area-inset-bottom));
+            bottom: calc(var(--ui-safe-bottom) + 24px);
             left: 50%;
             transform: translateX(-50%);
             width: calc(100% - 24px);
@@ -1845,7 +1846,7 @@
         /* ── レスポンシブ ────────────────────────────────────── */
         @media (max-width: 480px) {
             #map-bottom-controls {
-                bottom: calc(40px + env(safe-area-inset-bottom));
+                bottom: calc(var(--ui-safe-bottom) + 24px);
                 width: calc(100% - 16px);
                 padding: 10px 12px;
                 border-radius: 14px;
@@ -1861,10 +1862,11 @@
             }
         }
 
-        /* ── iPad 上部余白補正 ──────────────────────────────── */
+        /* ── iPad 上下余白補正 ──────────────────────────────── */
         @media (min-width: 768px) and (max-width: 1366px) {
             :root {
-                --ui-safe-top: max(28px, calc(env(safe-area-inset-top) + 12px));
+                --ui-safe-top:    max(28px, calc(env(safe-area-inset-top)    + 12px));
+                --ui-safe-bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px));
             }
         }
     </style>
