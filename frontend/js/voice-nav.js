@@ -17,8 +17,10 @@ const voiceNav = (() => {
 
     // ── 振動パターン ─────────────────────────────────────────────────────────
     const HAPTIC_PATTERNS = {
+        start:       [80],               // ナビ開始: 短く1回
         approach:    [120],              // 接近予告: 短く1回
         offRoute:    [150, 80, 150],     // 逸脱: 2回、強め
+        backOnRoute: [60, 60, 60],       // ルート復帰: 3回、軽め
         arrival:     [80, 60, 80, 60, 180], // 到着: 終了感
     };
 
@@ -125,6 +127,10 @@ const voiceNav = (() => {
             _vibrate('arrival', HAPTIC_PATTERNS.arrival, 15000);
         } else if (message.category === 'warning') {
             _vibrate('off-route', HAPTIC_PATTERNS.offRoute, 10000);
+        } else if (message.id === 'nav-start') {
+            _vibrate('nav-start', HAPTIC_PATTERNS.start, 5000);
+        } else if (message.id === 'nav-back-on-route') {
+            _vibrate('nav-back-on-route', HAPTIC_PATTERNS.backOnRoute, 5000);
         } else if (message.id && message.id.startsWith('pre-')) {
             // 接近予告（pre-xxxxx）: stepId 単位でクールダウン
             _vibrate(`approach-${message.id}`, HAPTIC_PATTERNS.approach, 5000);
