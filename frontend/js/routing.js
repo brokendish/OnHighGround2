@@ -150,6 +150,7 @@ function translateInstructionToJapanese(text) {
     }
 
     const replacements = [
+        // 方角
         [/\bHead north\b/gi, '北へ進む'],
         [/\bHead northeast\b/gi, '北東へ進む'],
         [/\bHead east\b/gi, '東へ進む'],
@@ -158,18 +159,37 @@ function translateInstructionToJapanese(text) {
         [/\bHead southwest\b/gi, '南西へ進む'],
         [/\bHead west\b/gi, '西へ進む'],
         [/\bHead northwest\b/gi, '北西へ進む'],
+        // 直進・カーブ
         [/\bContinue\b/gi, '直進'],
+        [/\bBear slight right\b/gi, 'やや右へ'],
+        [/\bBear slight left\b/gi, 'やや左へ'],
+        [/\bBear right\b/gi, 'やや右へ'],
+        [/\bBear left\b/gi, 'やや左へ'],
         [/\bSlight right\b/gi, 'やや右へ'],
+        [/\bSlight left\b/gi, 'やや左へ'],
+        [/\bKeep right\b/gi, '右側を進む'],
+        [/\bKeep left\b/gi, '左側を進む'],
+        // 折れ
         [/\bTurn right\b/gi, '右折'],
         [/\bSharp right\b/gi, '鋭く右折'],
-        [/\bTurn around\b/gi, 'Uターン'],
-        [/\bSlight left\b/gi, 'やや左へ'],
         [/\bTurn left\b/gi, '左折'],
         [/\bSharp left\b/gi, '鋭く左折'],
+        [/\bTurn around\b/gi, 'Uターン'],
+        // 合流・ランプ
+        [/\bMerge\b/gi, '合流'],
+        [/\bTake the ramp on the right\b/gi, '右のランプへ'],
+        [/\bTake the ramp on the left\b/gi, '左のランプへ'],
+        [/\bTake the ramp\b/gi, 'ランプへ'],
+        [/\bTake exit\b/gi, '出口へ'],
+        // 到着
+        [/\bYou have arrived at your destination, on the right\b/gi, '目的地は右側です'],
+        [/\bYou have arrived at your destination, on the left\b/gi, '目的地は左側です'],
+        [/\bYou have arrived at your destination\b/gi, '目的地に到着しました'],
         [/\bWaypoint reached\b/gi, '経由地に到着'],
         [/\bDestination reached\b/gi, '目的地に到着'],
+        // 接続詞
         [/\bonto\b/gi, 'へ'],
-        [/\bon\b/gi, 'を進む']
+        [/\bon\b/gi, 'を進む'],
     ];
 
     let translated = text;
