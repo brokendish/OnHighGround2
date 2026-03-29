@@ -251,6 +251,10 @@ function _drawRouteToUserDestination() {
                     if (typeof selectRouteIndex === 'function') selectRouteIndex(newIndex);
                 }, routeColors);
             }
+            // フロートウィンドウに目的地情報・経路案内を表示しナビボタンを注入
+            if (typeof showUserDestInFloatCard === 'function') {
+                showUserDestInFloatCard();
+            }
         },
         onRouteError: () => {
             _showDestinationStatusMsg('ルートを取得できませんでした');

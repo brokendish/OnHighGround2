@@ -633,6 +633,7 @@ function renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex,
 
 function renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
     _renderRouteGuidanceToPanelId('userDestRouteGuidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
+    _renderRouteGuidanceToPanelId('shelter-card-route-guidance', routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors);
 }
 
 // ── ナビ中ステップハイライト ───────────────────────────────────────────────
@@ -668,6 +669,8 @@ function updateNavStepHighlight(lat, lon) {
         _highlightNavStepInPanel(document.getElementById('shelter-card-route-guidance'), lat, lon);
     } else if (typeof userDestination !== 'undefined' && userDestination) {
         panelEl = document.getElementById('userDestRouteGuidance');
+        // フロートウィンドウも同時ハイライト
+        _highlightNavStepInPanel(document.getElementById('shelter-card-route-guidance'), lat, lon);
     } else {
         panelEl = document.getElementById('selectedShelterRouteGuidance');
         // 地図カードのルート案内も同時にハイライト

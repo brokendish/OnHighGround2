@@ -872,16 +872,13 @@ function showUserDestInFloatCard() {
 
     document.getElementById('shelter-card-name').textContent = userDestination.name || '目的地';
     document.getElementById('shelter-card-designation').textContent = '手動設定の目的地';
-    const addrEl = document.getElementById('shelter-card-address');
-    addrEl.style.display = 'none';
+    document.getElementById('shelter-card-address').style.display = 'none';
     document.getElementById('shelter-card-transport').textContent = transportLabel;
 
-    // userDestRouteGuidance の内容をカードにコピー
+    // 距離・時間をサイドバーパネルから読み取って反映
+    // （ルート案内本体は renderUserDestRouteGuidance が直接 shelter-card-route-guidance に描画済み）
     const srcPanel = document.getElementById('userDestRouteGuidance');
-    const dstPanel = document.getElementById('shelter-card-route-guidance');
-    if (srcPanel && dstPanel) {
-        dstPanel.innerHTML = srcPanel.innerHTML;
-        // summaryから距離・時間を読み取る
+    if (srcPanel) {
         const summary = srcPanel.querySelector('.route-guidance-summary');
         if (summary) {
             const text = summary.textContent;
@@ -896,6 +893,14 @@ function showUserDestInFloatCard() {
     }
 
     document.getElementById('shelter-card-dest-info').style.display = 'none';
+
+    // ナビ開始/停止ボタンをフロートカードに注入（まだない場合のみ）
+    const floatCard = document.getElementById('shelter-map-card');
+    if (floatCard && !floatCard.querySelector('.nav-start-in-card')) {
+        const guidanceEl = document.getElementById('shelter-card-route-guidance');
+        if (guidanceEl) _injectNavStopBtn(guidanceEl);
+    }
+
     _showFloatCardCentered();
 }
 
