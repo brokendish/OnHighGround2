@@ -1583,6 +1583,32 @@
             box-shadow: 0 4px 16px rgba(21, 101, 192, 0.18);
         }
 
+        /* ── 音声・振動ボタンのOFF状態 ──────────────────────── */
+        /* position: relative は ::after の起点として必要 */
+        #voice-nav-toggle-btn,
+        #haptics-toggle-btn {
+            position: relative;
+        }
+        #voice-nav-toggle-btn:not(.map-overlay-btn--active),
+        #haptics-toggle-btn:not(.map-overlay-btn--active) {
+            color: #999;
+            opacity: 0.65;
+        }
+        /* アイコン上に赤い斜線を重ねてOFFを明示 */
+        #voice-nav-toggle-btn:not(.map-overlay-btn--active)::after,
+        #haptics-toggle-btn:not(.map-overlay-btn--active)::after {
+            content: '';
+            position: absolute;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%) rotate(-45deg);
+            width: 2px;
+            height: 22px;
+            background: #e53935;
+            border-radius: 1px;
+            pointer-events: none;
+        }
+
         /* 展開パネル（レイヤー・凡例共通） */
         .mou-panel {
             position: absolute;
