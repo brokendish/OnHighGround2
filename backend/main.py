@@ -773,7 +773,11 @@ def _calc_safety_score(
         danger   → -20pt
     """
     elevation_score = min(elevation_gain / 30.0 * 50, 50)
-    distance_score = max(50 - (distance / max_distance * 50), 0)
+    # distance_score は固定基準距離で正規化する。
+    # max_distance を使うと、スライダーを広げるたびに既存候補のスコアが変わり
+    # 単調増加性（results(2km) ⊆ results(3km)）が崩れるため固定値を使用する。
+    _DIST_SCORE_REF = 5000.0  # スライダー最大10kmの中間値（固定）
+    distance_score = max(50 - (distance / _DIST_SCORE_REF * 50), 0)
     base_score = elevation_score + distance_score
     if hazard_safe is True:
         penalty = 0.0
@@ -986,7 +990,7 @@ def search_shelter_destinations(
             )
 
     candidates.sort(key=lambda x: x["safety_score"], reverse=True)
-    return candidates[:10]
+    return candidates[:15]
 
 
 def search_grid_destinations(
