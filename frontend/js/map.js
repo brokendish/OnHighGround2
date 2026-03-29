@@ -116,7 +116,7 @@ function initOrientation() {
 // ── 現在地更新 ────────────────────────────────────────────────────────────
 
 async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accuracyMeters = null) {
-    currentLocation = { lat, lon, accuracyMeters };
+    currentLocation = { lat, lon, accuracyMeters, elevation: null };
 
     const response = await apiFetch(
         `/elevation?lat=${lat}&lon=${lon}`
@@ -130,6 +130,8 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
     if (typeof data.elevation !== 'number') {
         throw new Error('標高レスポンス形式が不正です');
     }
+
+    currentLocation.elevation = data.elevation;
 
     document.getElementById('currentLat').textContent = lat.toFixed(6);
     document.getElementById('currentLon').textContent = lon.toFixed(6);

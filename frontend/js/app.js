@@ -190,6 +190,9 @@ document.getElementById('getCurrentLocation').addEventListener('click', async ()
 
             try {
                 await updateCurrentLocation(lat, lon, '現在地', accuracyMeters);
+                if (typeof fetchCurrentLocInfo === 'function') {
+                    fetchCurrentLocInfo(lat, lon, currentLocation && currentLocation.elevation);
+                }
             } catch (error) {
                 console.error('標高取得エラー:', error);
                 alert(`標高データの取得に失敗しました: ${error.message}`);
@@ -230,12 +233,12 @@ if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
         async (position) => {
             try {
-                await updateCurrentLocation(
-                    position.coords.latitude,
-                    position.coords.longitude,
-                    '現在地',
-                    Number(position.coords.accuracy)
-                );
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                await updateCurrentLocation(lat, lon, '現在地', Number(position.coords.accuracy));
+                if (typeof fetchCurrentLocInfo === 'function') {
+                    fetchCurrentLocInfo(lat, lon, currentLocation && currentLocation.elevation);
+                }
             } catch (e) {
                 console.warn('起動時の現在地取得エラー:', e);
             }

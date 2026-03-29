@@ -49,6 +49,29 @@ async function _fetchElevation(lat, lon) {
     }
 }
 
+// ── 現在地情報（ハザード+標高）を下部バーに表示 ──────────────────────────────
+// browse モードの locate ボタン押下後や route_preview 移行時に呼ぶ。
+function fetchCurrentLocInfo(lat, lon, elevation) {
+    const rowHazard = document.getElementById('mbc-row-hazard');
+    if (rowHazard) rowHazard.style.display = '';
+
+    const elevEl = document.getElementById('mbc-current-elev');
+    if (elevEl) {
+        if (elevation != null) {
+            elevEl.textContent = `${Number(elevation).toFixed(0)}m`;
+        } else {
+            elevEl.textContent = '—';
+            _fetchElevation(lat, lon).then(elev => {
+                if (elev !== null && elevEl) elevEl.textContent = `${elev.toFixed(0)}m`;
+            });
+        }
+    }
+
+    const hazardEl = document.getElementById('mbc-current-hazard');
+    if (hazardEl) hazardEl.textContent = '確認中...';
+    _checkCurrentHazard(lat, lon);
+}
+
 // ── 現在地ハザードチェック ──────────────────────────────────────────────────
 async function _checkCurrentHazard(lat, lon) {
     try {
@@ -164,8 +187,6 @@ function startNavigation() {
     if (currentLocation) {
         _fetchElevation(currentLocation.lat, currentLocation.lon).then(elev => {
             navStartElevation = elev;
-            const el = document.getElementById('mbc-start-elev');
-            if (el && elev !== null) el.textContent = `${elev.toFixed(0)}m`;
         });
         _checkCurrentHazard(currentLocation.lat, currentLocation.lon);
         navLastHazardFetchPos = { lat: currentLocation.lat, lon: currentLocation.lon };
@@ -193,10 +214,8 @@ function stopNavigation() {
     navCurrentElevation      = null;
     navLastElevFetchPos      = null;
     navLastHazardFetchPos    = null;
-    const seEl = document.getElementById('mbc-start-elev');
     const ceEl = document.getElementById('mbc-current-elev');
     const hzEl = document.getElementById('mbc-current-hazard');
-    if (seEl) seEl.textContent = '—';
     if (ceEl) ceEl.textContent = '—';
     if (hzEl) hzEl.textContent = '確認中...';
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
@@ -223,8 +242,12 @@ function onNavRouteSelected(route, destination) {
     }
     if (navigationMode === 'browse' || navigationMode === 'navigation_finished') {
         setNavMode('route_preview'); // 内部で _updateNavUI() を呼ぶ
+        // route_preview 移行時に現在地ハザード+標高を下部バーに表示
+        if (typeof currentLocation !== 'undefined' && currentLocation) {
+            fetchCurrentLocInfo(currentLocation.lat, currentLocation.lon, currentLocation.elevation);
+        }
     } else {
-        _updateNavUI(); // route_preview / ナビ中に再ルートされた場合も総距離を更新
+        _updateNavUI(); // route_preview / ナビ中に再ルートされた場合も残距離を更新
     }
 }
 
@@ -570,30 +593,37 @@ function _updateNavUI() {
     const showNormalRow = !isActive;
     if (rowNormal)  rowNormal.style.display  = showNormalRow ? '' : 'none';
     if (rowNav)     rowNav.style.display     = showNavRow    ? '' : 'none';
-    if (rowSliders) rowSliders.style.display = showNormalRow ? '' : 'none';
+    if (rowSliders) rowSliders.style.display = (mode === 'browse') ? '' : 'none';
 
-    // 距離・標高行: ルート確認中・ナビ中に表示
+    // 残距離行: ルート確認中・ナビ中に表示
     const rowDist   = el('mbc-row-dist');
     const rowHazard = el('mbc-row-hazard');
-    if (rowDist)   rowDist.style.display   = showNavRow ? '' : 'none';
-    // ハザード行: ナビ中のみ表示（route_preview では非表示）
-    if (rowHazard) rowHazard.style.display = isActive   ? '' : 'none';
-    // 総距離をルート確定時に更新
-    if (showNavRow && navActiveRoute && navActiveRoute.summary) {
-        const totalM = Number(navActiveRoute.summary.totalDistance);
-        const td = el('mbc-total-dist');
-        if (td) td.textContent = _fmtNavDist(totalM);
-    } else if (!showNavRow) {
-        const td = el('mbc-total-dist');
+    if (rowDist) rowDist.style.display = showNavRow ? '' : 'none';
+    if (!showNavRow) {
         const rd = el('mbc-remain-dist');
-        if (td) td.textContent = '—';
         if (rd) rd.textContent = '—';
     }
 
+    // ハザード+現在標高行: route_preview とナビ中に表示、navigation_finished は非表示
+    // browse モードは locate ボタンが表示を制御するため変更しない
+    if (rowHazard) {
+        if (isActive || mode === 'route_preview') {
+            rowHazard.style.display = '';
+        } else if (mode === 'navigation_finished') {
+            rowHazard.style.display = 'none';
+        }
+    }
+
+    // ナビ開始: route_preview のみ表示 / ナビ停止: ナビ中のみ表示
     const navStartOverlay = el('nav-start-overlay-btn');
     const navStopOverlay  = el('nav-stop-overlay-btn');
-    if (navStartOverlay) navStartOverlay.disabled = !(mode === 'route_preview' && canStartNav);
-    if (navStopOverlay)  navStopOverlay.disabled  = !isActive;
+    if (navStartOverlay) {
+        navStartOverlay.style.display = (mode === 'route_preview') ? '' : 'none';
+        navStartOverlay.disabled = !canStartNav;
+    }
+    if (navStopOverlay) {
+        navStopOverlay.style.display = isActive ? '' : 'none';
+    }
 
     // カード内ボタン（動的注入）
     document.querySelectorAll('.nav-start-in-card').forEach(btn => {
