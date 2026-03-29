@@ -57,8 +57,8 @@ function _makeCurrentLocationIcon() {
     return L.divIcon({
         className: 'user-arrow-marker',
         html: '<div class="arrow"></div>',
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
     });
 }
 
