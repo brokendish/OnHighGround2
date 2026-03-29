@@ -168,6 +168,37 @@ function _remainingRouteDistance(lat, lon) {
     return { remainingDistanceMeters: remaining, routeOffsetMeters: closest.routeOffsetMeters };
 }
 
+// ── 残距離・逸脱状態の UI 更新（共通） ────────────────────────────────────
+function _updateRemainingDistanceDisplay(lat, lon, accuracy = 0) {
+    const routeResult = _remainingRouteDistance(lat, lon);
+    const remEl    = document.getElementById('mbc-remain-dist');
+    const offsetEl = document.getElementById('mbc-offset-status');
+
+    if (!remEl) return;
+
+    if (routeResult === null) {
+        remEl.textContent = '—';
+        if (offsetEl) offsetEl.textContent = '';
+        return;
+    }
+
+    remEl.textContent = _fmtNavDist(routeResult.remainingDistanceMeters);
+
+    if (offsetEl) {
+        if (accuracy > NAV_MAX_GPS_ACCURACY_M) {
+            offsetEl.textContent = '';
+        } else if (routeResult.routeOffsetMeters >= NAV_REROUTE_THRESHOLD_M) {
+            offsetEl.textContent = '| 再ルートが必要です';
+        } else if (routeResult.routeOffsetMeters >= NAV_OFF_ROUTE_M) {
+            offsetEl.textContent = '| ルートから外れています';
+        } else {
+            offsetEl.textContent = '';
+        }
+    }
+
+    return routeResult; // 逸脱判定で再利用できるよう返す
+}
+
 // ── モード変更 ────────────────────────────────────────────────────────────
 function setNavMode(mode) {
     navigationMode = mode;
@@ -220,6 +251,16 @@ function startNavigation() {
         { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
     );
     setNavMode('navigation_active');
+
+    // watchPosition の初回更新を待たず、開始直後に残距離を即表示する
+    if (currentLocation) {
+        _updateRemainingDistanceDisplay(
+            currentLocation.lat,
+            currentLocation.lon,
+            currentLocation.accuracyMeters ?? 0
+        );
+    }
+
     _showNavBanner('🧭 ナビを開始しました。現在地を追跡中です。', 'info', 3000);
 }
 
@@ -366,25 +407,9 @@ function _onNavPosition(position) {
         updateNavStepHighlight(lat, lon);
     }
 
-    // 残距離・ルートオフセット更新（線分投影ベース）
-    const routeResult = _remainingRouteDistance(lat, lon);
-    const remEl       = document.getElementById('mbc-remain-dist');
+    // 残距離・逸脱ステータス更新（共通関数）
+    const routeResult = _updateRemainingDistanceDisplay(lat, lon, accuracy);
     const offsetEl    = document.getElementById('mbc-offset-status');
-    if (routeResult !== null) {
-        if (remEl) remEl.textContent = _fmtNavDist(routeResult.remainingDistanceMeters);
-        // 逸脱ステータス表示（GPS精度が悪い場合はスキップ）
-        if (offsetEl) {
-            if (accuracy > NAV_MAX_GPS_ACCURACY_M) {
-                offsetEl.textContent = '';
-            } else if (routeResult.routeOffsetMeters >= NAV_REROUTE_THRESHOLD_M) {
-                offsetEl.textContent = '| 再ルートが必要です';
-            } else if (routeResult.routeOffsetMeters >= NAV_OFF_ROUTE_M) {
-                offsetEl.textContent = '| ルートから外れています';
-            } else {
-                offsetEl.textContent = '';
-            }
-        }
-    }
 
     // 現在標高更新（NAV_ELEV_UPDATE_M 以上移動した場合のみAPIを叩く）
     if (!navLastElevFetchPos ||
