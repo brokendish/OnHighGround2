@@ -90,6 +90,9 @@ map.on('click', async (event) => {
 
     try {
         await updateCurrentLocation(lat, lng, '現在地（手動選択）');
+        if (typeof fetchCurrentLocInfo === 'function') {
+            fetchCurrentLocInfo(lat, lng, currentLocation && currentLocation.elevation);
+        }
     } catch (error) {
         console.error('手動選択位置の標高取得エラー:', error);
         alert(`手動選択した地点の標高データ取得に失敗しました: ${error.message}`);
