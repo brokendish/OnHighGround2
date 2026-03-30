@@ -1197,12 +1197,6 @@
         }
 
         /* 避難先情報（情報タブ内コンテンツ） */
-        #mbc-info-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 4px;
-        }
         #shelter-card-dest-info {
             margin: 4px 0 6px;
             display: block;
@@ -1233,17 +1227,6 @@
             flex: 1;
             margin-right: 6px;
         }
-        #mbc-info-close {
-            background: none;
-            border: none;
-            font-size: 16px;
-            color: #999;
-            cursor: pointer;
-            padding: 0;
-            line-height: 1;
-            flex-shrink: 0;
-        }
-        #mbc-info-close:hover { color: #333; }
         #shelter-card-designation {
             font-size: 11px;
             color: #555;
@@ -1745,9 +1728,6 @@
             gap: 6px;
             padding-top: 4px;
         }
-        #map-bottom-controls.mbc-info-mode #map-bottom-body {
-            max-height: 60vh;
-        }
         #map-bottom-controls.mbc-collapsed #map-bottom-body {
             max-height: 0;
             opacity: 0;
@@ -1786,22 +1766,8 @@
             flex: 1;
         }
         #mbc-info-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
             margin-bottom: 4px;
         }
-        #mbc-info-close {
-            background: none;
-            border: none;
-            font-size: 16px;
-            color: #999;
-            cursor: pointer;
-            padding: 0;
-            line-height: 1;
-            flex-shrink: 0;
-        }
-        #mbc-info-close:hover { color: #333; }
 
         #map-bottom-controls {
             position: absolute;
@@ -2324,7 +2290,6 @@
                     <div id="mbc-tab-panel-info" style="display:none;">
                         <div id="mbc-info-header">
                             <div id="shelter-card-name">-</div>
-                            <button id="mbc-info-close" title="閉じる">×</button>
                         </div>
                         <div id="shelter-card-designation">-</div>
                         <div id="shelter-card-address" style="display:none;"></div>

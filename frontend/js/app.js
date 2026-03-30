@@ -37,7 +37,6 @@ function switchMbcTab(tab) {
         panelInfo.style.display = 'block';
         btnAct.classList.remove('mbc-tab-btn--active');
         btnInfo.classList.add('mbc-tab-btn--active');
-        controls.classList.add('mbc-info-mode');
         // 折りたたまれていれば展開
         controls.classList.remove('mbc-collapsed');
     } else {
@@ -45,18 +44,12 @@ function switchMbcTab(tab) {
         panelInfo.style.display = 'none';
         btnAct.classList.add('mbc-tab-btn--active');
         btnInfo.classList.remove('mbc-tab-btn--active');
-        controls.classList.remove('mbc-info-mode');
     }
 }
 
 // タブボタン
 document.getElementById('mbc-tab-btn-action').addEventListener('click', () => switchMbcTab('action'));
 document.getElementById('mbc-tab-btn-info').addEventListener('click',   () => switchMbcTab('info'));
-
-// 情報タブの × ボタン
-document.getElementById('mbc-info-close').addEventListener('click', () => {
-    hideSelectedEmergencyShelter();
-});
 
 // 情報タブ内スクロールが地図パンに伝播しないようにする
 const mbcInfoPanel = document.getElementById('mbc-tab-panel-info');
