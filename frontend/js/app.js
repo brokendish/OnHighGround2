@@ -23,131 +23,46 @@ autoRefreshOnManualUpdateCheckbox.addEventListener('change', (event) => {
     isAutoRefreshOnManualUpdate = event.target.checked;
 });
 
-const shelterMapCard = document.getElementById('shelter-map-card');
-document.getElementById('shelter-map-card-close').addEventListener('click', () => {
-    hideSelectedEmergencyShelter();
-});
+// ── 下部パネル タブ切り替え ───────────────────────────────────────────────
+function switchMbcTab(tab) {
+    const controls  = document.getElementById('map-bottom-controls');
+    const panelAct  = document.getElementById('mbc-tab-panel-action');
+    const panelInfo = document.getElementById('mbc-tab-panel-info');
+    const btnAct    = document.getElementById('mbc-tab-btn-action');
+    const btnInfo   = document.getElementById('mbc-tab-btn-info');
+    if (!controls || !panelAct || !panelInfo) return;
 
-// ── フロートカード コンパクト/展開 トグル ─────────────────────────────────
-function setShelterCardCompact(compact) {
-    if (compact) {
-        shelterMapCard.classList.add('shelter-card--compact');
+    if (tab === 'info') {
+        panelAct.style.display  = 'none';
+        panelInfo.style.display = 'block';
+        btnAct.classList.remove('mbc-tab-btn--active');
+        btnInfo.classList.add('mbc-tab-btn--active');
+        controls.classList.add('mbc-info-mode');
+        // 折りたたまれていれば展開
+        controls.classList.remove('mbc-collapsed');
     } else {
-        shelterMapCard.classList.remove('shelter-card--compact');
-        // 展開時は height をリセット（CSS の 55vh に戻す）
-        shelterMapCard.style.height = '';
+        panelAct.style.display  = 'block';
+        panelInfo.style.display = 'none';
+        btnAct.classList.add('mbc-tab-btn--active');
+        btnInfo.classList.remove('mbc-tab-btn--active');
+        controls.classList.remove('mbc-info-mode');
     }
 }
 
-// ヘッダータップ: コンパクト時のみ展開する
-document.getElementById('shelter-map-card-header').addEventListener('click', (e) => {
-    // ×ボタン・展開ボタン自体のクリックは個別に処理するのでヘッダーエリアのみ
-    if (e.target.closest('#shelter-map-card-close')) return;
-    if (shelterMapCard.classList.contains('shelter-card--compact')) {
-        setShelterCardCompact(false);
-    }
+// タブボタン
+document.getElementById('mbc-tab-btn-action').addEventListener('click', () => switchMbcTab('action'));
+document.getElementById('mbc-tab-btn-info').addEventListener('click',   () => switchMbcTab('info'));
+
+// 情報タブの × ボタン
+document.getElementById('mbc-info-close').addEventListener('click', () => {
+    hideSelectedEmergencyShelter();
 });
 
-// 展開ボタン（「詳細 ∨」）
-document.getElementById('shelter-card-expand-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    setShelterCardCompact(false);
-});
-// カード内スクロールが地図に伝播しないようにする
-L.DomEvent.disableScrollPropagation(shelterMapCard);
-// リサイズハンドル
-(function makeResizable(card) {
-    const handle = card.querySelector('#shelter-card-resize-handle');
-    if (!handle) return;
-    let resizing = false;
-    let startY, startH;
-
-    function resizeStart(cy) {
-        resizing = true;
-        startY = cy;
-        startH = card.offsetHeight;
-    }
-    function resizeMove(cy) {
-        if (!resizing) return;
-        const dy = cy - startY;
-        const newH = Math.min(Math.max(startH + dy, 140), window.innerHeight * 0.85);
-        card.style.height = newH + 'px';
-    }
-    function resizeEnd() { resizing = false; }
-
-    handle.addEventListener('mousedown',  (e) => { e.preventDefault(); resizeStart(e.clientY); });
-    document.addEventListener('mousemove', (e) => resizeMove(e.clientY));
-    document.addEventListener('mouseup',   resizeEnd);
-
-    handle.addEventListener('touchstart',  (e) => { resizeStart(e.touches[0].clientY); }, { passive: true });
-    document.addEventListener('touchmove',  (e) => { if (!resizing) return; e.preventDefault(); resizeMove(e.touches[0].clientY); }, { passive: false });
-    document.addEventListener('touchend',   resizeEnd);
-})(shelterMapCard);
-// カードをドラッグ可能にする（ヘッダー部分をつかんで移動）
-(function makeDraggable(card) {
-    const header = card.querySelector('#shelter-map-card-header');
-    if (!header) return;
-    header.style.cursor = 'grab';
-
-    let dragging = false;
-    let startX, startY, origLeft, origTop;
-
-    function dragStart(cx, cy) {
-        dragging = true;
-        const parentRect = card.parentElement.getBoundingClientRect();
-        const cardRect   = card.getBoundingClientRect();
-        // 親要素基準の座標に変換して top/left で固定（bottom 基準を解除）
-        origLeft = cardRect.left - parentRect.left;
-        origTop  = cardRect.top  - parentRect.top;
-        card.style.transform = 'none';
-        card.style.left      = origLeft + 'px';
-        card.style.top       = origTop  + 'px';
-        card.style.bottom    = 'auto';
-        startX = cx;
-        startY = cy;
-        header.style.cursor = 'grabbing';
-        L.DomEvent.disableClickPropagation(card);
-    }
-
-    function dragMove(cx, cy) {
-        if (!dragging) return;
-        const dx = cx - startX;
-        const dy = cy - startY;
-        const parent  = card.parentElement;
-        const newLeft = Math.max(0, Math.min(origLeft + dx, parent.offsetWidth  - card.offsetWidth));
-        const newTop  = Math.max(0, Math.min(origTop  + dy, parent.offsetHeight - card.offsetHeight));
-        card.style.left = newLeft + 'px';
-        card.style.top  = newTop  + 'px';
-    }
-
-    function dragEnd() {
-        dragging = false;
-        header.style.cursor = 'grab';
-    }
-
-    // マウス（コンパクト時はドラッグしない）
-    header.addEventListener('mousedown', (e) => {
-        if (card.classList.contains('shelter-card--compact')) return;
-        e.preventDefault();
-        dragStart(e.clientX, e.clientY);
-    });
-    document.addEventListener('mousemove', (e) => dragMove(e.clientX, e.clientY));
-    document.addEventListener('mouseup',   dragEnd);
-
-    // タッチ（コンパクト時はドラッグしない）
-    header.addEventListener('touchstart', (e) => {
-        if (card.classList.contains('shelter-card--compact')) return;
-        const t = e.touches[0];
-        dragStart(t.clientX, t.clientY);
-    }, { passive: true });
-    document.addEventListener('touchmove', (e) => {
-        if (!dragging) return;
-        e.preventDefault();
-        const t = e.touches[0];
-        dragMove(t.clientX, t.clientY);
-    }, { passive: false });
-    document.addEventListener('touchend', dragEnd);
-})(shelterMapCard);
+// 情報タブ内スクロールが地図パンに伝播しないようにする
+const mbcInfoPanel = document.getElementById('mbc-tab-panel-info');
+if (mbcInfoPanel && typeof L !== 'undefined') {
+    L.DomEvent.disableScrollPropagation(mbcInfoPanel);
+}
 
 showEmergencySheltersCheckbox.addEventListener('change', (event) => {
     isEmergencyShelterVisible = event.target.checked;

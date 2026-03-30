@@ -786,12 +786,8 @@ function showSelectedEmergencyShelter(site) {
 }
 
 function _showFloatCardCentered() {
-    const card = document.getElementById('shelter-map-card');
-    card.style.top       = '50%';
-    card.style.left      = '50%';
-    card.style.bottom    = 'auto';
-    card.style.transform = 'translate(-50%, -50%)';
-    card.style.display   = 'block';
+    // フロートカードを廃止し、下部パネルの情報タブに表示を切り替える
+    if (typeof switchMbcTab === 'function') switchMbcTab('info');
 }
 
 // ── 実ルート値フォーマット（カード表示用）───────────────────────────────────
@@ -918,9 +914,7 @@ function showUserDestInFloatCard() {
 function hideSelectedEmergencyShelter() {
     clearSelectedEmergencyShelterRouteGuidance();
     document.getElementById('selectedShelterInfo').style.display = 'none';
-    const card = document.getElementById('shelter-map-card');
-    card.style.display = 'none';
-    card.classList.remove('shelter-card--compact'); // 次回表示時は展開状態に戻す
+    if (typeof switchMbcTab === 'function') switchMbcTab('action');
     selectedEmergencyShelterSite   = null;
     selectedEmergencyShelterMarker = null;
 }

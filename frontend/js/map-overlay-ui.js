@@ -143,11 +143,6 @@ function preventMapPanOnOverlay() {
 // ── 現在地取得ボタン ──────────────────────────────────────────────────────
 function bindLocateButton() {
     document.getElementById('locate-overlay-btn').addEventListener('click', () => {
-        // フロートウィンドウが開いていれば閉じる
-        const card = document.getElementById('shelter-map-card');
-        if (card && card.style.display !== 'none') {
-            card.style.display = 'none';
-        }
         document.getElementById('getCurrentLocation').click();
     });
 }

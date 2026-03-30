@@ -1196,99 +1196,13 @@
             background: rgba(198, 40, 40, 0.92);
         }
 
-        /* 指定緊急避難場所 地図上フローティングカード */
-        #shelter-map-card {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 290px;
-            height: 55vh;
-            min-height: 140px;
-            max-height: 85vh;
-            overflow-y: auto;
-            resize: none;
-            background: rgba(255, 255, 255, 0.97);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.5);
-            border-radius: 14px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.22);
-            padding: 12px 14px 10px;
-            z-index: 800;
-            pointer-events: auto;
-            transition: height 0.22s ease, min-height 0.22s ease;
-        }
-
-        /* ── コンパクトモード ── */
-        #shelter-map-card.shelter-card--compact {
-            height: auto;
-            min-height: 0;
-            overflow-y: hidden;
-            resize: none;
-        }
-        #shelter-map-card.shelter-card--compact #shelter-card-designation,
-        #shelter-map-card.shelter-card--compact #shelter-card-address,
-        #shelter-map-card.shelter-card--compact #shelter-card-dest-info,
-        #shelter-map-card.shelter-card--compact #shelter-card-route-guidance,
-        #shelter-map-card.shelter-card--compact #shelter-card-resize-handle {
-            display: none !important;
-        }
-        #shelter-map-card.shelter-card--compact #shelter-card-meta {
-            margin-bottom: 0;
-        }
-        /* コンパクト時のヘッダー: 展開ボタンを右端に追加 */
-        #shelter-card-expand-btn {
-            display: none;
-            background: none;
-            border: none;
-            font-size: 13px;
-            color: #1976d2;
-            cursor: pointer;
-            padding: 0 0 0 6px;
-            line-height: 1;
-            flex-shrink: 0;
-            white-space: nowrap;
-        }
-        #shelter-map-card.shelter-card--compact #shelter-card-expand-btn { display: block; }
-        #shelter-map-card.shelter-card--compact #shelter-map-card-close  { display: none; }
-
-        #shelter-map-card-header {
+        /* 避難先情報（情報タブ内コンテンツ） */
+        #mbc-info-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
             margin-bottom: 4px;
-            cursor: grab;
-            user-select: none;
         }
-        #shelter-map-card.shelter-card--compact #shelter-map-card-header {
-            cursor: pointer;
-            margin-bottom: 4px;
-        }
-        #shelter-map-card-header:active { cursor: grabbing; }
-        #shelter-map-card.shelter-card--compact #shelter-map-card-header:active { cursor: pointer; }
-        #shelter-card-resize-handle {
-            position: sticky;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: ns-resize;
-            background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.95));
-            margin: 0 -14px -10px;
-            border-radius: 0 0 14px 14px;
-        }
-        #shelter-card-resize-handle::before {
-            content: '';
-            width: 36px;
-            height: 4px;
-            background: #ccc;
-            border-radius: 2px;
-        }
-        #shelter-card-resize-handle:hover::before { background: #999; }
         #shelter-card-dest-info {
             margin: 4px 0 6px;
             display: block;
@@ -1319,7 +1233,7 @@
             flex: 1;
             margin-right: 6px;
         }
-        #shelter-map-card-close {
+        #mbc-info-close {
             background: none;
             border: none;
             font-size: 16px;
@@ -1329,7 +1243,7 @@
             line-height: 1;
             flex-shrink: 0;
         }
-        #shelter-map-card-close:hover { color: #333; }
+        #mbc-info-close:hover { color: #333; }
         #shelter-card-designation {
             font-size: 11px;
             color: #555;
@@ -1823,13 +1737,16 @@
         /* コンテンツ折りたたみ */
         #map-bottom-body {
             overflow: hidden;
-            max-height: 200px;
+            max-height: 220px;
             transition: max-height 0.25s ease, opacity 0.2s ease;
             opacity: 1;
             display: flex;
             flex-direction: column;
             gap: 6px;
             padding-top: 4px;
+        }
+        #map-bottom-controls.mbc-info-mode #map-bottom-body {
+            max-height: 60vh;
         }
         #map-bottom-controls.mbc-collapsed #map-bottom-body {
             max-height: 0;
@@ -1838,6 +1755,53 @@
         #map-bottom-controls.mbc-collapsed .mbc-handle-chevron {
             transform: rotate(180deg);
         }
+
+        /* ── 情報タブ ───────────────────────────── */
+        #mbc-tabs {
+            display: flex;
+            gap: 4px;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+            padding-bottom: 6px;
+            margin-bottom: 2px;
+        }
+        .mbc-tab-btn {
+            flex: 1;
+            padding: 5px 0;
+            border: none;
+            background: none;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 500;
+            color: #888;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .mbc-tab-btn.mbc-tab-btn--active {
+            background: rgba(25, 118, 210, 0.12);
+            color: #1976d2;
+            font-weight: 700;
+        }
+        #mbc-tab-panel-info {
+            overflow-y: auto;
+            flex: 1;
+        }
+        #mbc-info-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 4px;
+        }
+        #mbc-info-close {
+            background: none;
+            border: none;
+            font-size: 16px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        #mbc-info-close:hover { color: #333; }
 
         #map-bottom-controls {
             position: absolute;
@@ -2287,30 +2251,6 @@
 
                 </div><!-- /#map-top-right-controls -->
 
-                <!-- 指定緊急避難場所 選択カード -->
-                <div id="shelter-map-card" style="display:none;">
-                    <div id="shelter-map-card-header">
-                        <div id="shelter-card-name">-</div>
-                        <button id="shelter-card-expand-btn" title="詳細を表示">詳細 ∨</button>
-                        <button id="shelter-map-card-close" title="閉じる">×</button>
-                    </div>
-                    <div id="shelter-card-designation">-</div>
-                    <div id="shelter-card-address" style="display:none;"></div>
-                    <div id="shelter-card-meta">
-                        <span id="shelter-card-transport">-</span>
-                        <span>📏 <span id="shelter-card-distance">-</span></span>
-                        <span>⏱ <span id="shelter-card-duration">-</span></span>
-                    </div>
-                    <!-- 避難先候補のみ表示（標高・スコア・ハザード・コメント） -->
-                    <div id="shelter-card-dest-info" style="display:none;">
-                        <div id="shelter-card-hazard-block"></div>
-                        <div id="shelter-card-elev-score"></div>
-                        <div id="shelter-card-comment" style="display:none;"></div>
-                    </div>
-                    <div class="route-guidance" id="shelter-card-route-guidance"></div>
-                    <div id="shelter-card-resize-handle"></div>
-                </div>
-
                 <!-- 下部: 現在地 / 検索 / ナビ / スライダ -->
                 <div id="map-bottom-controls">
                     <!-- 折りたたみハンドル -->
@@ -2322,6 +2262,13 @@
                     </div>
                     <!-- コンテンツ（折りたたみ対象） -->
                     <div id="map-bottom-body">
+                    <!-- タブバー -->
+                    <div id="mbc-tabs">
+                        <button id="mbc-tab-btn-action" class="mbc-tab-btn mbc-tab-btn--active">🗺 操作</button>
+                        <button id="mbc-tab-btn-info"   class="mbc-tab-btn">📍 情報</button>
+                    </div>
+                    <!-- 操作タブ -->
+                    <div id="mbc-tab-panel-action">
                     <div id="mbc-row-normal" class="mbc-action-row">
                         <button id="locate-overlay-btn" class="mbc-btn mbc-btn--primary">
                             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
@@ -2372,6 +2319,28 @@
                                    aria-label="必要高低差">
                         </div>
                     </div>
+                    </div><!-- /#mbc-tab-panel-action -->
+                    <!-- 情報タブ -->
+                    <div id="mbc-tab-panel-info" style="display:none;">
+                        <div id="mbc-info-header">
+                            <div id="shelter-card-name">-</div>
+                            <button id="mbc-info-close" title="閉じる">×</button>
+                        </div>
+                        <div id="shelter-card-designation">-</div>
+                        <div id="shelter-card-address" style="display:none;"></div>
+                        <div id="shelter-card-meta">
+                            <span id="shelter-card-transport">-</span>
+                            <span>📏 <span id="shelter-card-distance">-</span></span>
+                            <span>⏱ <span id="shelter-card-duration">-</span></span>
+                        </div>
+                        <!-- 避難先候補のみ（標高・スコア・ハザード・コメント） -->
+                        <div id="shelter-card-dest-info" style="display:none;">
+                            <div id="shelter-card-hazard-block"></div>
+                            <div id="shelter-card-elev-score"></div>
+                            <div id="shelter-card-comment" style="display:none;"></div>
+                        </div>
+                        <div class="route-guidance" id="shelter-card-route-guidance"></div>
+                    </div><!-- /#mbc-tab-panel-info -->
                     </div><!-- /#map-bottom-body -->
                 </div><!-- /#map-bottom-controls -->
 

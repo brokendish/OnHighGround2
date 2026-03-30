@@ -89,9 +89,9 @@ async function refreshEmergencyShelters() {
             }
         });
 
-        // 選択中の避難場所が範囲内にあれば、地図カードはそのまま維持（ポップアップは再開しない）
-        if (reopenMarker && document.getElementById('shelter-map-card').style.display !== 'none') {
-            // カードが開いていた場合はマーカー参照のみ更新（ポップアップは開かない）
+        // 選択中の避難場所が範囲内にあれば情報タブはそのまま維持
+        if (reopenMarker) {
+            // マーカー参照のみ更新（タブは再描画しない）
         }
 
         const totalCount = data.total_count ?? data.count ?? 0;
