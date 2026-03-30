@@ -890,7 +890,7 @@ function showUserDestInFloatCard() {
         const summary = srcPanel.querySelector('.route-guidance-summary');
         if (summary) {
             const text = summary.textContent;
-            const distMatch = text.match(/距離:\s*([^\s/]+)/);
+            const distMatch = text.match(/距離:\s*([^\s/]+(?:\s*[mk]m)?)/);
             const durMatch  = text.match(/所要時間:\s*(.+)/);
             document.getElementById('shelter-card-distance').textContent = distMatch ? distMatch[1] : '-';
             document.getElementById('shelter-card-duration').textContent = durMatch  ? durMatch[1]  : '-';
