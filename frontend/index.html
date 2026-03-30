@@ -1755,6 +1755,15 @@
             color: #888;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+        .mbc-tab-btn svg {
+            width: 15px;
+            height: 15px;
+            flex-shrink: 0;
         }
         .mbc-tab-btn.mbc-tab-btn--active {
             background: rgba(25, 118, 210, 0.12);
@@ -2230,8 +2239,14 @@
                     <div id="map-bottom-body">
                     <!-- タブバー -->
                     <div id="mbc-tabs">
-                        <button id="mbc-tab-btn-action" class="mbc-tab-btn mbc-tab-btn--active">🗺 操作</button>
-                        <button id="mbc-tab-btn-info"   class="mbc-tab-btn">📍 情報</button>
+                        <button id="mbc-tab-btn-action" class="mbc-tab-btn mbc-tab-btn--active">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                            操作
+                        </button>
+                        <button id="mbc-tab-btn-info" class="mbc-tab-btn">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                            情報
+                        </button>
                     </div>
                     <!-- 操作タブ -->
                     <div id="mbc-tab-panel-action">
