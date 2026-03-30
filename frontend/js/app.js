@@ -27,6 +27,32 @@ const shelterMapCard = document.getElementById('shelter-map-card');
 document.getElementById('shelter-map-card-close').addEventListener('click', () => {
     hideSelectedEmergencyShelter();
 });
+
+// ── フロートカード コンパクト/展開 トグル ─────────────────────────────────
+function setShelterCardCompact(compact) {
+    if (compact) {
+        shelterMapCard.classList.add('shelter-card--compact');
+    } else {
+        shelterMapCard.classList.remove('shelter-card--compact');
+        // 展開時は height をリセット（CSS の 55vh に戻す）
+        shelterMapCard.style.height = '';
+    }
+}
+
+// ヘッダータップ: コンパクト時のみ展開する
+document.getElementById('shelter-map-card-header').addEventListener('click', (e) => {
+    // ×ボタン・展開ボタン自体のクリックは個別に処理するのでヘッダーエリアのみ
+    if (e.target.closest('#shelter-map-card-close')) return;
+    if (shelterMapCard.classList.contains('shelter-card--compact')) {
+        setShelterCardCompact(false);
+    }
+});
+
+// 展開ボタン（「詳細 ∨」）
+document.getElementById('shelter-card-expand-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    setShelterCardCompact(false);
+});
 // カード内スクロールが地図に伝播しないようにする
 L.DomEvent.disableScrollPropagation(shelterMapCard);
 // リサイズハンドル
@@ -99,13 +125,18 @@ L.DomEvent.disableScrollPropagation(shelterMapCard);
         header.style.cursor = 'grab';
     }
 
-    // マウス
-    header.addEventListener('mousedown', (e) => { e.preventDefault(); dragStart(e.clientX, e.clientY); });
+    // マウス（コンパクト時はドラッグしない）
+    header.addEventListener('mousedown', (e) => {
+        if (card.classList.contains('shelter-card--compact')) return;
+        e.preventDefault();
+        dragStart(e.clientX, e.clientY);
+    });
     document.addEventListener('mousemove', (e) => dragMove(e.clientX, e.clientY));
     document.addEventListener('mouseup',   dragEnd);
 
-    // タッチ
+    // タッチ（コンパクト時はドラッグしない）
     header.addEventListener('touchstart', (e) => {
+        if (card.classList.contains('shelter-card--compact')) return;
         const t = e.touches[0];
         dragStart(t.clientX, t.clientY);
     }, { passive: true });

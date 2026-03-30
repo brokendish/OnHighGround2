@@ -918,7 +918,9 @@ function showUserDestInFloatCard() {
 function hideSelectedEmergencyShelter() {
     clearSelectedEmergencyShelterRouteGuidance();
     document.getElementById('selectedShelterInfo').style.display = 'none';
-    document.getElementById('shelter-map-card').style.display = 'none';
+    const card = document.getElementById('shelter-map-card');
+    card.style.display = 'none';
+    card.classList.remove('shelter-card--compact'); // 次回表示時は展開状態に戻す
     selectedEmergencyShelterSite   = null;
     selectedEmergencyShelterMarker = null;
 }

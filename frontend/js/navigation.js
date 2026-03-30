@@ -265,6 +265,8 @@ function startNavigation() {
     if (typeof voiceNav !== 'undefined') {
         voiceNav.announce({ id: 'nav-start', text: '案内を開始します', category: 'start', priority: 'high' });
     }
+    // ナビ開始時にフロートカードをコンパクトモードに切り替え（地図の視界確保）
+    if (typeof setShelterCardCompact === 'function') setShelterCardCompact(true);
 }
 
 // ── ナビ停止 ──────────────────────────────────────────────────────────────

@@ -1217,7 +1217,42 @@
             padding: 12px 14px 10px;
             z-index: 800;
             pointer-events: auto;
+            transition: height 0.22s ease, min-height 0.22s ease;
         }
+
+        /* ── コンパクトモード ── */
+        #shelter-map-card.shelter-card--compact {
+            height: auto;
+            min-height: 0;
+            overflow-y: hidden;
+            resize: none;
+        }
+        #shelter-map-card.shelter-card--compact #shelter-card-designation,
+        #shelter-map-card.shelter-card--compact #shelter-card-address,
+        #shelter-map-card.shelter-card--compact #shelter-card-dest-info,
+        #shelter-map-card.shelter-card--compact #shelter-card-route-guidance,
+        #shelter-map-card.shelter-card--compact #shelter-card-resize-handle {
+            display: none !important;
+        }
+        #shelter-map-card.shelter-card--compact #shelter-card-meta {
+            margin-bottom: 0;
+        }
+        /* コンパクト時のヘッダー: 展開ボタンを右端に追加 */
+        #shelter-card-expand-btn {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 13px;
+            color: #1976d2;
+            cursor: pointer;
+            padding: 0 0 0 6px;
+            line-height: 1;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        #shelter-map-card.shelter-card--compact #shelter-card-expand-btn { display: block; }
+        #shelter-map-card.shelter-card--compact #shelter-map-card-close  { display: none; }
+
         #shelter-map-card-header {
             display: flex;
             justify-content: space-between;
@@ -1226,7 +1261,12 @@
             cursor: grab;
             user-select: none;
         }
+        #shelter-map-card.shelter-card--compact #shelter-map-card-header {
+            cursor: pointer;
+            margin-bottom: 4px;
+        }
         #shelter-map-card-header:active { cursor: grabbing; }
+        #shelter-map-card.shelter-card--compact #shelter-map-card-header:active { cursor: pointer; }
         #shelter-card-resize-handle {
             position: sticky;
             bottom: 0;
@@ -2251,6 +2291,7 @@
                 <div id="shelter-map-card" style="display:none;">
                     <div id="shelter-map-card-header">
                         <div id="shelter-card-name">-</div>
+                        <button id="shelter-card-expand-btn" title="詳細を表示">詳細 ∨</button>
                         <button id="shelter-map-card-close" title="閉じる">×</button>
                     </div>
                     <div id="shelter-card-designation">-</div>
