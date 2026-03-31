@@ -749,6 +749,10 @@ function clearSearchResults() {
     hideSelectedEmergencyShelter();
     hideDangerStatus();
     hideRecommended();
+
+    // ナビ到着バナーなど残存バナーをクリア
+    const navBanner = document.getElementById('navBanner');
+    if (navBanner) navBanner.style.display = 'none';
 }
 
 // ── 指定緊急避難場所の選択情報 ───────────────────────────────────────────
