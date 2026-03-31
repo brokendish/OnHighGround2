@@ -1,0 +1,20 @@
+{
+  "name": "local-marketplace",
+  "interface": {
+    "displayName": "Local Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "codex-plugin-cc",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-plugin-cc"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

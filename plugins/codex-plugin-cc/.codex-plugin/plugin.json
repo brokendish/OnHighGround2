@@ -1,0 +1,15 @@
+{
+  "name": "codex-plugin-cc",
+  "version": "0.1.0",
+  "description": "Plugin sourced from openai/codex-plugin-cc.",
+  "author": {
+    "name": "OpenAI",
+    "url": "https://github.com/openai"
+  },
+  "repository": "https://github.com/openai/codex-plugin-cc",
+  "interface": {
+    "displayName": "Codex Plugin CC",
+    "developerName": "OpenAI",
+    "category": "Productivity"
+  }
+}
