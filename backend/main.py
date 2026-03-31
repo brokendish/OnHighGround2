@@ -462,6 +462,19 @@ for _target in _tsunami_targets:
             _target, _runtime_path, _validated_path, _normalized_path,
         )
 
+# 設定上期待する tsunami targets を hazard_service に登録する（degraded 検出用）。
+# 欠落ターゲットがある場合、assess_candidate() が tsunami を "unknown" に倒す。
+hazard_service.set_expected_tsunami_sources(_tsunami_targets)
+_missing = hazard_service.get_missing_tsunami_sources()
+if _missing:
+    logger.warning(
+        "DEGRADED: tsunami coverage incomplete — missing sources: %s "
+        "→ tsunami will be assessed as 'unknown' for all candidates",
+        _missing,
+    )
+else:
+    logger.info("Tsunami coverage OK: all configured targets loaded: %s", _tsunami_targets)
+
 # inland_flood: 内水氾濫想定（サンプルデータ）
 # [Phase 4] data_runtime/backend/hazard/inland_flood/ を優先。
 # 未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
@@ -1091,13 +1104,21 @@ async def health_check():
         ht: hazard_service.loaded_sources(ht)
         for ht in loaded_hazards
     }
+    missing_tsunami = hazard_service.get_missing_tsunami_sources()
+    is_degraded = not dem_loaded or bool(missing_tsunami)
     return {
-        "status": "healthy" if dem_loaded else "degraded",
+        "status": "degraded" if is_degraded else "healthy",
         "dem_loaded": dem_loaded,
         "dem_path": str(elevation_service.dem_path),
         "hazard_loaded": loaded_hazards,
         "hazard_polygon_counts": hazard_info,
         "hazard_sources": hazard_sources,
+        "tsunami_coverage": {
+            "configured_targets": hazard_service._expected_tsunami_sources,
+            "loaded_sources": hazard_service.loaded_sources("tsunami"),
+            "missing_sources": missing_tsunami,
+            "full_coverage": not bool(missing_tsunami),
+        },
         "shelters_loaded": len(EMERGENCY_SHELTERS),
     }
 

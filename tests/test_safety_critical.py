@@ -291,5 +291,206 @@ class TestCoastalSamplePoints(unittest.TestCase):
             )
 
 
+# ── D. tsunami degraded / missing target 回帰テスト ─────────────────────────
+
+class TestTsunamiDegradedCoverage(unittest.TestCase):
+    """
+    設定した tsunami targets の一部が未ロードの場合に
+    hazard_safe=True が返らないことを検証する。
+
+    問題経緯（2026-04-01 再レビュー）:
+      - app.properties: hazard.tsunami.targets=tokyo,kanagawa,chiba
+      - runtime に chiba ファイルが存在しない場合、main.py は skip して続行
+      - assess_candidate() は「ロード済みの tokyo/kanagawa のみで評価」
+      - chiba 沿岸の点は任意の tsunami polygon に入らない → outside
+      - derive_hazard_safe → True（false safe）
+    修正後の期待:
+      - 設定 targets に未ロードがあれば assess_candidate() が tsunami="unknown" を返す
+      - derive_hazard_safe → None（unknown）
+    """
+
+    def _make_service(self, loaded_targets, expected_targets):
+        """
+        loaded_targets: 実際にロードするターゲット名リスト（ファイルは存在しない想定のためスキップ）
+        expected_targets: set_expected_tsunami_sources に渡すリスト
+        """
+        from hazard_service import HazardService
+        svc = HazardService()
+        svc.set_expected_tsunami_sources(expected_targets)
+        # 実ファイルなしでソースのみ登録（内部 _sources を直接操作）
+        svc._sources["tsunami"] = [f"tsunami_{t}" for t in loaded_targets]
+        # polygon は空（チェックは not loaded → outside にはならないが、
+        # 今回は coverage チェックのみを確認するので空でよい）
+        return svc
+
+    def test_missing_chiba_gives_unknown_in_assess_candidate(self):
+        """chiba が未ロードのとき assess_candidate で tsunami=unknown になる"""
+        from hazard_service import HazardService, derive_hazard_safe
+        svc = HazardService()
+        # tokyo, kanagawa のみロード済み（chiba 欠落）
+        svc._sources["tsunami"] = ["tsunami_tokyo", "tsunami_kanagawa"]
+        svc._polygons["tsunami"] = []  # polygon は空（判定のため）
+        svc.set_expected_tsunami_sources(["tokyo", "kanagawa", "chiba"])
+
+        missing = svc.get_missing_tsunami_sources()
+        self.assertEqual(missing, ["tsunami_chiba"],
+                         "欠落リストに chiba が含まれるべき")
+
+        self.assertFalse(svc.has_full_tsunami_coverage(),
+                         "chiba 欠落なので full coverage は False であるべき")
+
+    def test_all_targets_loaded_gives_full_coverage(self):
+        """全ターゲットがロード済みなら has_full_tsunami_coverage=True"""
+        from hazard_service import HazardService
+        svc = HazardService()
+        svc._sources["tsunami"] = ["tsunami_tokyo", "tsunami_kanagawa", "tsunami_chiba"]
+        svc.set_expected_tsunami_sources(["tokyo", "kanagawa", "chiba"])
+        self.assertTrue(svc.has_full_tsunami_coverage())
+        self.assertEqual(svc.get_missing_tsunami_sources(), [])
+
+    def test_no_expected_targets_means_no_degraded_check(self):
+        """set_expected_tsunami_sources 未呼出なら degraded チェックなし（デフォルト安全）"""
+        from hazard_service import HazardService
+        svc = HazardService()
+        # 期待値を設定しない
+        self.assertTrue(svc.has_full_tsunami_coverage(),
+                        "期待値未設定のとき full_coverage は True（チェックしない）")
+        self.assertEqual(svc.get_missing_tsunami_sources(), [])
+
+    def test_assess_candidate_injects_unknown_when_coverage_incomplete(self):
+        """
+        coverage 不完全なとき assess_candidate() が tsunami='unknown' を返す。
+        derive_hazard_safe がこれを受けて None（unknown）を返すことを確認。
+
+        モック設定:
+          - tsunami の _sources に tokyo のみ登録（chiba 欠落）
+          - _polygons["tsunami"] に ダミーポリゴン（遠い場所）を入れて
+            loaded_hazard_types() にリストされるようにする
+          - coverage 不完全 → assess_candidate が tsunami="unknown" に上書き
+        """
+        from hazard_service import HazardService, derive_hazard_safe
+
+        # ダミーポリゴン（北海道沖・テスト点 35.64 から遠い → outside 判定）
+        dummy_poly = {"bbox": (43.0, 141.0, 44.0, 142.0), "coords": [
+            [141.0, 43.0], [142.0, 43.0], [142.0, 44.0], [141.0, 44.0], [141.0, 43.0]
+        ]}
+
+        svc = HazardService()
+        svc._polygons["flood"]   = [dummy_poly]
+        svc._sources["flood"]    = ["tokyo_flood"]
+        svc._polygons["tsunami"] = [dummy_poly]   # loaded_hazard_types に含まれるよう非空
+        svc._sources["tsunami"]  = ["tsunami_tokyo"]  # tokyo のみロード済み
+        svc.set_expected_tsunami_sources(["tokyo", "kanagawa", "chiba"])  # chiba 欠落
+
+        assessment = svc.assess_candidate(35.6415, 139.7905)  # 有明北部
+
+        self.assertIn("tsunami", assessment,
+                      "assess_candidate は tsunami キーを含むべき")
+        self.assertEqual(assessment["tsunami"], "unknown",
+                         "coverage 不完全のとき tsunami は 'unknown' であるべき")
+
+        hazard_safe = derive_hazard_safe(assessment)
+        self.assertIsNone(hazard_safe,
+                          "tsunami=unknown を含む場合 derive_hazard_safe は None(unknown) であるべき（True は false safe）")
+
+    def test_assess_candidate_tsunami_outside_when_full_coverage(self):
+        """
+        full coverage のときは tsunami の通常判定が行われる（outside → True の可能性がある）。
+        ここでは flood も tsunami も outside で hazard_safe=True が返ることを確認。
+
+        モック設定:
+          - 全3ターゲット(tokyo/kanagawa/chiba)をロード済みとしてマーク
+          - ダミーポリゴン（遠い場所）→ テスト点は outside
+          - coverage は full → unknown への上書きなし → derive_hazard_safe=True
+        """
+        from hazard_service import HazardService, derive_hazard_safe
+
+        dummy_poly = {"bbox": (43.0, 141.0, 44.0, 142.0), "coords": [
+            [141.0, 43.0], [142.0, 43.0], [142.0, 44.0], [141.0, 44.0], [141.0, 43.0]
+        ]}
+
+        svc = HazardService()
+        svc._polygons["flood"]   = [dummy_poly]
+        svc._sources["flood"]    = ["tokyo_flood"]
+        svc._polygons["tsunami"] = [dummy_poly]
+        svc._sources["tsunami"]  = ["tsunami_tokyo", "tsunami_kanagawa", "tsunami_chiba"]
+        svc.set_expected_tsunami_sources(["tokyo", "kanagawa", "chiba"])  # 全件ロード済み
+
+        assessment = svc.assess_candidate(35.6415, 139.7905)
+        # coverage は full なので unknown への上書きなし → 通常判定（ダミーポリゴンは外 → outside）
+        self.assertEqual(assessment.get("tsunami"), "outside",
+                         "full coverage + ダミーポリゴン外 → outside であるべき")
+
+        hazard_safe = derive_hazard_safe(assessment)
+        self.assertTrue(hazard_safe,
+                        "full coverage で全 outside なら hazard_safe=True が正しい")
+
+
+# ── E. フロントエンド buildHazardReasonBlock ロジック回帰テスト（ソースコード検証）──
+
+class TestBuildHazardReasonBlockSourceGuards(unittest.TestCase):
+    """
+    buildHazardReasonBlock() のソースコードが安全ロジックを含むことを検証する。
+    JS 実行環境がないため、ソースコードの文字列検索で保証する。
+
+    問題経緯（2026-04-01 再レビュー）:
+      - assessment に unknown が含まれてもサイレントに SAFE_HAZARD_TEXT を表示していた
+      - inside が0件かつ unknown が1件以上のとき、UNKNOWN_HAZARD_TEXT を返すべき
+    """
+
+    SOURCE_PATH = Path(__file__).resolve().parents[1] / "frontend" / "js" / "ui.js"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.SOURCE = cls.SOURCE_PATH.read_text(encoding="utf-8")
+
+    def test_unknown_hazard_text_constant_is_defined(self):
+        """UNKNOWN_HAZARD_TEXT 定数が定義されていること"""
+        self.assertIn("UNKNOWN_HAZARD_TEXT", self.SOURCE,
+                      "UNKNOWN_HAZARD_TEXT 定数が未定義です")
+
+    def test_build_hazard_reason_block_checks_unknown_status(self):
+        """buildHazardReasonBlock が 'unknown' を検出していること"""
+        self.assertIn("value === 'unknown'", self.SOURCE,
+                      "buildHazardReasonBlock が string の 'unknown' を検出していません")
+        self.assertIn("status === 'unknown'", self.SOURCE,
+                      "buildHazardReasonBlock が object の status='unknown' を検出していません")
+
+    def test_build_hazard_reason_block_has_unknown_branch(self):
+        """unknown があった場合に UNKNOWN_HAZARD_TEXT を返す分岐が存在すること"""
+        self.assertIn("hasUnknown", self.SOURCE,
+                      "hasUnknown フラグが存在しません（unknown 検出フラグが必要）")
+        # UNKNOWN_HAZARD_TEXT を返す分岐
+        self.assertIn("is-unknown", self.SOURCE,
+                      "is-unknown CSS クラスが使われていません")
+
+    def test_safe_text_not_returned_when_unknown_present(self):
+        """
+        SAFE_HAZARD_TEXT を返す分岐が 'hasUnknown' チェックの後にあること。
+        （hasUnknown=true のとき SAFE_HAZARD_TEXT に到達しないことをコード順で保証する）
+        """
+        safe_idx    = self.SOURCE.find("return `<div class=\"hazard-reason-block\"><span class=\"hazard-reason-item is-safe\">")
+        unknown_idx = self.SOURCE.find("return `<div class=\"hazard-reason-block\"><span class=\"hazard-reason-item is-unknown\">")
+        # unknown return が safe return より前にある（unknown を先に弾く）
+        self.assertNotEqual(unknown_idx, -1, "is-unknown return 文が見つかりません")
+        self.assertNotEqual(safe_idx,    -1, "is-safe return 文が見つかりません")
+        self.assertLess(unknown_idx, safe_idx,
+                        "is-unknown の return が is-safe の return より後にあります — "
+                        "unknown のとき safe が表示される false safe の可能性があります")
+
+    def test_null_assessment_returns_unknown_not_safe(self):
+        """
+        assessment が null/undefined のとき SAFE ではなく UNKNOWN を返すこと。
+        ソース上で最初の return が is-unknown であることを確認。
+        """
+        block_start = self.SOURCE.find("function buildHazardReasonBlock(")
+        self.assertNotEqual(block_start, -1)
+        block_src = self.SOURCE[block_start:block_start + 300]
+        self.assertIn("is-unknown", block_src,
+                      "buildHazardReasonBlock の冒頭（null チェック）で is-unknown を返していません")
+        self.assertNotIn("is-safe", block_src,
+                         "buildHazardReasonBlock の冒頭（null チェック）で is-safe を返しています — false safe")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

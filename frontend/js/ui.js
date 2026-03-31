@@ -15,7 +15,9 @@
 const HAZARD_DISPLAY_ORDER = ['flood', 'tsunami', 'storm_surge', 'inland_flood', 'landslide', 'urban_flood'];
 
 // safe 表示の文言（一元管理）
-const SAFE_HAZARD_TEXT = '✔ 安全（全ハザード外）';
+const SAFE_HAZARD_TEXT    = '✔ 安全（全ハザード外）';
+// unknown 表示の文言（一元管理）— inside 無しでも unknown が1件でもあれば使う
+const UNKNOWN_HAZARD_TEXT = '❓ 未判定（安全確認不可）';
 
 /**
  * severity レベルを数値ランクに変換する（ソート用）。
@@ -425,10 +427,13 @@ function hideDangerStatus() {
  */
 function buildHazardReasonBlock(assessment) {
     if (!assessment || typeof assessment !== 'object') {
-        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-safe">${SAFE_HAZARD_TEXT}</span></div>`;
+        // assessment が null/undefined = データなし → 安全確定しない
+        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-unknown">${UNKNOWN_HAZARD_TEXT}</span></div>`;
     }
 
     const ranked = [];
+    let hasUnknown = false;
+
     for (const [key, value] of Object.entries(assessment)) {
         if (typeof value === 'string') {
             if (value === 'inside') {
@@ -436,30 +441,43 @@ function buildHazardReasonBlock(assessment) {
                     rank: getSeverityRank('danger'),
                     html: `<span class="hazard-reason-item is-danger">${getHazardLabel(key)}</span>`
                 });
+            } else if (value === 'unknown') {
+                hasUnknown = true;
             }
-        } else if (value && typeof value === 'object' && value.status === 'inside') {
-            const level    = value.level || 'danger';
-            const cssClass = level === 'caution' ? 'is-caution' : 'is-danger';
-            const sev      = getSeverityInfo(level);
-            const extra    = value.depth_m != null ? `${value.depth_m}m`
-                : value.zone_type === 'special' ? '特別警戒'
-                : value.zone_type === 'warning'  ? '警戒区域'
-                : '';
-            const label = extra ? `${getHazardLabel(key)}(${extra})` : getHazardLabel(key);
-            ranked.push({
-                rank: getSeverityRank(level),
-                html: `<span class="hazard-reason-item ${cssClass}">${sev.icon} ${label}</span>`
-            });
+        } else if (value && typeof value === 'object') {
+            const status = value.status;
+            if (status === 'inside') {
+                const level    = value.level || 'danger';
+                const cssClass = level === 'caution' ? 'is-caution' : 'is-danger';
+                const sev      = getSeverityInfo(level);
+                const extra    = value.depth_m != null ? `${value.depth_m}m`
+                    : value.zone_type === 'special' ? '特別警戒'
+                    : value.zone_type === 'warning'  ? '警戒区域'
+                    : '';
+                const label = extra ? `${getHazardLabel(key)}(${extra})` : getHazardLabel(key);
+                ranked.push({
+                    rank: getSeverityRank(level),
+                    html: `<span class="hazard-reason-item ${cssClass}">${sev.icon} ${label}</span>`
+                });
+            } else if (status === 'unknown') {
+                hasUnknown = true;
+            }
         }
     }
 
     // severity 高い順にソート
     ranked.sort((a, b) => b.rank - a.rank);
 
-    if (ranked.length === 0) {
-        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-safe">${SAFE_HAZARD_TEXT}</span></div>`;
+    if (ranked.length > 0) {
+        // inside があれば danger ピルを表示（unknownの有無は問わない）
+        return `<div class="hazard-reason-block">${ranked.map(r => r.html).join('')}</div>`;
     }
-    return `<div class="hazard-reason-block">${ranked.map(r => r.html).join('')}</div>`;
+    if (hasUnknown) {
+        // inside は無いが unknown が1件以上 → 安全確定しない
+        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-unknown">${UNKNOWN_HAZARD_TEXT}</span></div>`;
+    }
+    // 全件 outside のみ → 安全
+    return `<div class="hazard-reason-block"><span class="hazard-reason-item is-safe">${SAFE_HAZARD_TEXT}</span></div>`;
 }
 
 // ── 推奨避難先カード ──────────────────────────────────────────────────────

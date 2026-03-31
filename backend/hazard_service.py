@@ -171,6 +171,9 @@ class HazardService:
         self._polygons: Dict[str, List[dict]] = {}
         # hazard_type -> list of loaded file stems (e.g. ["tsunami_tokyo", "tsunami_kanagawa"])
         self._sources: Dict[str, List[str]] = {}
+        # 設定上期待する tsunami ソースのステム一覧（degraded 検出用）
+        # 空リストは「期待値未設定」を意味し、欠落チェックをスキップする
+        self._expected_tsunami_sources: List[str] = []
         self._flood_proximity_buffer_deg = max(
             0.0,
             flood_proximity_buffer_deg
@@ -411,6 +414,34 @@ class HazardService:
         """指定ハザードタイプにロードされたファイルのステム一覧 (例: ["tsunami_tokyo"])"""
         return list(self._sources.get(hazard_type, []))
 
+    def set_expected_tsunami_sources(self, targets: List[str]) -> None:
+        """
+        設定ファイルで期待する tsunami ターゲット名を登録する。
+        例: set_expected_tsunami_sources(["tokyo", "kanagawa", "chiba"])
+        → 内部では ["tsunami_tokyo", "tsunami_kanagawa", "tsunami_chiba"] として保存。
+
+        assess_candidate() が tsunami を "unknown" に倒すかどうかの判定に使用する。
+        """
+        self._expected_tsunami_sources = [f"tsunami_{t}" for t in targets]
+
+    def get_missing_tsunami_sources(self) -> List[str]:
+        """
+        設定上期待するが実際にはロードされていない tsunami ソースのステムを返す。
+        期待値が未設定（set_expected_tsunami_sources 未呼出）の場合は空リスト。
+        """
+        if not self._expected_tsunami_sources:
+            return []
+        loaded = set(self._sources.get("tsunami", []))
+        return [s for s in self._expected_tsunami_sources if s not in loaded]
+
+    def has_full_tsunami_coverage(self) -> bool:
+        """
+        設定した全 tsunami ターゲットがロード済みか確認する。
+        期待値が未設定の場合は True（チェックしない）。
+        False の場合は tsunami 判定の coverage が不完全 → 安全確定しない。
+        """
+        return len(self.get_missing_tsunami_sources()) == 0
+
     def polygon_count(self, hazard_type: str) -> int:
         """指定ハザードタイプのポリゴン数"""
         return len(self._polygons.get(hazard_type, []))
@@ -570,8 +601,6 @@ class HazardService:
             }
         """
         loaded = self.loaded_hazard_types()
-        if not loaded:
-            return {}
 
         assessment: Dict = {}
         for hazard_type in loaded:
@@ -581,6 +610,20 @@ class HazardService:
                 assessment[hazard_type] = self.check_landslide_detail(lat, lon)
             else:
                 assessment[hazard_type] = self.check_point_assessment(lat, lon, hazard_type)
+
+        # tsunami coverage 不完全ガード:
+        # 設定上期待するターゲットが一部未ロードの場合、実際に tsunami ポリゴンが
+        # ロード済みでも「outside」は確定できない（欠落エリアに入っている可能性がある）。
+        # → false safe 防止のため tsunami を "unknown" に上書きする。
+        # 注: loaded_hazard_types() が空でも（ハザードデータ未配備環境）このチェックは走る。
+        missing = self.get_missing_tsunami_sources()
+        if missing:
+            logger.debug(
+                "assess_candidate: tsunami coverage incomplete (missing: %s) → setting tsunami=unknown",
+                missing,
+            )
+            assessment["tsunami"] = "unknown"
+
         return assessment
 
     def get_tsunami_centroid_distance_m(
