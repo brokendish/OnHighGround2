@@ -1217,6 +1217,17 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 detail="現在地の標高データが見つかりません",
             )
 
+        # DEM NoData センチネル値の防御チェック（elevation_service 側で弾けなかった場合の二重ガード）
+        if current_elevation <= -9999.0:
+            logger.warning(
+                "evacuation: NoData sentinel leaked through elevation_service: lat=%.5f lon=%.5f elev=%.1f",
+                request.lat, request.lon, current_elevation,
+            )
+            raise HTTPException(
+                status_code=422,
+                detail="現在地の標高データが無効です（NoData）。別の地点を選択してください。",
+            )
+
         # 現在地のハザード判定（HazardEngine 経由）
         point_eval = hazard_engine.evaluate_point(request.lat, request.lon)
         hazard_status = {

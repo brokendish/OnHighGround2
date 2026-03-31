@@ -46,9 +46,14 @@ class ElevationService:
         if np.isnan(elevation):
             return True
 
+        # -9999.0 は DEM の一般的な NoData センチネル値。
+        # dataset.nodata の設定有無に関わらず必ず弾く（false safe 防止）。
+        if elevation <= -9999.0:
+            return True
+
         nodata = self.dataset.nodata if self.dataset is not None else None
         if nodata is None:
-            return elevation < -9999
+            return False
 
         if np.isnan(nodata):
             return np.isnan(elevation)
