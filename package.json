@@ -1,0 +1,31 @@
+{
+  "name": "onhighground2",
+  "version": "1.0.0",
+  "description": "津波や高潮、洪水から身を守るために現在地よりも標高の高い場所への避難経路を地図上に表示し目的地までナビゲートする。地図、標高情報、ルート検索などGoogleのサービスに依存せずにオープンソースで実装する。 可能であればオフラインでも動作させたい。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brokendish/OnHighGround2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/brokendish/OnHighGround2/issues"
+  },
+  "homepage": "https://github.com/brokendish/OnHighGround2#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.59.0"
+  }
+}

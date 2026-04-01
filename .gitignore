@@ -81,3 +81,8 @@ data_runtime/manifests/*.log
 frontend/layers/*.geojson
 frontend/layers/*.json
 OnHighGround2_presentation.pptx
+
+# ---- Node / Playwright ----
+node_modules/
+playwright-report/
+test-results/
