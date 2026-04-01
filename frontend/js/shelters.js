@@ -53,12 +53,13 @@ async function refreshEmergencyShelters() {
                 interactive: false
             }).addTo(map);
 
-            // ヒットエリア（大きい透明円・タップ判定用）
+            // ヒットエリア（透明円・タップ判定用）
+            // 以前は広すぎて近傍クリックを拾いやすかったため少し縮小する。
             const marker = L.circleMarker([site.lat, site.lon], {
                 color: 'transparent',
                 fillColor: 'transparent',
                 fillOpacity: 0,
-                radius: 44,
+                radius: 32,
                 weight: 0,
                 bubblingMouseEvents: false
             }).addTo(map);
