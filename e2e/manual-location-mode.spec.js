@@ -50,7 +50,7 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
    *    checkbox を ON → 地図クリック（現在地設定）→
    *    checkbox が OFF になり hint が消える。
    */
-  test('手動現在地設定後に checkbox が OFF になり hint が消える', async ({ page }) => {
+  test('手動現在地設定後も checkbox が ON のまま維持される', async ({ page }) => {
     await setupBasicMocks(page);
     await page.goto('/');
     await openSidebar(page);
@@ -62,9 +62,8 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
     await checkbox.check();
     await expect(hint).toBeVisible({ timeout: 2000 });
 
-    // 地図上をクリック（page.evaluate で map.click イベントを発火）
+    // 地図上をクリック（Leaflet の map.click イベントを発火）
     await page.evaluate(() => {
-      // Leaflet の map.click イベントを擬似的に発火する
       if (typeof map !== 'undefined') {
         map.fire('click', {
           latlng: L.latLng(35.6415, 139.7905),
@@ -73,17 +72,16 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
       }
     });
 
-    // updateCurrentLocation が成功すると exitManualLocationMode() が呼ばれ OFF になる
-    await expect(checkbox).not.toBeChecked({ timeout: 5000 });
-    await expect(hint).toBeHidden({ timeout: 3000 });
+    // 現在地設定後もチェックが維持されること（自動 OFF しない）
+    await page.waitForTimeout(500); // updateCurrentLocation の非同期処理を待つ
+    await expect(checkbox).toBeChecked();
+    await expect(hint).toBeVisible();
   });
 
   /**
-   * A-2. 手動現在地設定後に isManualLocationMode フラグが false になる
-   *
-   *      DOM だけでなく JS 変数側も確認。
+   * A-2. 手動現在地設定後に isManualLocationMode フラグが true のまま維持される
    */
-  test('手動現在地設定後に isManualLocationMode が false になる', async ({ page }) => {
+  test('手動現在地設定後に isManualLocationMode が true のまま維持される', async ({ page }) => {
     await setupBasicMocks(page);
     await page.goto('/');
     await openSidebar(page);
@@ -100,11 +98,12 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
       }
     });
 
-    // JS 変数が false になること
-    await expect
-      .poll(() => page.evaluate(() => typeof isManualLocationMode !== 'undefined' ? isManualLocationMode : null),
-             { timeout: 5000 })
-      .toBe(false);
+    await page.waitForTimeout(500);
+    // JS 変数が true のまま維持されること
+    const flag = await page.evaluate(() =>
+      typeof isManualLocationMode !== 'undefined' ? isManualLocationMode : null
+    );
+    expect(flag).toBe(true);
   });
 
   /**
@@ -114,39 +113,27 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
    *    長押しによる setDestinationCandidate() だけが発火し、
    *    現在地更新には戻らないことを確認する。
    */
-  test('manual mode 解除後の長押しで「ここへ行く」ポップアップが表示される', async ({ page }) => {
+  test('manual mode ON のまま長押しすると目的地候補が出て manual mode が解除される', async ({ page }) => {
     await setupBasicMocks(page);
     await page.goto('/');
     await openSidebar(page);
 
-    // manual mode ON → 地図クリックで現在地設定 → 自動 OFF
+    // manual mode ON のまま長押し（contextmenu）を発火
     await page.locator('#manualLocationMode').check();
     await page.evaluate(() => {
       if (typeof map !== 'undefined') {
-        map.fire('click', {
-          latlng: L.latLng(35.6415, 139.7905),
-          originalEvent: new MouseEvent('click', { bubbles: true }),
+        map.fire('contextmenu', {
+          latlng: L.latLng(35.6500, 139.7950),
+          originalEvent: new MouseEvent('contextmenu', { bubbles: true }),
         });
       }
     });
-    await expect(page.locator('#manualLocationMode')).not.toBeChecked({ timeout: 5000 });
 
-    // manual mode が OFF になったので、次は長押しで目的地候補を設定する
-    // setDestinationCandidate() を JS 経由で直接呼んで目的地ポップアップを確認
-    await page.evaluate(() => {
-      if (typeof setDestinationCandidate === 'function') {
-        setDestinationCandidate(35.6500, 139.7950, 'テスト目的地');
-      }
-    });
-
-    // 「ここへ行く」ポップアップが表示される
+    // 「ここへ行く」ポップアップが表示される（目的地候補が設定された）
     await expect(page.locator('text=ここへ行く')).toBeVisible({ timeout: 3000 });
 
-    // 現在地が目的地の座標に変わっていないこと（isManualLocationMode が OFF だったので）
-    const isManual = await page.evaluate(() =>
-      typeof isManualLocationMode !== 'undefined' ? isManualLocationMode : null
-    );
-    expect(isManual).toBe(false);
+    // 長押し発火時に exitManualLocationMode() が呼ばれ OFF になる
+    await expect(page.locator('#manualLocationMode')).not.toBeChecked({ timeout: 3000 });
   });
 
   /**

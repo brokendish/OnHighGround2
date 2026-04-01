@@ -105,8 +105,6 @@ map.on('click', async (event) => {
         if (typeof fetchCurrentLocInfo === 'function') {
             fetchCurrentLocInfo(lat, lng, currentLocation && currentLocation.elevation);
         }
-        // 現在地設定完了 → 手動選択モードを自動解除（目的地長押しとの競合防止）
-        exitManualLocationMode();
     } catch (error) {
         console.error('手動選択位置の標高取得エラー:', error);
         alert(`手動選択した地点の標高データ取得に失敗しました: ${error.message}`);
