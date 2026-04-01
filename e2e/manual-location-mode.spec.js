@@ -201,6 +201,45 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
   });
 
   /**
+   * C-1. ピン表示後もしばらく押し続けて離しても、release click で現在地に戻らない
+   */
+  test('デスクトップ長押しを長めに継続して離しても目的地候補のまま維持される', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto('/');
+    await openSidebar(page);
+
+    await page.locator('#manualLocationMode').check();
+
+    await page.evaluate(() => {
+      if (typeof map !== 'undefined') {
+        map.fire('click', {
+          latlng: L.latLng(35.6415, 139.7905),
+          originalEvent: new MouseEvent('click', { bubbles: true }),
+        });
+      }
+    });
+
+    const mapBox = await page.locator('#map').boundingBox();
+    const cx = mapBox.x + mapBox.width / 2;
+    const cy = mapBox.y + mapBox.height / 2;
+
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.waitForTimeout(1400); // 600ms しきい値を超えて、ピン表示後もしばらく押し続ける
+    await page.mouse.up();
+
+    await expect(page.locator('text=ここへ行く')).toBeVisible({ timeout: 3000 });
+    await expect(page.locator('#manualLocationMode')).toBeChecked({ timeout: 3000 });
+
+    const currentLocationState = await page.evaluate(() => currentLocation ? {
+      lat: currentLocation.lat,
+      lon: currentLocation.lon,
+    } : null);
+
+    expect(currentLocationState).toEqual({ lat: 35.6415, lon: 139.7905 });
+  });
+
+  /**
    * C-2. 長押し後に出た候補確定ボタンのクリックで manual current location が誤発火しない
    */
   test('「ここへ行く」クリック後も manual mode を維持しつつ現在地は誤更新されない', async ({ page }) => {

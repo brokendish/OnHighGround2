@@ -42,6 +42,25 @@ function suppressNextManualLocationSelection() {
     }, 400);
 }
 
+/**
+ * 指定イベントで発生する次の map.click だけ手動現在地更新を抑止する。
+ * 長押し継続中のように click 発生時刻が読めないケース用。
+ */
+function suppressManualLocationSelectionUntil(eventName, timeoutMs = 1500) {
+    let timeoutId = null;
+    const release = () => {
+        window.removeEventListener(eventName, onEvent, true);
+        if (timeoutId) clearTimeout(timeoutId);
+    };
+    const onEvent = () => {
+        suppressNextManualLocationSelection();
+        release();
+    };
+
+    window.addEventListener(eventName, onEvent, true);
+    timeoutId = setTimeout(release, timeoutMs);
+}
+
 autoRefreshOnManualUpdateCheckbox.addEventListener('change', (event) => {
     isAutoRefreshOnManualUpdate = event.target.checked;
 });

@@ -335,12 +335,6 @@ function _showDestinationStatusMsg(msg) {
     const fireFromClient = (clientX, clientY) => {
         _timer    = null;
         _startPos = null;
-        _suppressNextClick = true;
-        // iOS では長押し後に click が発火しないため自動リセット
-        setTimeout(() => { _suppressNextClick = false; }, 300);
-        if (typeof suppressNextManualLocationSelection === 'function') {
-            suppressNextManualLocationSelection();
-        }
         const rect   = mapEl.getBoundingClientRect();
         const latlng = map.containerPointToLatLng(
             L.point(clientX - rect.left, clientY - rect.top)
@@ -350,6 +344,13 @@ function _showDestinationStatusMsg(msg) {
         // mouseup を検知して直後に再オープンする（stopPropagation では同一要素の
         // Leaflet リスナーを止められないため再オープン方式で対処）。
         mapEl.addEventListener('mouseup', function() {
+            _suppressNextClick = true;
+            setTimeout(() => { _suppressNextClick = false; }, 300);
+            if (typeof suppressManualLocationSelectionUntil === 'function') {
+                suppressManualLocationSelectionUntil('click');
+            } else if (typeof suppressNextManualLocationSelection === 'function') {
+                suppressNextManualLocationSelection();
+            }
             setTimeout(() => {
                 if (userDestinationCandidateMarker) {
                     userDestinationCandidateMarker.openPopup();
