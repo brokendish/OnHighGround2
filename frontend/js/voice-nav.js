@@ -195,6 +195,18 @@ const voiceNav = (() => {
         announceApproach(rawText, stepId) {
             if (!rawText) return;
             if (_isStraight(rawText)) return;
+            // 目的地系ステップは専用の文言で予告する
+            const isDestination = /目的地/.test(rawText);
+            if (isDestination) {
+                this.announce({
+                    id:          `pre-${stepId}`,
+                    text:        'まもなく目的地です',
+                    displayText: 'まもなく目的地です',
+                    category:    'maneuver',
+                    priority:    'normal',
+                });
+                return;
+            }
             const voiceText = _toVoiceText(rawText);
             this.announce({
                 id:          `pre-${stepId}`,

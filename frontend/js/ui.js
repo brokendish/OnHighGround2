@@ -768,9 +768,11 @@ function clearSearchResults() {
     hideDangerStatus();
     hideRecommended();
 
-    // ナビ到着バナーなど残存バナーをクリア
+    // ナビバナー・音声案内バーの残存表示をクリア
     const navBanner = document.getElementById('navBanner');
     if (navBanner) navBanner.style.display = 'none';
+    const announcementBar = document.getElementById('nav-announcement-bar');
+    if (announcementBar) announcementBar.style.display = 'none';
 }
 
 // ── 指定緊急避難場所の選択情報 ───────────────────────────────────────────
