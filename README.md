@@ -23,6 +23,45 @@
 
 ---
 
+## Playwright UI テスト
+
+UI の基本動作と **false safe 非表示**（ハザード未判定を安全と見せない）を E2E テストで回帰防止しています。
+
+### 初回セットアップ
+
+```bash
+npm install
+npx playwright install chromium
+```
+
+> `package-lock.json` をコミット対象にしているため、`npm ci` でも同一バージョンが再現できます。
+
+### 実行
+
+```bash
+npm run test:e2e           # headless（CI 向け）
+npm run test:e2e:headed    # ブラウザ表示あり（手動確認向け）
+```
+
+backend を起動しなくても API は `page.route()` でモックして動作します。
+
+### テスト内容（`e2e/` ディレクトリ）
+
+| ファイル | 内容 |
+| --- | --- |
+| `smoke.spec.js` | トップ画面の基本 UI 要素の存在確認 |
+| `geolocation.spec.js` | geolocation 権限・現在地取得ボタンの動作確認 |
+| `evacuation-ui.spec.js` | 避難先 UI の false safe 回帰テスト（API モック） |
+
+`evacuation-ui.spec.js` では `hazard_safe=null` / `tsunami='unknown'` のとき「安全（全ハザード外）」が表示されないことを自動検証しています。
+
+### 現時点の制約
+
+- 実 backend 接続の E2E（実データを使った `/api/evacuation` テスト）は未整備
+- 地図ピクセル比較・GPS 連続移動シミュレーションは次段階
+
+---
+
 ## Docker起動の前提データ
 
 `docker compose up -d osrm-driving osrm-walking backend frontend` を実行する前に、以下を配置してください。
