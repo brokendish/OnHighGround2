@@ -21,7 +21,7 @@ manualLocationModeCheckbox.addEventListener('change', (event) => {
 
 /**
  * 手動現在地選択モードを解除する。
- * 現在地設定完了後・目的地長押し時に呼んで競合を防ぐ。
+ * 明示的にモードを抜ける必要がある場合だけ呼ぶ。
  */
 function exitManualLocationMode() {
     if (!isManualLocationMode) return;
@@ -29,6 +29,17 @@ function exitManualLocationMode() {
     manualLocationModeCheckbox.checked = false;
     manualLocationHint.style.display = 'none';
     if (typeof _updateNavUI === 'function') _updateNavUI();
+}
+
+/**
+ * 次の map.click 1回だけ手動現在地更新を抑止する。
+ * 長押し目的地設定やポップアップ操作と manual mode の競合回避に使う。
+ */
+function suppressNextManualLocationSelection() {
+    suppressNextManualLocationClick = true;
+    setTimeout(() => {
+        suppressNextManualLocationClick = false;
+    }, 400);
 }
 
 autoRefreshOnManualUpdateCheckbox.addEventListener('change', (event) => {
@@ -95,6 +106,10 @@ map.on('click', async (event) => {
 
     if (!isManualLocationMode) {
         // 手動選択モードでなければ何もしない（目的地ピン立ては長押しで行う）
+        return;
+    }
+    if (suppressNextManualLocationClick) {
+        suppressNextManualLocationClick = false;
         return;
     }
 

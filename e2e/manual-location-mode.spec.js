@@ -5,9 +5,9 @@
  * 現在地設定と長押し目的地設定が競合しないことを保証する。
  *
  * 検証対象:
- *   A. 手動現在地設定後に manual mode が自動解除される
- *   B. manual mode 解除後の長押しで目的地候補（📍 ポップアップ）が出る
- *   C. manual mode ON のまま長押しした場合、manual mode が解除されて目的地候補が出る
+ *   A. 手動現在地設定後も manual mode が維持される
+ *   B. 長押し・目的地確定後も manual mode を維持したまま目的地候補/ルート設定ができる
+ *   C. 長押しに伴う click 競合だけが抑止される
  */
 
 'use strict';
@@ -107,13 +107,9 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
   });
 
   /**
-   * B. 手動現在地設定（→ manual mode 自動解除）後の長押しで目的地候補ポップアップが出る
-   *
-   *    manual mode が OFF になった状態なので、
-   *    長押しによる setDestinationCandidate() だけが発火し、
-   *    現在地更新には戻らないことを確認する。
+   * B. manual mode ON のまま長押ししても目的地候補が出て manual mode は維持される
    */
-  test('manual mode ON のまま長押しすると目的地候補が出て manual mode が解除される', async ({ page }) => {
+  test('manual mode ON のまま長押しすると目的地候補が出て manual mode は維持される', async ({ page }) => {
     await setupBasicMocks(page);
     await page.goto('/');
     await openSidebar(page);
@@ -132,17 +128,14 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
     // 「ここへ行く」ポップアップが表示される（目的地候補が設定された）
     await expect(page.locator('text=ここへ行く')).toBeVisible({ timeout: 3000 });
 
-    // 長押し発火時に exitManualLocationMode() が呼ばれ OFF になる
-    await expect(page.locator('#manualLocationMode')).not.toBeChecked({ timeout: 3000 });
+    // manual mode は維持される
+    await expect(page.locator('#manualLocationMode')).toBeChecked({ timeout: 3000 });
   });
 
   /**
-   * C. manual mode ON のまま長押し → manual mode が解除されて目的地候補が出る
-   *
-   *    contextmenu / fireFromClient の先頭で exitManualLocationMode() を呼ぶため、
-   *    長押し完了時点で manual mode が解除されていること。
+   * B-2. 「ここへ行く」で目的地確定しても manual mode は維持される
    */
-  test('manual mode ON のまま長押しすると manual mode が解除されて目的地候補が出る', async ({ page }) => {
+  test('manual mode ON のまま「ここへ行く」で目的地確定しても manual mode は維持される', async ({ page }) => {
     await setupBasicMocks(page);
     await page.goto('/');
     await openSidebar(page);
@@ -167,18 +160,21 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
     // 目的地候補ポップアップが表示される
     await expect(page.locator('text=ここへ行く')).toBeVisible({ timeout: 3000 });
 
-    // manual mode が解除されている
-    await expect(checkbox).not.toBeChecked({ timeout: 3000 });
-    await expect(hint).toBeHidden({ timeout: 3000 });
+    // 目的地を確定
+    await page.locator('text=ここへ行く').click();
+
+    // manual mode は解除されない
+    await expect(checkbox).toBeChecked({ timeout: 3000 });
+    await expect(hint).toBeVisible({ timeout: 3000 });
   });
 
   /**
-   * C-2. デスクトップ長押し（mousedown timer 経由）でも manual mode が解除される
+   * C. デスクトップ長押し（mousedown timer 経由）でも manual mode は維持される
    *
-   *      fireFromClient() 内の exitManualLocationMode() が効いていることを確認。
+   *      fireFromClient() 内で click 競合だけが抑止され、mode 自体は維持されることを確認。
    *      Playwright の page.mouse で 700ms 長押しを実行する。
    */
-  test('デスクトップ長押し（700ms mousedown）後に manual mode が解除される', async ({ page }) => {
+  test('デスクトップ長押し（700ms mousedown）後も manual mode は維持される', async ({ page }) => {
     await setupBasicMocks(page);
     await page.goto('/');
     await openSidebar(page);
@@ -196,12 +192,51 @@ test.describe('Manual Location Mode: 手動選択モード競合バグ回帰テ�
     await page.waitForTimeout(750);   // 600ms しきい値より十分長く
     await page.mouse.up();
 
-    // 長押しで目的地候補が設定され、manual mode が解除されている
-    await expect(page.locator('#manualLocationMode')).not.toBeChecked({ timeout: 3000 });
-    await expect(page.locator('#manualLocationHint')).toBeHidden({ timeout: 3000 });
+    // 長押しで目的地候補が設定され、manual mode は維持されている
+    await expect(page.locator('#manualLocationMode')).toBeChecked({ timeout: 3000 });
+    await expect(page.locator('#manualLocationHint')).toBeVisible({ timeout: 3000 });
 
     // 「ここへ行く」ポップアップが表示されている
     await expect(page.locator('text=ここへ行く')).toBeVisible({ timeout: 3000 });
+  });
+
+  /**
+   * C-2. 長押し後に出た候補確定ボタンのクリックで manual current location が誤発火しない
+   */
+  test('「ここへ行く」クリック後も manual mode を維持しつつ現在地は誤更新されない', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto('/');
+    await openSidebar(page);
+
+    await page.locator('#manualLocationMode').check();
+
+    await page.evaluate(() => {
+      if (typeof map !== 'undefined') {
+        map.fire('click', {
+          latlng: L.latLng(35.6415, 139.7905),
+          originalEvent: new MouseEvent('click', { bubbles: true }),
+        });
+        map.fire('contextmenu', {
+          latlng: L.latLng(35.6500, 139.7950),
+          originalEvent: new MouseEvent('contextmenu', { bubbles: true }),
+        });
+      }
+    });
+
+    await expect(page.locator('text=ここへ行く')).toBeVisible({ timeout: 3000 });
+    await page.evaluate(() => {
+      if (typeof confirmUserDestination === 'function') {
+        confirmUserDestination();
+      }
+    });
+
+    const currentLocationState = await page.evaluate(() => currentLocation ? {
+      lat: currentLocation.lat,
+      lon: currentLocation.lon,
+    } : null);
+
+    expect(currentLocationState).toEqual({ lat: 35.6415, lon: 139.7905 });
+    await expect(page.locator('#manualLocationMode')).toBeChecked({ timeout: 3000 });
   });
 
 });

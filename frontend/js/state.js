@@ -38,6 +38,7 @@ let isManualLocationMode = false;
 let isAutoRefreshOnManualUpdate = true;
 let isEmergencyShelterVisible = true;
 let shelterRefreshTimer = null;
+let suppressNextManualLocationClick = false;
 
 // ── RSA（到達可能安全エリア） ─────────────────────────────────────────────
 let reachableSafeAreaLayer = null;
