@@ -335,6 +335,8 @@ function _showDestinationStatusMsg(msg) {
         _suppressNextClick = true;
         // iOS では長押し後に click が発火しないため自動リセット
         setTimeout(() => { _suppressNextClick = false; }, 300);
+        // 手動現在地モードが残っていれば解除（現在地設定と目的地設定の競合防止）
+        if (typeof exitManualLocationMode === 'function') exitManualLocationMode();
         const rect   = mapEl.getBoundingClientRect();
         const latlng = map.containerPointToLatLng(
             L.point(clientX - rect.left, clientY - rect.top)
@@ -361,6 +363,8 @@ function _showDestinationStatusMsg(msg) {
     // Leaflet は touchstart/touchend のタイミングを管理して
     // contextmenu イベントを発火する。iOS 含む全環境で安定動作。
     map.on('contextmenu', (e) => {
+        // 手動現在地モードが残っていれば解除（現在地設定と目的地設定の競合防止）
+        if (typeof exitManualLocationMode === 'function') exitManualLocationMode();
         setDestinationCandidate(e.latlng.lat, e.latlng.lng);
         // 指が離れた瞬間（pointerup）に抑制フラグを立てる。
         // contextmenu 時点で立てると 300ms 後にリセットされ、
