@@ -37,6 +37,7 @@ let activeNavigatingIndex = null;
 let isManualLocationMode = false;
 let isAutoRefreshOnManualUpdate = true;
 let isEmergencyShelterVisible = true;
+let isEmergencyEvacuationSiteVisible = true; // 指定緊急避難場所（赤）の表示フラグ
 let shelterRefreshTimer = null;
 let suppressNextManualLocationClick = false;
 

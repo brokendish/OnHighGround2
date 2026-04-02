@@ -162,25 +162,37 @@ function bindClearButton() {
     });
 }
 
-// ── 指定緊急避難場所トグルボタン ──────────────────────────────────────────
+// ── 避難場所トグルボタン（指定避難所 + 指定緊急避難場所 を一括 ON/OFF） ──
 function bindShelterButton() {
-    const btn      = document.getElementById('shelter-toggle-btn');
-    const sourceEl = document.getElementById('showEmergencyShelters');
-    if (!btn || !sourceEl) return;
+    const btn    = document.getElementById('shelter-toggle-btn');
+    const el1    = document.getElementById('showEmergencyShelters');
+    const el2    = document.getElementById('showEmergencyEvacuationSites');
+    if (!btn || !el1) return;
 
-    // 初期状態を反映（デフォルト checked=true → active）
-    btn.classList.toggle('map-overlay-btn--active', sourceEl.checked);
+    const _syncActive = () => {
+        const anyOn = el1.checked || (el2 && el2.checked);
+        btn.classList.toggle('map-overlay-btn--active', anyOn);
+    };
+
+    // 初期状態を反映
+    _syncActive();
 
     btn.addEventListener('click', () => {
-        sourceEl.checked = !sourceEl.checked;
-        sourceEl.dispatchEvent(new Event('change'));
-        btn.classList.toggle('map-overlay-btn--active', sourceEl.checked);
+        // どちらかが ON なら両方 OFF、両方 OFF なら両方 ON
+        const anyOn = el1.checked || (el2 && el2.checked);
+        const next = !anyOn;
+        el1.checked = next;
+        el1.dispatchEvent(new Event('change'));
+        if (el2) {
+            el2.checked = next;
+            el2.dispatchEvent(new Event('change'));
+        }
+        _syncActive();
     });
 
     // サイドバー側の変更にも追従
-    sourceEl.addEventListener('change', () => {
-        btn.classList.toggle('map-overlay-btn--active', sourceEl.checked);
-    });
+    el1.addEventListener('change', _syncActive);
+    if (el2) el2.addEventListener('change', _syncActive);
 }
 
 // ── 距離スライダ ──────────────────────────────────────────────────────────

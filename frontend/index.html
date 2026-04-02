@@ -1979,7 +1979,11 @@
                 </div>
                 <label class="manual-location-toggle" for="showEmergencyShelters">
                     <input type="checkbox" id="showEmergencyShelters" checked>
-                    指定緊急避難場所を地図に表示する
+                    🟢 指定避難所を地図に表示する
+                </label>
+                <label class="manual-location-toggle" for="showEmergencyEvacuationSites">
+                    <input type="checkbox" id="showEmergencyEvacuationSites" checked>
+                    🔴 指定緊急避難場所を地図に表示する
                 </label>
                 <div class="shelter-status" id="shelterStatus">避難場所データを読み込み中...</div>
                 <details class="hazard-group">
@@ -2397,6 +2401,10 @@
                 </div>
                 <div class="legend-item">
                     <div class="legend-color" style="background: #2e7d32;"></div>
+                    <span>指定避難所</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #c62828;"></div>
                     <span>指定緊急避難場所</span>
                 </div>
                 <div class="legend-item">

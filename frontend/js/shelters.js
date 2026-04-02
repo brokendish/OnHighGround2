@@ -43,10 +43,21 @@ async function refreshEmergencyShelters() {
         clearEmergencyShelterMarkers();
         let reopenMarker = null;
         (data.data || []).forEach((site) => {
-            // 視覚マーカー（小さい緑丸・非インタラクティブ）
+            // カテゴリ別に色を分ける
+            // emergency_evacuation_site（指定緊急避難場所・13000_2）→ 赤系
+            // evacuation_site（指定避難所・13000_1）→ 緑系
+            const isEES = site.category === 'emergency_evacuation_site';
+
+            // カテゴリ別表示フラグのチェック
+            if (isEES && !isEmergencyEvacuationSiteVisible) return;
+            if (!isEES && !isEmergencyShelterVisible) return;
+
+            const markerColor = isEES ? '#c62828' : '#2e7d32';
+
+            // 視覚マーカー（小さい丸・非インタラクティブ）
             const visMarker = L.circleMarker([site.lat, site.lon], {
-                color: '#2e7d32',
-                fillColor: '#2e7d32',
+                color: markerColor,
+                fillColor: markerColor,
                 fillOpacity: 0.75,
                 radius: 7,
                 weight: 1.5,
@@ -108,23 +119,49 @@ async function refreshEmergencyShelters() {
     }
 }
 
+// ハザードキー → 日本語ラベル
+const _HAZARD_LABEL_JP = {
+    flood:       '洪水',
+    landslide:   '崖崩れ・土石流・地滑り',
+    storm_surge: '高潮',
+    earthquake:  '地震',
+    tsunami:     '津波',
+    fire:        '大規模火事',
+    inland_flood:'内水氾濫',
+    volcano:     '火山現象',
+};
+
 function _buildShelterPopupHtml(site) {
+    const isEES = site.category === 'emergency_evacuation_site';
+    const nameColor  = isEES ? '#b71c1c' : '#1b5e20';
+    const btnColor   = isEES ? '#c62828' : '#2e7d32';
+    const categoryLabel = isEES ? '指定緊急避難場所' : '指定避難所';
+    const icon = isEES ? '🚨' : '🏠';
+
     const addrHtml = site.address
         ? `<div style="font-size:11px;color:#333;margin-bottom:6px;">📍 ${site.address}</div>`
         : '';
+
+    // 対応ハザード一覧
+    const hazardTypes = Array.isArray(site.hazard_types) ? site.hazard_types : [];
+    const hazardHtml = hazardTypes.length > 0
+        ? `<div style="font-size:11px;color:#555;margin-bottom:6px;">
+               対応ハザード: ${hazardTypes.map(h => _HAZARD_LABEL_JP[h] || h).join(' / ')}
+           </div>`
+        : '';
+
     return `
-        <div style="font-size:13px;font-weight:700;color:#1b5e20;margin-bottom:3px;">
-            🏠 ${site.name || '指定緊急避難場所'}
+        <div style="font-size:13px;font-weight:700;color:${nameColor};margin-bottom:3px;">
+            ${icon} ${site.name || categoryLabel}
         </div>
-        <div style="font-size:11px;color:#555;margin-bottom:4px;">
-            ${site.designation || '指定緊急避難場所'}
-        </div>
+        <div style="font-size:11px;color:#555;margin-bottom:4px;">${categoryLabel}</div>
         ${addrHtml}
+        ${hazardHtml}
         <div style="font-size:11px;color:#888;margin-bottom:8px;">
             ${Number(site.lat).toFixed(5)}, ${Number(site.lon).toFixed(5)}
         </div>
         <button onclick="triggerShelterRoute()"
-                style="width:100%;padding:7px;background:#2e7d32;color:white;border:none;
+                style="width:100%;padding:7px;background:${btnColor};color:white;border:none;
                        border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">
             🗺️ ルートを表示
         </button>

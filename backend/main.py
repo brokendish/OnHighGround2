@@ -247,6 +247,19 @@ def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
     return [default_path] if default_path.exists() else [legacy_default_path]
 
 
+# 国土地理院 13000_2（指定緊急避難場所）ハザード列 → システムキー対応表
+HAZARD_COLUMN_MAP: Dict[str, str] = {
+    "洪水":               "flood",
+    "崖崩れ、土石流及び地滑り": "landslide",
+    "高潮":               "storm_surge",
+    "地震":               "earthquake",
+    "津波":               "tsunami",
+    "大規模な火事":         "fire",
+    "内水氾濫":            "inland_flood",
+    "火山現象":            "volcano",
+}
+
+
 def load_emergency_shelters_from_csv(csv_path: Path, shelters: List[Dict[str, Any]], seen: set) -> None:
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -274,12 +287,22 @@ def load_emergency_shelters_from_csv(csv_path: Path, shelters: List[Dict[str, An
                 continue
             seen.add(key)
 
+            # ハザード種別フラグ（13000_2 形式）
+            hazard_types = [
+                en_key for jp_col, en_key in HAZARD_COLUMN_MAP.items()
+                if str(row.get(jp_col, "")).strip() == "1"
+            ]
+            has_hazard_cols = any(col in row for col in HAZARD_COLUMN_MAP)
+            category = "emergency_evacuation_site" if has_hazard_cols else "evacuation_site"
+
             shelters.append({
                 "name": name or "名称未設定",
                 "address": address,
                 "lat": lat,
                 "lon": lon,
                 "designation": designation or "指定緊急避難場所",
+                "category": category,
+                "hazard_types": hazard_types,
                 "source_file": str(csv_path.relative_to(BASE_DIR.parent)) if csv_path.is_relative_to(BASE_DIR.parent) else str(csv_path)
             })
 
@@ -331,12 +354,22 @@ def load_emergency_shelters_from_geojson(geojson_path: Path, shelters: List[Dict
             continue
         seen.add(key)
 
+        # ハザード種別フラグ（13000_2 形式）
+        hazard_types = [
+            en_key for jp_col, en_key in HAZARD_COLUMN_MAP.items()
+            if str(properties.get(jp_col, "")).strip() == "1"
+        ]
+        has_hazard_cols = any(col in properties for col in HAZARD_COLUMN_MAP)
+        category = "emergency_evacuation_site" if has_hazard_cols else "evacuation_site"
+
         shelters.append({
             "name": name,
             "address": address,
             "lat": lat,
             "lon": lon,
             "designation": designation or "指定緊急避難場所",
+            "category": category,
+            "hazard_types": hazard_types,
             "source_file": str(geojson_path.relative_to(BASE_DIR.parent)) if geojson_path.is_relative_to(BASE_DIR.parent) else str(geojson_path)
         })
 
@@ -904,6 +937,7 @@ def search_shelter_destinations(
     max_distance: float,
     transport_mode: str,
     tti_minutes: Optional[float] = None,
+    active_hazards: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     避難所ベースで避難候補を検索する。
@@ -913,12 +947,15 @@ def search_shelter_destinations(
     - DEM から標高取得・標高差フィルタ
     - 安全性スコア算出（hazard_safe + time_margin 補正）
     - ハザード安全判定
+    - ハザード適合ボーナス（shelter.hazard_types が active_hazards と合致する場合）
 
     Args:
         tti_minutes: 現在地の津波到達時間（分）。None = 算定不能。
+        active_hazards: 現在地で発生中のハザードキー一覧（例: ["tsunami"]）。
+                        shelter.hazard_types と照合してスコアを加算する。
 
     Returns:
-        安全性スコア降順で最大10件
+        安全性スコア降順で最大15件
     """
     # 粗フィルタ用マージン（max_distance の 1.2倍）
     lat_per_meter = 1.0 / 111000.0
@@ -963,6 +1000,12 @@ def search_shelter_destinations(
             elevation_gain, distance, max_distance, hazard_safe, tm_status, severity_penalty
         )
 
+        # ハザード適合ボーナス: shelter.hazard_types が active_hazards と合致する場合 +10
+        shelter_hazard_types = shelter.get("hazard_types") or []
+        if active_hazards and shelter_hazard_types:
+            if any(h in shelter_hazard_types for h in active_hazards):
+                safety_score += 10.0
+
         # 最初の3件をデバッグログに出力（判定が動いているか確認用）
         if len(candidates) < 3:
             logger.info(
@@ -976,6 +1019,8 @@ def search_shelter_destinations(
         candidates.append({
             "name": shelter["name"],
             "type": "emergency_shelter",
+            "category": shelter.get("category", "evacuation_site"),
+            "hazard_types": shelter.get("hazard_types") or [],
             "lat": slat,
             "lon": slon,
             "elevation": shelter_elevation,
@@ -1319,6 +1364,7 @@ async def find_evacuation_destinations(request: EvacuationRequest):
                 max_distance=request.max_distance,
                 transport_mode=request.transport_mode,
                 tti_minutes=tti_minutes,
+                active_hazards=hazard_status.get("hazards") or [],
             )
         else:
             raw_destinations = search_grid_destinations(

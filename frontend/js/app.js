@@ -10,6 +10,7 @@ const manualLocationModeCheckbox = document.getElementById('manualLocationMode')
 const manualLocationHint = document.getElementById('manualLocationHint');
 const autoRefreshOnManualUpdateCheckbox = document.getElementById('autoRefreshOnManualUpdate');
 const showEmergencySheltersCheckbox = document.getElementById('showEmergencyShelters');
+const showEmergencyEvacuationSitesCheckbox = document.getElementById('showEmergencyEvacuationSites');
 
 // ── UI コントロールのイベント ──────────────────────────────────────────────
 
@@ -101,9 +102,20 @@ if (mbcInfoPanel && typeof L !== 'undefined') {
 
 showEmergencySheltersCheckbox.addEventListener('change', (event) => {
     isEmergencyShelterVisible = event.target.checked;
-    if (!isEmergencyShelterVisible) {
-        clearEmergencyShelterMarkers();
-        setShelterStatus('指定緊急避難場所の表示をOFFにしています。');
+    clearEmergencyShelterMarkers();
+    if (!isEmergencyShelterVisible && !isEmergencyEvacuationSiteVisible) {
+        setShelterStatus('避難場所の表示をOFFにしています。');
+        hideSelectedEmergencyShelter();
+        return;
+    }
+    scheduleEmergencyShelterRefresh();
+});
+
+showEmergencyEvacuationSitesCheckbox.addEventListener('change', (event) => {
+    isEmergencyEvacuationSiteVisible = event.target.checked;
+    clearEmergencyShelterMarkers();
+    if (!isEmergencyShelterVisible && !isEmergencyEvacuationSiteVisible) {
+        setShelterStatus('避難場所の表示をOFFにしています。');
         hideSelectedEmergencyShelter();
         return;
     }
@@ -113,7 +125,7 @@ showEmergencySheltersCheckbox.addEventListener('change', (event) => {
 // ── 地図イベント ──────────────────────────────────────────────────────────
 
 map.on('moveend', () => {
-    if (!isEmergencyShelterVisible) {
+    if (!isEmergencyShelterVisible && !isEmergencyEvacuationSiteVisible) {
         return;
     }
     scheduleEmergencyShelterRefresh();
