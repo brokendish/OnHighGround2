@@ -157,7 +157,7 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
         <strong>${sourceLabel}</strong><br>
         標高: ${data.elevation.toFixed(1)} m<br>
         位置精度: ${Number.isFinite(accuracyMeters) ? `約 ${Math.round(accuracyMeters)} m` : '不明'}
-    `).openPopup();
+    `, { className: 'current-loc-popup' }).openPopup();
 
     if (Number.isFinite(accuracyMeters) && accuracyMeters > 0) {
         currentAccuracyCircle = L.circle([lat, lon], {
