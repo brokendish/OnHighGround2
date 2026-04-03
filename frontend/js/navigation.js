@@ -29,10 +29,12 @@ const NAV_ELEV_UPDATE_M    = 10; // 標高再取得の移動距離しきい値�
 const NAV_HAZARD_UPDATE_M  = 10; // ハザード再取得の移動距離しきい値（メートル）
 
 // ── 前方ブロック再ルート定数 ──────────────────────────────────────────────
-const BLOCK_AHEAD_START_METERS  = 30;  // ブロック開始距離（現在地前方 m）
-const BLOCK_AHEAD_END_METERS    = 120; // ブロック終了距離（現在地前方 m）
-const BLOCK_BUFFER_METERS       = 25;  // バッファ幅（m）— バイパス経由点のオフセット計算に使用
-const BLOCK_AHEAD_MAX_OFFSET_M  = 150; // 現在地がルートからこれ以上離れていたら異常扱い（m）
+const BLOCK_AHEAD_START_METERS  = 30;   // ブロック開始距離（現在地前方 m）
+const BLOCK_AHEAD_END_METERS    = 120;  // ブロック終了距離（現在地前方 m）
+const BLOCK_BUFFER_METERS       = 25;   // バッファ幅（m）
+const BLOCK_AHEAD_MAX_OFFSET_M  = 150;  // 現在地がルートからこれ以上離れていたら異常扱い（m）
+const BLOCK_BYPASS_OFFSETS_M    = [75, 120]; // バイパス経由点の横方向オフセット距離候補（m）
+const BLOCK_OVERLAP_REJECT      = 0.7;  // ルート座標のブロックバッファ内占有率がこれ以上なら棄却
 
 // ── Haversine 距離（メートル） ─────────────────────────────────────────────
 function _navHaversine(lat1, lon1, lat2, lon2) {
@@ -672,9 +674,9 @@ function _walkAlongRoute(coords, projection, distM) {
     return { lat: curLat, lng: curLng }; // ルート末端に達した場合
 }
 
-// p1→p2 の中点を起点に、進行方向の左側へ offsetMeters ずらした座標を返す
-// メートル空間で計算して度単位に変換する
-function _perpendicularOffsetPoint(p1, p2, offsetMeters) {
+// p1→p2 の中点を起点に、進行方向の垂直方向へ offsetMeters ずらした座標を返す
+// side: +1 = 左側, -1 = 右側。メートル空間で計算して度単位に変換する。
+function _perpendicularOffsetPoint(p1, p2, offsetMeters, side = 1) {
     const midLat = (p1.lat + p2.lat) / 2;
     const midLng = (p1.lng + p2.lng) / 2;
     const cosLat = Math.cos(midLat * Math.PI / 180);
@@ -683,16 +685,48 @@ function _perpendicularOffsetPoint(p1, p2, offsetMeters) {
     const dX = (p2.lng - p1.lng) * 111111 * cosLat;  // 東方向成分（m）
     const len = Math.sqrt(dX * dX + dY * dY);
     if (len < 0.1) {
-        // 縮退セグメント：北向きにオフセット
-        return { lat: midLat + offsetMeters / 111111, lng: midLng };
+        // 縮退セグメント：side 方向（北 or 南）にオフセット
+        return { lat: midLat + side * offsetMeters / 111111, lng: midLng };
     }
-    // 左側 90° 回転：perpNorth = dX/len, perpEast = -dY/len
-    const perpNorth = dX / len;
-    const perpEast  = -dY / len;
+    // 左側 90° 回転：perpNorth = dX/len, perpEast = -dY/len。右側は符号反転。
+    const perpNorth = side * dX / len;
+    const perpEast  = side * (-dY / len);
     return {
         lat: midLat + perpNorth * offsetMeters / 111111,
         lng: midLng + perpEast  * offsetMeters / (111111 * cosLat)
     };
+}
+
+// 経路座標の中でブロックバッファ（円）内に入っている点の割合を返す
+function _calcBlockOverlapRatio(coords, centerLat, centerLng, radiusM) {
+    if (!coords || coords.length === 0) return 0;
+    let inside = 0;
+    for (const c of coords) {
+        if (_navHaversine(c.lat, c.lng ?? c.lon, centerLat, centerLng) <= radiusM) inside++;
+    }
+    return inside / coords.length;
+}
+
+// バイパス候補の評価用に OSRM へ直接ルートクエリを投げる（LRM を使わず評価専用）
+// waypoints: [{lat, lng}|{lat, lon}] の配列
+async function _fetchOsrmRouteForEval(waypoints) {
+    const transportMode = document.getElementById('transportMode')?.value ?? 'walking';
+    const profile       = transportMode === 'walking' ? 'walking' : 'driving';
+    const serviceUrl    = OSRM_SERVICE_URLS[profile];
+    const coordStr      = waypoints.map(wp => `${wp.lng ?? wp.lon},${wp.lat}`).join(';');
+    const url           = `${serviceUrl}/${profile}/${coordStr}?overview=full&geometries=geojson&alternatives=false`;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data.code !== 'Ok' || !data.routes?.length) return null;
+        const r = data.routes[0];
+        const coordinates = r.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+        return { coordinates, totalDistance: r.distance };
+    } catch (e) {
+        console.warn('[BlockAhead][eval] fetch error:', e);
+        return null;
+    }
 }
 
 // Leaflet レイヤー（前方ブロック可視化）のモジュール内状態
@@ -705,8 +739,8 @@ function _clearBlockAheadLayer() {
     _blockAheadLayer = null;
 }
 
-// 「この先を避けて再ルート」— メイン関数
-function blockAheadAndReroute() {
+// 「この先を避けて再ルート」— メイン関数（マルチ候補評価版）
+async function blockAheadAndReroute() {
     // ── ガード ────────────────────────────────────────────────────────────
     if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) {
         console.warn('[BlockAhead] no active route');
@@ -752,10 +786,11 @@ function blockAheadAndReroute() {
         return;
     }
 
-    // ── 前方 30m〜120m のセグメントを抽出 ────────────────────────────────
+    // ── 前方 30m〜120m のセグメントを抽出、3点中継用の rejoin 点も確保 ────
     const blockStart = _walkAlongRoute(coords, projection, BLOCK_AHEAD_START_METERS);
     const blockEnd   = _walkAlongRoute(coords, projection, BLOCK_AHEAD_END_METERS);
-    console.log('[BlockAhead] blocked segment:', blockStart, '->', blockEnd);
+    const rejoin     = _walkAlongRoute(coords, projection, BLOCK_AHEAD_END_METERS + 20); // ブロック後に元ルートへ戻る点
+    console.log('[BlockAhead] blocked segment:', blockStart, '->', blockEnd, '| rejoin:', rejoin);
 
     // ── 地図上に可視化（赤い破線 + 半透明バッファ円） ─────────────────────
     _clearBlockAheadLayer();
@@ -768,22 +803,74 @@ function blockAheadAndReroute() {
         lat: (blockStart.lat + blockEnd.lat) / 2,
         lng: (blockStart.lng + blockEnd.lng) / 2
     };
+    const overlapRadius = BLOCK_BUFFER_METERS + 15;
     L.circle([bufMid.lat, bufMid.lng], {
-        radius: BLOCK_BUFFER_METERS + 10,
+        radius: overlapRadius,
         color: '#d32f2f', fillColor: '#ef9a9a', fillOpacity: 0.25, weight: 2
     }).addTo(segGroup);
     _blockAheadLayer = segGroup;
     segGroup.addTo(map);
 
-    // ── バイパス経由点を計算（進行方向左側 BLOCK_BUFFER_METERS+50m） ──────
-    const bypassOffset = BLOCK_BUFFER_METERS + 50;
-    const bypass = _perpendicularOffsetPoint(blockStart, blockEnd, bypassOffset);
-    console.log('[BlockAhead] bypass waypoint:', bypass);
+    // ── バイパス候補生成（左右 × 2 距離 = 4 候補） ─────────────────────────
+    const candidateDefs = [];
+    for (const side of [1, -1]) {
+        for (const offsetM of BLOCK_BYPASS_OFFSETS_M) {
+            const bypass = _perpendicularOffsetPoint(blockStart, blockEnd, offsetM, side);
+            candidateDefs.push({ bypass, offsetM, side: side === 1 ? 'left' : 'right' });
+        }
+    }
+    console.log('[BlockAhead] candidates:', candidateDefs.map(c => `${c.side}/${c.offsetM}m`));
 
-    // ── drawRouteTo 経由でルート再計算（LRM + guidance 同期） ─────────────
-    // extraWaypoints にバイパス点を渡すことで前方セグメントを迂回させる
+    // ── 各候補を OSRM で並行評価（escape → bypass → rejoin の 3 点中継） ──
+    // currentLocation と navDestination を lat/lng 形式に統一
+    const startWp = { lat: currentLocation.lat, lng: currentLocation.lon };
+    const destWp  = { lat: navDestination.lat,  lng: navDestination.lon  };
+
+    const evalResults = await Promise.all(candidateDefs.map(async (c) => {
+        // escape（blockStart）= ブロック手前で元ルートに強制スナップさせる点
+        const waypoints = [startWp, blockStart, c.bypass, rejoin, destWp];
+        const route = await _fetchOsrmRouteForEval(waypoints);
+        return { ...c, route };
+    }));
+
+    // ── ログ出力 ─────────────────────────────────────────────────────────
+    evalResults.forEach(r => {
+        console.log(`[BlockAhead][eval] ${r.side}/${r.offsetM}m:`,
+            r.route
+                ? `dist=${Math.round(r.route.totalDistance)}m pts=${r.route.coordinates.length}`
+                : 'fetch failed'
+        );
+    });
+
+    // ── 評価・棄却・スコアリング ──────────────────────────────────────────
+    const scored = evalResults
+        .filter(r => r.route !== null)
+        .map(r => {
+            const overlap = _calcBlockOverlapRatio(
+                r.route.coordinates, bufMid.lat, bufMid.lng, overlapRadius
+            );
+            console.log(`[BlockAhead][score] ${r.side}/${r.offsetM}m: overlap=${overlap.toFixed(2)} dist=${Math.round(r.route.totalDistance)}m`);
+            return { ...r, overlap, score: r.route.totalDistance };
+        })
+        .filter(r => r.overlap <= BLOCK_OVERLAP_REJECT)
+        .sort((a, b) => a.score - b.score);
+
+    if (scored.length === 0) {
+        console.warn('[BlockAhead] all candidates rejected (overlap or fetch failure)');
+        navBlockAheadInProgress = false;
+        _clearBlockAheadLayer();
+        _updateNavUI();
+        _showNavBanner('⚠ 迂回ルートが見つかりませんでした。現在のルートを継続します。', 'danger', 5000);
+        return;
+    }
+
+    const best = scored[0];
+    console.log(`[BlockAhead] best: ${best.side}/${best.offsetM}m dist=${Math.round(best.route.totalDistance)}m overlap=${best.overlap.toFixed(2)}`);
+
+    // ── drawRouteTo 経由でルート確定（LRM + guidance 同期） ─────────────
+    // 3 点中継: blockStart（ブロック手前）→ bestBypass → rejoin（ブロック後）
     drawRouteTo(navDestination.lat, navDestination.lon, {
-        extraWaypoints: [bypass],
+        extraWaypoints: [blockStart, best.bypass, rejoin],
         onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
             navActiveRoute          = routes[selectedRouteIndex];
             navOffRouteCount        = 0;
@@ -792,6 +879,11 @@ function blockAheadAndReroute() {
             if (typeof renderRouteCandidatesOnMap === 'function') {
                 renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             }
+
+            // ナビゲーションステップと音声をリセットしてから新ルートで更新
+            if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
+            if (typeof voiceNav !== 'undefined') voiceNav.clear();
+
             // サイドバーの経路ステップを更新（rerouteToSameDestination と同じパターン）
             if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
                 if (typeof renderDestinationRouteGuidance === 'function') {
@@ -822,7 +914,7 @@ function blockAheadAndReroute() {
             setTimeout(_clearBlockAheadLayer, 10000);
         },
         onRouteError: () => {
-            console.warn('[BlockAhead] reroute failed');
+            console.warn('[BlockAhead] reroute failed (LRM error)');
             navBlockAheadInProgress = false;
             _clearBlockAheadLayer();
             _updateNavUI();
