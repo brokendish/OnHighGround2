@@ -1617,6 +1617,36 @@
             letter-spacing: 0.5px;
             text-transform: uppercase;
         }
+        /* 避難場所パネル内チェックボックス行 */
+        .shelter-panel-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 5px 4px;
+            font-size: 12px;
+            color: #222;
+            text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7);
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.1s;
+            user-select: none;
+        }
+        .shelter-panel-item:hover { background: rgba(0,0,0,0.04); }
+        .shelter-panel-item input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
+            cursor: pointer;
+            flex-shrink: 0;
+            accent-color: #1565c0;
+            margin: 0;
+        }
+        .shelter-panel-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
 
         /* レイヤーパネル: アコーディオン */
         .layer-panel-category {
@@ -2201,13 +2231,28 @@
                         </div>
                     </div>
 
-                    <!-- 指定緊急避難場所トグル -->
-                    <button id="shelter-toggle-btn" class="map-overlay-btn map-overlay-btn--active" title="指定緊急避難場所の表示切替">
-                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
-                        </svg>
-                        <span>避難場所</span>
-                    </button>
+                    <!-- 避難場所パネル -->
+                    <div class="mou-btn-wrap">
+                        <button id="shelter-toggle-btn" class="map-overlay-btn map-overlay-btn--active" title="避難場所の表示設定">
+                            <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+                            </svg>
+                            <span>避難場所</span>
+                        </button>
+                        <div id="shelter-panel" class="mou-panel" style="display:none;">
+                            <div class="mou-panel-title">避難場所の表示</div>
+                            <label class="shelter-panel-item">
+                                <input type="checkbox" id="shelterPanel_evacuation" checked>
+                                <span class="shelter-panel-dot" style="background:#2e7d32;"></span>
+                                指定避難所
+                            </label>
+                            <label class="shelter-panel-item">
+                                <input type="checkbox" id="shelterPanel_emergency" checked>
+                                <span class="shelter-panel-dot" style="background:#c62828;"></span>
+                                指定緊急避難場所
+                            </label>
+                        </div>
+                    </div>
 
                     <!-- 地図クリア -->
                     <button id="map-clear-overlay-btn" class="map-overlay-btn map-overlay-btn--danger" title="地図をクリア">
