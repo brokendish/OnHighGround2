@@ -28,6 +28,11 @@ const NAV_AUTO_REROUTE_WINDOW_MS   = 120000;// 回数カウントウィンドウ
 const NAV_ELEV_UPDATE_M    = 10; // 標高再取得の移動距離しきい値（メートル）
 const NAV_HAZARD_UPDATE_M  = 10; // ハザード再取得の移動距離しきい値（メートル）
 
+// ── 前方ブロック再ルート定数 ──────────────────────────────────────────────
+const BLOCK_AHEAD_START_METERS = 30;  // ブロック開始距離（現在地前方 m）
+const BLOCK_AHEAD_END_METERS   = 120; // ブロック終了距離（現在地前方 m）
+const BLOCK_BUFFER_METERS      = 25;  // バッファ幅（m）— バイパス経由点のオフセット計算に使用
+
 // ── Haversine 距離（メートル） ─────────────────────────────────────────────
 function _navHaversine(lat1, lon1, lat2, lon2) {
     const R = 6371000;
@@ -278,10 +283,12 @@ function stopNavigation() {
     navOffRouteCount         = 0;
     navRerouteInProgress     = false;
     navAutoRerouteInProgress = false;
+    navBlockAheadInProgress  = false;
     navStartElevation        = null;
     navCurrentElevation      = null;
     navLastElevFetchPos      = null;
     navLastHazardFetchPos    = null;
+    _clearBlockAheadLayer();
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     setNavMode('browse');
     if (typeof voiceNav !== 'undefined') voiceNav.clear();
@@ -638,6 +645,202 @@ function _updateNavMarker(lat, lon, accuracy, heading) {
     }
 }
 
+// ── 前方ブロック再ルート ──────────────────────────────────────────────────
+
+// ルート上の投影点から distM メートル先の座標を返す
+// projection: _navFindClosestOnRoute の戻り値
+function _walkAlongRoute(coords, projection, distM) {
+    let remaining = distM;
+    let curLat = projection.snappedPoint.lat;
+    let curLng = projection.snappedPoint.lng;
+    for (let i = projection.segmentIndex + 1; i < coords.length; i++) {
+        const nextLat = coords[i].lat;
+        const nextLng = coords[i].lng;
+        const segDist = _navHaversine(curLat, curLng, nextLat, nextLng);
+        if (segDist >= remaining) {
+            const t = remaining / segDist;
+            return {
+                lat: curLat + t * (nextLat - curLat),
+                lng: curLng + t * (nextLng - curLng)
+            };
+        }
+        remaining -= segDist;
+        curLat = nextLat;
+        curLng = nextLng;
+    }
+    return { lat: curLat, lng: curLng }; // ルート末端に達した場合
+}
+
+// p1→p2 の中点を起点に、進行方向の左側へ offsetMeters ずらした座標を返す
+// メートル空間で計算して度単位に変換する
+function _perpendicularOffsetPoint(p1, p2, offsetMeters) {
+    const midLat = (p1.lat + p2.lat) / 2;
+    const midLng = (p1.lng + p2.lng) / 2;
+    const cosLat = Math.cos(midLat * Math.PI / 180);
+    // 方向ベクトルをメートル空間に変換
+    const dY = (p2.lat - p1.lat) * 111111;           // 北方向成分（m）
+    const dX = (p2.lng - p1.lng) * 111111 * cosLat;  // 東方向成分（m）
+    const len = Math.sqrt(dX * dX + dY * dY);
+    if (len < 0.1) {
+        // 縮退セグメント：北向きにオフセット
+        return { lat: midLat + offsetMeters / 111111, lng: midLng };
+    }
+    // 左側 90° 回転：perpNorth = dX/len, perpEast = -dY/len
+    const perpNorth = dX / len;
+    const perpEast  = -dY / len;
+    return {
+        lat: midLat + perpNorth * offsetMeters / 111111,
+        lng: midLng + perpEast  * offsetMeters / (111111 * cosLat)
+    };
+}
+
+// Leaflet レイヤー（前方ブロック可視化）のモジュール内状態
+let _blockAheadLayer = null;
+
+function _clearBlockAheadLayer() {
+    if (_blockAheadLayer && typeof map !== 'undefined') {
+        map.removeLayer(_blockAheadLayer);
+    }
+    _blockAheadLayer = null;
+}
+
+// 「この先を避けて再ルート」— メイン関数
+async function blockAheadAndReroute() {
+    // ── ガード ────────────────────────────────────────────────────────────
+    if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) {
+        console.warn('[BlockAhead] no active route');
+        return;
+    }
+    if (!navDestination) {
+        console.warn('[BlockAhead] no destination');
+        return;
+    }
+    if (!currentLocation) {
+        console.warn('[BlockAhead] no current location');
+        return;
+    }
+    if (navBlockAheadInProgress) {
+        console.log('[BlockAhead] already in progress');
+        return;
+    }
+
+    navBlockAheadInProgress = true;
+    _updateNavUI();
+    _showNavBanner('🚧 前方ルートを回避してルートを再計算しています...', 'info');
+    console.log('[BlockAhead] start');
+
+    const coords = navActiveRoute.coordinates;
+
+    // ── 現在地をルート上に投影 ─────────────────────────────────────────────
+    const projection = _navFindClosestOnRoute(coords, currentLocation.lat, currentLocation.lon);
+    if (!projection) {
+        console.warn('[BlockAhead] projection failed');
+        navBlockAheadInProgress = false;
+        _updateNavUI();
+        _showNavBanner('⚠ 現在地をルート上に特定できませんでした', 'danger', 4000);
+        return;
+    }
+
+    // ── 前方 30m〜120m のセグメントを抽出 ────────────────────────────────
+    const blockStart = _walkAlongRoute(coords, projection, BLOCK_AHEAD_START_METERS);
+    const blockEnd   = _walkAlongRoute(coords, projection, BLOCK_AHEAD_END_METERS);
+    console.log('[BlockAhead] blocked segment:', blockStart, '->', blockEnd);
+
+    // ── 地図上に可視化（赤い破線 + 半透明バッファ円） ─────────────────────
+    _clearBlockAheadLayer();
+    const segGroup = L.layerGroup();
+    L.polyline(
+        [[blockStart.lat, blockStart.lng], [blockEnd.lat, blockEnd.lng]],
+        { color: '#d32f2f', weight: 8, opacity: 0.85, dashArray: '12,6' }
+    ).addTo(segGroup);
+    const bufMid = {
+        lat: (blockStart.lat + blockEnd.lat) / 2,
+        lng: (blockStart.lng + blockEnd.lng) / 2
+    };
+    L.circle([bufMid.lat, bufMid.lng], {
+        radius: BLOCK_BUFFER_METERS + 10,
+        color: '#d32f2f', fillColor: '#ef9a9a', fillOpacity: 0.25, weight: 2
+    }).addTo(segGroup);
+    _blockAheadLayer = segGroup;
+    segGroup.addTo(map);
+
+    // ── バイパス経由点を計算（進行方向左側 BLOCK_BUFFER_METERS+50m） ──────
+    const bypassOffset = BLOCK_BUFFER_METERS + 50;
+    const bypass = _perpendicularOffsetPoint(blockStart, blockEnd, bypassOffset);
+    console.log('[BlockAhead] bypass waypoint:', bypass);
+
+    // ── OSRM に直接リクエスト（現在地 → バイパス点 → 目的地） ──────────────
+    const mode = (document.getElementById('transportMode')?.value === 'driving') ? 'driving' : 'walking';
+    const baseUrl = OSRM_SERVICE_URLS[mode] || OSRM_SERVICE_URLS.walking;
+    const waypoints = [
+        `${currentLocation.lon},${currentLocation.lat}`,
+        `${bypass.lng},${bypass.lat}`,
+        `${navDestination.lon},${navDestination.lat}`
+    ].join(';');
+    const url = `${baseUrl}/${mode}/${waypoints}?overview=full&geometries=geojson&steps=false`;
+    console.log('[BlockAhead] OSRM request:', url);
+
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data.routes || data.routes.length === 0 || data.code !== 'Ok') {
+            throw new Error(`OSRM code=${data.code}`);
+        }
+
+        // ── 成功：navActiveRoute を更新して地図に描画 ─────────────────────
+        const osrmRoute = data.routes[0];
+        const newCoords = osrmRoute.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+
+        navActiveRoute = {
+            coordinates: newCoords,
+            summary: {
+                totalDistance: osrmRoute.distance,
+                totalTime:     osrmRoute.duration
+            }
+        };
+        navOffRouteCount    = 0;
+        navBlockAheadInProgress = false;
+
+        if (typeof clearRouteCandidateLayers   === 'function') clearRouteCandidateLayers();
+        if (typeof clearSelectedRouteHighlight === 'function') clearSelectedRouteHighlight();
+
+        const newLine = L.polyline(
+            newCoords.map(c => [c.lat, c.lng]),
+            { color: ROUTE_COLOR_PALETTE[0], weight: 7, opacity: 0.95 }
+        ).addTo(map);
+        routeCandidateLayers.push(newLine);
+
+        if (currentLocation) {
+            _updateRemainingDistanceDisplay(
+                currentLocation.lat, currentLocation.lon, currentLocation.accuracyMeters ?? 0
+            );
+        }
+
+        setNavMode('navigation_active');
+        _showNavBanner('✅ 迂回ルートに切り替えました。このまま避難を続けてください。', 'success', 5000);
+        if (typeof voiceNav !== 'undefined') {
+            voiceNav.announce({
+                id: 'block-ahead-reroute',
+                text: '前方を迂回するルートに切り替えました',
+                category: 'start',
+                priority: 'high'
+            });
+        }
+        console.log('[BlockAhead] reroute success, distance:', osrmRoute.distance, 'm');
+
+        // 可視化は 10 秒後に自動消去
+        setTimeout(_clearBlockAheadLayer, 10000);
+
+    } catch (err) {
+        console.warn('[BlockAhead] reroute failed:', err);
+        navBlockAheadInProgress = false;
+        _clearBlockAheadLayer();
+        _updateNavUI();
+        _showNavBanner('⚠ 迂回ルートが見つかりませんでした。現在のルートを継続します。', 'danger', 5000);
+    }
+}
+
 // ── 到達処理 ─────────────────────────────────────────────────────────────
 function _onNavArrival() {
     stopNavigation();
@@ -732,6 +935,18 @@ function _updateNavUI() {
     document.querySelectorAll('.nav-stop-in-card').forEach(btn => {
         btn.style.display = isActive ? 'block' : 'none';
     });
+
+    // 前方回避ボタン（ナビ中のみ有効）
+    const blockAheadBtn     = el('nav-block-ahead-btn');
+    const blockAheadTextEl  = el('nav-block-ahead-btn-text');
+    const anyReroutingAll   = anyRerouting || navBlockAheadInProgress;
+    if (blockAheadBtn) {
+        blockAheadBtn.style.display = isActive ? '' : 'none';
+        blockAheadBtn.disabled = anyReroutingAll;
+    }
+    if (blockAheadTextEl) {
+        blockAheadTextEl.textContent = navBlockAheadInProgress ? '回避中...' : 'この先を避けて再ルート';
+    }
 
     // 自動再ルートON/OFFボタン
     if (el('navFollowBtn')) {
