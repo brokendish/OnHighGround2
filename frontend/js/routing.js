@@ -741,9 +741,11 @@ function drawRouteTo(lat, lon, options = {}) {
     clearRouteCandidateLayers();
     clearRouteStepFocusMarker();
 
+    const extraWps = (options.extraWaypoints || []).map(wp => L.latLng(wp.lat, wp.lng));
     const routingOptions = {
         waypoints: [
             L.latLng(currentLocation.lat, currentLocation.lon),
+            ...extraWps,
             L.latLng(lat, lon)
         ],
         language: 'ja',

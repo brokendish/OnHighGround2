@@ -29,9 +29,10 @@ const NAV_ELEV_UPDATE_M    = 10; // 標高再取得の移動距離しきい値�
 const NAV_HAZARD_UPDATE_M  = 10; // ハザード再取得の移動距離しきい値（メートル）
 
 // ── 前方ブロック再ルート定数 ──────────────────────────────────────────────
-const BLOCK_AHEAD_START_METERS = 30;  // ブロック開始距離（現在地前方 m）
-const BLOCK_AHEAD_END_METERS   = 120; // ブロック終了距離（現在地前方 m）
-const BLOCK_BUFFER_METERS      = 25;  // バッファ幅（m）— バイパス経由点のオフセット計算に使用
+const BLOCK_AHEAD_START_METERS  = 30;  // ブロック開始距離（現在地前方 m）
+const BLOCK_AHEAD_END_METERS    = 120; // ブロック終了距離（現在地前方 m）
+const BLOCK_BUFFER_METERS       = 25;  // バッファ幅（m）— バイパス経由点のオフセット計算に使用
+const BLOCK_AHEAD_MAX_OFFSET_M  = 150; // 現在地がルートからこれ以上離れていたら異常扱い（m）
 
 // ── Haversine 距離（メートル） ─────────────────────────────────────────────
 function _navHaversine(lat1, lon1, lat2, lon2) {
@@ -705,7 +706,7 @@ function _clearBlockAheadLayer() {
 }
 
 // 「この先を避けて再ルート」— メイン関数
-async function blockAheadAndReroute() {
+function blockAheadAndReroute() {
     // ── ガード ────────────────────────────────────────────────────────────
     if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) {
         console.warn('[BlockAhead] no active route');
@@ -740,6 +741,16 @@ async function blockAheadAndReroute() {
         _showNavBanner('⚠ 現在地をルート上に特定できませんでした', 'danger', 4000);
         return;
     }
+    if (projection.routeOffsetMeters > BLOCK_AHEAD_MAX_OFFSET_M) {
+        console.warn('[BlockAhead] too far off route:', projection.routeOffsetMeters, 'm');
+        navBlockAheadInProgress = false;
+        _updateNavUI();
+        _showNavBanner(
+            `⚠ 現在地がルートから離れすぎています（${Math.round(projection.routeOffsetMeters)}m）。先に再ルートしてください。`,
+            'danger', 5000
+        );
+        return;
+    }
 
     // ── 前方 30m〜120m のセグメントを抽出 ────────────────────────────────
     const blockStart = _walkAlongRoute(coords, projection, BLOCK_AHEAD_START_METERS);
@@ -769,76 +780,55 @@ async function blockAheadAndReroute() {
     const bypass = _perpendicularOffsetPoint(blockStart, blockEnd, bypassOffset);
     console.log('[BlockAhead] bypass waypoint:', bypass);
 
-    // ── OSRM に直接リクエスト（現在地 → バイパス点 → 目的地） ──────────────
-    const mode = (document.getElementById('transportMode')?.value === 'driving') ? 'driving' : 'walking';
-    const baseUrl = OSRM_SERVICE_URLS[mode] || OSRM_SERVICE_URLS.walking;
-    const waypoints = [
-        `${currentLocation.lon},${currentLocation.lat}`,
-        `${bypass.lng},${bypass.lat}`,
-        `${navDestination.lon},${navDestination.lat}`
-    ].join(';');
-    const url = `${baseUrl}/${mode}/${waypoints}?overview=full&geometries=geojson&steps=false`;
-    console.log('[BlockAhead] OSRM request:', url);
+    // ── drawRouteTo 経由でルート再計算（LRM + guidance 同期） ─────────────
+    // extraWaypoints にバイパス点を渡すことで前方セグメントを迂回させる
+    drawRouteTo(navDestination.lat, navDestination.lon, {
+        extraWaypoints: [bypass],
+        onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
+            navActiveRoute          = routes[selectedRouteIndex];
+            navOffRouteCount        = 0;
+            navBlockAheadInProgress = false;
 
-    try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
-        const data = await res.json();
-        if (!data.routes || data.routes.length === 0 || data.code !== 'Ok') {
-            throw new Error(`OSRM code=${data.code}`);
-        }
-
-        // ── 成功：navActiveRoute を更新して地図に描画 ─────────────────────
-        const osrmRoute = data.routes[0];
-        const newCoords = osrmRoute.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
-
-        navActiveRoute = {
-            coordinates: newCoords,
-            summary: {
-                totalDistance: osrmRoute.distance,
-                totalTime:     osrmRoute.duration
+            if (typeof renderRouteCandidatesOnMap === 'function') {
+                renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             }
-        };
-        navOffRouteCount    = 0;
-        navBlockAheadInProgress = false;
+            // サイドバーの経路ステップを更新（rerouteToSameDestination と同じパターン）
+            if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
+                if (typeof renderDestinationRouteGuidance === 'function') {
+                    renderDestinationRouteGuidance(activeNavigatingIndex, routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                }
+            } else if (typeof userDestination !== 'undefined' && userDestination) {
+                if (typeof renderUserDestRouteGuidance === 'function') {
+                    renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                }
+            } else {
+                if (typeof renderSelectedEmergencyShelterRouteGuidance === 'function') {
+                    renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                }
+            }
 
-        if (typeof clearRouteCandidateLayers   === 'function') clearRouteCandidateLayers();
-        if (typeof clearSelectedRouteHighlight === 'function') clearSelectedRouteHighlight();
-
-        const newLine = L.polyline(
-            newCoords.map(c => [c.lat, c.lng]),
-            { color: ROUTE_COLOR_PALETTE[0], weight: 7, opacity: 0.95 }
-        ).addTo(map);
-        routeCandidateLayers.push(newLine);
-
-        if (currentLocation) {
-            _updateRemainingDistanceDisplay(
-                currentLocation.lat, currentLocation.lon, currentLocation.accuracyMeters ?? 0
-            );
+            setNavMode('navigation_active');
+            _showNavBanner('✅ 迂回ルートに切り替えました。このまま避難を続けてください。', 'success', 5000);
+            if (typeof voiceNav !== 'undefined') {
+                voiceNav.announce({
+                    id: 'block-ahead-reroute',
+                    text: '前方を迂回するルートに切り替えました',
+                    category: 'start',
+                    priority: 'high'
+                });
+            }
+            console.log('[BlockAhead] reroute success');
+            // 可視化は 10 秒後に自動消去
+            setTimeout(_clearBlockAheadLayer, 10000);
+        },
+        onRouteError: () => {
+            console.warn('[BlockAhead] reroute failed');
+            navBlockAheadInProgress = false;
+            _clearBlockAheadLayer();
+            _updateNavUI();
+            _showNavBanner('⚠ 迂回ルートが見つかりませんでした。現在のルートを継続します。', 'danger', 5000);
         }
-
-        setNavMode('navigation_active');
-        _showNavBanner('✅ 迂回ルートに切り替えました。このまま避難を続けてください。', 'success', 5000);
-        if (typeof voiceNav !== 'undefined') {
-            voiceNav.announce({
-                id: 'block-ahead-reroute',
-                text: '前方を迂回するルートに切り替えました',
-                category: 'start',
-                priority: 'high'
-            });
-        }
-        console.log('[BlockAhead] reroute success, distance:', osrmRoute.distance, 'm');
-
-        // 可視化は 10 秒後に自動消去
-        setTimeout(_clearBlockAheadLayer, 10000);
-
-    } catch (err) {
-        console.warn('[BlockAhead] reroute failed:', err);
-        navBlockAheadInProgress = false;
-        _clearBlockAheadLayer();
-        _updateNavUI();
-        _showNavBanner('⚠ 迂回ルートが見つかりませんでした。現在のルートを継続します。', 'danger', 5000);
-    }
+    });
 }
 
 // ── 到達処理 ─────────────────────────────────────────────────────────────
@@ -936,13 +926,15 @@ function _updateNavUI() {
         btn.style.display = isActive ? 'block' : 'none';
     });
 
-    // 前方回避ボタン（ナビ中のみ有効）
-    const blockAheadBtn     = el('nav-block-ahead-btn');
-    const blockAheadTextEl  = el('nav-block-ahead-btn-text');
-    const anyReroutingAll   = anyRerouting || navBlockAheadInProgress;
+    // 再ルート処理中フラグ（前方回避も含む） — 以降の全ボタン制御で参照するため先に宣言
+    const anyRerouting = navRerouteInProgress || navAutoRerouteInProgress || navBlockAheadInProgress;
+
+    // 前方回避ボタン（navigation_active / navigation_warning のみ表示）
+    const blockAheadBtn    = el('nav-block-ahead-btn');
+    const blockAheadTextEl = el('nav-block-ahead-btn-text');
     if (blockAheadBtn) {
-        blockAheadBtn.style.display = isActive ? '' : 'none';
-        blockAheadBtn.disabled = anyReroutingAll;
+        blockAheadBtn.style.display = (mode === 'navigation_active' || mode === 'navigation_warning') ? '' : 'none';
+        blockAheadBtn.disabled = anyRerouting;
     }
     if (blockAheadTextEl) {
         blockAheadTextEl.textContent = navBlockAheadInProgress ? '回避中...' : 'この先を避けて再ルート';
@@ -983,7 +975,6 @@ function _updateNavUI() {
     }
 
     // 再ルート中はボタンを無効化（両方・地図パネル）
-    const anyRerouting = navRerouteInProgress || navAutoRerouteInProgress;
     const rerouteSameBtn = el('navRerouteSameBtn');
     if (rerouteSameBtn) {
         rerouteSameBtn.disabled    = anyRerouting;
