@@ -287,6 +287,7 @@ function stopNavigation() {
     navRerouteInProgress     = false;
     navAutoRerouteInProgress = false;
     navBlockAheadInProgress  = false;
+    ++_blockAheadSeq; // pending callback を無効化（非同期完了後の復帰を防ぐ）
     navStartElevation        = null;
     navCurrentElevation      = null;
     navLastElevFetchPos      = null;
@@ -731,6 +732,8 @@ async function _fetchOsrmRouteForEval(waypoints) {
 
 // Leaflet レイヤー（前方ブロック可視化）のモジュール内状態
 let _blockAheadLayer = null;
+// キャンセルトークン: stopNavigation 呼び出しと routesfound/routeselected 二重発火を両方防ぐ
+let _blockAheadSeq = 0;
 
 function _clearBlockAheadLayer() {
     if (_blockAheadLayer && typeof map !== 'undefined') {
@@ -760,9 +763,10 @@ async function blockAheadAndReroute() {
     }
 
     navBlockAheadInProgress = true;
+    const mySeq = ++_blockAheadSeq; // このリクエストのトークン
     _updateNavUI();
     _showNavBanner('🚧 前方ルートを回避してルートを再計算しています...', 'info');
-    console.log('[BlockAhead] start');
+    console.log('[BlockAhead] start seq=' + mySeq);
 
     const coords = navActiveRoute.coordinates;
 
@@ -872,6 +876,15 @@ async function blockAheadAndReroute() {
     drawRouteTo(navDestination.lat, navDestination.lon, {
         extraWaypoints: [blockStart, best.bypass, rejoin],
         onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
+            // ── キャンセルチェック ──────────────────────────────────────────
+            // stopNavigation が呼ばれた場合: _blockAheadSeq が変わっているので弾く
+            // routesfound + routeselected 二重発火の場合: 1 回目でトークンを消費するので 2 回目を弾く
+            if (_blockAheadSeq !== mySeq) {
+                console.log('[BlockAhead] stale callback ignored (seq mismatch)');
+                return;
+            }
+            ++_blockAheadSeq; // トークン消費 — 以降の重複発火を防ぐ
+
             navActiveRoute          = routes[selectedRouteIndex];
             navOffRouteCount        = 0;
             navBlockAheadInProgress = false;
@@ -900,6 +913,14 @@ async function blockAheadAndReroute() {
             }
 
             setNavMode('navigation_active');
+            // 残距離表示を新ルートで即時更新
+            if (currentLocation) {
+                _updateRemainingDistanceDisplay(
+                    currentLocation.lat,
+                    currentLocation.lon,
+                    currentLocation.accuracyMeters ?? 0
+                );
+            }
             _showNavBanner('✅ 迂回ルートに切り替えました。このまま避難を続けてください。', 'success', 5000);
             if (typeof voiceNav !== 'undefined') {
                 voiceNav.announce({
@@ -909,7 +930,7 @@ async function blockAheadAndReroute() {
                     priority: 'high'
                 });
             }
-            console.log('[BlockAhead] reroute success');
+            console.log('[BlockAhead] reroute success seq=' + mySeq);
             // 可視化は 10 秒後に自動消去
             setTimeout(_clearBlockAheadLayer, 10000);
         },

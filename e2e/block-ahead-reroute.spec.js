@@ -98,6 +98,85 @@ test.describe('block ahead reroute regression', () => {
     expect(after.hasLayer).toBe(false);
   });
 
+  test('非同期処理中に stopNavigation を呼ぶと成功コールバックが無視される', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(() => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      _fetchOsrmRouteForEval = async () => ({
+        coordinates: [{ lat: 35.0001, lng: 138.998 }, { lat: 35.004, lng: 139.0 }],
+        totalDistance: 350
+      });
+      // drawRouteTo は成功コールバックを呼ぶが、その前に stopNavigation を実行する
+      drawRouteTo = (_lat, _lon, options = {}) => {
+        stopNavigation(); // 非同期完了前に停止
+        options.onRoutesAvailable({
+          routes: [{
+            coordinates: [{ lat: 35.0001, lng: 139.0 }, { lat: 35.004, lng: 139.0 }],
+            summary: { totalDistance: 300, totalTime: 200 }
+          }],
+          selectedRouteIndex: 0,
+          routeColors: ['#ff9800'],
+          formatter: { formatInstruction: i => i.text, formatDistance: d => d + 'm' },
+          transportMode: 'walking',
+          selectRouteIndex: () => {}
+        });
+        return true;
+      };
+    });
+
+    await page.evaluate(() => blockAheadAndReroute());
+
+    const state = await page.evaluate(() => ({
+      mode: navigationMode,
+      inProgress: navBlockAheadInProgress
+    }));
+    // stopNavigation が先に走ったので browse のまま、inProgress も false
+    expect(state.mode).toBe('browse');
+    expect(state.inProgress).toBe(false);
+  });
+
+  test('onRoutesAvailable が二重発火しても reroute success は 1 回だけ実行される', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(() => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      window.__successCount = 0;
+      _fetchOsrmRouteForEval = async () => ({
+        coordinates: [{ lat: 35.0001, lng: 138.998 }, { lat: 35.004, lng: 139.0 }],
+        totalDistance: 350
+      });
+      const fakeRoute = {
+        coordinates: [{ lat: 35.0001, lng: 139.0 }, { lat: 35.004, lng: 139.0 }],
+        summary: { totalDistance: 321, totalTime: 240 }
+      };
+      const fakePayload = {
+        routes: [fakeRoute],
+        selectedRouteIndex: 0,
+        routeColors: ['#ff9800'],
+        formatter: { formatInstruction: i => i.text, formatDistance: d => d + 'm' },
+        transportMode: 'walking',
+        selectRouteIndex: () => {}
+      };
+      drawRouteTo = (_lat, _lon, options = {}) => {
+        // routesfound と routeselected に相当する二重呼び出しをシミュレート
+        options.onRoutesAvailable(fakePayload);
+        options.onRoutesAvailable(fakePayload);
+        return true;
+      };
+      const origAnnounce = voiceNav.announce;
+      voiceNav.announce = (payload) => {
+        if (payload && payload.id === 'block-ahead-reroute') window.__successCount++;
+        origAnnounce && origAnnounce(payload);
+      };
+    });
+
+    await page.evaluate(() => blockAheadAndReroute());
+
+    const count = await page.evaluate(() => window.__successCount);
+    expect(count).toBe(1); // 二重発火しても 1 回だけ
+  });
+
   test('再ルート成功時に drawRouteTo 経由でガイダンスと音声が更新される', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
