@@ -295,6 +295,9 @@ function stopNavigation() {
     _clearBlockAheadLayer();
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     setNavMode('browse');
+    // 処理中バナー（再計算中・再ルート中など）が残らないよう停止時に非表示化
+    const banner = document.getElementById('navBanner');
+    if (banner) banner.style.display = 'none';
     if (typeof voiceNav !== 'undefined') voiceNav.clear();
 
     // 停止直後に現在地のハザード情報・標高を再取得して表示
