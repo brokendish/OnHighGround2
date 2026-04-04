@@ -401,9 +401,10 @@ function buildRouteInstructionItems(route, formatter) {
     const routeInstructions = (route && Array.isArray(route.instructions)) ? route.instructions : [];
     return routeInstructions
         .map((instruction, index) => {
-            const text = formatter && typeof formatter.formatInstruction === 'function'
+            const forcedText = instruction && (instruction._displayText || instruction.displayText);
+            const text = forcedText || (formatter && typeof formatter.formatInstruction === 'function'
                 ? formatter.formatInstruction(instruction, index)
-                : translateInstructionToJapanese(instruction && instruction.text ? instruction.text : '');
+                : translateInstructionToJapanese(instruction && instruction.text ? instruction.text : ''));
             const distanceMeters = Number(instruction && instruction.distance);
             if (!text) {
                 return null;
@@ -733,12 +734,16 @@ function drawRouteTo(lat, lon, options = {}) {
     let routeDrawIndex = 0;
     let routeFormatter = null;
 
+    const preserveCurrentDisplay = options.preserveCurrentDisplay === true;
+
     // 既存のルートを削除
     if (routingControl) {
         map.removeControl(routingControl);
     }
-    clearSelectedRouteHighlight();
-    clearRouteCandidateLayers();
+    if (!preserveCurrentDisplay) {
+        clearSelectedRouteHighlight();
+        clearRouteCandidateLayers();
+    }
     clearRouteStepFocusMarker();
 
     const extraWps = (options.extraWaypoints || []).map(wp => L.latLng(wp.lat, wp.lng));
