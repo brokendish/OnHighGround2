@@ -11,8 +11,8 @@ const BASE_ROUTE = [
 // Route that bypasses the block area (east of lng 139.0, outside the 40m buffer)
 const BYPASS_ROUTE = [
   { lat: 35.0001, lng: 139.0 },
-  { lat: 35.0004, lng: 139.0014 },
-  { lat: 35.0014, lng: 139.0014 },
+  { lat: 35.0001, lng: 139.0045 },
+  { lat: 35.0032, lng: 139.0045 },
   { lat: 35.004,  lng: 139.0 },
 ];
 
@@ -39,16 +39,6 @@ async function bootstrap(page) {
   }));
   await page.goto('/');
   await page.waitForFunction(() => typeof blockAheadAndReroute === 'function' && typeof map !== 'undefined');
-  await page.evaluate(() => {
-    _assessRouteCrossingRisk = async () => ({
-      available: false,
-      crossings: [],
-      dangerousCount: 0,
-      uncontrolledCount: 0,
-      penalty: 0,
-      warningText: ''
-    });
-  });
 }
 
 async function seedNav(page, { currentLocation = { lat: 35.0001, lon: 139.0, accuracyMeters: 5 } } = {}) {
@@ -89,6 +79,8 @@ async function seedNav(page, { currentLocation = { lat: 35.0001, lon: 139.0, acc
 function makeBypassAlt(overrides = {}) {
   return {
     coordinates: BYPASS_ROUTE,
+    summary: { totalDistance: 480, totalTime: 400 },
+    instructions: [{ text: '迂回して進む', distance: 100, latLng: { lat: 35.0001, lng: 139.0045 } }],
     totalDistance: 480,
     totalTime: 400,
     turnCount: 2,
@@ -103,8 +95,8 @@ function makeBypassDrawRouteTo() {
       routes: [{
         coordinates: [
           { lat: 35.0001, lng: 139.0 },
-          { lat: 35.0004, lng: 139.0014 },
-          { lat: 35.0014, lng: 139.0014 },
+          { lat: 35.0001, lng: 139.0045 },
+          { lat: 35.0032, lng: 139.0045 },
           { lat: 35.004,  lng: 139.0 }
         ],
         summary: { totalDistance: 480, totalTime: 400 },
@@ -174,25 +166,18 @@ test.describe('block ahead reroute regression', () => {
   test('非同期処理中に stopNavigation を呼ぶと成功コールバックが無視される', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
-    await page.evaluate((bypassAlt) => {
+    await page.evaluate(({ bypassAlt, blockedRoute }) => {
       userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
-      _fetchOsrmAlternatives = async () => [bypassAlt];
-      drawRouteTo = (_lat, _lon, options = {}) => {
-        stopNavigation(); // 非同期完了前に停止
-        options.onRoutesAvailable({
-          routes: [{
-            coordinates: [{ lat: 35.0001, lng: 139.0 }, { lat: 35.004, lng: 139.0 }],
-            summary: { totalDistance: 300, totalTime: 200 }
-          }],
-          selectedRouteIndex: 0,
-          routeColors: ['#ff9800'],
-          formatter: { formatInstruction: i => i.text, formatDistance: d => d + 'm' },
-          transportMode: 'walking',
-          selectRouteIndex: () => {}
-        });
-        return true;
+      _fetchOsrmAlternatives = async () => [
+        { coordinates: blockedRoute, totalDistance: 320, totalTime: 240, turnCount: 0 },
+        bypassAlt
+      ];
+      const origRenderRouteCandidatesOnMap = renderRouteCandidatesOnMap;
+      renderRouteCandidatesOnMap = (...args) => {
+        stopNavigation();
+        return origRenderRouteCandidatesOnMap(...args);
       };
-    }, makeBypassAlt());
+    }, { bypassAlt: makeBypassAlt(), blockedRoute: BLOCKED_ROUTE });
 
     await page.evaluate(() => blockAheadAndReroute());
 
@@ -207,38 +192,19 @@ test.describe('block ahead reroute regression', () => {
   test('onRoutesAvailable が二重発火しても reroute success は 1 回だけ実行される', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
-    await page.evaluate((bypassAlt) => {
+    await page.evaluate(({ bypassAlt, blockedRoute }) => {
       userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
       window.__successCount = 0;
-      _fetchOsrmAlternatives = async () => [bypassAlt];
-      const fakePayload = {
-        routes: [{
-          coordinates: [
-            { lat: 35.0001, lng: 139.0 },
-            { lat: 35.0004, lng: 139.0014 },
-            { lat: 35.0014, lng: 139.0014 },
-            { lat: 35.004,  lng: 139.0 }
-          ],
-          summary: { totalDistance: 480, totalTime: 400 },
-          instructions: [{ text: '迂回', distance: 100, index: 1 }]
-        }],
-        selectedRouteIndex: 0,
-        routeColors: ['#ff9800'],
-        formatter: { formatInstruction: i => i.text, formatDistance: d => d + 'm' },
-        transportMode: 'walking',
-        selectRouteIndex: () => {}
-      };
-      drawRouteTo = (_lat, _lon, options = {}) => {
-        options.onRoutesAvailable(fakePayload);
-        options.onRoutesAvailable(fakePayload); // 二重発火シミュレート
-        return true;
-      };
+      _fetchOsrmAlternatives = async () => [
+        { coordinates: blockedRoute, totalDistance: 320, totalTime: 240, turnCount: 0 },
+        bypassAlt
+      ];
       const origAnnounce = voiceNav.announce;
       voiceNav.announce = (payload) => {
         if (payload && payload.id === 'block-ahead-reroute') window.__successCount++;
         origAnnounce && origAnnounce(payload);
       };
-    }, makeBypassAlt());
+    }, { bypassAlt: makeBypassAlt(), blockedRoute: BLOCKED_ROUTE });
 
     await page.evaluate(() => blockAheadAndReroute());
 
@@ -249,41 +215,24 @@ test.describe('block ahead reroute regression', () => {
   test('再ルート成功時に drawRouteTo 経由でガイダンスと音声が更新される', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
-    await page.evaluate((bypassAlt) => {
+    await page.evaluate(({ bypassAlt, blockedRoute }) => {
       userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
-      window.__drawRouteToArgs = null;
       window.__renderedRouteCount = null;
+      window.__drawRouteToCalled = false;
       const origRenderRouteCandidatesOnMap = renderRouteCandidatesOnMap;
       renderRouteCandidatesOnMap = (routes, routeColors, selectedRouteIndex, selectRouteIndex) => {
         window.__renderedRouteCount = Array.isArray(routes) ? routes.length : -1;
         return origRenderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
       };
-      _fetchOsrmAlternatives = async () => [bypassAlt];
-      drawRouteTo = (lat, lon, options = {}) => {
-        window.__drawRouteToArgs = { lat, lon, extraWaypoints: options.extraWaypoints || [] };
-        options.onRoutesAvailable({
-          routes: [{
-            coordinates: [
-              { lat: 35.0001, lng: 139.0 },
-              { lat: 35.0004, lng: 139.0014 },
-              { lat: 35.0014, lng: 139.0014 },
-              { lat: 35.004,  lng: 139.0 }
-            ],
-            summary: { totalDistance: 321.5, totalTime: 278.4 },
-            instructions: [{ text: '迂回して進む', distance: 100, index: 1 }]
-          }],
-          selectedRouteIndex: 0,
-          routeColors: ['#ff9800'],
-          formatter: {
-            formatInstruction(instruction) { return instruction.text; },
-            formatDistance(distance) { return `${Math.round(distance)}m`; }
-          },
-          transportMode: 'walking',
-          selectRouteIndex: () => {}
-        });
+      _fetchOsrmAlternatives = async () => [
+        { coordinates: blockedRoute, totalDistance: 320, totalTime: 240, turnCount: 0 },
+        bypassAlt
+      ];
+      drawRouteTo = () => {
+        window.__drawRouteToCalled = true;
         return true;
       };
-    }, makeBypassAlt());
+    }, { bypassAlt: makeBypassAlt({ summary: { totalDistance: 321.5, totalTime: 278.4 } }), blockedRoute: BLOCKED_ROUTE });
 
     await page.evaluate(() => blockAheadAndReroute());
     await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
@@ -295,7 +244,7 @@ test.describe('block ahead reroute regression', () => {
       summary: navActiveRoute.summary,
       stepCount: document.querySelectorAll('.route-guidance-steps li').length,
       voiceCalls: window.__voiceCalls,
-      drawRouteToArgs: window.__drawRouteToArgs,
+      drawRouteToCalled: window.__drawRouteToCalled,
       voiceClearCount: window.__voiceClearCount,
       stepClearCount: window.__stepClearCount,
       renderedRouteCount: window.__renderedRouteCount,
@@ -310,7 +259,7 @@ test.describe('block ahead reroute regression', () => {
     expect(state.summary.totalDistance).toBe(321.5);
     expect(state.summary.totalTime).toBe(278.4);
     expect(state.stepCount).toBeGreaterThan(0);
-    expect(state.drawRouteToArgs.extraWaypoints.length).toBeLessThanOrEqual(1); // anchor only (0 or 1)
+    expect(state.drawRouteToCalled).toBe(false);
     expect(state.voiceClearCount).toBeGreaterThan(0);
     expect(state.stepClearCount).toBeGreaterThan(0);
     expect(state.renderedRouteCount).toBe(1);
@@ -420,78 +369,53 @@ test.describe('block ahead reroute regression', () => {
   test('回避ルート採用後にタイミングサマリーが記録される', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
-    await page.evaluate((bypassAlt) => {
+    await page.evaluate(({ bypassAlt, blockedRoute }) => {
       userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
-      _fetchOsrmAlternatives = async () => [bypassAlt];
-      drawRouteTo = (lat, lon, options = {}) => {
-        options.onRoutesAvailable({
-          routes: [{
-            coordinates: [
-              { lat: 35.0001, lng: 139.0 },
-              { lat: 35.0004, lng: 139.0014 },
-              { lat: 35.0014, lng: 139.0014 },
-              { lat: 35.004,  lng: 139.0 }
-            ],
-            summary: { totalDistance: 480, totalTime: 400 },
-            instructions: [{ text: '迂回', distance: 100, index: 1 }]
-          }],
-          selectedRouteIndex: 0,
-          routeColors: ['#ff9800'],
-          formatter: { formatInstruction: i => i.text, formatDistance: d => d + 'm' },
-          transportMode: 'walking',
-          selectRouteIndex: () => {}
-        });
-        return true;
-      };
-    }, makeBypassAlt());
+      _fetchOsrmAlternatives = async () => [
+        { coordinates: blockedRoute, totalDistance: 320, totalTime: 240, turnCount: 0 },
+        bypassAlt
+      ];
+    }, { bypassAlt: makeBypassAlt(), blockedRoute: BLOCKED_ROUTE });
 
     await page.evaluate(() => blockAheadAndReroute());
     const timing = await page.evaluate(() => _blockAheadLastTiming);
 
     expect(timing).toBeTruthy();
     expect(timing.status).toBe('success');
-    expect(timing.phasePath).toBe('AVOID_ACCEPT');
-    expect(timing.fast.accepted).toBe(true);
-    expect(timing.safe.attempted).toBe(false);
+    expect(timing.accepted).toBe(true);
+    expect(timing.alternativesEvaluated).toBeGreaterThan(0);
+    expect(timing.nonBlockedCount).toBeGreaterThan(0);
+    expect(timing.geometryComparison.selectedToAdopted.meanDeviationM).toBeLessThan(5);
   });
 
-  test('drawRouteTo が描画したルートがブロック内なら失敗として元ルートを維持する', async ({ page }) => {
+  test('採用した OSRM alternative をそのまま final route として採用し比較ログを残す', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
-    const before = await page.evaluate(() => JSON.stringify(navActiveRoute));
-
     await page.evaluate(({ bypassAlt, blockedRoute }) => {
-      // _fetchOsrmAlternatives returns a bypass route (passes pre-filter)
-      // but drawRouteTo renders a blocked route (final overlap check fails)
-      _fetchOsrmAlternatives = async () => [bypassAlt];
-      drawRouteTo = (_lat, _lon, options = {}) => {
-        options.onRoutesAvailable({
-          routes: [{
-            coordinates: blockedRoute,
-            summary: { totalDistance: 300, totalTime: 240 }
-          }],
-          selectedRouteIndex: 0,
-          routeColors: ['#ff9800'],
-          formatter: { formatInstruction: i => i.text, formatDistance: d => d + 'm' },
-          transportMode: 'walking',
-          selectRouteIndex: () => {}
-        });
+      window.__drawRouteToCalled = false;
+      _fetchOsrmAlternatives = async () => [
+        { coordinates: blockedRoute, totalDistance: 320, totalTime: 240, turnCount: 0 },
+        bypassAlt
+      ];
+      drawRouteTo = () => {
+        window.__drawRouteToCalled = true;
         return true;
       };
     }, { bypassAlt: makeBypassAlt(), blockedRoute: BLOCKED_ROUTE });
 
     await page.evaluate(() => blockAheadAndReroute());
-    await expect(page.locator('#navBanner')).toContainText('現在のルートを継続します');
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
 
     const state = await page.evaluate(() => ({
-      route: JSON.stringify(navActiveRoute),
-      inProgress: navBlockAheadInProgress,
-      hasLayer: _blockAheadLayer !== null
+      drawRouteToCalled: window.__drawRouteToCalled,
+      totalDistance: navActiveRoute.summary.totalDistance,
+      geometryComparison: _blockAheadLastTiming.geometryComparison
     }));
 
-    expect(state.route).toBe(before);
-    expect(state.inProgress).toBe(false);
-    expect(state.hasLayer).toBe(false);
+    expect(state.drawRouteToCalled).toBe(false);
+    expect(state.totalDistance).toBe(480);
+    expect(state.geometryComparison.selectedToAdopted.meanDeviationM).toBeLessThan(5);
+    expect(state.geometryComparison.adoptedToDisplayed.meanDeviationM).toBeLessThan(25);
   });
 
   test('複数の代替ルートから最短の非ブロック経路を採用する', async ({ page }) => {
@@ -499,7 +423,6 @@ test.describe('block ahead reroute regression', () => {
     await seedNav(page);
     await page.evaluate(() => {
       userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
-      window.__drawRouteToArgs = null;
       // 1st: shorter but overlaps block; 2nd: longer but avoids block
       _fetchOsrmAlternatives = async () => ([
         {
@@ -514,34 +437,15 @@ test.describe('block ahead reroute regression', () => {
         {
           coordinates: [
             { lat: 35.0001, lng: 139.0 },
-            { lat: 35.0004, lng: 139.0014 },
-            { lat: 35.0014, lng: 139.0014 },
+            { lat: 35.0001, lng: 139.0045 },
+            { lat: 35.0032, lng: 139.0045 },
             { lat: 35.004,  lng: 139.0 }
           ],
+          summary: { totalDistance: 520, totalTime: 420 },
+          instructions: [{ text: '迂回', distance: 100, latLng: { lat: 35.0001, lng: 139.0045 } }],
           totalDistance: 520, totalTime: 420, turnCount: 2
         }
       ]);
-      drawRouteTo = (lat, lon, options = {}) => {
-        window.__drawRouteToArgs = { lat, lon, extraWaypoints: options.extraWaypoints || [] };
-        options.onRoutesAvailable({
-          routes: [{
-            coordinates: [
-              { lat: 35.0001, lng: 139.0 },
-              { lat: 35.0004, lng: 139.0014 },
-              { lat: 35.0014, lng: 139.0014 },
-              { lat: 35.004,  lng: 139.0 }
-            ],
-            summary: { totalDistance: 520, totalTime: 420 },
-            instructions: [{ text: '迂回', distance: 100, index: 1 }]
-          }],
-          selectedRouteIndex: 0,
-          routeColors: ['#ff9800'],
-          formatter: { formatInstruction: i => i.text, formatDistance: d => d + 'm' },
-          transportMode: 'walking',
-          selectRouteIndex: () => {}
-        });
-        return true;
-      };
     });
 
     await page.evaluate(() => blockAheadAndReroute());
@@ -556,6 +460,710 @@ test.describe('block ahead reroute regression', () => {
     expect(state.mode).toBe('navigation_active');
     expect(state.inProgress).toBe(false);
     expect(state.totalDistance).toBe(520);
+  });
+
+  test('stage1 で有効ルートがなくても stage2 で前方コリドーを後方拡張して成功できる', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute, bypassAlt }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      window.__altFetchCount = 0;
+      _fetchOsrmAlternatives = async () => {
+        window.__altFetchCount += 1;
+        if (window.__altFetchCount === 1) {
+          return [{
+            coordinates: blockedRoute,
+            totalDistance: 320,
+            totalTime: 240,
+            turnCount: 0
+          }];
+        }
+        return [bypassAlt];
+      };
+      drawRouteTo = (lat, lon, options = {}) => {
+        window.__drawRouteToArgs = { lat, lon, extraWaypoints: options.extraWaypoints || [] };
+        options.onRoutesAvailable({
+          routes: [{
+            coordinates: [
+              { lat: 35.0001, lng: 139.0 },
+              { lat: 35.0001, lng: 139.0045 },
+              { lat: 35.0032, lng: 139.0045 },
+              { lat: 35.004, lng: 139.0 }
+            ],
+            summary: { totalDistance: 480, totalTime: 400 },
+            instructions: [{ text: '迂回して進む', distance: 100, index: 1 }]
+          }],
+          selectedRouteIndex: 0,
+          routeColors: ['#ff9800'],
+          formatter: { formatInstruction: i => i.text, formatDistance: d => String(Math.round(d)) + 'm' },
+          transportMode: 'walking',
+          selectRouteIndex: () => {}
+        });
+        return true;
+      };
+    }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      altFetchCount: window.__altFetchCount,
+      timing: _blockAheadLastTiming
+    }));
+
+    expect(state.altFetchCount).toBe(2);
+    expect(state.timing.acceptedStage).toBe('stage2');
+    expect(state.timing.attemptedStages).toEqual(['stage1', 'stage2']);
+  });
+
+  test('stage2/stage3 の OSRM alternatives パラメータは 3 に固定される', async ({ page }) => {
+    await bootstrap(page);
+    const state = await page.evaluate(async () => {
+      const urls = [];
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = String(input);
+        if (url.includes('/osrm/walking/route/v1/')) {
+          urls.push(url);
+          return new Response(JSON.stringify({
+            code: 'Ok',
+            routes: [{
+              distance: 100,
+              duration: 80,
+              geometry: { coordinates: [[139.0, 35.0], [139.001, 35.001]] },
+              legs: []
+            }]
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return originalFetch(input, init);
+      };
+      await _fetchOsrmAlternatives({ lat: 35.0, lng: 139.0 }, { lat: 35.001, lng: 139.001 }, 5, 'stage3');
+      window.fetch = originalFetch;
+      return urls;
+    });
+
+    expect(state.length).toBe(1);
+    expect(state[0]).toContain('alternatives=3');
+    expect(state[0]).not.toContain('alternatives=5');
+  });
+
+  test('全 stage 失敗時は escape-point fallback で迂回ルートを直接採用できる', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute, bypassAlt }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      window.__altFetchCount = 0;
+      window.__escapeLegFetchCount = 0;
+      window.__escapeFetchCount = 0;
+      window.__drawRouteToCalled = false;
+      _fetchOsrmAlternatives = async () => {
+        window.__altFetchCount += 1;
+        return [{
+          coordinates: blockedRoute,
+          totalDistance: 320,
+          totalTime: 240,
+          turnCount: 0
+        }];
+      };
+      _generateEscapeLegPoints = () => ([
+        { label: 'leg-left-30', point: { lat: 35.0001, lng: 139.0012 } }
+      ]);
+      _generateEscapePoints = () => ([
+        { label: 'left-60', point: { lat: 35.0001, lng: 139.0012 } },
+        { label: 'right-60', point: { lat: 35.0001, lng: 139.0045 } }
+      ]);
+      _fetchOsrmRouteThroughWaypoints = async (waypoints) => {
+        if (Array.isArray(waypoints) && waypoints.length === 2) {
+          window.__escapeLegFetchCount += 1;
+          return {
+            coordinates: blockedRoute,
+            totalDistance: 90,
+            totalTime: 70,
+            turnCount: 0
+          };
+        }
+        window.__escapeFetchCount += 1;
+        return bypassAlt;
+      };
+      drawRouteTo = () => {
+        window.__drawRouteToCalled = true;
+        return true;
+      };
+    }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      altFetchCount: window.__altFetchCount,
+      escapeLegFetchCount: window.__escapeLegFetchCount,
+      escapeFetchCount: window.__escapeFetchCount,
+      drawRouteToCalled: window.__drawRouteToCalled,
+      totalDistance: navActiveRoute.summary.totalDistance,
+      timing: _blockAheadLastTiming
+    }));
+
+    expect(state.altFetchCount).toBe(3);
+    expect(state.escapeLegFetchCount).toBeGreaterThan(0);
+    expect(state.escapeFetchCount).toBeGreaterThan(0);
+    expect(state.drawRouteToCalled).toBe(false);
+    expect(state.totalDistance).toBe(480);
+    expect(state.timing.acceptedStage).toBe('escape');
+    expect(state.timing.attemptedStages).toEqual(['stage1', 'stage2', 'stage3', 'escape-leg', 'escape']);
+  });
+
+  test('async な escape 候補生成を待ってから fallback 判定する', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute, bypassAlt }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      _fetchOsrmAlternatives = async () => ([{
+        coordinates: blockedRoute,
+        totalDistance: 320,
+        totalTime: 240,
+        turnCount: 0
+      }]);
+      _generateEscapeLegPoints = async () => [];
+      _generateEscapePoints = async () => {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        return [{ label: 'right-60', point: { lat: 35.0001, lng: 139.0045 } }];
+      };
+      _fetchOsrmRouteThroughWaypoints = async () => bypassAlt;
+    }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      acceptedStage: _blockAheadLastTiming?.acceptedStage,
+      attemptedStages: _blockAheadLastTiming?.attemptedStages
+    }));
+
+    expect(state.acceptedStage).toBe('escape');
+    expect(state.attemptedStages).toEqual(['stage1', 'stage2', 'stage3', 'escape']);
+  });
+
+  test('escape 候補は raw offset ではなく road-node に snap して blocked 外のみ残す', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    const state = await page.evaluate(async () => {
+      const coords = navActiveRoute.coordinates;
+      const blockedArea = {
+        centers: [{ lat: 35.0002, lng: 139.0002, radius: 20 }],
+        nearRejectMeters: 10
+      };
+      const rawCandidates = [
+        { label: 'good-a', point: { lat: 35.0001, lng: 139.001 } },
+        { label: 'good-b', point: { lat: 35.0002, lng: 139.0011 } },
+        { label: 'bad-same-corridor', point: { lat: 35.0001, lng: 139.0 } }
+      ];
+      const originalNearest = _fetchOsrmNearestNode;
+      _fetchOsrmNearestNode = async (point) => {
+        if ((point.lng ?? point.lon) > 139.00105) {
+          return { lat: 35.0001, lng: 139.0062, distanceM: 6 };
+        }
+        if ((point.lng ?? point.lon) > 139.001) {
+          return { lat: 35.0013, lng: 139.00625, distanceM: 7 };
+        }
+        return { lat: 35.0002, lng: 139.0, distanceM: 4 };
+      };
+      const snapped = await _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, coords, 'escape-test');
+      _fetchOsrmNearestNode = originalNearest;
+      return snapped.map(candidate => ({
+        label: candidate.label,
+        point: candidate.point,
+        blockedDistanceM: candidate.blockedDistanceM,
+        corridorDistanceM: candidate.corridorDistanceM,
+        nodeType: candidate.nodeType,
+        nodeScore: candidate.nodeScore
+      }));
+    });
+
+    expect(state.length).toBeGreaterThan(0);
+    expect(state.some(candidate => candidate.label.startsWith('good-b'))).toBeTruthy();
+    expect(state.some(candidate => candidate.point.lng > 139.006)).toBeTruthy();
+    expect(state.every(candidate => candidate.blockedDistanceM > 0)).toBeTruthy();
+    expect(state.every(candidate => candidate.corridorDistanceM >= 18)).toBeTruthy();
+    expect(state.some(candidate => candidate.nodeType === 'side-road')).toBeTruthy();
+    expect(state.every(candidate => candidate.nodeScore > 0)).toBeTruthy();
+  });
+
+  test('snap 後の近接候補でも tier/depth が違えば dedupe で保持される', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    const state = await page.evaluate(async () => {
+      const coords = navActiveRoute.coordinates;
+      const blockedArea = {
+        centers: [{ lat: 35.0002, lng: 139.0002, radius: 20 }],
+        nearRejectMeters: 10
+      };
+      const rawCandidates = [
+        { label: 'right-30', point: { lat: 35.0001, lng: 139.001 }, side: 'right', distanceTierM: 30, lateralM: 30, depthKind: 'entrance' },
+        { label: 'right-60', point: { lat: 35.0001, lng: 139.0012 }, side: 'right', distanceTierM: 60, lateralM: 60, depthKind: 'entrance' }
+      ];
+      const originalNearest = _fetchOsrmNearestNode;
+      _fetchOsrmNearestNode = async () => ({ lat: 35.0013, lng: 139.0062, distanceM: 6 });
+      const snapped = await _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, coords, 'escape-dedupe-test');
+      _fetchOsrmNearestNode = originalNearest;
+      return snapped.map(candidate => ({
+        label: candidate.label,
+        tier: candidate.distanceTierM,
+        depth: candidate.depthKind
+      }));
+    });
+
+    expect(state.length).toBeGreaterThan(1);
+    expect(state.some(candidate => candidate.tier === 30)).toBeTruthy();
+    expect(state.some(candidate => candidate.tier === 60)).toBeTruthy();
+  });
+
+  test('全 stage 失敗時でも escape-leg fallback で現在地から即時迂回を採用できる', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute, bypassAlt }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      window.__altFetchCount = 0;
+      window.__escapeLegFetchCount = 0;
+      window.__escapeFetchCount = 0;
+      _fetchOsrmAlternatives = async () => {
+        window.__altFetchCount += 1;
+        return [{
+          coordinates: blockedRoute,
+          totalDistance: 320,
+          totalTime: 240,
+          turnCount: 0
+        }];
+      };
+      _generateEscapeLegPoints = () => ([
+        { label: 'leg-right-30', point: { lat: 35.0001, lng: 139.0045 } }
+      ]);
+      _generateEscapePoints = () => {
+        window.__escapePointsCalled = true;
+        return [];
+      };
+      _fetchOsrmRouteThroughWaypoints = async (waypoints) => {
+        window.__escapeLegFetchCount += 1;
+        if (Array.isArray(waypoints) && waypoints.length === 2 && Math.abs((waypoints[0].lng ?? waypoints[0].lon) - 139.0) < 0.0001) {
+          return {
+            coordinates: [
+              { lat: 35.0001, lng: 139.0 },
+              { lat: 35.0001, lng: 139.0038 },
+              { lat: 35.0001, lng: 139.0045 }
+            ],
+            totalDistance: 120,
+            totalTime: 100,
+            turnCount: 1
+          };
+        }
+        if (Array.isArray(waypoints) && waypoints.length === 2) {
+          return {
+            coordinates: [
+              { lat: 35.0001, lng: 139.0045 },
+              { lat: 35.0032, lng: 139.0045 },
+              { lat: 35.004,  lng: 139.0 }
+            ],
+            summary: { totalDistance: 360, totalTime: 300 },
+            instructions: [{ text: '迂回して進む', distance: 100, latLng: { lat: 35.0032, lng: 139.0045 } }],
+            totalDistance: 360,
+            totalTime: 300,
+            turnCount: 1
+          };
+        }
+        return bypassAlt;
+      };
+    }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      altFetchCount: window.__altFetchCount,
+      escapeLegFetchCount: window.__escapeLegFetchCount,
+      escapeFetchCount: window.__escapeFetchCount,
+      timing: _blockAheadLastTiming,
+      totalDistance: navActiveRoute.summary.totalDistance
+    }));
+
+    expect(state.altFetchCount).toBe(3);
+    expect(state.escapeLegFetchCount).toBeGreaterThan(1);
+    expect(state.escapeFetchCount || 0).toBe(0);
+    expect(state.totalDistance).toBe(480);
+    expect(state.timing.acceptedStage).toBe('escape-leg');
+    expect(state.timing.attemptedStages).toEqual(['stage1', 'stage2', 'stage3', 'escape-leg']);
+  });
+
+  test('escape-leg は短い距離から試しつつ blocked 脱出できる長さを優先採用する', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute, bypassAlt }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      _fetchOsrmAlternatives = async () => ([{
+        coordinates: blockedRoute,
+        totalDistance: 320,
+        totalTime: 240,
+        turnCount: 0
+      }]);
+      _generateEscapeLegPoints = async () => ([
+        { label: 'leg-right-30', point: { lat: 35.0001, lng: 139.0040 }, lateralM: 30, nodeType: 'corridor-like', nodeScore: 20 },
+        { label: 'leg-right-90', point: { lat: 35.0001, lng: 139.0068 }, lateralM: 90, nodeType: 'side-road', nodeScore: 120 }
+      ]);
+      _generateEscapePoints = async () => [];
+      _fetchOsrmRouteThroughWaypoints = async (waypoints) => {
+        if (Array.isArray(waypoints) && waypoints.length === 2
+            && Math.abs((waypoints[0].lng ?? waypoints[0].lon) - 139.0) < 0.0001
+            && waypoints[1].lng < 139.005) {
+          return {
+            coordinates: blockedRoute,
+            totalDistance: 120,
+            totalTime: 100,
+            turnCount: 1
+          };
+        }
+        if (Array.isArray(waypoints) && waypoints.length === 2) {
+          if (Math.abs((waypoints[0].lng ?? waypoints[0].lon) - 139.0) < 0.0001) {
+            return {
+              coordinates: [
+                { lat: 35.0001, lng: 139.0 },
+                { lat: 35.0001, lng: 139.0056 },
+                { lat: 35.0001, lng: 139.0068 }
+              ],
+              totalDistance: 180,
+              totalTime: 150,
+              turnCount: 1
+            };
+          }
+          return {
+            coordinates: [
+              { lat: 35.0001, lng: 139.0068 },
+              { lat: 35.0032, lng: 139.0068 },
+              { lat: 35.004,  lng: 139.0 }
+            ],
+            summary: { totalDistance: 300, totalTime: 250 },
+            instructions: [{ text: '脇道から進む', distance: 80, latLng: { lat: 35.0032, lng: 139.0068 } }],
+            totalDistance: 300,
+            totalTime: 250,
+            turnCount: 1
+          };
+        }
+        return bypassAlt;
+      };
+    }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      acceptedStage: _blockAheadLastTiming?.acceptedStage,
+      routeDistance: navActiveRoute.summary.totalDistance
+    }));
+
+    expect(state.acceptedStage).toBe('escape-leg');
+    expect(state.routeDistance).toBe(480);
+  });
+
+  test('escape-leg main-route は overlap=0 かつ strict が低ければ near だけでは棄却しない', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute, bypassAlt }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      _fetchOsrmAlternatives = async () => ([{
+        coordinates: blockedRoute,
+        totalDistance: 320,
+        totalTime: 240,
+        turnCount: 0
+      }]);
+      _generateEscapeLegPoints = async () => ([
+        { label: 'leg-right-60', point: { lat: 35.0001, lng: 139.0045 }, lateralM: 60, distanceTierM: 60, depthKind: 'entrance', nodeType: 'side-road', nodeScore: 120 }
+      ]);
+      _generateEscapePoints = async () => [];
+      _fetchOsrmRouteThroughWaypoints = async (waypoints) => {
+        if (Array.isArray(waypoints) && waypoints.length === 2
+            && Math.abs((waypoints[0].lng ?? waypoints[0].lon) - 139.0) < 0.0001) {
+          return {
+            coordinates: [
+              { lat: 35.0001, lng: 139.0 },
+              { lat: 35.0001, lng: 139.0038 },
+              { lat: 35.0001, lng: 139.0045 }
+            ],
+            totalDistance: 120,
+            totalTime: 100,
+            turnCount: 1
+          };
+        }
+        return {
+          coordinates: [
+            { lat: 35.0001, lng: 139.0045 },
+            { lat: 35.0015, lng: 139.0045 },
+            { lat: 35.0032, lng: 139.0045 },
+            { lat: 35.0040, lng: 139.0045 }
+          ],
+          summary: { totalDistance: 340, totalTime: 280 },
+          instructions: [{ text: '脇道を進む', distance: 100, latLng: { lat: 35.0032, lng: 139.0045 } }],
+          totalDistance: 340,
+          totalTime: 280,
+          turnCount: 1
+        };
+      };
+      const originalStats = _routeBlockedAreaStats;
+      _routeBlockedAreaStats = (coords, blockedArea) => {
+        if (Array.isArray(coords) && coords.length === 4 && Math.abs((coords[0].lng ?? coords[0].lon) - 139.0045) < 0.0001) {
+          return {
+            strictOverlapRatio: 0.18,
+            nearBlockedRatio: 0.23,
+            minDistanceToAreaM: 4,
+            intersects: false,
+            nearBlocked: true
+          };
+        }
+        return originalStats(coords, blockedArea);
+      };
+      window.__restoreBlockedStats = () => { _routeBlockedAreaStats = originalStats; };
+    }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      acceptedStage: _blockAheadLastTiming?.acceptedStage,
+      totalDistance: navActiveRoute.summary.totalDistance
+    }));
+    await page.evaluate(() => window.__restoreBlockedStats && window.__restoreBlockedStats());
+
+    expect(state.acceptedStage).toBe('escape-leg');
+    expect(state.totalDistance).toBe(460);
+  });
+
+  test('escape fallback route も overlap が実質 0 かつ strict が低ければ near だけでは棄却しない', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      _fetchOsrmAlternatives = async () => ([{
+        coordinates: blockedRoute,
+        totalDistance: 320,
+        totalTime: 240,
+        turnCount: 0
+      }]);
+      _generateEscapeLegPoints = async () => [];
+      _generateEscapePoints = async () => ([
+        { label: 'escape-right-90', point: { lat: 35.0001, lng: 139.0046 }, distanceTierM: 90, depthKind: 'deeper-30', nodeType: 'side-road', nodeScore: 160 }
+      ]);
+      _fetchOsrmRouteThroughWaypoints = async () => ({
+        coordinates: [
+          { lat: 35.0001, lng: 139.0 },
+          { lat: 35.0001, lng: 139.0046 },
+          { lat: 35.0020, lng: 139.0046 },
+          { lat: 35.0040, lng: 139.0046 }
+        ],
+        summary: { totalDistance: 510, totalTime: 360 },
+        instructions: [{ text: '脇道から進む', distance: 120, latLng: { lat: 35.0020, lng: 139.0046 } }],
+        totalDistance: 510,
+        totalTime: 360,
+        turnCount: 1
+      });
+      const originalStats = _routeBlockedAreaStats;
+      _routeBlockedAreaStats = (coords, blockedArea) => {
+        if (Array.isArray(coords) && coords.length === 4 && Math.abs((coords[1].lng ?? coords[1].lon) - 139.0046) < 0.0001) {
+          return {
+            strictOverlapRatio: 0.29,
+            nearBlockedRatio: 0.33,
+            minDistanceToAreaM: 6,
+            intersects: false,
+            nearBlocked: true
+          };
+        }
+        return originalStats(coords, blockedArea);
+      };
+      window.__restoreBlockedStats = () => { _routeBlockedAreaStats = originalStats; };
+    }, { blockedRoute: BLOCKED_ROUTE });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      acceptedStage: _blockAheadLastTiming?.acceptedStage,
+      totalDistance: navActiveRoute.summary.totalDistance
+    }));
+    await page.evaluate(() => window.__restoreBlockedStats && window.__restoreBlockedStats());
+
+    expect(state.acceptedStage).toBe('escape');
+    expect(state.totalDistance).toBe(510);
+  });
+
+  test('side-road entrance より deeper node を優先できる', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    const state = await page.evaluate(async () => {
+      const coords = navActiveRoute.coordinates;
+      const blockedArea = {
+        centers: [{ lat: 35.0002, lng: 139.0002, radius: 20 }],
+        nearRejectMeters: 10
+      };
+      const rawCandidates = [
+        { label: 'entrance', point: { lat: 35.0001, lng: 139.0011 }, side: 'right', distanceTierM: 60, lateralM: 60, depthKind: 'entrance' }
+      ];
+      const originalNearest = _fetchOsrmNearestNode;
+      let call = 0;
+      _fetchOsrmNearestNode = async () => {
+        call += 1;
+        if (call === 1) return { lat: 35.0012, lng: 139.0060, distanceM: 4 };
+        if (call === 2) return { lat: 35.0015, lng: 139.0063, distanceM: 5 };
+        if (call === 3) return { lat: 35.0018, lng: 139.0066, distanceM: 6 };
+        if (call === 4) return { lat: 35.0021, lng: 139.0069, distanceM: 7 };
+        return { lat: 35.0024, lng: 139.0072, distanceM: 8 };
+      };
+      const snapped = await _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, coords, 'escape-depth-test');
+      _fetchOsrmNearestNode = originalNearest;
+      return snapped.map(candidate => ({
+        label: candidate.label,
+        depth: candidate.depthKind,
+        score: candidate.nodeScore
+      }));
+    });
+
+    expect(state.length).toBeGreaterThan(1);
+    expect(state[0].depth).toBe('deeper-120');
+    expect(state[0].score).toBeGreaterThan(state[state.length - 1].score);
+  });
+
+  test('escape fallback は deeper node に対して hold-waypoint mode を使って side-road を維持できる', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      window.__escapeWaypointLengths = [];
+      _fetchOsrmAlternatives = async () => ([{
+        coordinates: blockedRoute,
+        totalDistance: 320,
+        totalTime: 240,
+        turnCount: 0
+      }]);
+      _generateEscapeLegPoints = async () => [];
+      _generateEscapePoints = async () => ([
+        {
+          label: 'escape-right-120-deep',
+          point: { lat: 35.0001, lng: 139.0054 },
+          holdWaypoint: { lat: 35.0001, lng: 139.0046 },
+          distanceTierM: 120,
+          depthKind: 'deeper-120',
+          nodeType: 'side-road',
+          nodeScore: 220,
+          blockedDistanceM: 55
+        }
+      ]);
+      _fetchOsrmRouteThroughWaypoints = async (waypoints) => {
+        window.__escapeWaypointLengths.push(Array.isArray(waypoints) ? waypoints.length : -1);
+        return {
+          coordinates: [
+            { lat: 35.0001, lng: 139.0 },
+            { lat: 35.0001, lng: 139.0046 },
+            { lat: 35.0001, lng: 139.0054 },
+            { lat: 35.0020, lng: 139.0054 },
+            { lat: 35.0040, lng: 139.0054 }
+          ],
+          summary: { totalDistance: 540, totalTime: 380 },
+          instructions: [{ text: '脇道を進む', distance: 140, latLng: { lat: 35.0020, lng: 139.0054 } }],
+          totalDistance: 540,
+          totalTime: 380,
+          turnCount: 1
+        };
+      };
+      const originalStats = _routeBlockedAreaStats;
+      _routeBlockedAreaStats = (coords, blockedArea) => {
+        if (Array.isArray(coords) && coords.length === 5 && Math.abs((coords[2].lng ?? coords[2].lon) - 139.0054) < 0.0001) {
+          return {
+            strictOverlapRatio: 0.12,
+            nearBlockedRatio: 0.20,
+            minDistanceToAreaM: 8,
+            intersects: false,
+            nearBlocked: true
+          };
+        }
+        return originalStats(coords, blockedArea);
+      };
+      window.__restoreBlockedStats = () => { _routeBlockedAreaStats = originalStats; };
+    }, { blockedRoute: BLOCKED_ROUTE });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      acceptedStage: _blockAheadLastTiming?.acceptedStage,
+      waypointLengths: window.__escapeWaypointLengths,
+      totalDistance: navActiveRoute.summary.totalDistance
+    }));
+    await page.evaluate(() => window.__restoreBlockedStats && window.__restoreBlockedStats());
+
+    expect(state.acceptedStage).toBe('escape');
+    expect(state.waypointLengths).toContain(4);
+    expect(state.totalDistance).toBe(540);
+  });
+
+  test('holdWaypointMode route は overlap が実質 0 かつ strict が低ければ intersects=true でも near-penalty で通る', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      _fetchOsrmAlternatives = async () => ([{
+        coordinates: blockedRoute,
+        totalDistance: 320,
+        totalTime: 240,
+        turnCount: 0
+      }]);
+      _generateEscapeLegPoints = async () => [];
+      _generateEscapePoints = async () => ([
+        {
+          label: 'escape-right-120-deep',
+          point: { lat: 35.0001, lng: 139.0054 },
+          holdWaypoint: { lat: 35.0001, lng: 139.0046 },
+          distanceTierM: 120,
+          depthKind: 'deeper-120',
+          nodeType: 'side-road',
+          nodeScore: 220,
+          blockedDistanceM: 55
+        }
+      ]);
+      _fetchOsrmRouteThroughWaypoints = async () => ({
+        coordinates: [
+          { lat: 35.0001, lng: 139.0 },
+          { lat: 35.0001, lng: 139.0046 },
+          { lat: 35.0001, lng: 139.0054 },
+          { lat: 35.0020, lng: 139.0054 },
+          { lat: 35.0040, lng: 139.0054 }
+        ],
+        summary: { totalDistance: 540, totalTime: 380 },
+        instructions: [{ text: '脇道を進む', distance: 140, latLng: { lat: 35.0020, lng: 139.0054 } }],
+        totalDistance: 540,
+        totalTime: 380,
+        turnCount: 1
+      });
+      const originalStats = _routeBlockedAreaStats;
+      _routeBlockedAreaStats = (coords, blockedArea) => {
+        if (Array.isArray(coords) && coords.length === 5 && Math.abs((coords[2].lng ?? coords[2].lon) - 139.0054) < 0.0001) {
+          return {
+            strictOverlapRatio: 0.24,
+            nearBlockedRatio: 0.28,
+            minDistanceToAreaM: -1,
+            intersects: true,
+            nearBlocked: true
+          };
+        }
+        return originalStats(coords, blockedArea);
+      };
+      window.__restoreBlockedStats = () => { _routeBlockedAreaStats = originalStats; };
+    }, { blockedRoute: BLOCKED_ROUTE });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      acceptedStage: _blockAheadLastTiming?.acceptedStage,
+      totalDistance: navActiveRoute.summary.totalDistance
+    }));
+    await page.evaluate(() => window.__restoreBlockedStats && window.__restoreBlockedStats());
+
+    expect(state.acceptedStage).toBe('escape');
+    expect(state.totalDistance).toBe(540);
   });
 
   // ── 表示パイプライン ────────────────────────────────────────────────────

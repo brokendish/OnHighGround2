@@ -29,11 +29,59 @@ const NAV_ELEV_UPDATE_M    = 10; // 標高再取得の移動距離しきい値�
 const NAV_HAZARD_UPDATE_M  = 10; // ハザード再取得の移動距離しきい値（メートル）
 
 // ── 前方ブロック再ルート定数 ──────────────────────────────────────────────
-const BLOCK_AHEAD_START_METERS  = 30;   // ブロック開始距離（現在地前方 m）
-const BLOCK_AHEAD_END_METERS    = 120;  // ブロック終了距離（現在地前方 m）
-const BLOCK_BUFFER_METERS       = 25;   // バッファ幅（m）
+const BLOCK_AHEAD_START_METERS  = 20;   // ブロック開始距離（現在地前方 m）
+const BLOCK_AHEAD_END_METERS    = 180;  // ブロック終了距離（現在地前方 m）
+const BLOCK_BUFFER_METERS       = 50;   // 前方コリドーの基本バッファ幅（m）
 const BLOCK_AHEAD_MAX_OFFSET_M  = 150;  // 現在地がルートからこれ以上離れていたら異常扱い（m）
 const BLOCK_OVERLAP_REJECT      = 0.7;  // ルート座標のブロックバッファ内占有率がこれ以上なら棄却
+const BLOCK_NEAR_REJECT_METERS  = 10;   // ブロック領域からこの距離以内も棄却
+const BLOCK_SAMPLE_STEP_METERS  = 20;   // 前方コリドー中心線サンプル間隔
+const BLOCK_INTERSECTION_TURN_DEG = 25; // 交差点候補とみなす進路変化角
+const BLOCK_INTERSECTION_BUFFER_METERS = 40; // 交差点付近の追加ブロック半径
+const BLOCK_OSRM_ALTERNATIVES = 3; // OSRM alternatives は 3 までに固定（4/5 は 400 を返す環境がある）
+const BLOCK_STAGE_CONFIGS = [
+    {
+        key: 'stage1',
+        startM: 20,
+        endM: 180,
+        backwardM: 0,
+        baseRadiusM: 50,
+        intersectionBufferM: 40,
+        alternativeCount: BLOCK_OSRM_ALTERNATIVES
+    },
+    {
+        key: 'stage2',
+        startM: 10,
+        endM: 240,
+        backwardM: 60,
+        baseRadiusM: 65,
+        intersectionBufferM: 50,
+        alternativeCount: BLOCK_OSRM_ALTERNATIVES
+    },
+    {
+        key: 'stage3',
+        startM: 0,
+        endM: 320,
+        backwardM: 120,
+        baseRadiusM: 80,
+        intersectionBufferM: 60,
+        alternativeCount: BLOCK_OSRM_ALTERNATIVES
+    }
+];
+const BLOCK_ESCAPE_LATERAL_OFFSETS_M = [60, 100];
+const BLOCK_ESCAPE_BACKWARD_M = 25;
+const BLOCK_ESCAPE_MAX_POINTS = 6;
+const BLOCK_ESCAPE_MAX_LATERAL_M = 200;
+const BLOCK_ESCAPE_PUSH_STEP_M = 20;
+const BLOCK_ESCAPE_IGNORE_METERS = 40;
+const BLOCK_ESCAPE_LEG_LATERAL_OFFSETS_M = [30, 60, 90, 120];
+const BLOCK_ESCAPE_LEG_BACKWARD_M = 15;
+const BLOCK_ESCAPE_LEG_MAX_POINTS = 6;
+const BLOCK_ESCAPE_CORRIDOR_DIFF_M = 18;
+const BLOCK_ESCAPE_SIDE_BEARING_DEG = 35;
+const BLOCK_ESCAPE_DEEPER_STEPS_M = [30, 60, 90, 120];
+const BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX = 0.3;
+const BLOCK_ESCAPE_NEAR_PENALTY_OVERLAP_EPS = 0.01;
 const SIGNIFICANT_INITIAL_TURN_DEG = 30;  // 「最初のターン」とみなす閾値
 const MIN_INITIAL_CLARITY_SEGMENT_M = 18;   // これ未満の初動折れは表示上まとめる
 const MAX_INITIAL_CLARITY_WINDOW_M = 40;    // 初動簡略化を適用する最大距離窓
@@ -51,22 +99,6 @@ const DISPLAY_ANCHOR_MERGE_RADIUS_M = 12;     // 同じ交差点とみなすア�
 const DISPLAY_DUPLICATE_SEGMENT_DISTANCE_M = 14; // 近接重複セグメントとみなす距離
 const DISPLAY_DUPLICATE_SEGMENT_ANGLE_DEG = 20;  // 同方向セグメントとみなす角度差
 const DISPLAY_DUPLICATE_SEGMENT_MIN_PATH_M = 20; // 重複除去対象にする最小経路長
-const DANGEROUS_CROSSING_EVIDENCE_RADIUS_M = 18;
-const DANGEROUS_CROSSING_DEDUP_M = 14;
-const DANGEROUS_CROSSING_OVERPASS_PADDING_M = 80;
-const DANGEROUS_CROSSING_MAJOR_CLASSES = new Set(['trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link']);
-const DANGEROUS_CROSSING_PENALTY_BY_CLASS = {
-    trunk: 520,
-    trunk_link: 420,
-    primary: 380,
-    primary_link: 320,
-    secondary: 220,
-    secondary_link: 180
-};
-const DANGEROUS_CROSSING_SIGNAL_FACTOR = 0.05;
-const DANGEROUS_CROSSING_MARKED_FACTOR = 0.22;
-const DANGEROUS_CROSSING_UNCONTROLLED_FACTOR = 0.48;
-
 // ── Haversine 距離（メートル） ─────────────────────────────────────────────
 function _navHaversine(lat1, lon1, lat2, lon2) {
     const R = 6371000;
@@ -90,23 +122,15 @@ let _blockAheadLastTiming = null;
 let _blockAheadRecentSummaries = [];
 let _blockAheadAggregateMetrics = {
     totalRuns: 0,
-    fastAcceptedRuns: 0,
-    fastRejectedRuns: 0,
-    safeAttemptedRuns: 0,
-    safeAcceptedRuns: 0,
-    safeFailedRuns: 0,
-    phasePathCounts: {},
+    acceptedRuns: 0,
+    failedRuns: 0,
+    noChangeRuns: 0,
+    statusCounts: {},
     rejectReasonCounts: {},
     avgTotalMs: 0,
-    avgFastMs: 0,
-    avgSafeMs: 0,
     avgOsrmMs: 0,
-    avgOverpassMs: 0,
     avgDisplayPipelineMs: 0
 };
-let _osrmEvalCache = new Map();
-let _crossingRiskCache = new Map();
-let _crossingContextInflight = new Map();
 
 function _recordBlockAheadTiming(bucket, durationMs, extra = {}) {
     if (!_blockAheadPerfMetrics) return;
@@ -123,18 +147,12 @@ function _incrementReasonCounter(target, reason) {
     target[reason] = (target[reason] || 0) + 1;
 }
 
-function _noteBlockAheadRejectReason(metric, reason) {
-    if (!metric || !reason) return;
-    if (!metric.rejectReasons) metric.rejectReasons = {};
-    _incrementReasonCounter(metric.rejectReasons, reason);
-}
-
-function _topBlockAheadRejectReason(reasonMap) {
-    if (!reasonMap) return null;
-    const entries = Object.entries(reasonMap);
-    if (entries.length === 0) return null;
-    entries.sort((a, b) => b[1] - a[1]);
-    return entries[0][0];
+function _recordBlockAheadRejectReason(reason) {
+    if (!_blockAheadPerfMetrics || !reason) return;
+    if (!_blockAheadPerfMetrics.rejectReasons) {
+        _blockAheadPerfMetrics.rejectReasons = {};
+    }
+    _incrementReasonCounter(_blockAheadPerfMetrics.rejectReasons, reason);
 }
 
 function _updateRollingAverage(prevAvg, prevCount, nextValue) {
@@ -152,22 +170,17 @@ function _recordBlockAheadExecutionSummary(summary) {
     const agg = _blockAheadAggregateMetrics;
     const prevCount = agg.totalRuns;
     agg.totalRuns += 1;
-    if (summary.fast?.accepted) agg.fastAcceptedRuns += 1;
-    else agg.fastRejectedRuns += 1;
-    if (summary.safe?.attempted) agg.safeAttemptedRuns += 1;
-    if (summary.safe?.accepted) agg.safeAcceptedRuns += 1;
-    if (summary.safe?.attempted && !summary.safe?.accepted) agg.safeFailedRuns += 1;
-    if (summary.phasePath) {
-        agg.phasePathCounts[summary.phasePath] = (agg.phasePathCounts[summary.phasePath] || 0) + 1;
+    if (summary.accepted) agg.acceptedRuns += 1;
+    else agg.failedRuns += 1;
+    if (summary.status === 'no-change') agg.noChangeRuns += 1;
+    if (summary.status) {
+        agg.statusCounts[summary.status] = (agg.statusCounts[summary.status] || 0) + 1;
     }
-    [summary.fast?.rejectReason, summary.safe?.rejectReason].filter(Boolean).forEach(reason => {
+    [summary.rejectReason].filter(Boolean).forEach(reason => {
         _incrementReasonCounter(agg.rejectReasonCounts, reason);
     });
     agg.avgTotalMs = _updateRollingAverage(agg.avgTotalMs, prevCount, summary.totalMs);
-    agg.avgFastMs = _updateRollingAverage(agg.avgFastMs, prevCount, summary.fast?.timeMs);
-    agg.avgSafeMs = _updateRollingAverage(agg.avgSafeMs, prevCount, summary.safe?.timeMs);
     agg.avgOsrmMs = _updateRollingAverage(agg.avgOsrmMs, prevCount, summary.osrmMs);
-    agg.avgOverpassMs = _updateRollingAverage(agg.avgOverpassMs, prevCount, summary.overpassMs);
     agg.avgDisplayPipelineMs = _updateRollingAverage(agg.avgDisplayPipelineMs, prevCount, summary.displayPipelineMs);
 
     if (typeof window !== 'undefined') {
@@ -179,11 +192,6 @@ function _recordBlockAheadExecutionSummary(summary) {
 function _routeCoordsCacheKey(coords) {
     if (!Array.isArray(coords) || coords.length === 0) return '';
     return coords.map(point => `${Number(point.lat).toFixed(5)},${Number(point.lng ?? point.lon).toFixed(5)}`).join('|');
-}
-
-function _waypointCacheKey(waypoints) {
-    if (!Array.isArray(waypoints) || waypoints.length === 0) return '';
-    return waypoints.map(wp => `${Number(wp.lat).toFixed(5)},${Number(wp.lng ?? wp.lon).toFixed(5)}`).join('|');
 }
 
 // ── 標高取得（/elevation API） ────────────────────────────────────────────
@@ -817,6 +825,286 @@ function _walkAlongRoute(coords, projection, distM) {
     return { lat: curLat, lng: curLng }; // ルート末端に達した場合
 }
 
+function _walkAlongRouteBackward(coords, projection, distM) {
+    let remaining = distM;
+    let curLat = projection.snappedPoint.lat;
+    let curLng = projection.snappedPoint.lng;
+    for (let i = projection.segmentIndex; i >= 0; i--) {
+        const prevLat = coords[i].lat;
+        const prevLng = coords[i].lng;
+        const segDist = _navHaversine(curLat, curLng, prevLat, prevLng);
+        if (segDist >= remaining) {
+            const t = remaining / segDist;
+            return {
+                lat: curLat + t * (prevLat - curLat),
+                lng: curLng + t * (prevLng - curLng)
+            };
+        }
+        remaining -= segDist;
+        curLat = prevLat;
+        curLng = prevLng;
+    }
+    return { lat: curLat, lng: curLng };
+}
+
+function _walkAlongRouteRelative(coords, projection, offsetM) {
+    return offsetM >= 0
+        ? _walkAlongRoute(coords, projection, offsetM)
+        : _walkAlongRouteBackward(coords, projection, Math.abs(offsetM));
+}
+
+function _headingUnitVectorMeters(fromPoint, toPoint) {
+    if (!fromPoint || !toPoint) return null;
+    const avgLatRad = (((fromPoint.lat || 0) + (toPoint.lat || 0)) / 2) * Math.PI / 180;
+    const eastM = ((toPoint.lng ?? toPoint.lon) - (fromPoint.lng ?? fromPoint.lon)) * 111111 * Math.cos(avgLatRad);
+    const northM = (toPoint.lat - fromPoint.lat) * 111111;
+    const length = Math.hypot(eastM, northM);
+    if (length < 1e-6) return null;
+    return { east: eastM / length, north: northM / length };
+}
+
+function _offsetPointByMeters(origin, eastM, northM) {
+    const lat = Number(origin?.lat);
+    const lng = Number(origin?.lng ?? origin?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const latOffset = northM / 111111;
+    const lngOffset = eastM / (111111 * Math.max(0.2, Math.cos(lat * Math.PI / 180)));
+    return { lat: lat + latOffset, lng: lng + lngOffset };
+}
+
+function _buildEscapePoint(origin, headingUnit, side, lateralM, backwardM = 0) {
+    if (!origin || !headingUnit) return null;
+    const headingEast = headingUnit.east;
+    const headingNorth = headingUnit.north;
+    const leftEast = -headingNorth;
+    const leftNorth = headingEast;
+    const signedLateral = side === 'left' ? lateralM : -lateralM;
+    const eastM = (leftEast * signedLateral) - (headingEast * backwardM);
+    const northM = (leftNorth * signedLateral) - (headingNorth * backwardM);
+    return _offsetPointByMeters(origin, eastM, northM);
+}
+
+function _pushEscapePointOutsideBlockedArea(origin, headingUnit, side, lateralM, blockedArea, backwardM = 0) {
+    const nearRejectMeters = blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS;
+    let currentLateralM = lateralM;
+    let point = _buildEscapePoint(origin, headingUnit, side, currentLateralM, backwardM);
+    while (point && currentLateralM < BLOCK_ESCAPE_MAX_LATERAL_M
+            && _distancePointToBlockedArea(point, blockedArea, nearRejectMeters) <= 0) {
+        currentLateralM += BLOCK_ESCAPE_PUSH_STEP_M;
+        point = _buildEscapePoint(origin, headingUnit, side, currentLateralM, backwardM);
+    }
+    if (!point) return null;
+    if (_distancePointToBlockedArea(point, blockedArea, nearRejectMeters) <= 0) {
+        return null;
+    }
+    return { point, lateralM: currentLateralM };
+}
+
+function _buildRawEscapeCandidates(coords, projection, blockedArea, escapeSpecs, logPrefix, maxPoints) {
+    const headingTarget = _walkAlongRoute(coords, projection, 20);
+    const headingUnit = _headingUnitVectorMeters(projection?.snappedPoint, headingTarget);
+    if (!headingUnit) return [];
+
+    const deduped = [];
+    for (const spec of escapeSpecs.slice(0, maxPoints)) {
+        const pushed = _pushEscapePointOutsideBlockedArea(
+            projection.snappedPoint,
+            headingUnit,
+            spec.side,
+            spec.lateralM,
+            blockedArea,
+            spec.backwardM
+        );
+        if (!pushed?.point) {
+            console.log(`[BlockAhead][${logPrefix}] rejected point ${spec.label}: inside blocked area`);
+            continue;
+        }
+        const point = pushed.point;
+        if (deduped.some(existing =>
+            _segmentLengthMeters(existing.point, point) < 12
+            && existing.side === spec.side
+            && Number(existing.distanceTierM || 0) === Number(spec.lateralM || 0)
+            && String(existing.depthKind || 'entrance') === String(spec.depthKind || 'entrance')
+            && Number(existing.backwardM || 0) === Number(spec.backwardM || 0)
+        )) continue;
+        deduped.push({
+            label: spec.label,
+            point,
+            lateralM: pushed.lateralM,
+            backwardM: spec.backwardM,
+            side: spec.side,
+            distanceTierM: spec.lateralM,
+            depthKind: spec.depthKind || 'entrance'
+        });
+    }
+    return deduped;
+}
+
+function _escapeDepthRank(depthKind) {
+    const label = String(depthKind || 'entrance');
+    if (label === 'deeper-120') return 4;
+    if (label === 'deeper-90') return 3;
+    if (label === 'deeper-60') return 2;
+    if (label === 'deeper-30') return 1;
+    return 0;
+}
+
+async function _fetchOsrmNearestNode(point) {
+    const transportMode = document.getElementById('transportMode')?.value ?? 'walking';
+    const profile = transportMode === 'walking' ? 'walking' : 'driving';
+    const routeServiceUrl = OSRM_SERVICE_URLS[profile];
+    const nearestServiceUrl = routeServiceUrl.replace('/route/v1', '/nearest/v1');
+    const url = `${nearestServiceUrl}/${profile}/${point.lng ?? point.lon},${point.lat}?number=1`;
+    const startedAt = _perfNowMs();
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        const waypoint = Array.isArray(data?.waypoints) ? data.waypoints[0] : null;
+        const snapped = Array.isArray(waypoint?.location) ? waypoint.location : null;
+        if (!snapped || snapped.length < 2) return null;
+        return {
+            lat: snapped[1],
+            lng: snapped[0],
+            distanceM: Number(waypoint?.distance || 0)
+        };
+    } catch (error) {
+        console.warn('[BlockAhead][escape-snap] nearest fetch error:', error);
+        return null;
+    } finally {
+        const durationMs = _perfNowMs() - startedAt;
+        _recordBlockAheadTiming('osrmEval', durationMs);
+        console.log(`[BlockAhead][timing] osrm nearest ${Math.round(durationMs)}ms`);
+    }
+}
+
+async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, originalCoords, logPrefix) {
+    const rawList = Array.isArray(rawCandidates) ? rawCandidates : [];
+    console.log(`[BlockAhead][${logPrefix}] raw-candidates=${rawList.length}`);
+    const origin = Array.isArray(originalCoords) && originalCoords.length > 0 ? originalCoords[0] : null;
+    const forwardRef = Array.isArray(originalCoords) && originalCoords.length > 1 ? originalCoords[Math.min(1, originalCoords.length - 1)] : null;
+    const forwardBearing = origin && forwardRef ? _segmentBearingDeg(origin, forwardRef) : 0;
+    const evaluateCandidate = async (candidate) => {
+        const snappedPoint = await _fetchOsrmNearestNode(candidate.point);
+        if (!snappedPoint) {
+            console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: no-nearest`);
+            return null;
+        }
+        const blockedDistance = _distancePointToBlockedArea(snappedPoint, blockedArea, blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS);
+        if (blockedDistance <= 0) {
+            console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: snapped inside blocked area`);
+            return null;
+        }
+        const corridorDistance = _distancePointToRoute(snappedPoint, originalCoords);
+        if (corridorDistance < BLOCK_ESCAPE_CORRIDOR_DIFF_M) {
+            console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: snapped same corridor ${Math.round(corridorDistance)}m`);
+            return null;
+        }
+        const bearingToNode = origin ? _segmentBearingDeg(origin, snappedPoint) : 0;
+        const bearingDiff = _bearingDiffDeg(forwardBearing, bearingToNode);
+        const nodeType = bearingDiff >= BLOCK_ESCAPE_SIDE_BEARING_DEG ? 'side-road' : 'corridor-like';
+        const depthBonus = _escapeDepthRank(candidate.depthKind) * 80;
+        const typeBonus = nodeType === 'side-road' ? 120 : 0;
+        const score = depthBonus + typeBonus + (corridorDistance * 1.8) + (bearingDiff * 1.2) + ((candidate.lateralM || 0) * 0.2) - (Number(snappedPoint.distanceM || 0) * 0.5);
+        return {
+            ...candidate,
+            rawPoint: candidate.point,
+            point: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+            snapDistanceM: snappedPoint.distanceM,
+            corridorDistanceM: corridorDistance,
+            blockedDistanceM: blockedDistance,
+            bearingDiffDeg: bearingDiff,
+            nodeType,
+            nodeScore: score,
+            entrancePoint: candidate.entrancePoint || candidate.point,
+            holdWaypoint: candidate.holdWaypoint || null,
+            depthRank: _escapeDepthRank(candidate.depthKind)
+        };
+    };
+
+    const entranceCandidates = (await Promise.all(rawList.map(evaluateCandidate))).filter(Boolean);
+    const deeperRawCandidates = [];
+    for (const candidate of entranceCandidates) {
+        if (candidate.nodeType !== 'side-road' || !origin) continue;
+        const unit = _headingUnitVectorMeters(origin, candidate.point);
+        if (!unit) continue;
+        for (const depthM of BLOCK_ESCAPE_DEEPER_STEPS_M) {
+            const deeperPoint = _offsetPointByMeters(candidate.point, unit.east * depthM, unit.north * depthM);
+            if (!deeperPoint) continue;
+            deeperRawCandidates.push({
+                ...candidate,
+                label: `${candidate.label}-deep-${depthM}`,
+                point: deeperPoint,
+                depthKind: `deeper-${depthM}`,
+                depthMeters: depthM,
+                entrancePoint: candidate.point,
+                holdWaypoint: candidate.point
+            });
+        }
+    }
+    console.log(
+        `[BlockAhead][${logPrefix}] generated-tiers=${[...new Set(rawList.map(candidate => candidate.distanceTierM).filter(Number.isFinite))].join('/')} ` +
+        `depths=${['entrance', ...BLOCK_ESCAPE_DEEPER_STEPS_M.map(step => `deeper-${step}`)].join('/')} ` +
+        `entrance=${entranceCandidates.length} deeper=${deeperRawCandidates.length}`
+    );
+    const deeperCandidates = deeperRawCandidates.length > 0
+        ? (await Promise.all(deeperRawCandidates.map(evaluateCandidate))).filter(Boolean)
+        : [];
+    const snapped = entranceCandidates.concat(deeperCandidates);
+
+    const deduped = [];
+    for (const candidate of snapped.filter(Boolean)) {
+        if (deduped.some(existing =>
+            _segmentLengthMeters(existing.point, candidate.point) < 12
+            && existing.side === candidate.side
+            && Number(existing.distanceTierM || 0) === Number(candidate.distanceTierM || 0)
+            && String(existing.depthKind || 'entrance') === String(candidate.depthKind || 'entrance')
+        )) continue;
+        deduped.push(candidate);
+    }
+    deduped.sort((a, b) => (b.nodeScore - a.nodeScore) || (b.corridorDistanceM - a.corridorDistanceM));
+    console.log(`[BlockAhead][${logPrefix}] snapped-candidates=${deduped.length}`);
+    deduped.forEach(candidate => {
+        console.log(
+            `[BlockAhead][${logPrefix}] node ${candidate.label}: tier=${candidate.distanceTierM || '-'} depth=${candidate.depthKind || 'entrance'} type=${candidate.nodeType} ` +
+            `score=${candidate.nodeScore.toFixed(1)} corridor=${Math.round(candidate.corridorDistanceM)}m ` +
+            `bearing=${Math.round(candidate.bearingDiffDeg)}deg snap=${Math.round(candidate.snapDistanceM)}m`
+        );
+    });
+    return deduped;
+}
+
+async function _generateEscapePoints(coords, projection, blockedArea) {
+    const escapeSpecs = [
+        { side: 'left', lateralM: 60, backwardM: 0, label: 'left-60' },
+        { side: 'right', lateralM: 60, backwardM: 0, label: 'right-60' },
+        { side: 'left', lateralM: 100, backwardM: 0, label: 'left-100' },
+        { side: 'right', lateralM: 100, backwardM: 0, label: 'right-100' },
+        { side: 'left', lateralM: 60, backwardM: BLOCK_ESCAPE_BACKWARD_M, label: 'back-left-60' },
+        { side: 'right', lateralM: 60, backwardM: BLOCK_ESCAPE_BACKWARD_M, label: 'back-right-60' }
+    ];
+    const rawCandidates = _buildRawEscapeCandidates(coords, projection, blockedArea, escapeSpecs, 'escape', BLOCK_ESCAPE_MAX_POINTS);
+    return _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, coords, 'escape');
+}
+
+async function _generateEscapeLegPoints(coords, projection, blockedArea) {
+    const legSpecs = [
+        { side: 'left', lateralM: 30, backwardM: 0, label: 'leg-left-30' },
+        { side: 'right', lateralM: 30, backwardM: 0, label: 'leg-right-30' },
+        { side: 'left', lateralM: 60, backwardM: 0, label: 'leg-left-60' },
+        { side: 'right', lateralM: 60, backwardM: 0, label: 'leg-right-60' },
+        { side: 'left', lateralM: 90, backwardM: 0, label: 'leg-left-90' },
+        { side: 'right', lateralM: 90, backwardM: 0, label: 'leg-right-90' },
+        { side: 'left', lateralM: 120, backwardM: 0, label: 'leg-left-120' },
+        { side: 'right', lateralM: 120, backwardM: 0, label: 'leg-right-120' },
+        { side: 'left', lateralM: 30, backwardM: BLOCK_ESCAPE_LEG_BACKWARD_M, label: 'leg-back-left-30' },
+        { side: 'right', lateralM: 30, backwardM: BLOCK_ESCAPE_LEG_BACKWARD_M, label: 'leg-back-right-30' }
+    ];
+    const rawCandidates = _buildRawEscapeCandidates(coords, projection, blockedArea, legSpecs, 'escape-leg', BLOCK_ESCAPE_LEG_MAX_POINTS);
+    const snapped = await _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, coords, 'escape-leg');
+    return snapped.sort((a, b) => (a.lateralM - b.lateralM) || (b.nodeScore - a.nodeScore));
+}
+
 // 経路座標の中でブロックバッファ（円）内に入っている点の割合を返す
 function _calcBlockOverlapRatio(coords, centerLat, centerLng, radiusM) {
     if (!coords || coords.length === 0) return 0;
@@ -827,61 +1115,165 @@ function _calcBlockOverlapRatio(coords, centerLat, centerLng, radiusM) {
     return inside / coords.length;
 }
 
-// バイパス候補の評価用に OSRM へ直接ルートクエリを投げる（LRM を使わず評価専用）
-// waypoints: [{lat, lng}|{lat, lon}] の配列
-async function _fetchOsrmRouteForEval(waypoints) {
-    const cacheKey = _waypointCacheKey(waypoints);
-    const cached = cacheKey ? _osrmEvalCache.get(cacheKey) : null;
-    if (cached) {
-        if (_blockAheadPerfMetrics) _blockAheadPerfMetrics.osrmCacheHits = (_blockAheadPerfMetrics.osrmCacheHits || 0) + 1;
-        return cached instanceof Promise ? await cached : cached;
-    }
-    const transportMode = document.getElementById('transportMode')?.value ?? 'walking';
-    const profile       = transportMode === 'walking' ? 'walking' : 'driving';
-    const serviceUrl    = OSRM_SERVICE_URLS[profile];
-    const coordStr      = waypoints.map(wp => `${wp.lng ?? wp.lon},${wp.lat}`).join(';');
-    const url           = `${serviceUrl}/${profile}/${coordStr}?overview=full&geometries=geojson&alternatives=false&steps=true`;
-    const startedAt = _perfNowMs();
-    const fetchPromise = (async () => {
-        try {
-            const res = await fetch(url);
-            if (!res.ok) return null;
-            const data = await res.json();
-            if (data.code !== 'Ok' || !data.routes?.length) return null;
-            const r = data.routes[0];
-            const coordinates = r.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
-            const steps = Array.isArray(r.legs)
-                ? r.legs.flatMap(leg => Array.isArray(leg.steps) ? leg.steps : [])
-                : [];
-            const turnSteps = steps.filter(step => {
-                const type = step?.maneuver?.type;
-                return type && type !== 'depart' && type !== 'arrive';
-            });
-            const sharpTurnSteps = turnSteps.filter(step => {
-                const modifier = step?.maneuver?.modifier || '';
-                return modifier === 'sharp left'
-                    || modifier === 'sharp right'
-                    || modifier === 'uturn';
-            });
-            return {
-                coordinates,
-                totalDistance: r.distance,
-                turnCount: turnSteps.length,
-                sharpTurnCount: sharpTurnSteps.length
-            };
-        } catch (e) {
-            console.warn('[BlockAhead][eval] fetch error:', e);
-            return null;
-        } finally {
-            const durationMs = _perfNowMs() - startedAt;
-            _recordBlockAheadTiming('osrmEval', durationMs);
-            console.log(`[BlockAhead][timing] osrm eval ${Math.round(durationMs)}ms`);
+function _dedupeBlockedAreaCenters(centers, mergeDistanceM = 12) {
+    const deduped = [];
+    for (const center of Array.isArray(centers) ? centers : []) {
+        if (!center) continue;
+        const existing = deduped.find(item => _segmentLengthMeters(item, center) <= mergeDistanceM);
+        if (!existing) {
+            deduped.push({ ...center });
+            continue;
         }
-    })();
-    if (cacheKey) _osrmEvalCache.set(cacheKey, fetchPromise);
-    const result = await fetchPromise;
-    if (cacheKey) _osrmEvalCache.set(cacheKey, result);
-    return result;
+        existing.radius = Math.max(existing.radius || 0, center.radius || 0);
+    }
+    return deduped;
+}
+
+function _buildBlockedArea(coords, projection, options = {}) {
+    const startM = Number(options.startM ?? BLOCK_AHEAD_START_METERS);
+    const endM = Number(options.endM ?? BLOCK_AHEAD_END_METERS);
+    const backwardM = Math.max(0, Number(options.backwardM || 0));
+    const baseRadiusM = Number(options.baseRadiusM ?? BLOCK_BUFFER_METERS);
+    const extraRadiusM = Number(options.extraRadiusM || 0);
+    const intersectionBufferM = Number(options.intersectionBufferM ?? BLOCK_INTERSECTION_BUFFER_METERS);
+    const centers = [];
+    const effectiveRadius = Math.max(1, baseRadiusM + extraRadiusM);
+    for (let dist = -backwardM; dist <= endM; dist += BLOCK_SAMPLE_STEP_METERS) {
+        const point = _walkAlongRouteRelative(coords, projection, dist);
+        centers.push({ lat: point.lat, lng: point.lng, radius: effectiveRadius, kind: 'corridor' });
+    }
+    const endPoint = _walkAlongRoute(coords, projection, endM);
+    centers.push({ lat: endPoint.lat, lng: endPoint.lng, radius: effectiveRadius, kind: 'corridor-end' });
+    if (backwardM > 0) {
+        const backPoint = _walkAlongRouteBackward(coords, projection, backwardM);
+        centers.push({ lat: backPoint.lat, lng: backPoint.lng, radius: effectiveRadius, kind: 'corridor-back' });
+    }
+
+    let progressedForward = 0;
+    let prev = projection.snappedPoint;
+    for (let i = projection.segmentIndex + 1; i < coords.length - 1; i++) {
+        const curr = coords[i];
+        progressedForward += _segmentLengthMeters(prev, curr);
+        if (progressedForward < startM - BLOCK_SAMPLE_STEP_METERS) {
+            prev = curr;
+            continue;
+        }
+        if (progressedForward > endM + BLOCK_SAMPLE_STEP_METERS) break;
+        const next = coords[i + 1];
+        const angle = _turnAngleDeg(prev, curr, next);
+        if (angle >= BLOCK_INTERSECTION_TURN_DEG) {
+            centers.push({
+                lat: curr.lat,
+                lng: curr.lng ?? curr.lon,
+                radius: Math.max(effectiveRadius, intersectionBufferM + extraRadiusM),
+                kind: 'intersection'
+            });
+        }
+        prev = curr;
+    }
+
+    let progressedBackward = 0;
+    let next = projection.snappedPoint;
+    for (let i = projection.segmentIndex; i >= 1; i--) {
+        const curr = coords[i];
+        progressedBackward += _segmentLengthMeters(next, curr);
+        if (progressedBackward > backwardM + BLOCK_SAMPLE_STEP_METERS) break;
+        const prevPoint = coords[i - 1];
+        const angle = _turnAngleDeg(prevPoint, curr, next);
+        if (angle >= BLOCK_INTERSECTION_TURN_DEG) {
+            centers.push({
+                lat: curr.lat,
+                lng: curr.lng ?? curr.lon,
+                radius: Math.max(effectiveRadius, intersectionBufferM + extraRadiusM),
+                kind: 'intersection-back'
+            });
+        }
+        next = curr;
+    }
+
+    return {
+        centers: _dedupeBlockedAreaCenters(centers),
+        baseRadiusM: effectiveRadius,
+        nearRejectMeters: BLOCK_NEAR_REJECT_METERS,
+        // Always allow an initial escape zone near the current position so the
+        // user can first get off the blocked corridor before strict filtering.
+        // Keep at least 30-50m ignored, but do not start filtering until the
+        // route has had a chance to exit the widened corridor + near-reject band.
+        ignoreUntilM: Math.max(
+            0,
+            Math.min(endM, Math.max(
+                BLOCK_ESCAPE_IGNORE_METERS,
+                startM,
+                effectiveRadius + BLOCK_NEAR_REJECT_METERS
+            ))
+        )
+    };
+}
+
+function _distancePointToBlockedArea(point, blockedArea, extraM = 0) {
+    const centers = Array.isArray(blockedArea?.centers) ? blockedArea.centers : [];
+    if (!point || centers.length === 0) return Infinity;
+    let minDistance = Infinity;
+    for (const center of centers) {
+        const edgeDistance = _segmentLengthMeters(point, center) - ((center.radius || 0) + extraM);
+        if (edgeDistance < minDistance) minDistance = edgeDistance;
+    }
+    return minDistance;
+}
+
+function _routeBlockedAreaStats(coords, blockedArea) {
+    const sampled = [];
+    const ignoreUntilM = Number(blockedArea?.ignoreUntilM || 0);
+    if (!Array.isArray(coords) || coords.length === 0) {
+        return { strictOverlapRatio: 0, nearBlockedRatio: 0, minDistanceToAreaM: Infinity, intersects: false, nearBlocked: false };
+    }
+    let walked = 0;
+    sampled.push({ point: coords[0], walked: 0 });
+    for (let i = 1; i < coords.length; i++) {
+        const a = coords[i - 1];
+        const b = coords[i];
+        const segLen = _segmentLengthMeters(a, b);
+        if (segLen <= 0) continue;
+        let dist = 8;
+        while (dist < segLen) {
+            const t = dist / segLen;
+            sampled.push({
+                point: {
+                    lat: a.lat + (b.lat - a.lat) * t,
+                    lng: (a.lng ?? a.lon) + ((b.lng ?? b.lon) - (a.lng ?? a.lon)) * t
+                },
+                walked: walked + dist
+            });
+            dist += 8;
+        }
+        walked += segLen;
+        sampled.push({ point: b, walked });
+    }
+    let effectiveSamples = sampled.filter(sample => sample.walked >= ignoreUntilM);
+    if (effectiveSamples.length === 0 && sampled.length > 0) {
+        effectiveSamples = [sampled[sampled.length - 1]];
+    }
+    if (effectiveSamples.length === 0) {
+        return { strictOverlapRatio: 0, nearBlockedRatio: 0, minDistanceToAreaM: Infinity, intersects: false, nearBlocked: false };
+    }
+    let strictHits = 0;
+    let nearHits = 0;
+    let minDistanceToAreaM = Infinity;
+    for (const sample of effectiveSamples) {
+        const point = sample.point;
+        const strictDistance = _distancePointToBlockedArea(point, blockedArea, 0);
+        const nearDistance = _distancePointToBlockedArea(point, blockedArea, blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS);
+        if (strictDistance <= 0) strictHits++;
+        if (nearDistance <= 0) nearHits++;
+        minDistanceToAreaM = Math.min(minDistanceToAreaM, strictDistance);
+    }
+    return {
+        strictOverlapRatio: strictHits / effectiveSamples.length,
+        nearBlockedRatio: nearHits / effectiveSamples.length,
+        minDistanceToAreaM,
+        intersects: strictHits > 0,
+        nearBlocked: nearHits > 0
+    };
 }
 
 function _routePolylineLength(coords) {
@@ -896,70 +1288,11 @@ function _routePolylineLength(coords) {
     return total;
 }
 
-function _routeSpanBetweenPoints(coords, fromPoint, toPoint) {
-    if (!Array.isArray(coords) || coords.length < 2 || !fromPoint || !toPoint) return Infinity;
-    const fromProj = _navFindClosestOnRoute(coords, fromPoint.lat, fromPoint.lng ?? fromPoint.lon);
-    const toProj   = _navFindClosestOnRoute(coords, toPoint.lat, toPoint.lng ?? toPoint.lon);
-    if (!fromProj || !toProj) return Infinity;
-
-    if (toProj.segmentIndex < fromProj.segmentIndex) return Infinity;
-    if (toProj.segmentIndex === fromProj.segmentIndex) {
-        return _navHaversine(
-            fromProj.snappedPoint.lat, fromProj.snappedPoint.lng,
-            toProj.snappedPoint.lat, toProj.snappedPoint.lng
-        );
-    }
-
-    let total = _navHaversine(
-        fromProj.snappedPoint.lat, fromProj.snappedPoint.lng,
-        coords[fromProj.segmentIndex + 1].lat, coords[fromProj.segmentIndex + 1].lng
-    );
-    for (let i = fromProj.segmentIndex + 1; i < toProj.segmentIndex; i++) {
-        total += _navHaversine(
-            coords[i].lat, coords[i].lng,
-            coords[i + 1].lat, coords[i + 1].lng
-        );
-    }
-    total += _navHaversine(
-        coords[toProj.segmentIndex].lat, coords[toProj.segmentIndex].lng,
-        toProj.snappedPoint.lat, toProj.snappedPoint.lng
-    );
-    return total;
-}
-
 function _distancePointToRoute(point, coords) {
     if (!point || !Array.isArray(coords) || coords.length < 2) return Infinity;
     const projection = _navFindClosestOnRoute(coords, point.lat, point.lng ?? point.lon);
     if (!projection?.snappedPoint) return Infinity;
     return _segmentLengthMeters(point, projection.snappedPoint);
-}
-
-function _extractRouteWindow(coords, anchorPoint, halfWindowM) {
-    if (!Array.isArray(coords) || coords.length < 2 || !anchorPoint || !Number.isFinite(halfWindowM)) return [];
-    // Find index of vertex closest to anchorPoint
-    let closestIdx = 0;
-    let closestDist = Infinity;
-    for (let i = 0; i < coords.length; i++) {
-        const d = _segmentLengthMeters(coords[i], anchorPoint);
-        if (d < closestDist) { closestDist = d; closestIdx = i; }
-    }
-    // Walk backward accumulating distance until >= halfWindowM
-    let startIdx = closestIdx;
-    let backDist = 0;
-    for (let i = closestIdx; i > 0; i--) {
-        backDist += _segmentLengthMeters(coords[i], coords[i - 1]);
-        startIdx = i - 1;
-        if (backDist >= halfWindowM) break;
-    }
-    // Walk forward accumulating distance until >= halfWindowM
-    let endIdx = closestIdx;
-    let fwdDist = 0;
-    for (let i = closestIdx; i < coords.length - 1; i++) {
-        fwdDist += _segmentLengthMeters(coords[i], coords[i + 1]);
-        endIdx = i + 1;
-        if (fwdDist >= halfWindowM) break;
-    }
-    return coords.slice(startIdx, endIdx + 1);
 }
 
 function _sampleRoutePoints(coords, stepM = 25) {
@@ -987,18 +1320,6 @@ function _sampleRoutePoints(coords, stepM = 25) {
     return sampled;
 }
 
-function _countBlockedAreaReentries(coords, center, radiusM) {
-    if (!Array.isArray(coords) || coords.length === 0 || !center || !Number.isFinite(radiusM)) return 0;
-    let segmentsInside = 0;
-    let wasInside = false;
-    for (const point of coords) {
-        const inside = _segmentLengthMeters(point, center) <= radiusM;
-        if (inside && !wasInside) segmentsInside++;
-        wasInside = inside;
-    }
-    return Math.max(0, segmentsInside - 1);
-}
-
 function _routeDifferenceMetrics(newCoords, originalCoords, context = {}) {
     if (!Array.isArray(newCoords) || newCoords.length < 2 || !Array.isArray(originalCoords) || originalCoords.length < 2) {
         return { overallMeanDeviationM: Infinity, blockedMeanDeviationM: Infinity, blockedSamePathRatio: 1 };
@@ -1011,9 +1332,12 @@ function _routeDifferenceMetrics(newCoords, originalCoords, context = {}) {
 
     const blockMid = context.bufMid || null;
     const blockRadius = Math.max((context.overlapRadius || 0) * 1.4, 45);
-    const blockedSamples = blockMid
-        ? allSamples.filter(point => _segmentLengthMeters(point, blockMid) <= blockRadius)
-        : [];
+    const blockedArea = context.blockedArea || null;
+    const blockedSamples = blockedArea
+        ? allSamples.filter(point => _distancePointToBlockedArea(point, blockedArea, blockedArea.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS) <= 0)
+        : (blockMid
+            ? allSamples.filter(point => _segmentLengthMeters(point, blockMid) <= blockRadius)
+            : []);
     const blockedDistances = blockedSamples.map(point => _distancePointToRoute(point, originalCoords)).filter(Number.isFinite);
     const blockedMeanDeviationM = blockedDistances.length
         ? blockedDistances.reduce((sum, d) => sum + d, 0) / blockedDistances.length
@@ -1021,28 +1345,47 @@ function _routeDifferenceMetrics(newCoords, originalCoords, context = {}) {
     const blockedSamePathRatio = blockedDistances.length
         ? blockedDistances.filter(d => d <= 12).length / blockedDistances.length
         : 1;
-    const blockAreaReentryCount = blockMid
-        ? _countBlockedAreaReentries(newCoords, blockMid, blockRadius)
-        : 0;
+    return { overallMeanDeviationM, blockedMeanDeviationM, blockedSamePathRatio };
+}
 
-    // Localized same-path ratio: sample ±halfWindowM of new route around blockStart
-    const blockStart = context.blockStart || null;
-    const localWindowM = context.localWindowM || 100;
-    let localBlockSamePathRatio = null;
-    let localBlockSampleCount = 0;
-    if (blockStart) {
-        const windowCoords = _extractRouteWindow(newCoords, blockStart, localWindowM);
-        if (windowCoords.length >= 2) {
-            const windowSamples = _sampleRoutePoints(windowCoords, 5);
-            const windowDistances = windowSamples.map(p => _distancePointToRoute(p, originalCoords)).filter(Number.isFinite);
-            localBlockSampleCount = windowDistances.length;
-            localBlockSamePathRatio = windowDistances.length > 0
-                ? windowDistances.filter(d => d <= 12).length / windowDistances.length
-                : null;
-        }
-    }
+function _assessEscapeNearPenaltyMode(blockedStats, overlap) {
+    const strict = Number(blockedStats?.strictOverlapRatio || 0);
+    const near = Number(blockedStats?.nearBlockedRatio || 0);
+    const overlapValue = Number(overlap || 0);
+    const shouldUseNearPenaltyMode = overlapValue <= BLOCK_ESCAPE_NEAR_PENALTY_OVERLAP_EPS
+        && strict < BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX;
+    const actualIntersection = overlapValue > BLOCK_ESCAPE_NEAR_PENALTY_OVERLAP_EPS
+        || strict >= BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX;
+    const eligible = shouldUseNearPenaltyMode && !actualIntersection;
+    const penalty = eligible ? ((strict * 800) + (near * 400)) : Infinity;
+    return {
+        eligible,
+        penalty,
+        strict,
+        near,
+        overlap: overlapValue,
+        actualIntersection,
+        shouldUseNearPenaltyMode,
+        overlapEpsilon: BLOCK_ESCAPE_NEAR_PENALTY_OVERLAP_EPS,
+        strictNearPenaltyMax: BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX
+    };
+}
 
-    return { overallMeanDeviationM, blockedMeanDeviationM, blockedSamePathRatio, blockAreaReentryCount, localBlockSamePathRatio, localBlockSampleCount };
+function _logEscapeNearPenaltyDecision(prefix, meta = {}) {
+    const nearPenaltyMode = meta.nearPenaltyMode || {};
+    const rejectReason = meta.rejectReason || 'none';
+    console.log(
+        `${prefix} holdWaypointMode=${!!meta.holdWaypointMode} ` +
+        `overlapRaw=${Number(nearPenaltyMode.overlap || 0).toFixed(2)} ` +
+        `strictRaw=${Number(nearPenaltyMode.strict || 0).toFixed(2)} ` +
+        `nearRaw=${Number(nearPenaltyMode.near || 0).toFixed(2)} ` +
+        `overlapEpsilon=${Number(nearPenaltyMode.overlapEpsilon || 0).toFixed(2)} ` +
+        `strictNearPenaltyMax=${Number(nearPenaltyMode.strictNearPenaltyMax || 0).toFixed(2)} ` +
+        `shouldUseNearPenaltyMode=${!!nearPenaltyMode.shouldUseNearPenaltyMode} ` +
+        `nearPenaltyMode=${!!nearPenaltyMode.eligible} ` +
+        `nearPenalty=${Number.isFinite(nearPenaltyMode.penalty) ? nearPenaltyMode.penalty.toFixed(1) : 'inf'} ` +
+        `rejectReason=${rejectReason}`
+    );
 }
 
 function _isMeaningfullyDifferentReroute(newRoute, originalRoute, context = {}) {
@@ -1102,6 +1445,53 @@ function _cloneRoute(route) {
     return route ? JSON.parse(JSON.stringify(route)) : route;
 }
 
+function _normalizeAlternativeRouteShape(route) {
+    const cloned = _cloneRoute(route) || {};
+    const totalDistance = Number(cloned?.summary?.totalDistance ?? cloned?.totalDistance ?? _routePolylineLength(cloned.coordinates));
+    const totalTime = Number(cloned?.summary?.totalTime ?? cloned?.totalTime ?? 0);
+    cloned.summary = {
+        totalDistance: Number.isFinite(totalDistance) ? totalDistance : 0,
+        totalTime: Number.isFinite(totalTime) ? totalTime : 0
+    };
+    if (!Array.isArray(cloned.instructions)) {
+        cloned.instructions = [];
+    }
+    return cloned;
+}
+
+function _mergeAlternativeRoutes(firstRoute, secondRoute) {
+    const first = _normalizeAlternativeRouteShape(firstRoute);
+    const second = _normalizeAlternativeRouteShape(secondRoute);
+    const firstCoords = Array.isArray(first.coordinates) ? first.coordinates : [];
+    const secondCoords = Array.isArray(second.coordinates) ? second.coordinates : [];
+    const mergedCoords = firstCoords.slice();
+    secondCoords.forEach((point, index) => {
+        if (index === 0 && mergedCoords.length > 0 && _segmentLengthMeters(mergedCoords[mergedCoords.length - 1], point) < 2) return;
+        mergedCoords.push(point);
+    });
+
+    const firstInstructions = Array.isArray(first.instructions) ? first.instructions.map(item => ({ ...item })) : [];
+    const secondInstructions = Array.isArray(second.instructions) ? second.instructions.map(item => ({ ...item })) : [];
+    const indexOffset = Math.max(0, firstCoords.length - 1);
+    const mergedInstructions = firstInstructions.concat(secondInstructions.map((instruction) => {
+        const cloned = { ...instruction };
+        if (Number.isFinite(Number(cloned.index))) cloned.index = Number(cloned.index) + indexOffset;
+        return cloned;
+    }));
+
+    return _normalizeAlternativeRouteShape({
+        coordinates: mergedCoords,
+        summary: {
+            totalDistance: Number(first.summary?.totalDistance || 0) + Number(second.summary?.totalDistance || 0),
+            totalTime: Number(first.summary?.totalTime || 0) + Number(second.summary?.totalTime || 0)
+        },
+        instructions: mergedInstructions,
+        totalDistance: Number(first.totalDistance || first.summary?.totalDistance || 0) + Number(second.totalDistance || second.summary?.totalDistance || 0),
+        totalTime: Number(first.totalTime || first.summary?.totalTime || 0) + Number(second.totalTime || second.summary?.totalTime || 0),
+        turnCount: Number(first.turnCount || 0) + Number(second.turnCount || 0)
+    });
+}
+
 function _resolveRoutePoint(route, pointIndex) {
     if (!route || !Array.isArray(route.coordinates) || !Number.isFinite(Number(pointIndex))) return null;
     const index = Number(pointIndex);
@@ -1138,249 +1528,6 @@ function _segmentBearingDeg(a, b) {
 function _bearingDiffDeg(a, b) {
     const diff = Math.abs(a - b) % 360;
     return diff > 180 ? 360 - diff : diff;
-}
-
-function _metersToLat(meters) {
-    return meters / 111111;
-}
-
-function _metersToLng(meters, lat) {
-    const cosLat = Math.max(0.2, Math.cos((lat || 0) * Math.PI / 180));
-    return meters / (111111 * cosLat);
-}
-
-function _routeBoundsWithPadding(coords, paddingM = 0) {
-    if (!Array.isArray(coords) || coords.length === 0) return null;
-    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-    coords.forEach((point) => {
-        const lat = Number(point?.lat);
-        const lng = Number(point?.lng ?? point?.lon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        minLat = Math.min(minLat, lat);
-        maxLat = Math.max(maxLat, lat);
-        minLng = Math.min(minLng, lng);
-        maxLng = Math.max(maxLng, lng);
-    });
-    if (!Number.isFinite(minLat) || !Number.isFinite(minLng)) return null;
-    const midLat = (minLat + maxLat) / 2;
-    return {
-        minLat: minLat - _metersToLat(paddingM),
-        maxLat: maxLat + _metersToLat(paddingM),
-        minLng: minLng - _metersToLng(paddingM, midLat),
-        maxLng: maxLng + _metersToLng(paddingM, midLat)
-    };
-}
-
-function _segmentIntersectionPoint(a, b, c, d) {
-    const ax = Number(a?.lng ?? a?.lon), ay = Number(a?.lat);
-    const bx = Number(b?.lng ?? b?.lon), by = Number(b?.lat);
-    const cx = Number(c?.lng ?? c?.lon), cy = Number(c?.lat);
-    const dx = Number(d?.lng ?? d?.lon), dy = Number(d?.lat);
-    const denom = ((bx - ax) * (dy - cy)) - ((by - ay) * (dx - cx));
-    if (Math.abs(denom) < 1e-12) return null;
-    const t = (((cx - ax) * (dy - cy)) - ((cy - ay) * (dx - cx))) / denom;
-    const u = (((cx - ax) * (by - ay)) - ((cy - ay) * (bx - ax))) / denom;
-    if (t < 0 || t > 1 || u < 0 || u > 1) return null;
-    return {
-        lat: ay + t * (by - ay),
-        lng: ax + t * (bx - ax)
-    };
-}
-
-let _crossingContextCache = new Map();
-
-function _crossingContextCacheKey(bounds) {
-    if (!bounds) return null;
-    return [
-        bounds.minLat.toFixed(4),
-        bounds.minLng.toFixed(4),
-        bounds.maxLat.toFixed(4),
-        bounds.maxLng.toFixed(4)
-    ].join(':');
-}
-
-function _pushCrossingEvidenceFromWay(target, way) {
-    const geom = Array.isArray(way?.geometry) ? way.geometry : [];
-    geom.forEach((p, index) => {
-        if (!Number.isFinite(Number(p?.lat)) || !Number.isFinite(Number(p?.lon))) return;
-        target.push({
-            lat: Number(p.lat),
-            lng: Number(p.lon),
-            kind: way?.tags?.crossing === 'traffic_signals' ? 'signals'
-                : (way?.tags?.crossing === 'marked' ? 'marked'
-                    : ((way?.tags?.highway === 'footway' && way?.tags?.footway === 'crossing') ? 'marked' : 'uncontrolled')),
-            tags: way?.tags || {},
-            source: `way:${way?.id ?? index}`
-        });
-    });
-}
-
-async function _fetchCrossingContextForRoute(coords) {
-    const bounds = _routeBoundsWithPadding(coords, DANGEROUS_CROSSING_OVERPASS_PADDING_M);
-    if (!bounds || typeof fetch !== 'function') return null;
-    const cacheKey = _crossingContextCacheKey(bounds);
-    if (cacheKey && _crossingContextCache.has(cacheKey)) {
-        if (_blockAheadPerfMetrics) _blockAheadPerfMetrics.crossingContextCacheHits = (_blockAheadPerfMetrics.crossingContextCacheHits || 0) + 1;
-        return _crossingContextCache.get(cacheKey);
-    }
-    if (cacheKey && _crossingContextInflight.has(cacheKey)) {
-        if (_blockAheadPerfMetrics) _blockAheadPerfMetrics.crossingContextInflightHits = (_blockAheadPerfMetrics.crossingContextInflightHits || 0) + 1;
-        return await _crossingContextInflight.get(cacheKey);
-    }
-
-    const bbox = `${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng}`;
-    const query = `[out:json][timeout:8];
-(
-  way["highway"~"^(trunk|trunk_link|primary|primary_link|secondary|secondary_link)$"](${bbox});
-  node["highway"="crossing"](${bbox});
-  node["crossing"](${bbox});
-  node["highway"="traffic_signals"](${bbox});
-  way["highway"="footway"]["footway"="crossing"](${bbox});
-);
-out geom;`;
-
-    const startedAt = _perfNowMs();
-    const inflight = (async () => {
-        try {
-            const res = await fetch('https://overpass-api.de/api/interpreter', {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-                body: query
-            });
-            if (!res.ok) return null;
-            const data = await res.json();
-            const elements = Array.isArray(data?.elements) ? data.elements : [];
-            const majorRoads = [];
-            const crossingEvidence = [];
-            elements.forEach((el) => {
-                const tags = el?.tags || {};
-                if (el?.type === 'way' && DANGEROUS_CROSSING_MAJOR_CLASSES.has(tags.highway) && Array.isArray(el.geometry) && el.geometry.length >= 2) {
-                    majorRoads.push({
-                        id: el.id,
-                        highway: tags.highway,
-                        geometry: el.geometry.map(p => ({ lat: Number(p.lat), lng: Number(p.lon) }))
-                    });
-                }
-                if (el?.type === 'node') {
-                    const kind = tags.highway === 'traffic_signals' || tags.crossing === 'traffic_signals'
-                        ? 'signals'
-                        : (tags.crossing === 'marked' || tags.crossing_ref === 'zebra' ? 'marked'
-                            : ((tags.highway === 'crossing' || tags.crossing) ? 'uncontrolled' : null));
-                    if (kind && Number.isFinite(Number(el.lat)) && Number.isFinite(Number(el.lon))) {
-                        crossingEvidence.push({
-                            lat: Number(el.lat),
-                            lng: Number(el.lon),
-                            kind,
-                            tags,
-                            source: `node:${el.id}`
-                        });
-                    }
-                } else if (el?.type === 'way' && tags.highway === 'footway' && tags.footway === 'crossing') {
-                    _pushCrossingEvidenceFromWay(crossingEvidence, el);
-                }
-            });
-
-            const parsed = { majorRoads, crossingEvidence };
-            if (cacheKey) _crossingContextCache.set(cacheKey, parsed);
-            return parsed;
-        } catch (error) {
-            console.warn('[BlockAhead][crossing] context fetch failed:', error);
-            return null;
-        } finally {
-            const durationMs = _perfNowMs() - startedAt;
-            _recordBlockAheadTiming('overpass', durationMs);
-            console.log(`[BlockAhead][timing] overpass ${Math.round(durationMs)}ms`);
-            if (cacheKey) _crossingContextInflight.delete(cacheKey);
-        }
-    })();
-    if (cacheKey) _crossingContextInflight.set(cacheKey, inflight);
-    return await inflight;
-}
-
-function _classifyCrossingEvidence(point, context) {
-    const evidence = Array.isArray(context?.crossingEvidence) ? context.crossingEvidence : [];
-    let nearest = null;
-    for (const item of evidence) {
-        const distance = _segmentLengthMeters(point, item);
-        if (distance > DANGEROUS_CROSSING_EVIDENCE_RADIUS_M) continue;
-        if (!nearest || distance < nearest.distance) {
-            nearest = { ...item, distance };
-        }
-    }
-    if (!nearest) return { kind: 'none', distance: Infinity };
-    return nearest;
-}
-
-async function _assessRouteCrossingRisk(routeLike, stage) {
-    const coords = Array.isArray(routeLike?.coordinates) ? routeLike.coordinates : [];
-    if (coords.length < 2) {
-        return { available: false, crossings: [], dangerousCount: 0, penalty: 0 };
-    }
-    const routeKey = `${stage?.key || 'na'}:${_routeCoordsCacheKey(coords)}`;
-    if (routeKey && _crossingRiskCache.has(routeKey)) {
-        if (_blockAheadPerfMetrics) _blockAheadPerfMetrics.crossingRiskCacheHits = (_blockAheadPerfMetrics.crossingRiskCacheHits || 0) + 1;
-        return _crossingRiskCache.get(routeKey);
-    }
-    const startedAt = _perfNowMs();
-    const context = await _fetchCrossingContextForRoute(coords);
-    if (!context || !Array.isArray(context.majorRoads) || context.majorRoads.length === 0) {
-        const empty = { available: false, crossings: [], dangerousCount: 0, penalty: 0 };
-        if (routeKey) _crossingRiskCache.set(routeKey, empty);
-        _recordBlockAheadTiming('crossingRisk', _perfNowMs() - startedAt);
-        return empty;
-    }
-
-    const crossings = [];
-    for (let i = 0; i < coords.length - 1; i++) {
-        const routeA = coords[i];
-        const routeB = coords[i + 1];
-        for (const road of context.majorRoads) {
-            const roadGeom = Array.isArray(road.geometry) ? road.geometry : [];
-            for (let j = 0; j < roadGeom.length - 1; j++) {
-                const hit = _segmentIntersectionPoint(routeA, routeB, roadGeom[j], roadGeom[j + 1]);
-                if (!hit) continue;
-                const duplicate = crossings.find(existing =>
-                    existing.roadClass === road.highway && _segmentLengthMeters(existing.point, hit) < DANGEROUS_CROSSING_DEDUP_M
-                );
-                if (duplicate) continue;
-                const evidence = _classifyCrossingEvidence(hit, context);
-                const roadPenalty = DANGEROUS_CROSSING_PENALTY_BY_CLASS[road.highway] || 180;
-                const factor = evidence.kind === 'signals'
-                    ? DANGEROUS_CROSSING_SIGNAL_FACTOR
-                    : (evidence.kind === 'marked'
-                        ? DANGEROUS_CROSSING_MARKED_FACTOR
-                        : (evidence.kind === 'uncontrolled' ? DANGEROUS_CROSSING_UNCONTROLLED_FACTOR : 1));
-                const severity = evidence.kind === 'signals'
-                    ? 'safe'
-                    : (evidence.kind === 'marked'
-                        ? 'marked'
-                        : (evidence.kind === 'uncontrolled' ? 'uncontrolled' : 'dangerous'));
-                crossings.push({
-                    point: hit,
-                    roadClass: road.highway,
-                    evidence: evidence.kind,
-                    severity,
-                    penalty: roadPenalty * factor
-                });
-            }
-        }
-    }
-
-    const dangerousCount = crossings.filter(c => c.severity === 'dangerous').length;
-    const uncontrolledCount = crossings.filter(c => c.severity === 'uncontrolled').length;
-    const result = {
-        available: true,
-        crossings,
-        dangerousCount,
-        uncontrolledCount,
-        penalty: crossings.reduce((sum, c) => sum + c.penalty, 0),
-        warningText: dangerousCount > 0
-            ? '途中に信号や明確な横断歩道が確認できない大きな道路横断があります'
-            : (uncontrolledCount > 0 ? '途中に注意が必要な大きな道路横断があります' : '')
-    };
-    if (routeKey) _crossingRiskCache.set(routeKey, result);
-    _recordBlockAheadTiming('crossingRisk', _perfNowMs() - startedAt);
-    return result;
 }
 
 function _compactDisplayCoords(coords) {
@@ -1788,34 +1935,27 @@ function _clearBlockAheadLayer() {
 }
 
 // ── OSRM 代替ルート一括取得 ─────────────────────────────────────────────
-async function _fetchOsrmAlternatives(from, to, maxAlts = 3) {
+async function _fetchOsrmAlternatives(from, to, maxAlts = 3, contextLabel = 'alternatives') {
     const transportMode = document.getElementById('transportMode')?.value ?? 'walking';
     const profile    = transportMode === 'walking' ? 'walking' : 'driving';
     const serviceUrl = OSRM_SERVICE_URLS[profile];
     const coordStr   = `${from.lng ?? from.lon},${from.lat};${to.lng ?? to.lon},${to.lat}`;
-    const url = `${serviceUrl}/${profile}/${coordStr}?overview=full&geometries=geojson&alternatives=${maxAlts}&steps=true`;
+    const safeAlternatives = Math.max(1, Math.min(BLOCK_OSRM_ALTERNATIVES, Number(maxAlts) || BLOCK_OSRM_ALTERNATIVES));
+    const url = `${serviceUrl}/${profile}/${coordStr}?overview=full&geometries=geojson&alternatives=${safeAlternatives}&steps=true`;
     const startedAt = _perfNowMs();
     try {
         const res = await fetch(url);
-        if (!res.ok) return [];
+        if (!res.ok) {
+            console.warn(`[BlockAhead][${contextLabel}] fetch failed status=${res.status} alts=${safeAlternatives}`);
+            _recordBlockAheadRejectReason(`${contextLabel}-route-${res.status}`);
+            return [];
+        }
         const data = await res.json();
-        if (data.code !== 'Ok' || !Array.isArray(data.routes) || data.routes.length === 0) return [];
-        return data.routes.map(r => {
-            const coordinates = r.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
-            const steps = Array.isArray(r.legs)
-                ? r.legs.flatMap(leg => Array.isArray(leg.steps) ? leg.steps : [])
-                : [];
-            const turnSteps = steps.filter(step => {
-                const type = step?.maneuver?.type;
-                return type && type !== 'depart' && type !== 'arrive';
-            });
-            return {
-                coordinates,
-                totalDistance: r.distance,
-                totalTime: r.duration,
-                turnCount: turnSteps.length
-            };
-        });
+        if (data.code !== 'Ok' || !Array.isArray(data.routes) || data.routes.length === 0) {
+            _recordBlockAheadRejectReason(`${contextLabel}-route-empty`);
+            return [];
+        }
+        return data.routes.map(r => _normalizeAlternativeRouteShape(_fetchOsrmAlternativesResultToRoute(r)));
     } catch (e) {
         console.warn('[BlockAhead][alternatives] fetch error:', e);
         return [];
@@ -1824,6 +1964,123 @@ async function _fetchOsrmAlternatives(from, to, maxAlts = 3) {
         _recordBlockAheadTiming('osrmEval', durationMs);
         console.log(`[BlockAhead][timing] osrm alternatives ${Math.round(durationMs)}ms`);
     }
+}
+
+async function _fetchOsrmRouteThroughWaypoints(waypoints) {
+    const transportMode = document.getElementById('transportMode')?.value ?? 'walking';
+    const profile = transportMode === 'walking' ? 'walking' : 'driving';
+    const serviceUrl = OSRM_SERVICE_URLS[profile];
+    const coordStr = (Array.isArray(waypoints) ? waypoints : [])
+        .map(wp => `${wp.lng ?? wp.lon},${wp.lat}`)
+        .join(';');
+    const url = `${serviceUrl}/${profile}/${coordStr}?overview=full&geometries=geojson&alternatives=false&steps=true`;
+    const startedAt = _perfNowMs();
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data.code !== 'Ok' || !Array.isArray(data.routes) || data.routes.length === 0) return null;
+        return _normalizeAlternativeRouteShape(_fetchOsrmAlternativesResultToRoute(data.routes[0]));
+    } catch (error) {
+        console.warn('[BlockAhead][escape] fetch error:', error);
+        return null;
+    } finally {
+        const durationMs = _perfNowMs() - startedAt;
+        _recordBlockAheadTiming('osrmEval', durationMs);
+        console.log(`[BlockAhead][timing] osrm escape ${Math.round(durationMs)}ms`);
+    }
+}
+
+function _fetchOsrmAlternativesResultToRoute(r) {
+    const coordinates = r.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+    const steps = Array.isArray(r.legs)
+        ? r.legs.flatMap(leg => Array.isArray(leg.steps) ? leg.steps : [])
+        : [];
+    const turnSteps = steps.filter(step => {
+        const type = step?.maneuver?.type;
+        return type && type !== 'depart' && type !== 'arrive';
+    });
+    const instructions = steps.map((step) => {
+        const location = Array.isArray(step?.maneuver?.location) ? step.maneuver.location : null;
+        return {
+            text: _describeOsrmStep(step),
+            distance: Number(step?.distance) || 0,
+            latLng: location && location.length >= 2
+                ? { lat: Number(location[1]), lng: Number(location[0]) }
+                : null
+        };
+    }).filter(instruction => instruction && instruction.text);
+    return {
+        coordinates,
+        summary: {
+            totalDistance: r.distance,
+            totalTime: r.duration
+        },
+        instructions,
+        totalDistance: r.distance,
+        totalTime: r.duration,
+        turnCount: turnSteps.length
+    };
+}
+
+function _describeOsrmStep(step) {
+    const type = String(step?.maneuver?.type || '');
+    const modifier = String(step?.maneuver?.modifier || '');
+    const roadName = String(step?.name || '').trim();
+    let text = '';
+    if (type === 'depart') {
+        text = '出発して進む';
+    } else if (type === 'arrive') {
+        text = '目的地に到着';
+    } else if (modifier === 'left') {
+        text = '左へ進む';
+    } else if (modifier === 'right') {
+        text = '右へ進む';
+    } else if (modifier === 'slight left') {
+        text = 'やや左へ進む';
+    } else if (modifier === 'slight right') {
+        text = 'やや右へ進む';
+    } else if (modifier === 'sharp left') {
+        text = '鋭く左へ進む';
+    } else if (modifier === 'sharp right') {
+        text = '鋭く右へ進む';
+    } else if (modifier === 'straight') {
+        text = 'そのまま直進';
+    } else if (type === 'roundabout') {
+        text = 'ロータリーを進む';
+    } else {
+        text = 'そのまま進む';
+    }
+    return roadName ? `${text} (${roadName})` : text;
+}
+
+function _buildBlockAheadFormatter() {
+    return {
+        formatInstruction(instruction) {
+            return String(instruction?._displayText || instruction?.displayText || instruction?.text || '');
+        },
+        formatDistance(distance) {
+            const value = Number(distance);
+            if (!Number.isFinite(value)) return '';
+            return value < 1000 ? `${Math.round(value)}m` : `${(value / 1000).toFixed(1)}km`;
+        }
+    };
+}
+
+function _compareRouteGeometries(sourceCoords, targetCoords, label) {
+    const source = Array.isArray(sourceCoords) ? sourceCoords : [];
+    const target = Array.isArray(targetCoords) ? targetCoords : [];
+    const samples = _sampleRoutePoints(source, 20);
+    const distances = samples.map(point => _distancePointToRoute(point, target)).filter(Number.isFinite);
+    const meanDeviationM = distances.length
+        ? distances.reduce((sum, value) => sum + value, 0) / distances.length
+        : Infinity;
+    const maxDeviationM = distances.length ? Math.max(...distances) : Infinity;
+    console.log(
+        `[BlockAhead][compare] ${label}: sourcePts=${source.length} targetPts=${target.length} ` +
+        `mean=${Math.round(meanDeviationM)}m max=${Math.round(maxDeviationM)}m`
+    );
+    return { meanDeviationM, maxDeviationM, sourceCount: source.length, targetCount: target.length };
 }
 
 // ── 代替ルートから逸脱アンカー点を抽出 ─────────────────────────────────
@@ -1846,16 +2103,14 @@ function _findDeviationAnchor(altCoords, originalCoords, searchWindowM = 250) {
     return anchor;
 }
 
-// 「この先を避けて再ルート」— メイン関数（OSRM 代替ルート選択版）
+// 「この先を避けて再ルート」— 前方ブロック区間を避ける代替ルートを選択
 async function blockAheadAndReroute() {
     const rerouteStartedAt = _perfNowMs();
     _blockAheadPerfMetrics = {
         startedAt: rerouteStartedAt,
-        osrmCacheHits: 0,
-        phases: [],
-        phasePath: [],
-        fast: { attempted: true, accepted: false, rejectReasons: {} },
-        safe: { attempted: false, accepted: false, rejectReasons: {} }
+        alternativesEvaluated: 0,
+        rejectReasons: {},
+        stages: []
     };
     // ── ガード ────────────────────────────────────────────────────────────
     if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) {
@@ -1887,11 +2142,6 @@ async function blockAheadAndReroute() {
 
     const coords = navActiveRoute.coordinates;
     const originalRouteSnapshot = JSON.parse(JSON.stringify(navActiveRoute));
-    const baseRemaining = _remainingRouteDistance(currentLocation.lat, currentLocation.lon);
-    const baseRemainingDistance = baseRemaining?.remainingDistanceMeters
-        ?? Number(navActiveRoute?.summary?.totalDistance)
-        ?? _routePolylineLength(coords);
-
     // ── 現在地をルート上に投影 ─────────────────────────────────────────────
     const projection = _navFindClosestOnRoute(coords, currentLocation.lat, currentLocation.lon);
     if (!projection) {
@@ -1918,50 +2168,117 @@ async function blockAheadAndReroute() {
         return;
     }
 
-    // ── 前方 30m〜120m のセグメントを抽出 ───────────────────────────────
+    // ── 前方コリドーを blocked area として構築 ────────────────────────────
     const blockStart = _walkAlongRoute(coords, projection, BLOCK_AHEAD_START_METERS);
     const blockEnd   = _walkAlongRoute(coords, projection, BLOCK_AHEAD_END_METERS);
     console.log('[BlockAhead] blocked segment:', blockStart, '->', blockEnd);
 
     // ── 補助線は表示しない。既存の一時描画が残っていればクリアだけ行う ─────
     _clearBlockAheadLayer();
-    const bufMid = {
+    const defaultBufMid = {
         lat: (blockStart.lat + blockEnd.lat) / 2,
         lng: (blockStart.lng + blockEnd.lng) / 2
     };
-    const overlapRadius = BLOCK_BUFFER_METERS + 15;
+    const defaultOverlapRadius = BLOCK_BUFFER_METERS + 15;
 
     const startWp = { lat: currentLocation.lat, lng: currentLocation.lon };
     const destWp  = { lat: navDestination.lat,  lng: navDestination.lon  };
+    let alternatives = [];
+    let activeBlockedArea = null;
+    let selectedStage = null;
+    let nonBlocked = [];
+    let meaningful = [];
+    let lastStageResult = null;
 
-    // ── OSRM から代替ルートを取得 ─────────────────────────────────────────
-    const evalStartedAt = _perfNowMs();
-    const alternatives = await _fetchOsrmAlternatives(startWp, destWp, 3);
-    const evalMs = _perfNowMs() - evalStartedAt;
-    console.log(`[BlockAhead] alternatives fetched: ${alternatives.length} routes in ${Math.round(evalMs)}ms`);
+    for (const stage of BLOCK_STAGE_CONFIGS) {
+        const stageStartedAt = _perfNowMs();
+        const stageBlockedArea = _buildBlockedArea(coords, projection, {
+            startM: stage.startM,
+            endM: stage.endM,
+            backwardM: stage.backwardM,
+            baseRadiusM: stage.baseRadiusM,
+            intersectionBufferM: stage.intersectionBufferM
+        });
+        const stageBufStart = _walkAlongRouteRelative(coords, projection, Math.max(0, stage.startM));
+        const stageBufEnd = _walkAlongRoute(coords, projection, stage.endM);
+        const stageBufMid = {
+            lat: (stageBufStart.lat + stageBufEnd.lat) / 2,
+            lng: (stageBufStart.lng + stageBufEnd.lng) / 2
+        };
+        const stageOverlapRadius = stage.baseRadiusM + 15;
+        const stageAlternatives = await _fetchOsrmAlternatives(startWp, destWp, stage.alternativeCount, stage.key);
+        _blockAheadPerfMetrics.alternativesEvaluated += stageAlternatives.length;
 
-    if (_blockAheadSeq !== mySeq) {
-        navBlockAheadInProgress = false;
-        _blockAheadPerfMetrics = null;
-        return;
+        if (_blockAheadSeq !== mySeq) {
+            navBlockAheadInProgress = false;
+            _blockAheadPerfMetrics = null;
+            return;
+        }
+
+        const stageNonBlocked = stageAlternatives.filter(route => {
+            const blockedStats = _routeBlockedAreaStats(route.coordinates, stageBlockedArea);
+            const overlap = _calcBlockOverlapRatio(route.coordinates, stageBufMid.lat, stageBufMid.lng, stageOverlapRadius);
+            console.log(
+                `[BlockAhead][${stage.key}][alt] dist=${Math.round(route.totalDistance)}m overlap=${overlap.toFixed(2)} ` +
+                `strict=${blockedStats.strictOverlapRatio.toFixed(2)} near=${blockedStats.nearBlockedRatio.toFixed(2)} ` +
+                `minDist=${Math.round(blockedStats.minDistanceToAreaM)}m`
+            );
+            route.__blockedStats = blockedStats;
+            return !blockedStats.intersects && !blockedStats.nearBlocked && overlap < BLOCK_OVERLAP_REJECT;
+        });
+
+        const stageMeaningful = stageNonBlocked
+            .filter(route => {
+                const diff = _isMeaningfullyDifferentReroute(route, originalRouteSnapshot, {
+                    bufMid: stageBufMid,
+                    overlapRadius: stageOverlapRadius,
+                    blockedArea: stageBlockedArea
+                });
+                route.__routeDiff = diff;
+                return diff.meaningful;
+            })
+            .sort((a, b) => a.totalDistance - b.totalDistance);
+
+        const stageDurationMs = _perfNowMs() - stageStartedAt;
+        const stageSummary = {
+            key: stage.key,
+            durationMs: stageDurationMs,
+            alternatives: stageAlternatives.length,
+            nonBlocked: stageNonBlocked.length,
+            meaningful: stageMeaningful.length
+        };
+        if (stageAlternatives.length === 0) stageSummary.failureReason = `${stage.key}-route-empty`;
+        _blockAheadPerfMetrics.stages.push(stageSummary);
+        console.log(
+            `[BlockAhead][${stage.key}] alternatives=${stageAlternatives.length} nonBlocked=${stageNonBlocked.length} ` +
+            `meaningful=${stageMeaningful.length} ${Math.round(stageDurationMs)}ms`
+        );
+
+        lastStageResult = {
+            stage,
+            blockedArea: stageBlockedArea,
+            bufMid: stageBufMid,
+            overlapRadius: stageOverlapRadius,
+            alternatives: stageAlternatives,
+            nonBlocked: stageNonBlocked,
+            meaningful: stageMeaningful
+        };
+        if (stageMeaningful.length > 0) {
+            selectedStage = stage;
+            activeBlockedArea = stageBlockedArea;
+            alternatives = stageAlternatives;
+            nonBlocked = stageNonBlocked;
+            meaningful = stageMeaningful;
+            break;
+        }
     }
 
-    // ── ブロック回避フィルタ ───────────────────────────────────────────────
-    const nonBlocked = alternatives.filter(route => {
-        const overlap = _calcBlockOverlapRatio(route.coordinates, bufMid.lat, bufMid.lng, overlapRadius);
-        console.log(`[BlockAhead][alt] dist=${Math.round(route.totalDistance)}m overlap=${overlap.toFixed(2)}`);
-        return overlap < BLOCK_OVERLAP_REJECT;
-    });
-    console.log(`[BlockAhead] non-blocked: ${nonBlocked.length}/${alternatives.length}`);
-
-    // ── no-op フィルタ・距離順ソート ─────────────────────────────────────
-    const meaningful = nonBlocked
-        .filter(route => {
-            const diff = _isMeaningfullyDifferentReroute(route, originalRouteSnapshot, { bufMid, overlapRadius });
-            return diff.meaningful;
-        })
-        .sort((a, b) => a.totalDistance - b.totalDistance);
-    console.log(`[BlockAhead] meaningful: ${meaningful.length}/${nonBlocked.length}`);
+    if (!selectedStage && lastStageResult) {
+        activeBlockedArea = lastStageResult.blockedArea;
+        alternatives = lastStageResult.alternatives;
+        nonBlocked = lastStageResult.nonBlocked;
+        meaningful = lastStageResult.meaningful;
+    }
 
     // ── 失敗共通ハンドラ ──────────────────────────────────────────────────
     const fail = (reason, bannerMsg, bannerType) => {
@@ -1973,22 +2290,308 @@ async function blockAheadAndReroute() {
         const totalMs = _perfNowMs() - rerouteStartedAt;
         const summary = {
             status: reason,
-            phasePath: reason,
-            fast: { attempted: true, accepted: false, rejectReason: reason, timeMs: totalMs },
-            safe: { attempted: false, accepted: false, rejectReason: null, timeMs: 0 },
+            accepted: false,
+            rejectReason: reason,
             totalMs,
-            osrmMs: evalMs,
-            overpassMs: 0,
+            osrmMs: _blockAheadPerfMetrics?.osrmEval?.totalMs || 0,
             displayPipelineMs: 0,
-            fastRejected: true,
-            safeAttempted: false,
-            safeFailed: false
+            alternativesEvaluated: alternatives.length,
+            nonBlockedCount: nonBlocked.length,
+            attemptedStages: Array.isArray(_blockAheadPerfMetrics?.stages) ? _blockAheadPerfMetrics.stages.map(stage => stage.key) : []
         };
         _recordBlockAheadExecutionSummary(summary);
         _blockAheadLastTiming = { ..._blockAheadPerfMetrics, ...summary, totalMs, status: reason };
         console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
         _blockAheadPerfMetrics = null;
     };
+
+    if (meaningful.length === 0 && activeBlockedArea) {
+        const escapeLegPoints = await _generateEscapeLegPoints(coords, projection, activeBlockedArea);
+        console.log(`[BlockAhead][escape-leg] candidates=${escapeLegPoints.length}`);
+        if (escapeLegPoints.length > 0) {
+            const escapeLegStartedAt = _perfNowMs();
+            const legBlockedArea = {
+                ...activeBlockedArea,
+                ignoreUntilM: Math.max(
+                    BLOCK_ESCAPE_IGNORE_METERS,
+                    (activeBlockedArea?.baseRadiusM || 0) + (activeBlockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS)
+                )
+            };
+            const escapeLegResults = await Promise.all(escapeLegPoints.map(async (escapeLeg) => {
+                console.log(
+                    `[BlockAhead][escape-leg] try ${escapeLeg.label}: distance=${Math.round(escapeLeg.lateralM || 0)}m ` +
+                    `type=${escapeLeg.nodeType || 'unknown'} score=${Number(escapeLeg.nodeScore || 0).toFixed(1)}`
+                );
+                const legRoute = await _fetchOsrmRouteThroughWaypoints([startWp, escapeLeg.point]);
+                if (!legRoute) {
+                    console.log(`[BlockAhead][escape-leg] reject ${escapeLeg.label}: leg-route-empty`);
+                    return null;
+                }
+                const legStats = _routeBlockedAreaStats(legRoute.coordinates, legBlockedArea);
+                const legExitDistance = _distancePointToBlockedArea(escapeLeg.point, activeBlockedArea, activeBlockedArea.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS);
+                const legEndPoint = Array.isArray(legRoute.coordinates) && legRoute.coordinates.length > 0
+                    ? legRoute.coordinates[legRoute.coordinates.length - 1]
+                    : null;
+                const legEndDistance = legEndPoint
+                    ? _distancePointToBlockedArea(legEndPoint, activeBlockedArea, activeBlockedArea.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS)
+                    : -Infinity;
+                if (legExitDistance <= 0 || legEndDistance <= 0) {
+                    console.log(
+                        `[BlockAhead][escape-leg] reject ${escapeLeg.label}: leg rejected ` +
+                        `strict=${legStats.strictOverlapRatio.toFixed(2)} near=${legStats.nearBlockedRatio.toFixed(2)} ` +
+                        `exit=${Math.round(legExitDistance)}m end=${Math.round(legEndDistance)}m`
+                    );
+                    return null;
+                }
+                console.log(
+                    `[BlockAhead][escape-leg] accepted ${escapeLeg.label}: exit=${Math.round(legExitDistance)}m ` +
+                    `end=${Math.round(legEndDistance)}m`
+                );
+                const mainRoute = await _fetchOsrmRouteThroughWaypoints([escapeLeg.point, destWp]);
+                if (!mainRoute) {
+                    console.log(`[BlockAhead][escape-leg] reject ${escapeLeg.label}: main-route-empty`);
+                    return null;
+                }
+                const blockedStats = _routeBlockedAreaStats(mainRoute.coordinates, activeBlockedArea);
+                const escapeBufMid = lastStageResult?.bufMid || defaultBufMid;
+                const escapeOverlapRadius = lastStageResult?.overlapRadius || defaultOverlapRadius;
+                const overlap = _calcBlockOverlapRatio(mainRoute.coordinates, escapeBufMid.lat, escapeBufMid.lng, escapeOverlapRadius);
+                const nearPenaltyMode = _assessEscapeNearPenaltyMode(blockedStats, overlap);
+                const hardReject = nearPenaltyMode.actualIntersection
+                    || overlap >= BLOCK_OVERLAP_REJECT
+                    || (!nearPenaltyMode.eligible && blockedStats.nearBlocked);
+                _logEscapeNearPenaltyDecision(`[BlockAhead][escape-leg][debug] ${escapeLeg.label}:`, {
+                    holdWaypointMode: false,
+                    nearPenaltyMode,
+                    rejectReason: hardReject
+                        ? (nearPenaltyMode.actualIntersection
+                            ? 'actual-intersection'
+                            : (blockedStats.nearBlocked ? 'near-only-reject' : 'blocked'))
+                        : 'accepted'
+                });
+                if (hardReject) {
+                    console.log(
+                        `[BlockAhead][escape-leg] reject ${escapeLeg.label}: main-route blocked strict=${blockedStats.strictOverlapRatio.toFixed(2)} ` +
+                        `near=${blockedStats.nearBlockedRatio.toFixed(2)} overlap=${overlap.toFixed(2)} ` +
+                        `nearPenaltyMode=${nearPenaltyMode.eligible} nearPenalty=${Number.isFinite(nearPenaltyMode.penalty) ? nearPenaltyMode.penalty.toFixed(1) : 'inf'} ` +
+                        `acceptedByNearPenaltyMode=${nearPenaltyMode.eligible && blockedStats.nearBlocked}`
+                    );
+                    return null;
+                }
+                console.log(
+                    `[BlockAhead][escape-leg] main-route accepted ${escapeLeg.label}: ` +
+                    `strict=${blockedStats.strictOverlapRatio.toFixed(2)} near=${blockedStats.nearBlockedRatio.toFixed(2)} ` +
+                    `overlap=${overlap.toFixed(2)} nearPenaltyMode=${nearPenaltyMode.eligible} ` +
+                    `nearPenalty=${Number.isFinite(nearPenaltyMode.penalty) ? nearPenaltyMode.penalty.toFixed(1) : 'inf'} ` +
+                    `acceptedByNearPenaltyMode=${nearPenaltyMode.eligible && blockedStats.nearBlocked}`
+                );
+                const mergedRoute = _mergeAlternativeRoutes(legRoute, mainRoute);
+                const diff = _isMeaningfullyDifferentReroute(mergedRoute, originalRouteSnapshot, {
+                    bufMid: lastStageResult?.bufMid || defaultBufMid,
+                    overlapRadius: lastStageResult?.overlapRadius || defaultOverlapRadius,
+                    blockedArea: activeBlockedArea
+                });
+                if (!diff.meaningful) {
+                    console.log(`[BlockAhead][escape-leg] reject ${escapeLeg.label}: no-change`);
+                    return null;
+                }
+                mergedRoute.__routeDiff = diff;
+                mergedRoute.__blockedStats = blockedStats;
+                mergedRoute.__escapeLabel = escapeLeg.label;
+                mergedRoute.__escapeLegDistance = escapeLeg.lateralM;
+                mergedRoute.__escapeExitDistanceM = legExitDistance;
+                mergedRoute.__escapeNodeType = escapeLeg.nodeType;
+                mergedRoute.__escapeNodeScore = escapeLeg.nodeScore;
+                mergedRoute.__distanceTierM = escapeLeg.distanceTierM;
+                mergedRoute.__escapeDepthKind = escapeLeg.depthKind || 'entrance';
+                mergedRoute.__escapeMainPenalty = nearPenaltyMode.penalty;
+                mergedRoute.__escapeNearPenaltyMode = nearPenaltyMode.eligible;
+                mergedRoute.__escapeOverlap = overlap;
+                mergedRoute.__escapeStrict = Number(blockedStats.strictOverlapRatio || 0);
+                mergedRoute.__escapeNear = Number(blockedStats.nearBlockedRatio || 0);
+                mergedRoute.__acceptedByHoldWaypointMode = false;
+                return mergedRoute;
+            }));
+            const validEscapeLegRoutes = escapeLegResults.filter(Boolean).sort((a, b) => {
+                const overlapDiff = Number(a.__escapeOverlap || 0) - Number(b.__escapeOverlap || 0);
+                if (overlapDiff !== 0) return overlapDiff;
+                const strictDiff = Number(a.__escapeStrict || 0) - Number(b.__escapeStrict || 0);
+                if (strictDiff !== 0) return strictDiff;
+                const penaltyDiff = Number(a.__escapeMainPenalty || 0) - Number(b.__escapeMainPenalty || 0);
+                if (penaltyDiff !== 0) return penaltyDiff;
+                const exitDiff = Number(b.__escapeExitDistanceM || 0) - Number(a.__escapeExitDistanceM || 0);
+                if (exitDiff !== 0) return exitDiff;
+                const depthDiff = Number(b.depthRank || _escapeDepthRank(b.__escapeDepthKind)) - Number(a.depthRank || _escapeDepthRank(a.__escapeDepthKind));
+                if (depthDiff !== 0) return depthDiff;
+                const scoreDiff = Number(b.__escapeNodeScore || 0) - Number(a.__escapeNodeScore || 0);
+                if (scoreDiff !== 0) return scoreDiff;
+                return a.totalDistance - b.totalDistance;
+            });
+            const escapeLegDurationMs = _perfNowMs() - escapeLegStartedAt;
+            _blockAheadPerfMetrics.stages.push({
+                key: 'escape-leg',
+                durationMs: escapeLegDurationMs,
+                alternatives: escapeLegPoints.length,
+                nonBlocked: validEscapeLegRoutes.length,
+                meaningful: validEscapeLegRoutes.length
+            });
+            console.log(`[BlockAhead][escape-leg] valid=${validEscapeLegRoutes.length}/${escapeLegPoints.length} ${Math.round(escapeLegDurationMs)}ms`);
+            if (validEscapeLegRoutes.length > 0) {
+                console.log(
+                    `[BlockAhead][escape-leg] selected distance=${Math.round(validEscapeLegRoutes[0].__escapeLegDistance || 0)}m ` +
+                    `exit=${Math.round(validEscapeLegRoutes[0].__escapeExitDistanceM || 0)}m ` +
+                    `tier=${validEscapeLegRoutes[0].__distanceTierM || Math.round(validEscapeLegRoutes[0].__escapeLegDistance || 0)}m ` +
+                    `depth=${validEscapeLegRoutes[0].__escapeDepthKind || 'entrance'} ` +
+                    `node=${validEscapeLegRoutes[0].__escapeLabel} type=${validEscapeLegRoutes[0].__escapeNodeType || 'unknown'} ` +
+                    `score=${Number(validEscapeLegRoutes[0].__escapeNodeScore || 0).toFixed(1)} ` +
+                    `overlap=${Number(validEscapeLegRoutes[0].__escapeOverlap || 0).toFixed(2)} ` +
+                    `strict=${Number(validEscapeLegRoutes[0].__escapeStrict || 0).toFixed(2)} ` +
+                    `near=${Number(validEscapeLegRoutes[0].__escapeNear || 0).toFixed(2)} ` +
+                    `acceptedByHoldWaypointMode=false route=${Math.round(validEscapeLegRoutes[0].totalDistance)}m`
+                );
+                selectedStage = { key: 'escape-leg' };
+                alternatives = validEscapeLegRoutes;
+                nonBlocked = validEscapeLegRoutes;
+                meaningful = validEscapeLegRoutes;
+                console.log('[BlockAhead][escape-leg] road-node fallback succeeded');
+            } else {
+                _recordBlockAheadRejectReason('escape-leg-route-blocked');
+            }
+        } else {
+            _recordBlockAheadRejectReason('escape-leg-snap-empty');
+        }
+    }
+
+    if (meaningful.length === 0 && activeBlockedArea) {
+        const escapePoints = await _generateEscapePoints(coords, projection, activeBlockedArea);
+        console.log(`[BlockAhead][escape] candidates=${escapePoints.length}`);
+        if (escapePoints.length > 0) {
+            const escapeStartedAt = _perfNowMs();
+            const escapeResults = await Promise.all(escapePoints.map(async (escape) => {
+                const useHoldWaypointMode = !!escape.holdWaypoint && _escapeDepthRank(escape.depthKind) > 0;
+                const waypoints = useHoldWaypointMode
+                    ? [startWp, escape.holdWaypoint, escape.point, destWp]
+                    : [startWp, escape.point, destWp];
+                console.log(
+                    `[BlockAhead][escape] try ${escape.label}: tier=${escape.distanceTierM || '-'} depth=${escape.depthKind || 'entrance'} ` +
+                    `holdWaypointMode=${useHoldWaypointMode} score=${Number(escape.nodeScore || 0).toFixed(1)}`
+                );
+                const route = await _fetchOsrmRouteThroughWaypoints(waypoints);
+                if (!route) {
+                    console.log(`[BlockAhead][escape] reject ${escape.label}: route-empty holdWaypointMode=${useHoldWaypointMode}`);
+                    return null;
+                }
+                const blockedStats = _routeBlockedAreaStats(route.coordinates, activeBlockedArea);
+                const escapeBufMid = lastStageResult?.bufMid || defaultBufMid;
+                const escapeOverlapRadius = lastStageResult?.overlapRadius || defaultOverlapRadius;
+                const overlap = _calcBlockOverlapRatio(route.coordinates, escapeBufMid.lat, escapeBufMid.lng, escapeOverlapRadius);
+                const nearPenaltyMode = _assessEscapeNearPenaltyMode(blockedStats, overlap);
+                const hardReject = nearPenaltyMode.actualIntersection
+                    || overlap >= BLOCK_OVERLAP_REJECT
+                    || (!nearPenaltyMode.eligible && blockedStats.nearBlocked);
+                _logEscapeNearPenaltyDecision(`[BlockAhead][escape][debug] ${escape.label}:`, {
+                    holdWaypointMode: useHoldWaypointMode,
+                    nearPenaltyMode,
+                    rejectReason: hardReject
+                        ? (nearPenaltyMode.actualIntersection
+                            ? 'actual-intersection'
+                            : (blockedStats.nearBlocked ? 'near-only-reject' : 'blocked'))
+                        : 'accepted'
+                });
+                if (hardReject) {
+                    console.log(
+                        `[BlockAhead][escape] reject ${escape.label}: blocked strict=${blockedStats.strictOverlapRatio.toFixed(2)} ` +
+                        `near=${blockedStats.nearBlockedRatio.toFixed(2)} overlap=${overlap.toFixed(2)} ` +
+                        `nearPenaltyMode=${nearPenaltyMode.eligible} nearPenalty=${Number.isFinite(nearPenaltyMode.penalty) ? nearPenaltyMode.penalty.toFixed(1) : 'inf'} ` +
+                        `acceptedByNearPenaltyMode=${nearPenaltyMode.eligible && blockedStats.nearBlocked} ` +
+                        `holdWaypointMode=${useHoldWaypointMode}`
+                    );
+                    return null;
+                }
+                console.log(
+                    `[BlockAhead][escape] accepted ${escape.label}: strict=${blockedStats.strictOverlapRatio.toFixed(2)} ` +
+                    `near=${blockedStats.nearBlockedRatio.toFixed(2)} overlap=${overlap.toFixed(2)} ` +
+                    `nearPenaltyMode=${nearPenaltyMode.eligible} nearPenalty=${Number.isFinite(nearPenaltyMode.penalty) ? nearPenaltyMode.penalty.toFixed(1) : 'inf'} ` +
+                    `acceptedByNearPenaltyMode=${nearPenaltyMode.eligible && blockedStats.nearBlocked} ` +
+                    `holdWaypointMode=${useHoldWaypointMode}`
+                );
+                const diff = _isMeaningfullyDifferentReroute(route, originalRouteSnapshot, {
+                    bufMid: lastStageResult?.bufMid || defaultBufMid,
+                    overlapRadius: lastStageResult?.overlapRadius || defaultOverlapRadius,
+                    blockedArea: activeBlockedArea
+                });
+                if (!diff.meaningful) {
+                    console.log(`[BlockAhead][escape] reject ${escape.label}: no-change`);
+                    return null;
+                }
+                route.__routeDiff = diff;
+                route.__blockedStats = blockedStats;
+                route.__escapeLabel = escape.label;
+                route.__escapeNodeType = escape.nodeType;
+                route.__escapeNodeScore = escape.nodeScore;
+                route.__distanceTierM = escape.distanceTierM;
+                route.__escapeDepthKind = escape.depthKind || 'entrance';
+                route.__escapeMainPenalty = nearPenaltyMode.penalty;
+                route.__escapeNearPenaltyMode = nearPenaltyMode.eligible;
+                route.__escapeExitDistanceM = Number(escape.blockedDistanceM || 0);
+                route.__escapeOverlap = overlap;
+                route.__escapeStrict = Number(blockedStats.strictOverlapRatio || 0);
+                route.__escapeNear = Number(blockedStats.nearBlockedRatio || 0);
+                route.__acceptedByHoldWaypointMode = useHoldWaypointMode;
+                return route;
+            }));
+            const validEscapeRoutes = escapeResults.filter(Boolean).sort((a, b) => {
+                const overlapDiff = Number(a.__escapeOverlap || 0) - Number(b.__escapeOverlap || 0);
+                if (overlapDiff !== 0) return overlapDiff;
+                const strictDiff = Number(a.__escapeStrict || 0) - Number(b.__escapeStrict || 0);
+                if (strictDiff !== 0) return strictDiff;
+                const penaltyDiff = Number(a.__escapeMainPenalty || 0) - Number(b.__escapeMainPenalty || 0);
+                if (penaltyDiff !== 0) return penaltyDiff;
+                const exitDiff = Number(b.__escapeExitDistanceM || 0) - Number(a.__escapeExitDistanceM || 0);
+                if (exitDiff !== 0) return exitDiff;
+                const depthDiff = _escapeDepthRank(b.__escapeDepthKind) - _escapeDepthRank(a.__escapeDepthKind);
+                if (depthDiff !== 0) return depthDiff;
+                const scoreDiff = Number(b.__escapeNodeScore || 0) - Number(a.__escapeNodeScore || 0);
+                if (scoreDiff !== 0) return scoreDiff;
+                return a.totalDistance - b.totalDistance;
+            });
+            const escapeDurationMs = _perfNowMs() - escapeStartedAt;
+            _blockAheadPerfMetrics.stages.push({
+                key: 'escape',
+                durationMs: escapeDurationMs,
+                alternatives: escapePoints.length,
+                nonBlocked: validEscapeRoutes.length,
+                meaningful: validEscapeRoutes.length
+            });
+            console.log(`[BlockAhead][escape] valid=${validEscapeRoutes.length}/${escapePoints.length} ${Math.round(escapeDurationMs)}ms`);
+            if (validEscapeRoutes.length > 0) {
+                console.log(
+                    `[BlockAhead][escape] selected node=${validEscapeRoutes[0].__escapeLabel} ` +
+                    `tier=${validEscapeRoutes[0].__distanceTierM || '-'} depth=${validEscapeRoutes[0].__escapeDepthKind || 'entrance'} ` +
+                    `type=${validEscapeRoutes[0].__escapeNodeType || 'unknown'} ` +
+                    `score=${Number(validEscapeRoutes[0].__escapeNodeScore || 0).toFixed(1)} ` +
+                    `nearPenalty=${Number.isFinite(validEscapeRoutes[0].__escapeMainPenalty) ? Number(validEscapeRoutes[0].__escapeMainPenalty).toFixed(1) : 'inf'} ` +
+                    `overlap=${Number(validEscapeRoutes[0].__escapeOverlap || 0).toFixed(2)} ` +
+                    `strict=${Number(validEscapeRoutes[0].__escapeStrict || 0).toFixed(2)} ` +
+                    `near=${Number(validEscapeRoutes[0].__escapeNear || 0).toFixed(2)} ` +
+                    `acceptedByHoldWaypointMode=${!!validEscapeRoutes[0].__acceptedByHoldWaypointMode} ` +
+                    `dist=${Math.round(validEscapeRoutes[0].totalDistance)}m`
+                );
+                selectedStage = { key: 'escape' };
+                alternatives = validEscapeRoutes;
+                nonBlocked = validEscapeRoutes;
+                meaningful = validEscapeRoutes;
+                console.log('[BlockAhead][escape] road-node fallback succeeded');
+            } else {
+                _recordBlockAheadRejectReason('escape-route-blocked');
+            }
+        } else {
+            _recordBlockAheadRejectReason('escape-snap-empty');
+        }
+    }
+
+    const selectedBufMid = lastStageResult?.bufMid || defaultBufMid;
+    const selectedOverlapRadius = lastStageResult?.overlapRadius || defaultOverlapRadius;
 
     if (meaningful.length === 0) {
         const sawNoChange = nonBlocked.length > 0;
@@ -2002,118 +2605,133 @@ async function blockAheadAndReroute() {
         return;
     }
 
-    // ── 最短代替ルートから逸脱アンカーを抽出して LRM で描画 ──────────────
-    const winnerRoute = meaningful[0];
-    const anchor = _findDeviationAnchor(winnerRoute.coordinates, coords, 250);
-    console.log(`[BlockAhead] winner dist=${Math.round(winnerRoute.totalDistance)}m anchor=`, anchor);
+    // ── 最短代替ルートをそのまま最終ルートとして採用 ────────────────────
+    const winnerRoute = _normalizeAlternativeRouteShape(meaningful[0]);
+    console.log(`[BlockAhead] winner stage=${selectedStage?.key || 'unknown'} dist=${Math.round(winnerRoute.totalDistance)}m`);
 
-    const renderStartedAt = _perfNowMs();
-    const routed = drawRouteTo(navDestination.lat, navDestination.lon, {
-        preserveCurrentDisplay: true,
-        extraWaypoints: anchor ? [anchor] : [],
-        onRoutesAvailable: async ({ routes, selectedRouteIndex, routeColors, formatter, transportMode }) => {
-            if (_blockAheadSeq !== mySeq) {
-                console.log('[BlockAhead] stale callback ignored (seq mismatch)');
-                return;
-            }
-            const selectedRoute = routes?.[selectedRouteIndex];
-            const selectedCoords = Array.isArray(selectedRoute?.coordinates) ? selectedRoute.coordinates : [];
-
-            // 描画されたルートが実際にブロックを回避しているか確認
-            const finalOverlap = _calcBlockOverlapRatio(selectedCoords, bufMid.lat, bufMid.lng, overlapRadius);
-            const routeDiff = _isMeaningfullyDifferentReroute(selectedRoute, originalRouteSnapshot, { bufMid, overlapRadius });
-            console.log(`[BlockAhead][final] overlap=${finalOverlap.toFixed(2)} meaningful=${routeDiff.meaningful}`);
-
-            if (finalOverlap >= BLOCK_OVERLAP_REJECT || !routeDiff.meaningful) {
-                fail(
-                    finalOverlap >= BLOCK_OVERLAP_REJECT ? 'failed' : 'no-change',
-                    finalOverlap >= BLOCK_OVERLAP_REJECT
-                        ? '⚠ 目的地まで到達できる迂回ルートが見つかりませんでした。現在のルートを継続します。'
-                        : 'ℹ 現在のルートと実質同じ経路しか見つからなかったため、既存ルートを継続します。',
-                    finalOverlap >= BLOCK_OVERLAP_REJECT ? 'danger' : 'info'
-                );
-                return;
-            }
-
-            ++_blockAheadSeq; // consume token — prevents double-fire
-            const displayPipelineMs = _perfNowMs() - renderStartedAt;
-            const selectedBundle = _selectSingleRouteBundle(
-                routes, selectedRouteIndex, routeColors, formatter, transportMode,
-                'block-ahead-final:avoid'
-            );
-
-            navActiveRoute          = selectedBundle.routes[0];
-            navOffRouteCount        = 0;
-            navBlockAheadInProgress = false;
-
-            if (typeof renderRouteCandidatesOnMap === 'function') {
-                renderRouteCandidatesOnMap(selectedBundle.routes, selectedBundle.routeColors, 0, selectedBundle.selectRouteIndex);
-            }
-            if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
-            if (typeof voiceNav !== 'undefined') voiceNav.clear();
-
-            if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
-                if (typeof renderDestinationRouteGuidance === 'function') {
-                    renderDestinationRouteGuidance(activeNavigatingIndex, selectedBundle.routes, 0, selectedBundle.formatter, selectedBundle.transportMode, selectedBundle.selectRouteIndex, selectedBundle.routeColors);
-                }
-            } else if (typeof userDestination !== 'undefined' && userDestination) {
-                if (typeof renderUserDestRouteGuidance === 'function') {
-                    renderUserDestRouteGuidance(selectedBundle.routes, 0, selectedBundle.formatter, selectedBundle.transportMode, selectedBundle.selectRouteIndex, selectedBundle.routeColors);
-                }
-            } else {
-                if (typeof renderSelectedEmergencyShelterRouteGuidance === 'function') {
-                    renderSelectedEmergencyShelterRouteGuidance(selectedBundle.routes, 0, selectedBundle.formatter, selectedBundle.transportMode, selectedBundle.selectRouteIndex, selectedBundle.routeColors);
-                }
-            }
-
-            setNavMode('navigation_active');
-            if (currentLocation) {
-                _updateRemainingDistanceDisplay(currentLocation.lat, currentLocation.lon, currentLocation.accuracyMeters ?? 0);
-            }
-            _showNavBanner('✅ 迂回ルートに切り替えました。このまま避難を続けてください。', 'success', 5000);
-            if (typeof voiceNav !== 'undefined') {
-                voiceNav.announce({ id: 'block-ahead-reroute', text: '前方を迂回するルートに切り替えました', category: 'start', priority: 'high' });
-            }
-
-            _clearBlockAheadLayer();
-            console.log('[BlockAhead] reroute success seq=' + mySeq);
-
-            const totalMs = _perfNowMs() - rerouteStartedAt;
-            const summary = {
-                status: 'success',
-                phasePath: 'AVOID_ACCEPT',
-                fast: { attempted: true, accepted: true, rejectReason: null, timeMs: totalMs },
-                safe: { attempted: false, accepted: false, rejectReason: null, timeMs: 0 },
-                totalMs,
-                osrmMs: evalMs,
-                overpassMs: 0,
-                displayPipelineMs,
-                fastRejected: false,
-                safeAttempted: false,
-                safeFailed: false,
-                acceptedStage: 'avoid',
-                alternativesEvaluated: alternatives.length,
-                nonBlockedCount: nonBlocked.length
-            };
-            _recordBlockAheadExecutionSummary(summary);
-            _blockAheadLastTiming = { ..._blockAheadPerfMetrics, ...summary, totalMs, status: 'success' };
-            console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
-            _blockAheadPerfMetrics = null;
-        },
-        onRouteError: () => {
-            console.warn('[BlockAhead] reroute render failed (LRM error)');
-            fail('failed',
-                '⚠ 目的地まで到達できる迂回ルートが見つかりませんでした。現在のルートを継続します。',
-                'danger'
-            );
-        }
-    });
-    if (!routed) {
-        fail('failed',
-            '⚠ 目的地まで到達できる迂回ルートが見つかりませんでした。現在のルートを継続します。',
-            'danger'
-        );
+    if (_blockAheadSeq !== mySeq) {
+        navBlockAheadInProgress = false;
+        _blockAheadPerfMetrics = null;
+        return;
     }
+
+    const adoptStartedAt = _perfNowMs();
+    const finalOverlap = _calcBlockOverlapRatio(winnerRoute.coordinates, selectedBufMid.lat, selectedBufMid.lng, selectedOverlapRadius);
+    const finalBlockedStats = _routeBlockedAreaStats(winnerRoute.coordinates, activeBlockedArea);
+    const routeDiff = _isMeaningfullyDifferentReroute(winnerRoute, originalRouteSnapshot, {
+        bufMid: selectedBufMid,
+        overlapRadius: selectedOverlapRadius,
+        blockedArea: activeBlockedArea
+    });
+    const finalNearPenaltyMode = (selectedStage?.key === 'escape-leg' || selectedStage?.key === 'escape')
+        ? _assessEscapeNearPenaltyMode(finalBlockedStats, finalOverlap)
+        : { eligible: false, penalty: Infinity };
+    _logEscapeNearPenaltyDecision('[BlockAhead][final][debug]', {
+        holdWaypointMode: !!winnerRoute.__acceptedByHoldWaypointMode,
+        nearPenaltyMode: finalNearPenaltyMode,
+        rejectReason: 'pending'
+    });
+    console.log(
+        `[BlockAhead][final] overlap=${finalOverlap.toFixed(2)} strict=${finalBlockedStats.strictOverlapRatio.toFixed(2)} ` +
+        `near=${finalBlockedStats.nearBlockedRatio.toFixed(2)} minDist=${Math.round(finalBlockedStats.minDistanceToAreaM)}m ` +
+        `meaningful=${routeDiff.meaningful} nearPenaltyMode=${finalNearPenaltyMode.eligible} ` +
+        `nearPenalty=${Number.isFinite(finalNearPenaltyMode.penalty) ? finalNearPenaltyMode.penalty.toFixed(1) : 'inf'} ` +
+        `acceptedByNearPenaltyMode=${finalNearPenaltyMode.eligible && finalBlockedStats.nearBlocked}`
+    );
+
+    const finalBlockedReject = finalNearPenaltyMode.actualIntersection
+        || finalOverlap >= BLOCK_OVERLAP_REJECT
+        || (!finalNearPenaltyMode.eligible && finalBlockedStats.nearBlocked);
+    if (finalBlockedReject || !routeDiff.meaningful) {
+        fail(
+            finalBlockedReject ? 'failed' : 'no-change',
+            finalBlockedReject
+                ? '⚠ 目的地まで到達できる迂回ルートが見つかりませんでした。現在のルートを継続します。'
+                : 'ℹ 現在のルートと実質同じ経路しか見つからなかったため、既存ルートを継続します。',
+            finalBlockedReject ? 'danger' : 'info'
+        );
+        return;
+    }
+
+    ++_blockAheadSeq; // consume token — prevents duplicate completion
+    const formatter = _buildBlockAheadFormatter();
+    const selectedBundle = _selectSingleRouteBundle(
+        [winnerRoute],
+        0,
+        [getRouteColorByIndex(0)],
+        formatter,
+        document.getElementById('transportMode')?.value ?? 'walking',
+        'block-ahead-final:avoid'
+    );
+    const adoptedRoute = selectedBundle.routes[0];
+    const geometryComparison = {
+        selectedToAdopted: _compareRouteGeometries(winnerRoute.coordinates, adoptedRoute.coordinates, 'selected->adopted'),
+        selectedToDisplayed: _compareRouteGeometries(winnerRoute.coordinates, selectedBundle.routes[0].coordinates, 'selected->displayed'),
+        adoptedToDisplayed: _compareRouteGeometries(adoptedRoute.coordinates, selectedBundle.routes[0].coordinates, 'adopted->displayed')
+    };
+    const displayPipelineMs = _perfNowMs() - adoptStartedAt;
+
+    navActiveRoute          = adoptedRoute;
+    navOffRouteCount        = 0;
+    navBlockAheadInProgress = false;
+
+    if (typeof renderRouteCandidatesOnMap === 'function') {
+        renderRouteCandidatesOnMap(selectedBundle.routes, selectedBundle.routeColors, 0, selectedBundle.selectRouteIndex);
+    }
+    if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
+    if (typeof voiceNav !== 'undefined') voiceNav.clear();
+
+    if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
+        if (typeof renderDestinationRouteGuidance === 'function') {
+            renderDestinationRouteGuidance(activeNavigatingIndex, selectedBundle.routes, 0, selectedBundle.formatter, selectedBundle.transportMode, selectedBundle.selectRouteIndex, selectedBundle.routeColors);
+        }
+    } else if (typeof userDestination !== 'undefined' && userDestination) {
+        if (typeof renderUserDestRouteGuidance === 'function') {
+            renderUserDestRouteGuidance(selectedBundle.routes, 0, selectedBundle.formatter, selectedBundle.transportMode, selectedBundle.selectRouteIndex, selectedBundle.routeColors);
+        }
+    } else {
+        if (typeof renderSelectedEmergencyShelterRouteGuidance === 'function') {
+            renderSelectedEmergencyShelterRouteGuidance(selectedBundle.routes, 0, selectedBundle.formatter, selectedBundle.transportMode, selectedBundle.selectRouteIndex, selectedBundle.routeColors);
+        }
+    }
+
+    if (_blockAheadSeq !== mySeq + 1) {
+        console.log('[BlockAhead] stale callback ignored after direct adoption (seq mismatch)');
+        navBlockAheadInProgress = false;
+        _blockAheadPerfMetrics = null;
+        return;
+    }
+
+    setNavMode('navigation_active');
+    if (currentLocation) {
+        _updateRemainingDistanceDisplay(currentLocation.lat, currentLocation.lon, currentLocation.accuracyMeters ?? 0);
+    }
+    _showNavBanner('✅ 迂回ルートに切り替えました。このまま避難を続けてください。', 'success', 5000);
+    if (typeof voiceNav !== 'undefined') {
+        voiceNav.announce({ id: 'block-ahead-reroute', text: '前方を迂回するルートに切り替えました', category: 'start', priority: 'high' });
+    }
+
+    _clearBlockAheadLayer();
+    console.log('[BlockAhead] reroute success seq=' + mySeq);
+
+    const totalMs = _perfNowMs() - rerouteStartedAt;
+    const summary = {
+        status: 'success',
+        accepted: true,
+        rejectReason: null,
+        totalMs,
+        osrmMs: _blockAheadPerfMetrics?.osrmEval?.totalMs || 0,
+        displayPipelineMs,
+        acceptedStage: selectedStage?.key || 'stage-unknown',
+        alternativesEvaluated: alternatives.length,
+        nonBlockedCount: nonBlocked.length,
+        attemptedStages: Array.isArray(_blockAheadPerfMetrics?.stages) ? _blockAheadPerfMetrics.stages.map(stage => stage.key) : [],
+        geometryComparison
+    };
+    _recordBlockAheadExecutionSummary(summary);
+    _blockAheadLastTiming = { ..._blockAheadPerfMetrics, ...summary, totalMs, status: 'success' };
+    console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
+    _blockAheadPerfMetrics = null;
 }
 
 // ── 到達処理 ─────────────────────────────────────────────────────────────
