@@ -93,20 +93,21 @@ const BLOCK_FAST_REROUTE_CONFIG = {
     maxCandidates: 1,
     allowDirectToDestination: false,
     overlapReject: BLOCK_OVERLAP_REJECT,
-    maxExtraDistanceM: 320,
-    maxDistanceRatio: 1.65,
-    maxLocalDetourSpanM: 360,
-    maxRejoinDeviationM: 40,
+    maxExtraDistanceM: 600,
+    maxDistanceRatio: 2.2,
+    maxLocalDetourSpanM: 600,
+    maxRejoinDeviationM: 70,
     requireRejoin: true,
     rejectDangerousCrossings: false,
     crossingPenaltyMultiplier: 0,
-    sameCorridorRejectRatio: 0.74,
-    minBlockedDeviationM: 18,
+    sameCorridorRejectRatio: 0.90,
+    minBlockedDeviationM: 8,
     rejectBlockedAreaReentry: true,
+    skipInitialMovementChecks: true,
     earlyAcceptBlockedDeviationM: 20,
-    earlyAcceptSamePathRatio: 0.58,
-    earlyAcceptExtraDistanceM: 180,
-    earlyAcceptDistanceRatio: 1.35
+    earlyAcceptSamePathRatio: 0.70,
+    earlyAcceptExtraDistanceM: 400,
+    earlyAcceptDistanceRatio: 1.8
 };
 const BLOCK_REROUTE_STAGE_TOP_CANDIDATES = {
     local: 3,
@@ -1409,6 +1410,7 @@ function _assessBlockAheadRoute(routeLike, context) {
     if (blockStartDeviation > maxRejoinDeviationM) reasons.push(`block-start-dev=${Math.round(blockStartDeviation)}m`);
     if (bypassDeviation > maxRejoinDeviationM) reasons.push(`bypass-dev=${Math.round(bypassDeviation)}m`);
     if (requireRejoin && rejoinDeviation > maxRejoinDeviationM) reasons.push(`rejoin-dev=${Math.round(rejoinDeviation)}m`);
+    if (!thresholds.skipInitialMovementChecks) {
     if (initialMovement.firstLegMeters < MIN_FIRST_LEG_METERS) reasons.push(`first-leg=${Math.round(initialMovement.firstLegMeters)}m`);
     if (Number.isFinite(initialMovement.distanceToFirstTurnMeters)
             && initialMovement.distanceToFirstTurnMeters < MIN_FIRST_TURN_DISTANCE_M
@@ -1440,6 +1442,7 @@ function _assessBlockAheadRoute(routeLike, context) {
             && initialMovement.selfApproachDistanceM < MAX_INITIAL_SELF_APPROACH_M) {
         reasons.push(`self-approach=${Math.round(initialMovement.selfApproachDistanceM)}m`);
     }
+    } // end skipInitialMovementChecks guard
     if (thresholds.rejectDangerousCrossings && (crossingAssessment?.dangerousCount || 0) > 0) {
         reasons.push(`dangerous-crossing=${crossingAssessment.dangerousCount}`);
     }
