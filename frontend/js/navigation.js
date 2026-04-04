@@ -85,6 +85,29 @@ const DANGEROUS_CROSSING_PENALTY_BY_CLASS = {
 const DANGEROUS_CROSSING_SIGNAL_FACTOR = 0.05;
 const DANGEROUS_CROSSING_MARKED_FACTOR = 0.22;
 const DANGEROUS_CROSSING_UNCONTROLLED_FACTOR = 0.48;
+const BLOCK_FAST_REROUTE_CONFIG = {
+    key: 'fast',
+    label: 'PhaseA-Fast',
+    bypassOffsetsM: [75],
+    rejoinOffsetsM: [50],
+    maxCandidates: 1,
+    allowDirectToDestination: false,
+    overlapReject: BLOCK_OVERLAP_REJECT,
+    maxExtraDistanceM: 320,
+    maxDistanceRatio: 1.65,
+    maxLocalDetourSpanM: 360,
+    maxRejoinDeviationM: 40,
+    requireRejoin: true,
+    rejectDangerousCrossings: false,
+    crossingPenaltyMultiplier: 0,
+    sameCorridorRejectRatio: 0.74,
+    minBlockedDeviationM: 18,
+    rejectBlockedAreaReentry: true,
+    earlyAcceptBlockedDeviationM: 20,
+    earlyAcceptSamePathRatio: 0.58,
+    earlyAcceptExtraDistanceM: 180,
+    earlyAcceptDistanceRatio: 1.35
+};
 const BLOCK_REROUTE_STAGE_TOP_CANDIDATES = {
     local: 3,
     extended: 3,
@@ -172,6 +195,23 @@ function _perfNowMs() {
 
 let _blockAheadPerfMetrics = null;
 let _blockAheadLastTiming = null;
+let _blockAheadRecentSummaries = [];
+let _blockAheadAggregateMetrics = {
+    totalRuns: 0,
+    fastAcceptedRuns: 0,
+    fastRejectedRuns: 0,
+    safeAttemptedRuns: 0,
+    safeAcceptedRuns: 0,
+    safeFailedRuns: 0,
+    phasePathCounts: {},
+    rejectReasonCounts: {},
+    avgTotalMs: 0,
+    avgFastMs: 0,
+    avgSafeMs: 0,
+    avgOsrmMs: 0,
+    avgOverpassMs: 0,
+    avgDisplayPipelineMs: 0
+};
 let _osrmEvalCache = new Map();
 let _crossingRiskCache = new Map();
 let _crossingContextInflight = new Map();
@@ -184,6 +224,64 @@ function _recordBlockAheadTiming(bucket, durationMs, extra = {}) {
     _blockAheadPerfMetrics[bucket].totalMs += durationMs;
     _blockAheadPerfMetrics[bucket].count += 1;
     Object.assign(_blockAheadPerfMetrics[bucket], extra);
+}
+
+function _incrementReasonCounter(target, reason) {
+    if (!target || !reason) return;
+    target[reason] = (target[reason] || 0) + 1;
+}
+
+function _noteBlockAheadRejectReason(metric, reason) {
+    if (!metric || !reason) return;
+    if (!metric.rejectReasons) metric.rejectReasons = {};
+    _incrementReasonCounter(metric.rejectReasons, reason);
+}
+
+function _topBlockAheadRejectReason(reasonMap) {
+    if (!reasonMap) return null;
+    const entries = Object.entries(reasonMap);
+    if (entries.length === 0) return null;
+    entries.sort((a, b) => b[1] - a[1]);
+    return entries[0][0];
+}
+
+function _updateRollingAverage(prevAvg, prevCount, nextValue) {
+    const value = Number(nextValue) || 0;
+    return ((prevAvg * prevCount) + value) / Math.max(1, prevCount + 1);
+}
+
+function _recordBlockAheadExecutionSummary(summary) {
+    if (!summary) return;
+    _blockAheadRecentSummaries.push(summary);
+    if (_blockAheadRecentSummaries.length > 20) {
+        _blockAheadRecentSummaries = _blockAheadRecentSummaries.slice(-20);
+    }
+
+    const agg = _blockAheadAggregateMetrics;
+    const prevCount = agg.totalRuns;
+    agg.totalRuns += 1;
+    if (summary.fast?.accepted) agg.fastAcceptedRuns += 1;
+    else agg.fastRejectedRuns += 1;
+    if (summary.safe?.attempted) agg.safeAttemptedRuns += 1;
+    if (summary.safe?.accepted) agg.safeAcceptedRuns += 1;
+    if (summary.safe?.attempted && !summary.safe?.accepted) agg.safeFailedRuns += 1;
+    if (summary.phasePath) {
+        agg.phasePathCounts[summary.phasePath] = (agg.phasePathCounts[summary.phasePath] || 0) + 1;
+    }
+    [summary.fast?.rejectReason, summary.safe?.rejectReason].filter(Boolean).forEach(reason => {
+        _incrementReasonCounter(agg.rejectReasonCounts, reason);
+    });
+    agg.avgTotalMs = _updateRollingAverage(agg.avgTotalMs, prevCount, summary.totalMs);
+    agg.avgFastMs = _updateRollingAverage(agg.avgFastMs, prevCount, summary.fast?.timeMs);
+    agg.avgSafeMs = _updateRollingAverage(agg.avgSafeMs, prevCount, summary.safe?.timeMs);
+    agg.avgOsrmMs = _updateRollingAverage(agg.avgOsrmMs, prevCount, summary.osrmMs);
+    agg.avgOverpassMs = _updateRollingAverage(agg.avgOverpassMs, prevCount, summary.overpassMs);
+    agg.avgDisplayPipelineMs = _updateRollingAverage(agg.avgDisplayPipelineMs, prevCount, summary.displayPipelineMs);
+
+    if (typeof window !== 'undefined') {
+        window._blockAheadRecentSummaries = _blockAheadRecentSummaries;
+        window._blockAheadAggregateMetrics = _blockAheadAggregateMetrics;
+    }
 }
 
 function _routeCoordsCacheKey(coords) {
@@ -1076,6 +1174,64 @@ function _pushUniqueBlockAheadCandidate(target, candidate) {
     if (!duplicate) target.push(candidate);
 }
 
+function _isFastRerouteEarlyAcceptCandidate(candidate, thresholds = {}) {
+    const assessment = candidate?.assessment || null;
+    const corridorMetrics = candidate?.corridorMetrics || null;
+    if (!assessment?.valid || !corridorMetrics) return false;
+    const blockedDeviation = corridorMetrics.blockedMeanDeviationM ?? Infinity;
+    const blockedSamePathRatio = corridorMetrics.blockedSamePathRatio ?? 1;
+    const extraDistance = assessment.extraDistance ?? Infinity;
+    const distanceRatio = assessment.distanceRatio ?? Infinity;
+    return blockedDeviation >= (thresholds.earlyAcceptBlockedDeviationM ?? 20)
+        && blockedSamePathRatio <= (thresholds.earlyAcceptSamePathRatio ?? 0.58)
+        && extraDistance <= (thresholds.earlyAcceptExtraDistanceM ?? 180)
+        && distanceRatio <= (thresholds.earlyAcceptDistanceRatio ?? 1.35);
+}
+
+function _estimateFastCandidateScore(candidate, destination) {
+    if (!candidate?.bypass || !candidate?.rejoin || !destination) return Infinity;
+    const blockStart = candidate.blockStart;
+    const startToBypass = _segmentLengthMeters(blockStart, candidate.bypass);
+    const bypassToRejoin = _segmentLengthMeters(candidate.bypass, candidate.rejoin);
+    const rejoinToDest = _segmentLengthMeters(candidate.rejoin, destination);
+    const headingPenalty = (() => {
+        const routeBearing = _segmentBearingDeg(blockStart, candidate.rejoin);
+        const bypassBearing = _segmentBearingDeg(blockStart, candidate.bypass);
+        return _bearingDiffDeg(routeBearing, bypassBearing) * 1.5;
+    })();
+    const destinationPenalty = (() => {
+        const destBearing = _segmentBearingDeg(candidate.bypass, destination);
+        const rejoinBearing = _segmentBearingDeg(candidate.bypass, candidate.rejoin);
+        return _bearingDiffDeg(destBearing, rejoinBearing) * 1.2;
+    })();
+    return startToBypass + bypassToRejoin + rejoinToDest + headingPenalty + destinationPenalty;
+}
+
+function _pickFastRerouteCandidate(stage, context) {
+    const offsetM = stage.bypassOffsetsM[0];
+    const rejoinOffsetM = stage.rejoinOffsetsM[0];
+    const rejoin = _walkAlongRoute(context.coords, context.projection, BLOCK_AHEAD_END_METERS + rejoinOffsetM);
+    const candidates = [1, -1].map((side) => {
+        const bypass = _perpendicularOffsetPoint(context.blockStart, context.blockEnd, offsetM, side);
+        const candidate = {
+            phaseKey: 'fast',
+            stage,
+            bypass,
+            rejoin,
+            blockStart: context.blockStart,
+            offsetM,
+            rejoinOffsetM,
+            directToDestination: false,
+            side: side === 1 ? 'left' : 'right'
+        };
+        const heuristicScore = _estimateFastCandidateScore(candidate, context.destWp);
+        return { ...candidate, heuristicScore };
+    }).sort((a, b) => a.heuristicScore - b.heuristicScore);
+    const picked = candidates[0] || null;
+    console.log('[BlockAhead][FAST_REROUTE][pick]', candidates.map(c => `${c.side}:${Math.round(c.heuristicScore)}`), '=>', picked ? picked.side : 'none');
+    return picked ? [picked] : [];
+}
+
 function _segmentLengthMeters(a, b) {
     if (!a || !b) return 0;
     return _navHaversine(a.lat, a.lng ?? a.lon, b.lat, b.lng ?? b.lon);
@@ -1914,15 +2070,58 @@ function _inferInitialInstructionFromCoords(coords) {
     };
 }
 
-function _clarifyRouteForNavigation(route) {
+function _recordDisplayPipelineStage(meta, stageName, beforeCount, afterCount) {
+    if (!meta) return;
+    meta.stages.push({
+        stage: stageName,
+        beforeCount,
+        afterCount
+    });
+    console.log(`[BlockAhead][display] ${meta.context} ${stageName}: ${beforeCount} -> ${afterCount}`);
+}
+
+function _runDisplayRoutePipeline(route, contextLabel = 'generic') {
     const startedAt = _perfNowMs();
     const cloned = _cloneRoute(route);
     if (!cloned || !Array.isArray(cloned.coordinates) || cloned.coordinates.length < 2) return cloned;
 
+    const pipelineMeta = {
+        context: contextLabel,
+        stages: []
+    };
+
+    const rawCount = cloned.coordinates.length;
     cloned.instructions = _materializeInstructionLatLngs(cloned);
-    cloned.coordinates = _reconstructDisplayRoute(cloned);
-    cloned.coordinates = _simplifyRouteGeometryForDisplay(cloned.coordinates);
-    cloned.coordinates = _simplifyInitialRouteForClarity(cloned.coordinates);
+    _recordDisplayPipelineStage(pipelineMeta, 'materialize-anchors', rawCount, cloned.coordinates.length);
+
+    const reconstructed = _reconstructDisplayRoute(cloned);
+    _recordDisplayPipelineStage(pipelineMeta, 'reconstruct-main-path', cloned.coordinates.length, reconstructed.length);
+    cloned.coordinates = reconstructed;
+
+    const mergedAnchorsCount = _mergeNearbyDisplayAnchors(cloned).length;
+    _recordDisplayPipelineStage(
+        pipelineMeta,
+        'merge-nearby-anchors',
+        Array.isArray(cloned.instructions) ? cloned.instructions.length : 0,
+        mergedAnchorsCount
+    );
+
+    const deduped = _mergeDuplicateDisplaySegments(cloned.coordinates);
+    _recordDisplayPipelineStage(pipelineMeta, 'merge-duplicate-segments', cloned.coordinates.length, deduped.length);
+    cloned.coordinates = deduped;
+
+    const loopPruned = _pruneDisplayLoops(cloned.coordinates, cloned.coordinates[cloned.coordinates.length - 1]);
+    _recordDisplayPipelineStage(pipelineMeta, 'remove-loops-and-spurs', cloned.coordinates.length, loopPruned.length);
+    cloned.coordinates = loopPruned;
+
+    const simplified = _simplifyRouteGeometryForDisplay(cloned.coordinates);
+    _recordDisplayPipelineStage(pipelineMeta, 'simplify-geometry', cloned.coordinates.length, simplified.length);
+    cloned.coordinates = simplified;
+
+    const clarityAdjusted = _simplifyInitialRouteForClarity(cloned.coordinates);
+    _recordDisplayPipelineStage(pipelineMeta, 'apply-initial-clarity', cloned.coordinates.length, clarityAdjusted.length);
+    cloned.coordinates = clarityAdjusted;
+
     const firstInstruction = _inferInitialInstructionFromCoords(cloned.coordinates);
     const existingInstructions = Array.isArray(cloned.instructions) ? cloned.instructions.slice() : [];
     if (firstInstruction) {
@@ -1934,11 +2133,26 @@ function _clarifyRouteForNavigation(route) {
     } else {
         cloned.instructions = existingInstructions;
     }
+    cloned._displayPipeline = pipelineMeta;
+    cloned._displayPipeline.context = contextLabel;
+    if (_blockAheadPerfMetrics) {
+        if (!Array.isArray(_blockAheadPerfMetrics.displayPipelineRuns)) {
+            _blockAheadPerfMetrics.displayPipelineRuns = [];
+        }
+        _blockAheadPerfMetrics.displayPipelineRuns.push({
+            context: contextLabel,
+            stages: pipelineMeta.stages.map(stage => stage.stage)
+        });
+    }
     _recordBlockAheadTiming('routeReconstruction', _perfNowMs() - startedAt);
     return cloned;
 }
 
-function _selectSingleRouteBundle(routes, selectedRouteIndex, routeColors, formatter, transportMode) {
+function _clarifyRouteForNavigation(route, contextLabel = 'generic') {
+    return _runDisplayRoutePipeline(route, contextLabel);
+}
+
+function _selectSingleRouteBundle(routes, selectedRouteIndex, routeColors, formatter, transportMode, contextLabel = 'block-ahead-final') {
     const routeList = Array.isArray(routes) ? routes : [];
     if (routeList.length === 0) {
         return {
@@ -1951,7 +2165,7 @@ function _selectSingleRouteBundle(routes, selectedRouteIndex, routeColors, forma
         };
     }
     const safeIndex = Math.max(0, Math.min(Number(selectedRouteIndex) || 0, routeList.length - 1));
-    const selectedRoute = _clarifyRouteForNavigation(routeList[safeIndex]);
+    const selectedRoute = _clarifyRouteForNavigation(routeList[safeIndex], contextLabel);
     const selectedColor = Array.isArray(routeColors) && routeColors.length > 0
         ? (routeColors[safeIndex] || routeColors[0] || getRouteColorByIndex(0))
         : getRouteColorByIndex(0);
@@ -1986,7 +2200,11 @@ async function blockAheadAndReroute() {
         crossingContextCacheHits: 0,
         crossingContextInflightHits: 0,
         crossingRiskCacheHits: 0,
-        stages: []
+        phases: [],
+        stages: [],
+        phasePath: [],
+        fast: { attempted: true, accepted: false, rejectReasons: {} },
+        safe: { attempted: false, accepted: false, rejectReasons: {} }
     };
     // ── ガード ────────────────────────────────────────────────────────────
     if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) {
@@ -2084,7 +2302,9 @@ async function blockAheadAndReroute() {
                     return;
                 }
                 const selectedRoute = routes?.[selectedRouteIndex];
-                const crossingAssessment = await _assessRouteCrossingRisk(selectedRoute, candidate.stage);
+                const crossingAssessment = candidate.skipCrossingEvaluation
+                    ? null
+                    : await _assessRouteCrossingRisk(selectedRoute, candidate.stage);
                 const corridorMetrics = _candidateCorridorMetrics(selectedRoute, originalRouteSnapshot, {
                     bufMid,
                     overlapRadius
@@ -2139,10 +2359,74 @@ async function blockAheadAndReroute() {
 
     let accepted = null;
     let sawNoChange = false;
-    for (const stage of BLOCK_REROUTE_STAGES) {
-        const stageStartedAt = _perfNowMs();
-        const stageMetric = { key: stage.key, label: stage.label, candidates: 0, osrmEvaluated: 0, shortlisted: 0, finalTried: 0, durationMs: 0 };
-        _blockAheadPerfMetrics.stages.push(stageMetric);
+    const finalizeExecution = (status, extra = {}) => {
+        const perf = _blockAheadPerfMetrics || {};
+        const fastPhase = (perf.phases || []).find(phase => phase.key === 'fast') || {};
+        const safePhase = (perf.phases || []).find(phase => phase.key === 'safe-refinement') || {};
+        const summary = {
+            status,
+            phasePath: Array.isArray(perf.phasePath) ? perf.phasePath.join('>') : '',
+            fast: {
+                attempted: perf.fast?.attempted === true,
+                accepted: perf.fast?.accepted === true,
+                rejectReason: perf.fast?.rejectReason || _topBlockAheadRejectReason(perf.fast?.rejectReasons),
+                timeMs: fastPhase.durationMs || 0
+            },
+            safe: {
+                attempted: perf.safe?.attempted === true,
+                accepted: perf.safe?.accepted === true,
+                rejectReason: perf.safe?.rejectReason || _topBlockAheadRejectReason(perf.safe?.rejectReasons),
+                timeMs: safePhase.durationMs || 0
+            },
+            totalMs: (_perfNowMs() - rerouteStartedAt),
+            osrmMs: perf.osrmEval?.totalMs || 0,
+            overpassMs: perf.overpass?.totalMs || 0,
+            displayPipelineMs: perf.routeReconstruction?.totalMs || 0,
+            fastRejected: perf.fast?.accepted !== true,
+            safeAttempted: perf.safe?.attempted === true,
+            safeFailed: perf.safe?.attempted === true && perf.safe?.accepted !== true,
+            ...extra
+        };
+        _recordBlockAheadExecutionSummary(summary);
+        console.log(`[BlockAhead][summary] path=${summary.phasePath || 'none'} status=${summary.status} fast=${summary.fast.accepted ? 'accepted' : `rejected(${summary.fast.rejectReason || 'unknown'})`} safe=${summary.safe.attempted ? (summary.safe.accepted ? 'accepted' : `failed(${summary.safe.rejectReason || 'unknown'})`) : 'skipped'} total=${Math.round(summary.totalMs)}ms fastMs=${Math.round(summary.fast.timeMs)} safeMs=${Math.round(summary.safe.timeMs)} osrm=${Math.round(summary.osrmMs)} overpass=${Math.round(summary.overpassMs)} display=${Math.round(summary.displayPipelineMs)}ms`);
+        return summary;
+    };
+    const finalizeStale = () => {
+        navBlockAheadInProgress = false;
+        _clearBlockAheadLayer();
+        _updateNavUI();
+        const summary = finalizeExecution('stale');
+        _blockAheadLastTiming = { ..._blockAheadPerfMetrics, ...summary, totalMs: summary.totalMs, status: 'stale' };
+        console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
+        _blockAheadPerfMetrics = null;
+    };
+    const scorePreliminaryCandidate = (candidate, stage) => {
+        const turnCount = Number(candidate.route.turnCount) || 0;
+        const sharpTurnCount = Number(candidate.route.sharpTurnCount) || 0;
+        const score = candidate.route.totalDistance
+            + (turnCount * BLOCK_TURN_PENALTY_M)
+            + (sharpTurnCount * BLOCK_SHARP_TURN_PENALTY_M)
+            + (Math.max(0, candidate.assessment?.extraDistance || 0) * (stage.key === 'reachability' ? 0.8 : 2))
+            + (Math.max(0, (candidate.assessment?.localDetourSpan || 0) - 120) * (stage.key === 'local' ? 2 : 0.6))
+            + (Math.max(0, MIN_FIRST_TURN_DISTANCE_M - (candidate.assessment?.distanceToFirstTurnMeters ?? Infinity)) * 8)
+            + (Math.max(0, (candidate.assessment?.firstTurnAngleDeg || 0) - 75) * 3)
+            + ((candidate.assessment?.initialZigzagScore || 0) * 1.2)
+            + (candidate.directToDestination ? 120 : 0);
+        console.log(
+            `[BlockAhead][score-pre][${stage.label}] ${candidate.side}/${candidate.offsetM}m/${candidate.directToDestination ? 'direct' : `rejoin+${candidate.rejoinOffsetM}`}: overlap=${(candidate.assessment?.overlap ?? 0).toFixed(2)} dist=${Math.round(candidate.route.totalDistance)}m turns=${turnCount} sharp=${sharpTurnCount} blockedDiff=${Math.round(candidate.corridorMetrics?.blockedMeanDeviationM ?? Infinity)}m blockedSame=${(candidate.corridorMetrics?.blockedSamePathRatio ?? 0).toFixed(2)} reentry=${candidate.corridorMetrics?.blockAreaReentryCount ?? 0} extra=${Math.round(candidate.assessment?.extraDistance ?? 0)}m span=${Math.round(candidate.assessment?.localDetourSpan ?? 0)}m firstLeg=${Math.round(candidate.assessment?.firstLegMeters ?? 0)}m firstTurn=${Number.isFinite(candidate.assessment?.distanceToFirstTurnMeters) ? Math.round(candidate.assessment.distanceToFirstTurnMeters) : 'none'}m score=${Math.round(score)}${candidate.assessment?.valid ? '' : ` reject=${(candidate.assessment?.reasons || []).join(',')}`}`
+        );
+        return { ...candidate, score, turnCount, sharpTurnCount, preliminaryScore: score };
+    };
+    const buildCandidateDefs = (stage, phaseKey) => {
+        if (phaseKey === 'fast') {
+            return _pickFastRerouteCandidate(stage, {
+                coords,
+                projection,
+                blockStart,
+                blockEnd,
+                destWp
+            });
+        }
         const candidateDefs = [];
         for (const side of [1, -1]) {
             for (const offsetM of stage.bypassOffsetsM) {
@@ -2150,6 +2434,7 @@ async function blockAheadAndReroute() {
                 for (const rejoinOffsetM of stage.rejoinOffsetsM) {
                     const rejoin = _walkAlongRoute(coords, projection, BLOCK_AHEAD_END_METERS + rejoinOffsetM);
                     _pushUniqueBlockAheadCandidate(candidateDefs, {
+                        phaseKey,
                         stage,
                         bypass,
                         rejoin,
@@ -2161,6 +2446,7 @@ async function blockAheadAndReroute() {
                 }
                 if (stage.allowDirectToDestination) {
                     _pushUniqueBlockAheadCandidate(candidateDefs, {
+                        phaseKey,
                         stage,
                         bypass,
                         rejoin: null,
@@ -2172,20 +2458,19 @@ async function blockAheadAndReroute() {
                 }
             }
         }
-        stageMetric.candidates = candidateDefs.length;
-        console.log(`[BlockAhead][${stage.label}] candidates:`, candidateDefs.map(c => `${c.side}/${c.offsetM}m/${c.directToDestination ? 'direct' : `rejoin+${c.rejoinOffsetM}`}`));
-
+        if (Number.isFinite(stage.maxCandidates) && stage.maxCandidates > 0) {
+            return candidateDefs.slice(0, stage.maxCandidates);
+        }
+        return candidateDefs;
+    };
+    const evaluateCandidates = async (candidateDefs, stage, stageMetric) => {
         const evalResults = await Promise.all(candidateDefs.map(async (c) => {
             const waypoints = c.directToDestination
                 ? [startWp, blockStart, c.bypass, destWp]
                 : [startWp, blockStart, c.bypass, c.rejoin, destWp];
             const route = await _fetchOsrmRouteForEval(waypoints);
-            const crossingAssessment = route ? await _assessRouteCrossingRisk(route, stage) : null;
             const corridorMetrics = route
-                ? _candidateCorridorMetrics(route, originalRouteSnapshot, {
-                    bufMid,
-                    overlapRadius
-                })
+                ? _candidateCorridorMetrics(route, originalRouteSnapshot, { bufMid, overlapRadius })
                 : null;
             const assessment = route
                 ? _assessBlockAheadRoute(route, {
@@ -2200,118 +2485,169 @@ async function blockAheadAndReroute() {
                     corridorMetrics
                 })
                 : null;
+            if (!route) {
+                _noteBlockAheadRejectReason(stageMetric, 'fetch-failed');
+            } else if (assessment && !assessment.valid) {
+                (assessment.reasons || []).forEach(reason => _noteBlockAheadRejectReason(stageMetric, reason));
+            }
             return { ...c, route, assessment, crossingAssessment: null, corridorMetrics };
         }));
         stageMetric.osrmEvaluated = evalResults.filter(r => r.route !== null).length;
-
         evalResults.forEach(r => {
             console.log(
                 `[BlockAhead][eval][${stage.label}] ${r.side}/${r.offsetM}m/${r.directToDestination ? 'direct' : `rejoin+${r.rejoinOffsetM}`}:`,
                 r.route ? `dist=${Math.round(r.route.totalDistance)}m pts=${r.route.coordinates.length}` : 'fetch failed'
             );
         });
-
-        const preliminary = evalResults
+        return evalResults
             .filter(r => r.route !== null)
-            .map(r => {
-                const turnCount = Number(r.route.turnCount) || 0;
-                const sharpTurnCount = Number(r.route.sharpTurnCount) || 0;
-                const score = r.route.totalDistance
-                    + (turnCount * BLOCK_TURN_PENALTY_M)
-                    + (sharpTurnCount * BLOCK_SHARP_TURN_PENALTY_M)
-                    + (Math.max(0, r.assessment?.extraDistance || 0) * (stage.key === 'reachability' ? 0.8 : 2))
-                    + (Math.max(0, (r.assessment?.localDetourSpan || 0) - 120) * (stage.key === 'local' ? 2 : 0.6))
-                    + (Math.max(0, MIN_FIRST_TURN_DISTANCE_M - (r.assessment?.distanceToFirstTurnMeters ?? Infinity)) * 8)
-                    + (Math.max(0, (r.assessment?.firstTurnAngleDeg || 0) - 75) * 3)
-                    + ((r.assessment?.initialZigzagScore || 0) * 1.2)
-                    + (r.directToDestination ? 120 : 0);
-                console.log(
-                    `[BlockAhead][score-pre][${stage.label}] ${r.side}/${r.offsetM}m/${r.directToDestination ? 'direct' : `rejoin+${r.rejoinOffsetM}`}: overlap=${(r.assessment?.overlap ?? 0).toFixed(2)} dist=${Math.round(r.route.totalDistance)}m turns=${turnCount} sharp=${sharpTurnCount} blockedDiff=${Math.round(r.corridorMetrics?.blockedMeanDeviationM ?? Infinity)}m blockedSame=${(r.corridorMetrics?.blockedSamePathRatio ?? 0).toFixed(2)} reentry=${r.corridorMetrics?.blockAreaReentryCount ?? 0} extra=${Math.round(r.assessment?.extraDistance ?? 0)}m span=${Math.round(r.assessment?.localDetourSpan ?? 0)}m firstLeg=${Math.round(r.assessment?.firstLegMeters ?? 0)}m firstTurn=${Number.isFinite(r.assessment?.distanceToFirstTurnMeters) ? Math.round(r.assessment.distanceToFirstTurnMeters) : 'none'}m score=${Math.round(score)}${r.assessment?.valid ? '' : ` reject=${(r.assessment?.reasons || []).join(',')}`}`
-                );
-                return { ...r, score, turnCount, sharpTurnCount, preliminaryScore: score };
-            })
+            .map(r => scorePreliminaryCandidate(r, stage))
             .filter(r => r.assessment && r.assessment.valid)
             .sort((a, b) => a.score - b.score);
-
-        if (preliminary.length === 0) {
-            stageMetric.durationMs = _perfNowMs() - stageStartedAt;
-            console.warn(`[BlockAhead][${stage.label}] no valid candidates, trying next stage`);
-            console.log(`[BlockAhead][timing][stage] ${stage.label}: ${Math.round(stageMetric.durationMs)}ms`);
-            continue;
-        }
-
-        const shortlistLimit = BLOCK_REROUTE_STAGE_TOP_CANDIDATES[stage.key] || preliminary.length;
-        const shortlisted = preliminary.slice(0, shortlistLimit);
-        stageMetric.shortlisted = shortlisted.length;
-        await Promise.all(shortlisted.map(async (candidate) => {
-            const crossingAssessment = await _assessRouteCrossingRisk(candidate.route, stage);
-            candidate.crossingAssessment = crossingAssessment;
-            candidate.assessment = _assessBlockAheadRoute(candidate.route, {
-                baseRemainingDistance,
-                bufMid,
-                overlapRadius,
-                blockStart,
-                bypass: candidate.bypass,
-                rejoin: candidate.rejoin,
-                thresholds: stage,
-                crossingAssessment
-            });
-            candidate.score = candidate.preliminaryScore + ((crossingAssessment?.penalty || 0) * (stage.crossingPenaltyMultiplier || 1));
-            console.log(
-                `[BlockAhead][score-final][${stage.label}] ${candidate.side}/${candidate.offsetM}m/${candidate.directToDestination ? 'direct' : `rejoin+${candidate.rejoinOffsetM}`}: crossingPenalty=${Math.round(crossingAssessment?.penalty || 0)} dangerousCrossings=${crossingAssessment?.dangerousCount || 0} score=${Math.round(candidate.score)}${candidate.assessment?.valid ? '' : ` reject=${(candidate.assessment?.reasons || []).join(',')}`}`
-            );
-        }));
-
-        const scored = shortlisted
-            .filter(r => r.assessment && r.assessment.valid)
-            .sort((a, b) => a.score - b.score);
-
-        if (scored.length === 0) {
-            stageMetric.durationMs = _perfNowMs() - stageStartedAt;
-            console.warn(`[BlockAhead][${stage.label}] no crossing-safe candidates, trying next stage`);
-            console.log(`[BlockAhead][timing][stage] ${stage.label}: ${Math.round(stageMetric.durationMs)}ms`);
-            continue;
-        }
-
-        const finalTryLimit = BLOCK_REROUTE_STAGE_MAX_FINAL_TRIES[stage.key] || scored.length;
+    };
+    const tryScoredCandidates = async (scored, stage, stageMetric, options = {}) => {
+        const finalTryLimit = options.finalTryLimit ?? scored.length;
         for (const candidate of scored.slice(0, finalTryLimit)) {
             stageMetric.finalTried += 1;
             if (_blockAheadSeq !== mySeq) {
-                navBlockAheadInProgress = false;
-                _clearBlockAheadLayer();
-                _updateNavUI();
-                _blockAheadLastTiming = { ..._blockAheadPerfMetrics, totalMs: _perfNowMs() - rerouteStartedAt, status: 'stale' };
-                console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
-                _blockAheadPerfMetrics = null;
-                return;
+                finalizeStale();
+                return 'stale';
             }
+            candidate.skipCrossingEvaluation = options.skipCrossingEvaluation === true;
             console.log(
                 `[BlockAhead] trying [${stage.label}]: ${candidate.side}/${candidate.offsetM}m/${candidate.directToDestination ? 'direct' : `rejoin+${candidate.rejoinOffsetM}`} dist=${Math.round(candidate.route.totalDistance)}m score=${Math.round(candidate.score)}`
             );
             const result = await tryCandidate(candidate);
             if (result.status === 'success') {
                 accepted = { candidate, result };
-                break;
+                return 'success';
             }
             if (result.status === 'no-change') {
                 sawNoChange = true;
+                _noteBlockAheadRejectReason(stageMetric, 'no-change');
             }
             if (result.status === 'stale') {
-                navBlockAheadInProgress = false;
-                _clearBlockAheadLayer();
-                _updateNavUI();
-                _blockAheadLastTiming = { ..._blockAheadPerfMetrics, totalMs: _perfNowMs() - rerouteStartedAt, status: 'stale' };
-                console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
-                _blockAheadPerfMetrics = null;
-                return;
+                finalizeStale();
+                return 'stale';
             }
+            _noteBlockAheadRejectReason(stageMetric, result.status === 'invalid-final'
+                ? ((result.finalAssessment?.reasons || [])[0] || 'invalid-final')
+                : result.status);
             console.warn(
                 `[BlockAhead] rejected final route [${stage.label}]: ${candidate.side}/${candidate.offsetM}m/${candidate.directToDestination ? 'direct' : `rejoin+${candidate.rejoinOffsetM}`} (${result.status === 'no-change' ? 'no-change' : (result.finalAssessment?.reasons?.join(',') || result.status)})`
             );
         }
-        stageMetric.durationMs = _perfNowMs() - stageStartedAt;
-        console.log(`[BlockAhead][timing][stage] ${stage.label}: ${Math.round(stageMetric.durationMs)}ms candidates=${stageMetric.candidates} osrm=${stageMetric.osrmEvaluated} shortlist=${stageMetric.shortlisted} finalTried=${stageMetric.finalTried}`);
-        if (accepted) break;
+        return 'continue';
+    };
+
+    const fastPhaseStartedAt = _perfNowMs();
+    const fastPhaseMetric = { key: 'fast', label: 'FAST_REROUTE', candidates: 0, osrmEvaluated: 0, shortlisted: 0, finalTried: 0, durationMs: 0 };
+    _blockAheadPerfMetrics.phases.push(fastPhaseMetric);
+    _blockAheadPerfMetrics.stages.push(fastPhaseMetric);
+    const fastCandidates = buildCandidateDefs(BLOCK_FAST_REROUTE_CONFIG, 'fast');
+    fastPhaseMetric.candidates = fastCandidates.length;
+    console.log('[BlockAhead][FAST_REROUTE] candidates:', fastCandidates.map(c => `${c.side}/${c.offsetM}m/rejoin+${c.rejoinOffsetM}`));
+    const fastPreliminary = await evaluateCandidates(fastCandidates, BLOCK_FAST_REROUTE_CONFIG, fastPhaseMetric);
+    const fastScored = fastPreliminary.slice(0, BLOCK_FAST_REROUTE_CONFIG.maxCandidates);
+    fastPhaseMetric.shortlisted = fastScored.length;
+    const earlyAccept = fastScored.find(candidate => _isFastRerouteEarlyAcceptCandidate(candidate, BLOCK_FAST_REROUTE_CONFIG));
+    const fastTryOrder = earlyAccept
+        ? [earlyAccept, ...fastScored.filter(candidate => candidate !== earlyAccept)]
+        : fastScored;
+    const fastStatus = await tryScoredCandidates(fastTryOrder, BLOCK_FAST_REROUTE_CONFIG, fastPhaseMetric, {
+        finalTryLimit: BLOCK_FAST_REROUTE_CONFIG.maxCandidates,
+        skipCrossingEvaluation: true
+    });
+    fastPhaseMetric.durationMs = _perfNowMs() - fastPhaseStartedAt;
+    if (fastStatus === 'stale') return;
+    _blockAheadPerfMetrics.fast.accepted = fastStatus === 'success';
+    _blockAheadPerfMetrics.fast.rejectReasons = fastPhaseMetric.rejectReasons || {};
+    if (fastStatus === 'success') {
+        _blockAheadPerfMetrics.phasePath.push('FAST_ACCEPT');
+    } else {
+        _blockAheadPerfMetrics.phasePath.push('FAST_REJECT');
+        _blockAheadPerfMetrics.fast.rejectReason = _topBlockAheadRejectReason(fastPhaseMetric.rejectReasons) || (fastPreliminary.length === 0 ? 'no-valid-candidate' : 'needs-safe-refinement');
+    }
+    console.log(`[BlockAhead][timing][phase] FAST_REROUTE: ${Math.round(fastPhaseMetric.durationMs)}ms candidates=${fastPhaseMetric.candidates} osrm=${fastPhaseMetric.osrmEvaluated} shortlisted=${fastPhaseMetric.shortlisted} finalTried=${fastPhaseMetric.finalTried} earlyAccept=${Boolean(earlyAccept)}`);
+    if (!accepted) {
+        const safePhaseStartedAt = _perfNowMs();
+        const safePhaseMetric = { key: 'safe-refinement', label: 'SAFE_REFINEMENT', candidates: 0, osrmEvaluated: 0, shortlisted: 0, finalTried: 0, durationMs: 0 };
+        _blockAheadPerfMetrics.phases.push(safePhaseMetric);
+        _blockAheadPerfMetrics.safe.attempted = true;
+        for (const stage of BLOCK_REROUTE_STAGES) {
+            const stageStartedAt = _perfNowMs();
+            const stageMetric = { key: stage.key, label: stage.label, candidates: 0, osrmEvaluated: 0, shortlisted: 0, finalTried: 0, durationMs: 0 };
+            _blockAheadPerfMetrics.stages.push(stageMetric);
+            const candidateDefs = buildCandidateDefs(stage, 'safe');
+            stageMetric.candidates = candidateDefs.length;
+            safePhaseMetric.candidates += candidateDefs.length;
+            console.log(`[BlockAhead][${stage.label}] candidates:`, candidateDefs.map(c => `${c.side}/${c.offsetM}m/${c.directToDestination ? 'direct' : `rejoin+${c.rejoinOffsetM}`}`));
+
+            const preliminary = await evaluateCandidates(candidateDefs, stage, stageMetric);
+            safePhaseMetric.osrmEvaluated += stageMetric.osrmEvaluated;
+            Object.entries(stageMetric.rejectReasons || {}).forEach(([reason, count]) => {
+                _blockAheadPerfMetrics.safe.rejectReasons[reason] = (_blockAheadPerfMetrics.safe.rejectReasons[reason] || 0) + count;
+            });
+            if (preliminary.length === 0) {
+                stageMetric.durationMs = _perfNowMs() - stageStartedAt;
+                console.warn(`[BlockAhead][${stage.label}] no valid candidates, trying next stage`);
+                console.log(`[BlockAhead][timing][stage] ${stage.label}: ${Math.round(stageMetric.durationMs)}ms`);
+                continue;
+            }
+
+            const shortlistLimit = BLOCK_REROUTE_STAGE_TOP_CANDIDATES[stage.key] || preliminary.length;
+            const shortlisted = preliminary.slice(0, shortlistLimit);
+            stageMetric.shortlisted = shortlisted.length;
+            safePhaseMetric.shortlisted += shortlisted.length;
+            await Promise.all(shortlisted.map(async (candidate) => {
+                const crossingAssessment = await _assessRouteCrossingRisk(candidate.route, stage);
+                candidate.crossingAssessment = crossingAssessment;
+                candidate.assessment = _assessBlockAheadRoute(candidate.route, {
+                    baseRemainingDistance,
+                    bufMid,
+                    overlapRadius,
+                    blockStart,
+                    bypass: candidate.bypass,
+                    rejoin: candidate.rejoin,
+                    thresholds: stage,
+                    crossingAssessment,
+                    corridorMetrics: candidate.corridorMetrics
+                });
+                candidate.score = candidate.preliminaryScore + ((crossingAssessment?.penalty || 0) * (stage.crossingPenaltyMultiplier || 1));
+                console.log(
+                    `[BlockAhead][score-final][${stage.label}] ${candidate.side}/${candidate.offsetM}m/${candidate.directToDestination ? 'direct' : `rejoin+${candidate.rejoinOffsetM}`}: crossingPenalty=${Math.round(crossingAssessment?.penalty || 0)} dangerousCrossings=${crossingAssessment?.dangerousCount || 0} score=${Math.round(candidate.score)}${candidate.assessment?.valid ? '' : ` reject=${(candidate.assessment?.reasons || []).join(',')}`}`
+                );
+            }));
+
+            const scored = shortlisted
+                .filter(r => r.assessment && r.assessment.valid)
+                .sort((a, b) => a.score - b.score);
+
+            if (scored.length === 0) {
+                stageMetric.durationMs = _perfNowMs() - stageStartedAt;
+                console.warn(`[BlockAhead][${stage.label}] no crossing-safe candidates, trying next stage`);
+                console.log(`[BlockAhead][timing][stage] ${stage.label}: ${Math.round(stageMetric.durationMs)}ms`);
+                continue;
+            }
+
+            const stageStatus = await tryScoredCandidates(scored, stage, stageMetric, {
+                finalTryLimit: BLOCK_REROUTE_STAGE_MAX_FINAL_TRIES[stage.key] || scored.length,
+                skipCrossingEvaluation: false
+            });
+            safePhaseMetric.finalTried += stageMetric.finalTried;
+            Object.entries(stageMetric.rejectReasons || {}).forEach(([reason, count]) => {
+                _blockAheadPerfMetrics.safe.rejectReasons[reason] = (_blockAheadPerfMetrics.safe.rejectReasons[reason] || 0) + count;
+            });
+            stageMetric.durationMs = _perfNowMs() - stageStartedAt;
+            console.log(`[BlockAhead][timing][stage] ${stage.label}: ${Math.round(stageMetric.durationMs)}ms candidates=${stageMetric.candidates} osrm=${stageMetric.osrmEvaluated} shortlist=${stageMetric.shortlisted} finalTried=${stageMetric.finalTried}`);
+            if (stageStatus === 'stale') return;
+            if (accepted) break;
+        }
+        safePhaseMetric.durationMs = _perfNowMs() - safePhaseStartedAt;
+        _blockAheadPerfMetrics.safe.accepted = Boolean(accepted);
+        _blockAheadPerfMetrics.safe.rejectReason = _topBlockAheadRejectReason(_blockAheadPerfMetrics.safe.rejectReasons) || (accepted ? null : 'safe-no-valid-route');
+        _blockAheadPerfMetrics.phasePath.push(accepted ? 'SAFE_ACCEPT' : 'SAFE_FAILED');
+        console.log(`[BlockAhead][timing][phase] SAFE_REFINEMENT: ${Math.round(safePhaseMetric.durationMs)}ms candidates=${safePhaseMetric.candidates} osrm=${safePhaseMetric.osrmEvaluated} shortlist=${safePhaseMetric.shortlisted} finalTried=${safePhaseMetric.finalTried}`);
     }
 
     if (!accepted) {
@@ -2326,7 +2662,12 @@ async function blockAheadAndReroute() {
             sawNoChange ? 'info' : 'danger',
             5000
         );
-        _blockAheadLastTiming = { ..._blockAheadPerfMetrics, totalMs: _perfNowMs() - rerouteStartedAt, status: 'failed' };
+        if (sawNoChange) {
+            _noteBlockAheadRejectReason(_blockAheadPerfMetrics.fast, 'no-change');
+            if (_blockAheadPerfMetrics.safe.attempted) _noteBlockAheadRejectReason(_blockAheadPerfMetrics.safe, 'no-change');
+        }
+        const summary = finalizeExecution('failed');
+        _blockAheadLastTiming = { ..._blockAheadPerfMetrics, ...summary, totalMs: summary.totalMs, status: 'failed' };
         console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
         _blockAheadPerfMetrics = null;
         return;
@@ -2338,7 +2679,8 @@ async function blockAheadAndReroute() {
         result.selectedRouteIndex,
         result.routeColors,
         result.formatter,
-        result.transportMode
+        result.transportMode,
+        `block-ahead-final:${candidate.phaseKey || candidate.stage?.key || 'unknown'}`
     );
     console.log(
         `[BlockAhead] best: ${candidate.side}/${candidate.offsetM}m/rejoin+${candidate.rejoinOffsetM} dist=${Math.round(candidate.route.totalDistance)}m overlap=${candidate.assessment.overlap.toFixed(2)} turns=${candidate.turnCount} sharp=${candidate.sharpTurnCount} dangerousCrossings=${candidate.crossingAssessment?.dangerousCount || 0} score=${Math.round(candidate.score)}`
@@ -2401,7 +2743,15 @@ async function blockAheadAndReroute() {
         }
     }
     console.log('[BlockAhead] reroute success seq=' + mySeq);
-    _blockAheadLastTiming = { ..._blockAheadPerfMetrics, totalMs: _perfNowMs() - rerouteStartedAt, status: 'success' };
+    if (!_blockAheadPerfMetrics.safe.attempted) {
+        _blockAheadPerfMetrics.phasePath = ['FAST_ACCEPT'];
+    }
+    if (_blockAheadPerfMetrics.safe.attempted && accepted?.candidate?.stage?.key) {
+        _blockAheadPerfMetrics.safe.accepted = true;
+        _noteBlockAheadRejectReason(_blockAheadPerfMetrics.safe, `accepted:${accepted.candidate.stage.key}`);
+    }
+    const summary = finalizeExecution('success', { acceptedStage: accepted?.candidate?.stage?.key || 'fast' });
+    _blockAheadLastTiming = { ..._blockAheadPerfMetrics, ...summary, totalMs: summary.totalMs, status: 'success' };
     console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
     _blockAheadPerfMetrics = null;
     _clearBlockAheadLayer();

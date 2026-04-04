@@ -301,18 +301,36 @@ test.describe('block ahead reroute regression', () => {
     await seedNav(page);
     await page.evaluate(() => {
       window.__drawRouteToArgs = null;
-      _fetchOsrmRouteForEval = async (waypoints) => ({
-        coordinates: [
-          { lat: currentLocation.lat, lng: currentLocation.lon },
-          { lat: waypoints[1].lat, lng: waypoints[1].lng },
-          { lat: waypoints[2].lat, lng: waypoints[2].lng },
-          { lat: waypoints[3].lat, lng: waypoints[3].lng },
-          { lat: navDestination.lat, lng: navDestination.lon }
-        ],
-        totalDistance: 360,
-        turnCount: 1,
-        sharpTurnCount: 0
-      });
+      window.__evalCallCount = 0;
+      _fetchOsrmRouteForEval = async (waypoints) => {
+        window.__evalCallCount += 1;
+        if (window.__evalCallCount <= 2) {
+          return {
+            coordinates: [
+              { lat: 35.0001, lng: 139.0 },
+              { lat: 35.0007, lng: 139.0 },
+              { lat: 35.0010, lng: 139.0 },
+              { lat: 35.0015, lng: 139.0 },
+              { lat: 35.0040, lng: 139.0 }
+            ],
+            totalDistance: 505,
+            turnCount: 0,
+            sharpTurnCount: 0
+          };
+        }
+        return {
+          coordinates: [
+            { lat: currentLocation.lat, lng: currentLocation.lon },
+            { lat: waypoints[1].lat, lng: waypoints[1].lng },
+            { lat: waypoints[2].lat, lng: waypoints[2].lng },
+            { lat: waypoints[3].lat, lng: waypoints[3].lng },
+            { lat: navDestination.lat, lng: navDestination.lon }
+          ],
+          totalDistance: 360,
+          turnCount: 1,
+          sharpTurnCount: 0
+        };
+      };
       _assessRouteCrossingRisk = async (routeLike) => {
         const hasRightBypass = routeLike.coordinates.some(point => (point.lng ?? point.lon) > 139.0);
         return hasRightBypass
@@ -536,12 +554,30 @@ test.describe('block ahead reroute regression', () => {
     await seedNav(page);
     await page.evaluate(() => {
       window.__crossingAssessCount = 0;
-      _fetchOsrmRouteForEval = async (waypoints) => ({
-        coordinates: waypoints.map(wp => ({ lat: wp.lat, lng: wp.lng ?? wp.lon })),
-        totalDistance: 350 + Math.abs((waypoints[2].lng ?? 139.0) - 139.0) * 10000,
-        turnCount: 1,
-        sharpTurnCount: 0
-      });
+      window.__evalCallCount = 0;
+      _fetchOsrmRouteForEval = async (waypoints) => {
+        window.__evalCallCount += 1;
+        if (window.__evalCallCount <= 2) {
+          return {
+            coordinates: [
+              { lat: 35.0001, lng: 139.0 },
+              { lat: 35.0007, lng: 139.0 },
+              { lat: 35.0010, lng: 139.0 },
+              { lat: 35.0014, lng: 139.0 },
+              { lat: 35.0040, lng: 139.0 }
+            ],
+            totalDistance: 505,
+            turnCount: 0,
+            sharpTurnCount: 0
+          };
+        }
+        return {
+          coordinates: waypoints.map(wp => ({ lat: wp.lat, lng: wp.lng ?? wp.lon })),
+          totalDistance: 350 + Math.abs((waypoints[2].lng ?? 139.0) - 139.0) * 10000,
+          turnCount: 1,
+          sharpTurnCount: 0
+        };
+      };
       _assessRouteCrossingRisk = async (routeLike) => {
         window.__crossingAssessCount += 1;
         const dangerous = routeLike.coordinates.some(point => (point.lng ?? point.lon) < 139.0) ? 1 : 0;
@@ -573,16 +609,210 @@ test.describe('block ahead reroute regression', () => {
     await page.evaluate(() => blockAheadAndReroute());
     const state = await page.evaluate(() => ({
       crossingAssessCount: window.__crossingAssessCount,
-      timing: _blockAheadLastTiming
+      timing: _blockAheadLastTiming,
+      recentSummary: window._blockAheadRecentSummaries?.slice(-1)[0] || null,
+      aggregate: window._blockAheadAggregateMetrics || null
     }));
     expect(state.timing.status).toBe('success');
     expect(state.timing.totalMs).toBeGreaterThanOrEqual(0);
     expect(state.timing.stages.length).toBeGreaterThan(0);
+    expect(state.timing.phases.length).toBe(2);
     expect(state.timing.stages[0].shortlisted).toBeLessThanOrEqual(state.timing.stages[0].candidates);
-    expect(state.timing.stages[0].candidates).toBeLessThanOrEqual(4);
-    expect(state.timing.stages[0].shortlisted).toBeLessThanOrEqual(3);
-    expect(state.timing.stages[0].finalTried).toBeLessThanOrEqual(2);
+    expect(state.timing.stages[0].candidates).toBeLessThanOrEqual(1);
+    expect(state.timing.stages[0].shortlisted).toBeLessThanOrEqual(1);
+    expect(state.timing.stages[0].finalTried).toBeLessThanOrEqual(1);
     expect(state.crossingAssessCount).toBeGreaterThan(0);
+    expect(state.recentSummary).toBeTruthy();
+    expect(typeof state.recentSummary.phasePath).toBe('string');
+    expect(state.aggregate.totalRuns).toBeGreaterThan(0);
+  });
+
+  test('FAST_REROUTE で十分なら crossing 評価なしで早期採用する', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(() => {
+      window.__crossingAssessCount = 0;
+      const origAssess = _assessBlockAheadRoute;
+      _assessBlockAheadRoute = (routeLike, context) => {
+        const assessed = origAssess(routeLike, context);
+        return {
+          ...assessed,
+          valid: true,
+          reasons: [],
+          blockedMeanDeviationM: 24,
+          blockedSamePathRatio: 0.32,
+          blockAreaReentryCount: 0,
+          extraDistance: 90,
+          distanceRatio: 1.18
+        };
+      };
+      _isMeaningfullyDifferentReroute = () => ({
+        meaningful: true,
+        overallMeanDeviationM: 28,
+        blockedMeanDeviationM: 24,
+        blockedSamePathRatio: 0.32,
+        blockAreaReentryCount: 0,
+        distanceDelta: 90
+      });
+      _fetchOsrmRouteForEval = async (waypoints) => ({
+        coordinates: [
+          { lat: currentLocation.lat, lng: currentLocation.lon },
+          { lat: waypoints[1].lat, lng: waypoints[1].lng },
+          { lat: 35.0012, lng: 139.0009 },
+          { lat: waypoints[3].lat, lng: waypoints[3].lng },
+          { lat: navDestination.lat, lng: navDestination.lon }
+        ],
+        totalDistance: 430,
+        turnCount: 1,
+        sharpTurnCount: 0
+      });
+      _assessRouteCrossingRisk = async () => {
+        window.__crossingAssessCount += 1;
+        return {
+          available: true,
+          crossings: [],
+          dangerousCount: 0,
+          uncontrolledCount: 0,
+          penalty: 0,
+          warningText: ''
+        };
+      };
+      drawRouteTo = (_lat, _lon, options = {}) => {
+        options.onRoutesAvailable({
+          routes: [{
+            coordinates: [
+              { lat: currentLocation.lat, lng: currentLocation.lon },
+              { lat: 35.00045, lng: 139.0 },
+              { lat: 35.00105, lng: 139.00095 },
+              { lat: 35.0025, lng: 139.00095 },
+              { lat: navDestination.lat, lng: navDestination.lon }
+            ],
+            summary: { totalDistance: 430, totalTime: 320 },
+            instructions: [{ text: '右へ迂回する', distance: 90, index: 1 }]
+          }],
+          selectedRouteIndex: 0,
+          routeColors: ['#ff9800'],
+          formatter: { formatInstruction: i => i.text, formatDistance: d => `${Math.round(d)}m` },
+          transportMode: 'walking',
+          selectRouteIndex: () => {}
+        });
+        return true;
+      };
+    });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    const state = await page.evaluate(() => ({
+      timing: _blockAheadLastTiming,
+      crossingAssessCount: window.__crossingAssessCount,
+      displayPipeline: navActiveRoute._displayPipeline,
+      recentSummary: window._blockAheadRecentSummaries?.slice(-1)[0] || null
+    }));
+    expect(state.timing.status).toBe('success');
+    expect(state.timing.phases[0].label).toBe('FAST_REROUTE');
+    expect(state.timing.phases.length).toBe(1);
+    expect(state.crossingAssessCount).toBe(0);
+    expect(state.recentSummary.fast.accepted).toBe(true);
+    expect(state.recentSummary.safe.attempted).toBe(false);
+    expect(state.displayPipeline.context).toBe('block-ahead-final:fast');
+    expect(state.displayPipeline.stages.map(s => s.stage)).toEqual([
+      'materialize-anchors',
+      'reconstruct-main-path',
+      'merge-nearby-anchors',
+      'merge-duplicate-segments',
+      'remove-loops-and-spurs',
+      'simplify-geometry',
+      'apply-initial-clarity'
+    ]);
+  });
+
+  test('FAST_REROUTE が不十分なら SAFE_REFINEMENT にフォールバックする', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(() => {
+      window.__crossingAssessCount = 0;
+      window.__evalCallCount = 0;
+      _fetchOsrmRouteForEval = async (waypoints) => {
+        window.__evalCallCount += 1;
+        const bypass = waypoints[2];
+        if (window.__evalCallCount <= 2) {
+          return {
+            coordinates: [
+              { lat: 35.0001, lng: 139.0 },
+              { lat: 35.0007, lng: 139.0 },
+              { lat: 35.0010, lng: 139.0 },
+              { lat: 35.0014, lng: 139.0 },
+              { lat: 35.0040, lng: 139.0 }
+            ],
+            totalDistance: 510,
+            turnCount: 0,
+            sharpTurnCount: 0
+          };
+        }
+        return {
+          coordinates: [
+            { lat: currentLocation.lat, lng: currentLocation.lon },
+            { lat: waypoints[1].lat, lng: waypoints[1].lng },
+            { lat: bypass.lat, lng: bypass.lng },
+            { lat: waypoints[3].lat, lng: waypoints[3].lng },
+            { lat: navDestination.lat, lng: navDestination.lon }
+          ],
+          totalDistance: 650,
+          turnCount: 1,
+          sharpTurnCount: 0
+        };
+      };
+      _assessRouteCrossingRisk = async () => {
+        window.__crossingAssessCount += 1;
+        return {
+          available: true,
+          crossings: [],
+          dangerousCount: 0,
+          uncontrolledCount: 0,
+          penalty: 0,
+          warningText: ''
+        };
+      };
+      drawRouteTo = (_lat, _lon, options = {}) => {
+        options.onRoutesAvailable({
+          routes: [window.__buildWaypointRoute(currentLocation, options.extraWaypoints || [], navDestination, {
+            totalDistance: 650,
+            totalTime: 510
+          })],
+          selectedRouteIndex: 0,
+          routeColors: ['#ff9800'],
+          formatter: { formatInstruction: i => i.text, formatDistance: d => `${Math.round(d)}m` },
+          transportMode: 'walking',
+          selectRouteIndex: () => {}
+        });
+        return true;
+      };
+    });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    const state = await page.evaluate(() => ({
+      timing: _blockAheadLastTiming,
+      crossingAssessCount: window.__crossingAssessCount,
+      displayPipeline: navActiveRoute._displayPipeline,
+      recentSummary: window._blockAheadRecentSummaries?.slice(-1)[0] || null
+    }));
+    expect(state.timing.status).toBe('success');
+    expect(state.timing.phases.length).toBe(2);
+    expect(state.timing.phases[0].label).toBe('FAST_REROUTE');
+    expect(state.timing.phases[1].label).toBe('SAFE_REFINEMENT');
+    expect(state.crossingAssessCount).toBeGreaterThan(0);
+    expect(state.recentSummary.fast.accepted).toBe(false);
+    expect(state.recentSummary.safe.attempted).toBe(true);
+    expect(state.recentSummary.safe.accepted).toBe(true);
+    expect(state.displayPipeline.context.startsWith('block-ahead-final:')).toBe(true);
+    expect(state.displayPipeline.stages.map(s => s.stage)).toEqual([
+      'materialize-anchors',
+      'reconstruct-main-path',
+      'merge-nearby-anchors',
+      'merge-duplicate-segments',
+      'remove-loops-and-spurs',
+      'simplify-geometry',
+      'apply-initial-clarity'
+    ]);
   });
 
   test('確定後の表示用 route は短い初動セグメントをまとめて明確な最初の案内を生成する', async ({ page }) => {
