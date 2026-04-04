@@ -368,6 +368,13 @@ test.describe('block ahead reroute regression', () => {
     await bootstrap(page);
     await seedNav(page);
     await page.evaluate(() => {
+      const origAssess = _assessBlockAheadRoute;
+      _assessBlockAheadRoute = (routeLike, context) => {
+        if (context?.thresholds?.key === 'fast') {
+          return { ...origAssess(routeLike, context), valid: false, reasons: ['force-safe-for-crossing-test'] };
+        }
+        return origAssess(routeLike, context);
+      };
       _fetchOsrmRouteForEval = async (waypoints) => ({
         coordinates: waypoints.map(wp => ({ lat: wp.lat, lng: wp.lng ?? wp.lon })),
         totalDistance: 980,
@@ -411,6 +418,13 @@ test.describe('block ahead reroute regression', () => {
     await bootstrap(page);
     await seedNav(page);
     await page.evaluate(() => {
+      const origAssess = _assessBlockAheadRoute;
+      _assessBlockAheadRoute = (routeLike, context) => {
+        if (context?.thresholds?.key === 'fast') {
+          return { ...origAssess(routeLike, context), valid: false, reasons: ['force-safe-for-crossing-warning-test'] };
+        }
+        return origAssess(routeLike, context);
+      };
       _fetchOsrmRouteForEval = async (waypoints) => ({
         coordinates: [
           { lat: currentLocation.lat, lng: currentLocation.lon },
@@ -1108,6 +1122,13 @@ test.describe('block ahead reroute regression', () => {
     await bootstrap(page);
     await seedNav(page);
     await page.evaluate(() => {
+      const origAssess = _assessBlockAheadRoute;
+      _assessBlockAheadRoute = (routeLike, context) => {
+        if (context?.thresholds?.key === 'fast') {
+          return { ...origAssess(routeLike, context), valid: false, reasons: ['force-safe-for-turn-scoring-test'] };
+        }
+        return origAssess(routeLike, context);
+      };
       window.__drawRouteToArgs = null;
       _fetchOsrmRouteForEval = async (waypoints) => {
         const bypass = waypoints[2];
@@ -1178,6 +1199,13 @@ test.describe('block ahead reroute regression', () => {
     await bootstrap(page);
     await seedNav(page);
     await page.evaluate(() => {
+      const origAssess = _assessBlockAheadRoute;
+      _assessBlockAheadRoute = (routeLike, context) => {
+        if (context?.thresholds?.key === 'fast') {
+          return { ...origAssess(routeLike, context), valid: false, reasons: ['force-safe-for-initial-clarity-test'] };
+        }
+        return origAssess(routeLike, context);
+      };
       window.__drawRouteToArgs = null;
       _fetchOsrmRouteForEval = async (waypoints) => {
         const bypass = waypoints[2];
@@ -1442,6 +1470,13 @@ test.describe('block ahead reroute regression', () => {
     const before = await page.evaluate(() => JSON.stringify(navActiveRoute));
 
     await page.evaluate(() => {
+      const origAssess = _assessBlockAheadRoute;
+      _assessBlockAheadRoute = (routeLike, context) => {
+        if (context?.thresholds?.key === 'fast') {
+          return { ...origAssess(routeLike, context), valid: false, reasons: ['force-safe-for-final-initial-turn-test'] };
+        }
+        return origAssess(routeLike, context);
+      };
       window.__drawAttempts = 0;
       _fetchOsrmRouteForEval = async (waypoints) => ({
         coordinates: [
@@ -1558,6 +1593,13 @@ test.describe('block ahead reroute regression', () => {
     const before = await page.evaluate(() => JSON.stringify(navActiveRoute));
 
     await page.evaluate(() => {
+      const origAssess = _assessBlockAheadRoute;
+      _assessBlockAheadRoute = (routeLike, context) => {
+        if (context?.thresholds?.key === 'fast') {
+          return { ...origAssess(routeLike, context), valid: false, reasons: ['force-safe-for-spur-test'] };
+        }
+        return origAssess(routeLike, context);
+      };
       window.__drawAttempts = 0;
       _fetchOsrmRouteForEval = async (waypoints) => ({
         coordinates: [

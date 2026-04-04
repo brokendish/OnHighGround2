@@ -93,21 +93,22 @@ const BLOCK_FAST_REROUTE_CONFIG = {
     maxCandidates: 1,
     allowDirectToDestination: false,
     overlapReject: BLOCK_OVERLAP_REJECT,
-    maxExtraDistanceM: 600,
-    maxDistanceRatio: 2.2,
-    maxLocalDetourSpanM: 600,
-    maxRejoinDeviationM: 70,
+    maxExtraDistanceM: 1200,
+    maxDistanceRatio: 3.2,
+    maxLocalDetourSpanM: 1200,
+    maxRejoinDeviationM: 100,
     requireRejoin: true,
     rejectDangerousCrossings: false,
     crossingPenaltyMultiplier: 0,
-    sameCorridorRejectRatio: 0.90,
-    minBlockedDeviationM: 8,
-    rejectBlockedAreaReentry: true,
+    sameCorridorRejectRatio: 0.98,
+    minBlockedDeviationM: 4,
+    rejectBlockedAreaReentry: false,
+    maxAllowedBlockedAreaReentryCount: 1,
     skipInitialMovementChecks: true,
-    earlyAcceptBlockedDeviationM: 20,
-    earlyAcceptSamePathRatio: 0.70,
-    earlyAcceptExtraDistanceM: 400,
-    earlyAcceptDistanceRatio: 1.8
+    earlyAcceptBlockedDeviationM: 12,
+    earlyAcceptSamePathRatio: 0.82,
+    earlyAcceptExtraDistanceM: 700,
+    earlyAcceptDistanceRatio: 2.4
 };
 const BLOCK_REROUTE_STAGE_TOP_CANDIDATES = {
     local: 3,
@@ -1453,7 +1454,10 @@ function _assessBlockAheadRoute(routeLike, context) {
                 && corridorMetrics.blockedMeanDeviationM < minBlockedDeviationM) {
             reasons.push(`same-corridor=${corridorMetrics.blockedSamePathRatio.toFixed(2)}`);
         }
-        if (thresholds.rejectBlockedAreaReentry && corridorMetrics.blockAreaReentryCount > 0) {
+        const maxAllowedBlockedAreaReentryCount = thresholds.rejectBlockedAreaReentry
+            ? (thresholds.maxAllowedBlockedAreaReentryCount ?? 0)
+            : (thresholds.maxAllowedBlockedAreaReentryCount ?? Infinity);
+        if (corridorMetrics.blockAreaReentryCount > maxAllowedBlockedAreaReentryCount) {
             reasons.push(`block-reentry=${corridorMetrics.blockAreaReentryCount}`);
         }
     }
