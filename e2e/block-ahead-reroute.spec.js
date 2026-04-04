@@ -516,6 +516,58 @@ test.describe('block ahead reroute regression', () => {
     expect(state.timing.attemptedStages).toEqual(['stage1', 'stage2']);
   });
 
+  test('stage1/stage2 に branch-like な有効 alternative があれば escape fallback に入る前に採用する', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    await page.evaluate(({ blockedRoute }) => {
+      userDestination = { lat: 35.004, lon: 139.0, name: 'Test Destination' };
+      const branchAlt = {
+        coordinates: [
+          { lat: 35.0001, lng: 139.0 },
+          { lat: 35.0010, lng: 139.0045 },
+          { lat: 35.0030, lng: 139.0045 },
+          { lat: 35.0040, lng: 139.0 }
+        ],
+        summary: { totalDistance: 430, totalTime: 320 },
+        instructions: [{ text: '右の脇道へ進む', distance: 90, latLng: { lat: 35.0010, lng: 139.0045 } }],
+        totalDistance: 430,
+        totalTime: 320,
+        turnCount: 1
+      };
+      window.__escapeLegCalled = 0;
+      window.__escapeCalled = 0;
+      _fetchOsrmAlternatives = async () => ([
+        { coordinates: blockedRoute, totalDistance: 320, totalTime: 240, turnCount: 0 },
+        branchAlt
+      ]);
+      _generateEscapeLegPoints = async () => {
+        window.__escapeLegCalled += 1;
+        return [];
+      };
+      _generateEscapePoints = async () => {
+        window.__escapeCalled += 1;
+        return [];
+      };
+    }, { blockedRoute: BLOCKED_ROUTE });
+
+    await page.evaluate(() => blockAheadAndReroute());
+    await expect(page.locator('#navBanner')).toContainText('迂回ルートに切り替えました');
+
+    const state = await page.evaluate(() => ({
+      acceptedStage: _blockAheadLastTiming?.acceptedStage,
+      attemptedStages: _blockAheadLastTiming?.attemptedStages,
+      totalDistance: navActiveRoute.summary.totalDistance,
+      escapeLegCalled: window.__escapeLegCalled,
+      escapeCalled: window.__escapeCalled
+    }));
+
+    expect(state.acceptedStage).toBe('stage1');
+    expect(state.attemptedStages).toEqual(['stage1']);
+    expect(state.totalDistance).toBe(430);
+    expect(state.escapeLegCalled).toBe(0);
+    expect(state.escapeCalled).toBe(0);
+  });
+
   test('stage2/stage3 の OSRM alternatives パラメータは 3 に固定される', async ({ page }) => {
     await bootstrap(page);
     const state = await page.evaluate(async () => {

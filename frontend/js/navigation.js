@@ -39,6 +39,10 @@ const BLOCK_SAMPLE_STEP_METERS  = 20;   // 前方コリドー中心線サンプ�
 const BLOCK_INTERSECTION_TURN_DEG = 25; // 交差点候補とみなす進路変化角
 const BLOCK_INTERSECTION_BUFFER_METERS = 40; // 交差点付近の追加ブロック半径
 const BLOCK_OSRM_ALTERNATIVES = 3; // OSRM alternatives は 3 までに固定（4/5 は 400 を返す環境がある）
+const BLOCK_BRANCH_MIN_BEARING_DIFF_DEG = 20;
+const BLOCK_BRANCH_MIN_LATERAL_DIVERGENCE_M = 16;
+const BLOCK_BRANCH_NEAR_PENALTY_STRICT_MAX = 0.22;
+const BLOCK_BRANCH_NEAR_PENALTY_OVERLAP_EPS = 0.01;
 const BLOCK_STAGE_CONFIGS = [
     {
         key: 'stage1',
@@ -1371,6 +1375,41 @@ function _assessEscapeNearPenaltyMode(blockedStats, overlap) {
     };
 }
 
+function _assessBranchNearPenaltyMode(blockedStats, overlap) {
+    const strict = Number(blockedStats?.strictOverlapRatio || 0);
+    const near = Number(blockedStats?.nearBlockedRatio || 0);
+    const overlapValue = Number(overlap || 0);
+    const shouldUseNearPenaltyMode = overlapValue <= BLOCK_BRANCH_NEAR_PENALTY_OVERLAP_EPS
+        && strict < BLOCK_BRANCH_NEAR_PENALTY_STRICT_MAX;
+    const actualIntersection = overlapValue > BLOCK_BRANCH_NEAR_PENALTY_OVERLAP_EPS
+        || strict >= BLOCK_BRANCH_NEAR_PENALTY_STRICT_MAX;
+    const eligible = shouldUseNearPenaltyMode && !actualIntersection;
+    const penalty = eligible ? ((strict * 700) + (near * 350)) : Infinity;
+    return {
+        eligible,
+        penalty,
+        strict,
+        near,
+        overlap: overlapValue,
+        actualIntersection,
+        shouldUseNearPenaltyMode
+    };
+}
+
+function _assessBranchLikeRoute(route, originalCoords) {
+    const coords = Array.isArray(route?.coordinates) ? route.coordinates : [];
+    const origin = Array.isArray(originalCoords) && originalCoords.length > 0 ? originalCoords[0] : null;
+    const forwardRef = Array.isArray(originalCoords) && originalCoords.length > 1 ? originalCoords[Math.min(1, originalCoords.length - 1)] : null;
+    const forwardBearing = origin && forwardRef ? _segmentBearingDeg(origin, forwardRef) : 0;
+    const branchAnchor = coords.find((point, idx) => idx > 0 && _segmentLengthMeters(origin, point) >= 20) || coords[coords.length - 1];
+    const branchBearing = origin && branchAnchor ? _segmentBearingDeg(origin, branchAnchor) : 0;
+    const bearingDiff = _bearingDiffDeg(forwardBearing, branchBearing);
+    const lateralDivergenceM = branchAnchor ? _distancePointToRoute(branchAnchor, originalCoords) : 0;
+    const branchLike = bearingDiff >= BLOCK_BRANCH_MIN_BEARING_DIFF_DEG
+        && lateralDivergenceM >= BLOCK_BRANCH_MIN_LATERAL_DIVERGENCE_M;
+    return { branchLike, bearingDiff, lateralDivergenceM };
+}
+
 function _logEscapeNearPenaltyDecision(prefix, meta = {}) {
     const nearPenaltyMode = meta.nearPenaltyMode || {};
     const rejectReason = meta.rejectReason || 'none';
@@ -2218,13 +2257,29 @@ async function blockAheadAndReroute() {
         const stageNonBlocked = stageAlternatives.filter(route => {
             const blockedStats = _routeBlockedAreaStats(route.coordinates, stageBlockedArea);
             const overlap = _calcBlockOverlapRatio(route.coordinates, stageBufMid.lat, stageBufMid.lng, stageOverlapRadius);
+            const branchSignals = _assessBranchLikeRoute(route, coords);
+            const branchNearPenaltyMode = _assessBranchNearPenaltyMode(blockedStats, overlap);
+            const branchFastEligible = (stage.key === 'stage1' || stage.key === 'stage2')
+                && branchSignals.branchLike
+                && !branchNearPenaltyMode.actualIntersection
+                && (!blockedStats.nearBlocked || branchNearPenaltyMode.eligible);
             console.log(
                 `[BlockAhead][${stage.key}][alt] dist=${Math.round(route.totalDistance)}m overlap=${overlap.toFixed(2)} ` +
                 `strict=${blockedStats.strictOverlapRatio.toFixed(2)} near=${blockedStats.nearBlockedRatio.toFixed(2)} ` +
-                `minDist=${Math.round(blockedStats.minDistanceToAreaM)}m`
+                `minDist=${Math.round(blockedStats.minDistanceToAreaM)}m branchLike=${branchSignals.branchLike} ` +
+                `bearingDiff=${Math.round(branchSignals.bearingDiff)} lateral=${Math.round(branchSignals.lateralDivergenceM)}m`
             );
             route.__blockedStats = blockedStats;
-            return !blockedStats.intersects && !blockedStats.nearBlocked && overlap < BLOCK_OVERLAP_REJECT;
+            route.__overlap = overlap;
+            route.__branchLike = branchSignals.branchLike;
+            route.__branchBearingDiff = branchSignals.bearingDiff;
+            route.__branchLateralDivergenceM = branchSignals.lateralDivergenceM;
+            route.__branchNearPenaltyMode = branchNearPenaltyMode.eligible;
+            route.__branchPenalty = branchNearPenaltyMode.penalty;
+            route.__branchFastEligible = branchFastEligible;
+            return !branchNearPenaltyMode.actualIntersection
+                && overlap < BLOCK_OVERLAP_REJECT
+                && (!blockedStats.nearBlocked || branchNearPenaltyMode.eligible);
         });
 
         const stageMeaningful = stageNonBlocked
@@ -2239,20 +2294,51 @@ async function blockAheadAndReroute() {
             })
             .sort((a, b) => a.totalDistance - b.totalDistance);
 
+        const branchFastPathCandidates = (stage.key === 'stage1' || stage.key === 'stage2')
+            ? stageMeaningful
+                .filter(route => route.__branchFastEligible)
+                .sort((a, b) => {
+                    const overlapDiff = Number(a.__overlap || 0) - Number(b.__overlap || 0);
+                    if (overlapDiff !== 0) return overlapDiff;
+                    const penaltyDiff = Number(a.__branchPenalty || 0) - Number(b.__branchPenalty || 0);
+                    if (penaltyDiff !== 0) return penaltyDiff;
+                    const lateralDiff = Number(b.__branchLateralDivergenceM || 0) - Number(a.__branchLateralDivergenceM || 0);
+                    if (lateralDiff !== 0) return lateralDiff;
+                    const bearingDiff = Number(b.__branchBearingDiff || 0) - Number(a.__branchBearingDiff || 0);
+                    if (bearingDiff !== 0) return bearingDiff;
+                    return a.totalDistance - b.totalDistance;
+                })
+            : [];
+
         const stageDurationMs = _perfNowMs() - stageStartedAt;
         const stageSummary = {
             key: stage.key,
             durationMs: stageDurationMs,
             alternatives: stageAlternatives.length,
             nonBlocked: stageNonBlocked.length,
-            meaningful: stageMeaningful.length
+            meaningful: stageMeaningful.length,
+            branchFastPathCandidates: branchFastPathCandidates.length
         };
         if (stageAlternatives.length === 0) stageSummary.failureReason = `${stage.key}-route-empty`;
         _blockAheadPerfMetrics.stages.push(stageSummary);
         console.log(
             `[BlockAhead][${stage.key}] alternatives=${stageAlternatives.length} nonBlocked=${stageNonBlocked.length} ` +
-            `meaningful=${stageMeaningful.length} ${Math.round(stageDurationMs)}ms`
+            `meaningful=${stageMeaningful.length} branch-fast-path=${branchFastPathCandidates.length} ${Math.round(stageDurationMs)}ms`
         );
+        if (stage.key === 'stage1' || stage.key === 'stage2') {
+            if (branchFastPathCandidates.length > 0) {
+                const top = branchFastPathCandidates[0];
+                console.log(
+                    `[BlockAhead][${stage.key}] branch-fast-path accepted ` +
+                    `dist=${Math.round(top.totalDistance)}m overlap=${Number(top.__overlap || 0).toFixed(2)} ` +
+                    `strict=${Number(top.__blockedStats?.strictOverlapRatio || 0).toFixed(2)} ` +
+                    `near=${Number(top.__blockedStats?.nearBlockedRatio || 0).toFixed(2)} ` +
+                    `branchLike=${!!top.__branchLike}`
+                );
+            } else {
+                console.log(`[BlockAhead][${stage.key}] branch-fast-path none -> continue to escape fallback`);
+            }
+        }
 
         lastStageResult = {
             stage,
@@ -2261,8 +2347,17 @@ async function blockAheadAndReroute() {
             overlapRadius: stageOverlapRadius,
             alternatives: stageAlternatives,
             nonBlocked: stageNonBlocked,
-            meaningful: stageMeaningful
+            meaningful: stageMeaningful,
+            branchFastPathCandidates
         };
+        if (branchFastPathCandidates.length > 0) {
+            selectedStage = stage;
+            activeBlockedArea = stageBlockedArea;
+            alternatives = stageAlternatives;
+            nonBlocked = stageNonBlocked;
+            meaningful = branchFastPathCandidates;
+            break;
+        }
         if (stageMeaningful.length > 0) {
             selectedStage = stage;
             activeBlockedArea = stageBlockedArea;
