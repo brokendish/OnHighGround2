@@ -22,6 +22,9 @@ from geometry_utils import calc_reachable_safe_area, SHAPELY_AVAILABLE
 from hazard_engine import HazardEngine
 from app.api.hazards import router as hazards_router
 from app.api.admin import router as admin_router
+from app.api.admin_datasets import router as admin_datasets_router
+from app.api.admin_datasets import jobs_router as admin_jobs_router
+from app.services.job_manager import get_job_manager
 
 # 設定ファイル読み込み
 BASE_DIR = Path(__file__).resolve().parent
@@ -155,6 +158,14 @@ app.add_middleware(
 )
 app.include_router(hazards_router)
 app.include_router(admin_router)
+app.include_router(admin_datasets_router)
+app.include_router(admin_jobs_router)
+
+
+@app.on_event("startup")
+async def _startup():
+    """起動時: queued/running のまま残った古いジョブを failed にリセットする。"""
+    get_job_manager().cleanup_stale_running()
 
 # 標高サービスの初期化
 # [Phase 1] data_runtime/backend/elevation/ を優先参照。

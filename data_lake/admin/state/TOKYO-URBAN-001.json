@@ -1,0 +1,20 @@
+{
+  "dataset_id": "TOKYO-URBAN-001",
+  "current_file_name": null,
+  "current_file_size": null,
+  "current_raw_path": null,
+  "current_normalized_path": null,
+  "current_validated_path": null,
+  "current_runtime_path": null,
+  "storage_status": "none",
+  "normalize_status": "not_required",
+  "validation_status": "not_started",
+  "deploy_status": "not_deployed",
+  "osrm_rebuild_status": "not_applicable",
+  "is_deployable": false,
+  "updated_at": null,
+  "deployed_at": null,
+  "last_job_id": null,
+  "backup_path": null,
+  "backup_at": null
+}

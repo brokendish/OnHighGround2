@@ -1,0 +1,20 @@
+{
+  "dataset_id": "TOKYO-SURGE-001",
+  "current_file_name": "tokyo_storm_surge.geojson",
+  "current_file_size": 49958380,
+  "current_raw_path": "/Users/hideki/Documents/GitHub/OnHighGround2/data_lake/raw/tokyo/storm_surge/A49-20_13.geojson",
+  "current_normalized_path": "/Users/hideki/Documents/GitHub/OnHighGround2/data_lake/normalized/tokyo/storm_surge/tokyo_storm_surge.geojson",
+  "current_validated_path": null,
+  "current_runtime_path": null,
+  "storage_status": "stored",
+  "normalize_status": "success",
+  "validation_status": "not_started",
+  "deploy_status": "not_deployed",
+  "osrm_rebuild_status": "not_applicable",
+  "is_deployable": false,
+  "updated_at": "2026-03-15T07:51:34.790712",
+  "deployed_at": null,
+  "last_job_id": null,
+  "backup_path": null,
+  "backup_at": null
+}

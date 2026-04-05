@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>データ管理 — OnHighGround2</title>
+  <link rel="stylesheet" href="/admin/datasets.css">
+</head>
+<body>
+
+<!-- ヘッダー -->
+<header class="admin-header">
+  <div>
+    <h1>OnHighGround2 — データ運用管理</h1>
+    <div class="subtitle">外部データの更新・整形・確認・反映を管理します</div>
+  </div>
+  <div class="header-links">
+    <a href="/admin/hazards.html">ハザードレイヤー状態</a>
+    <a href="/">← メインマップへ</a>
+  </div>
+</header>
+
+<div class="admin-body">
+
+  <!-- 通知バー -->
+  <div id="notice-bar" class="notice-bar"></div>
+
+  <!-- フィルターバー -->
+  <div class="filter-bar">
+    <label>地域：</label>
+    <select id="region-filter">
+      <option value="">すべての地域</option>
+      <option value="tokyo">東京都</option>
+    </select>
+    <label style="margin-left:12px">種別：</label>
+    <select id="category-filter">
+      <option value="">すべて</option>
+      <option value="dem">標高</option>
+      <option value="flood">洪水</option>
+      <option value="tsunami">津波</option>
+      <option value="storm_surge">高潮</option>
+      <option value="urban_flood">内水氾濫</option>
+      <option value="shelter">避難場所</option>
+      <option value="boundary">行政境界</option>
+      <option value="osm">道路ネットワーク</option>
+    </select>
+    <div class="auto-refresh-indicator" id="auto-refresh-indicator" style="margin-left:auto">
+      <div class="dot-pulse"></div>
+      <span>自動更新中</span>
+    </div>
+    <button class="refresh-btn" onclick="loadDatasets()">今すぐ更新</button>
+  </div>
+
+  <!-- データセット一覧 -->
+  <div class="table-card">
+    <div class="table-scroll">
+      <table class="dataset-table">
+        <thead>
+          <tr>
+            <th>地域</th>
+            <th>データセットID</th>
+            <th>データ名</th>
+            <th>説明</th>
+            <th>影響範囲</th>
+            <th>現在のファイル</th>
+            <th>最終更新</th>
+            <th>保管状態</th>
+            <th>整形</th>
+            <th>内容確認</th>
+            <th>反映状態</th>
+            <th>OSRM</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="datasets-tbody">
+          <tr><td colspan="13" style="text-align:center;padding:30px;color:#94a3b8">
+            <div class="spinner"></div> 読み込み中...
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 詳細パネル -->
+  <div id="detail-panel">
+    <div class="detail-header">
+      <h2 id="detail-title">データセット詳細</h2>
+      <button class="close-btn" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-body">
+      <div>
+        <div class="detail-section">
+          <h3>基本情報</h3>
+          <div id="detail-info"></div>
+        </div>
+        <div class="detail-section" style="margin-top:16px">
+          <h3>現在の状態</h3>
+          <div id="detail-status"></div>
+        </div>
+        <div class="detail-section" id="detail-error-section" style="margin-top:16px;display:none">
+          <h3>エラー情報</h3>
+          <div id="detail-error"></div>
+        </div>
+      </div>
+      <div>
+        <div class="detail-section">
+          <h3>最新ジョブログ</h3>
+          <div id="detail-log-controls" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span id="detail-log-job-id" style="font-family:monospace;font-size:11px;color:#94a3b8"></span>
+            <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px" onclick="toggleDetailAutoRefresh()">
+              <span id="detail-auto-label">自動更新 ON</span>
+            </button>
+          </div>
+          <div class="log-area" id="detail-log-area">ログなし</div>
+        </div>
+        <div class="detail-section" style="margin-top:16px">
+          <h3>操作履歴</h3>
+          <div id="detail-history" style="font-size:12px;max-height:160px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /admin-body -->
+
+<!-- ────────────────────────────────────────────────────── -->
+<!-- 更新モーダル -->
+<div class="modal-overlay" id="update-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>データを更新する</h2>
+      <button class="modal-close" onclick="closeUpdateModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-row">
+        <div class="modal-info-label">データ名</div>
+        <div class="modal-info-value" id="um-name">—</div>
+      </div>
+      <div class="modal-info-row">
+        <div class="modal-info-label">説明</div>
+        <div class="modal-info-value" style="color:#475569" id="um-desc">—</div>
+      </div>
+      <div class="modal-info-row">
+        <div class="modal-info-label">影響範囲</div>
+        <div class="modal-info-value" style="color:#6366f1;font-size:12px" id="um-scope">—</div>
+      </div>
+      <div class="modal-info-row">
+        <div class="modal-info-label">現在のファイル</div>
+        <div class="modal-info-value" id="um-current">なし</div>
+      </div>
+      <div class="modal-info-row">
+        <div class="modal-info-label">対応形式</div>
+        <div class="modal-info-value" id="um-exts">—</div>
+      </div>
+      <hr class="modal-divider">
+
+      <!-- 投入方式タブ -->
+      <div class="input-tabs" id="input-tabs"></div>
+
+      <!-- tab: upload -->
+      <div class="tab-panel" id="tab-upload">
+        <div class="upload-zone" id="upload-zone"
+             onclick="document.getElementById('upload-input').click()"
+             ondragover="event.preventDefault();this.classList.add('dragover')"
+             ondragleave="this.classList.remove('dragover')"
+             ondrop="handleDrop(event)">
+          <div class="icon">📂</div>
+          <div class="label">クリックまたはドラッグ&ドロップ</div>
+          <div class="sub" id="um-size-limit">最大ファイルサイズ: —</div>
+        </div>
+        <input type="file" id="upload-input" onchange="handleFileSelect(this)">
+        <div class="upload-selected" id="upload-selected">
+          <span>✅</span>
+          <span id="upload-file-name"></span>
+          <span id="upload-file-size" style="margin-left:auto;color:#64748b;font-size:11px"></span>
+        </div>
+        <div class="warning-box" id="upload-disabled-notice" style="display:none">
+          <strong>ブラウザアップロード非対応</strong>
+          このデータセットはファイルが大きすぎるためブラウザからのアップロードはできません。
+          「URL指定取得」または「公式サイトから取得」を利用してください。
+        </div>
+      </div>
+
+      <!-- tab: fetch_url -->
+      <div class="tab-panel" id="tab-fetch_url">
+        <p style="font-size:13px;color:#475569;margin-bottom:10px">ファイルのダウンロードURLを入力してください。</p>
+        <div class="url-input-group">
+          <input type="url" id="fetch-url-input" placeholder="https://example.com/data.zip">
+        </div>
+        <div class="warning-box" style="margin-top:10px">
+          <strong>注意</strong>
+          処理はサーバ側で非同期に実行されます。ネットワーク環境によっては数分かかります。
+        </div>
+      </div>
+
+      <!-- tab: fetch_official -->
+      <div class="tab-panel" id="tab-fetch_official">
+        <p style="font-size:13px;color:#475569;margin-bottom:12px">
+          公式サイトの配布URLから自動的にデータを取得します。
+        </p>
+        <div class="modal-info-row">
+          <div class="modal-info-label">取得先URL</div>
+          <div class="modal-info-value" id="um-official-url" style="font-size:11px;word-break:break-all;color:#6366f1">—</div>
+        </div>
+        <div class="warning-box" style="margin-top:12px">
+          <strong>注意</strong>
+          大容量データの場合は数分〜数十分かかることがあります。取得中は画面を閉じても処理は継続します。
+        </div>
+      </div>
+
+      <div id="um-post-ingest-notice" style="display:none;margin-top:12px;font-size:12px;color:#475569;background:#f8fafc;padding:10px;border-radius:6px">
+        <strong>取り込み後の処理:</strong>
+        <span id="um-pipeline-desc"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeUpdateModal()">キャンセル</button>
+      <button class="btn btn-primary" id="um-execute-btn" onclick="executeUpdate()">処理を開始する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 反映確認モーダル -->
+<div class="modal-overlay" id="deploy-modal">
+  <div class="modal confirm-modal">
+    <div class="modal-header">
+      <h2>実行環境への反映確認</h2>
+      <button class="modal-close" onclick="closeDeployModal()">✕</button>
+    </div>
+    <div class="confirm-body">
+      <div class="confirm-icon">🚀</div>
+      <h3>データを反映しますか？</h3>
+      <p>確認済みのデータを実行環境へ反映します。<br>現在のデータは自動的にバックアップされます。</p>
+      <dl class="confirm-details">
+        <dt>データ名</dt><dd id="dm-name">—</dd>
+        <dt>反映対象ファイル</dt><dd id="dm-artifact">—</dd>
+        <dt>内容確認結果</dt><dd id="dm-validation">—</dd>
+        <dt>現在の反映先</dt><dd id="dm-runtime">—</dd>
+        <dt>バックアップ</dt><dd>✅ 自動作成されます（1世代前に戻すことが可能）</dd>
+      </dl>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeDeployModal()">キャンセル</button>
+      <button class="btn btn-success" onclick="executeDeploy()">反映する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ロールバック確認モーダル -->
+<div class="modal-overlay" id="rollback-modal">
+  <div class="modal confirm-modal">
+    <div class="modal-header">
+      <h2>1世代前に戻す確認</h2>
+      <button class="modal-close" onclick="closeRollbackModal()">✕</button>
+    </div>
+    <div class="confirm-body">
+      <div class="confirm-icon">⏪</div>
+      <h3>1世代前のデータに戻しますか？</h3>
+      <p>現在の実行環境データを、直前のバックアップに戻します。<br>この操作は元に戻せません。</p>
+      <dl class="confirm-details">
+        <dt>データ名</dt><dd id="rm-name">—</dd>
+        <dt>現在のバージョン</dt><dd id="rm-current">—</dd>
+        <dt>戻し先</dt><dd id="rm-backup">直前のバックアップ</dd>
+        <dt>注意事項</dt><dd>ロールバック後は改めて取り込みと確認が必要になります</dd>
+      </dl>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeRollbackModal()">キャンセル</button>
+      <button class="btn btn-danger" onclick="executeRollback()">1世代前に戻す</button>
+    </div>
+  </div>
+</div>
+
+<!-- OSRMリビルド確認モーダル -->
+<div class="modal-overlay" id="osrm-modal">
+  <div class="modal confirm-modal">
+    <div class="modal-header">
+      <h2>ルートエンジン再構築確認</h2>
+      <button class="modal-close" onclick="closeOsrmModal()">✕</button>
+    </div>
+    <div class="confirm-body">
+      <div class="confirm-icon">🔧</div>
+      <h3>ルートエンジンを再構築しますか？</h3>
+      <p>道路データの更新を避難ルート計算エンジンに反映します。<br>
+        完了まで数分〜数十分かかる場合があります。<br>
+        処理中はルート検索の応答が遅くなる場合があります。</p>
+      <dl class="confirm-details">
+        <dt>対象</dt><dd id="om-name">—</dd>
+        <dt>処理ステップ</dt>
+        <dd>データ展開 → ルート最適化 → インデックス構築</dd>
+      </dl>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeOsrmModal()">キャンセル</button>
+      <button class="btn btn-warning" onclick="executeOsrmRebuild()">再構築する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ジョブログモーダル -->
+<div class="modal-overlay" id="log-modal">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-header">
+      <h2>処理ログ</h2>
+      <button class="modal-close" onclick="closeLogModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="job-status-row">
+        <div class="job-meta">
+          <div>ジョブID: <strong id="lm-job-id">—</strong></div>
+          <div>種別: <strong id="lm-job-type">—</strong></div>
+        </div>
+        <div style="margin-left:12px">
+          <span class="badge" id="lm-status-badge">—</span>
+        </div>
+        <div class="job-meta" style="margin-left:16px">
+          <div>ステップ: <strong id="lm-step">—</strong></div>
+        </div>
+      </div>
+      <div class="progress-msg" id="lm-progress"></div>
+      <div class="job-log-area" id="lm-log-area">ログを読み込み中...</div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px" onclick="toggleLogAutoRefresh()">
+          <span id="log-auto-label">自動更新 ON</span>
+        </button>
+        <span id="log-refresh-status" style="font-size:11px;color:#94a3b8"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeLogModal()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin/datasets.js"></script>
+</body>
+</html>

@@ -1,0 +1,768 @@
+/**
+ * datasets.js — データ運用管理画面 フロントエンドロジック
+ *
+ * 設計方針:
+ * - 依存ライブラリなし（バニラJS）
+ * - API との通信は /api/admin/datasets/* エンドポイント
+ * - ポーリングで状態を自動更新（3秒間隔、実行中ジョブがある場合）
+ */
+
+"use strict";
+
+const API = "/api/admin";
+const POLL_INTERVAL_MS = 3000;
+const DETAIL_LOG_INTERVAL_MS = 3000;
+const LIST_AUTO_REFRESH_INTERVAL_MS = 5000;
+
+// ── グローバル状態 ─────────────────────────────────────
+let _allDatasets = [];           // 最新のDatasetSummary[]
+let _currentDatasetId = null;    // 詳細パネル表示中のdataset_id
+let _currentDetail = null;       // 最新のDatasetDetail
+let _updateModalDataset = null;  // 更新モーダル対象
+let _deployModalDataset = null;  // 反映確認対象
+let _rollbackModalDataset = null;// ロールバック確認対象
+let _osrmModalDataset = null;    // OSRM再構築確認対象
+let _logModalJobId = null;       // ジョブログモーダル対象
+let _selectedFile = null;        // アップロード選択ファイル
+let _activeInputTab = null;      // 現在の投入方式タブ
+
+let _listRefreshTimer = null;
+let _detailRefreshTimer = null;
+let _logRefreshTimer = null;
+let _detailAutoRefresh = true;
+let _logAutoRefresh = true;
+
+// ── 初期化 ────────────────────────────────────────────
+window.addEventListener("DOMContentLoaded", () => {
+  loadDatasets();
+  _listRefreshTimer = setInterval(loadDatasets, LIST_AUTO_REFRESH_INTERVAL_MS);
+});
+
+// ── データセット一覧ロード ─────────────────────────────
+async function loadDatasets() {
+  try {
+    const region = document.getElementById("region-filter").value;
+    const category = document.getElementById("category-filter").value;
+    const url = region ? `${API}/datasets?region=${region}` : `${API}/datasets`;
+    const data = await fetchJSON(url);
+    _allDatasets = data;
+    renderDatasetTable(data.filter(d => !category || d.category === category));
+    // 詳細パネルが開いている場合は更新
+    if (_currentDatasetId && _detailAutoRefresh) {
+      await refreshDetail(_currentDatasetId);
+    }
+  } catch (err) {
+    showNotice("error", "データセット一覧の取得に失敗しました: " + err.message);
+  }
+}
+
+document.getElementById("region-filter").addEventListener("change", loadDatasets);
+document.getElementById("category-filter").addEventListener("change", () => {
+  const category = document.getElementById("category-filter").value;
+  renderDatasetTable(_allDatasets.filter(d => !category || d.category === category));
+});
+
+// ── テーブル描画 ──────────────────────────────────────
+function renderDatasetTable(datasets) {
+  const tbody = document.getElementById("datasets-tbody");
+  if (datasets.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:30px;color:#94a3b8">データセットが見つかりません</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = datasets.map(d => renderDatasetRow(d)).join("");
+}
+
+function renderDatasetRow(d) {
+  const isRunning = d.has_running_job;
+  const canDeploy = d.is_deployable && !isRunning;
+  const canRollback = d.deploy_status === "deployed" && !isRunning;
+  const canOsrm = d.requires_osrm_rebuild && d.deploy_status === "deployed" && !isRunning;
+
+  const fileInfo = d.current_file_name
+    ? `<div class="file-name" title="${d.current_file_name}">${d.current_file_name}</div>
+       <div class="file-size">${formatBytes(d.current_file_size)}</div>`
+    : `<span style="color:#cbd5e1;font-size:12px">なし</span>`;
+
+  const updatedAt = d.updated_at
+    ? `<div style="font-size:12px">${formatDate(d.updated_at)}</div>`
+    : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
+
+  const osrmCell = d.requires_osrm_rebuild
+    ? badgeHtml(osrmBadgeClass(d.osrm_rebuild_status), osrmLabel(d.osrm_rebuild_status))
+    : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
+
+  return `<tr data-id="${d.dataset_id}">
+    <td><span style="font-size:11px;color:#64748b">${regionLabel(d.region)}</span></td>
+    <td><span class="dataset-id">${d.dataset_id}</span></td>
+    <td>
+      <div class="dataset-name">${d.display_name}</div>
+    </td>
+    <td>
+      <span class="hint-icon">?
+        <span class="tooltip-text">${escHtml(d.hint_text)}</span>
+      </span>
+    </td>
+    <td><span style="font-size:11px;color:#475569">${escHtml(d.impact_scope)}</span></td>
+    <td>${fileInfo}</td>
+    <td>${updatedAt}</td>
+    <td>${badgeHtml(storageBadgeClass(d.storage_status), storageLabel(d.storage_status))}</td>
+    <td>${badgeHtml(normalizeBadgeClass(d.normalize_status), normalizeLabel(d.normalize_status))}</td>
+    <td>${badgeHtml(validationBadgeClass(d.validation_status), validationLabel(d.validation_status))}</td>
+    <td>${badgeHtml(deployBadgeClass(d.deploy_status), deployLabel(d.deploy_status))}</td>
+    <td>${osrmCell}</td>
+    <td>
+      <div class="action-group">
+        <button class="btn btn-primary"
+          onclick="openUpdateModal('${d.dataset_id}')"
+          ${isRunning ? "disabled title='処理中'" : ""}>更新</button>
+        <button class="btn btn-detail"
+          onclick="openDetail('${d.dataset_id}')">詳細</button>
+        <button class="btn btn-success"
+          onclick="openDeployModal('${d.dataset_id}')"
+          ${canDeploy ? "" : "disabled"}
+          title="${canDeploy ? '実行環境へ反映' : deployBlockReason(d)}">反映</button>
+        <button class="btn btn-secondary"
+          onclick="openRollbackModal('${d.dataset_id}')"
+          ${canRollback ? "" : "disabled"}
+          title="${canRollback ? '1世代前に戻す' : 'バックアップがないか処理中'}">戻す</button>
+        ${d.requires_osrm_rebuild ? `<button class="btn btn-osrm"
+          onclick="openOsrmModal('${d.dataset_id}')"
+          ${canOsrm ? "" : "disabled"}
+          title="${canOsrm ? 'ルートエンジン再構築' : '先に反映を実行してください'}">OSRM</button>` : ""}
+        ${d.last_job_id ? `<button class="btn btn-secondary"
+          onclick="openLogModal('${d.last_job_id}')"
+          style="font-size:11px">ログ</button>` : ""}
+      </div>
+    </td>
+  </tr>`;
+}
+
+function deployBlockReason(d) {
+  if (d.has_running_job) return "処理が実行中です";
+  if (!d.is_deployable) {
+    if (d.validation_status !== "pass" && d.validation_status !== "not_required") {
+      return "内容確認が完了していません";
+    }
+    return "取り込みが完了していません";
+  }
+  return "";
+}
+
+// ── 詳細パネル ────────────────────────────────────────
+async function openDetail(datasetId) {
+  _currentDatasetId = datasetId;
+  document.getElementById("detail-panel").classList.add("visible");
+  document.getElementById("detail-panel").scrollIntoView({ behavior: "smooth" });
+  await refreshDetail(datasetId);
+
+  if (_detailRefreshTimer) clearInterval(_detailRefreshTimer);
+  _detailRefreshTimer = setInterval(async () => {
+    if (_currentDatasetId && _detailAutoRefresh) {
+      await refreshDetail(_currentDatasetId);
+    }
+  }, DETAIL_LOG_INTERVAL_MS);
+}
+
+async function refreshDetail(datasetId) {
+  try {
+    const detail = await fetchJSON(`${API}/datasets/${datasetId}`);
+    _currentDetail = detail;
+    renderDetail(detail);
+  } catch (err) {
+    console.warn("Detail refresh failed:", err);
+  }
+}
+
+function renderDetail(detail) {
+  const defn = detail.definition;
+  const state = detail.state;
+  const job = detail.last_job;
+
+  document.getElementById("detail-title").textContent = defn.display_name;
+
+  // 基本情報
+  document.getElementById("detail-info").innerHTML = [
+    detailRow("データセットID", `<span style="font-family:monospace;color:#6366f1">${defn.dataset_id}</span>`),
+    detailRow("地域", regionLabel(defn.region)),
+    detailRow("説明", escHtml(defn.description)),
+    detailRow("影響範囲", escHtml(defn.impact_scope)),
+    detailRow("整形処理", defn.requires_normalize ? "あり" : "不要"),
+    detailRow("内容確認", defn.requires_validation ? "あり" : "不要"),
+    detailRow("対応形式", defn.accepted_extensions.join(", ")),
+    detailRow("デプロイ先", `<span style="font-size:11px;font-family:monospace">${defn.runtime_path}</span>`),
+  ].join("");
+
+  // 状態
+  document.getElementById("detail-status").innerHTML = [
+    detailRow("現在のファイル", state.current_file_name
+      ? `${escHtml(state.current_file_name)} (${formatBytes(state.current_file_size)})`
+      : "なし"),
+    detailRow("最終更新", state.updated_at ? formatDate(state.updated_at) : "—"),
+    detailRow("最終反映", state.deployed_at ? formatDate(state.deployed_at) : "—"),
+    detailRow("保管状態", badgeHtml(storageBadgeClass(state.storage_status), storageLabel(state.storage_status))),
+    detailRow("整形状態", badgeHtml(normalizeBadgeClass(state.normalize_status), normalizeLabel(state.normalize_status))),
+    detailRow("内容確認", badgeHtml(validationBadgeClass(state.validation_status), validationLabel(state.validation_status))),
+    detailRow("反映状態", badgeHtml(deployBadgeClass(state.deploy_status), deployLabel(state.deploy_status))),
+    state.osrm_rebuild_status !== "not_applicable"
+      ? detailRow("OSRM状態", badgeHtml(osrmBadgeClass(state.osrm_rebuild_status), osrmLabel(state.osrm_rebuild_status)))
+      : "",
+    state.backup_path
+      ? detailRow("バックアップ", `<span style="font-size:11px;color:#166534">✅ あり（ロールバック可）</span>`)
+      : detailRow("バックアップ", `<span style="font-size:11px;color:#94a3b8">なし</span>`),
+  ].join("");
+
+  // エラー情報
+  const errorSection = document.getElementById("detail-error-section");
+  if (job && job.error_code) {
+    errorSection.style.display = "";
+    document.getElementById("detail-error").innerHTML = [
+      detailRow("エラーコード", `<span style="font-family:monospace;color:#b91c1c">${job.error_code}</span>`),
+      detailRow("内容", `<span style="color:#b91c1c">${escHtml(job.user_message || "")}</span>`),
+      detailRow("対応方法", escHtml(job.action_message || "")),
+    ].join("");
+  } else {
+    errorSection.style.display = "none";
+  }
+
+  // ジョブID表示
+  if (job) {
+    document.getElementById("detail-log-job-id").textContent = `job: ${job.job_id.substring(0, 8)}...`;
+    loadDetailLog(job.job_id);
+  }
+
+  // 履歴
+  renderDetailHistory(detail.history || []);
+}
+
+async function loadDetailLog(jobId) {
+  try {
+    const r = await fetchJSON(`${API}/jobs/${jobId}/log`);
+    const area = document.getElementById("detail-log-area");
+    area.innerHTML = r.lines.map(line => colorLogLine(line)).join("\n") || "ログなし";
+    area.scrollTop = area.scrollHeight;
+  } catch (err) {
+    // quiet fail
+  }
+}
+
+function renderDetailHistory(history) {
+  const el = document.getElementById("detail-history");
+  if (history.length === 0) {
+    el.innerHTML = `<span style="color:#94a3b8;font-size:12px">履歴なし</span>`;
+    return;
+  }
+  el.innerHTML = history.map(h => `
+    <div style="padding:4px 0;border-bottom:1px solid #f1f5f9;display:flex;gap:8px;align-items:baseline">
+      <span style="font-family:monospace;font-size:10px;color:#94a3b8">${formatDate(h.executed_at)}</span>
+      <span style="color:#475569">${operationLabel(h.operation_type)}</span>
+      <span class="badge ${h.result === 'success' ? 'badge-success' : 'badge-fail'}" style="font-size:10px">${h.result === 'success' ? '成功' : '失敗'}</span>
+      ${h.source_file_name ? `<span style="font-size:10px;color:#94a3b8">${escHtml(h.source_file_name)}</span>` : ""}
+    </div>`).join("");
+}
+
+function closeDetail() {
+  document.getElementById("detail-panel").classList.remove("visible");
+  _currentDatasetId = null;
+  if (_detailRefreshTimer) { clearInterval(_detailRefreshTimer); _detailRefreshTimer = null; }
+}
+
+function toggleDetailAutoRefresh() {
+  _detailAutoRefresh = !_detailAutoRefresh;
+  document.getElementById("detail-auto-label").textContent = `自動更新 ${_detailAutoRefresh ? "ON" : "OFF"}`;
+}
+
+// ── 更新モーダル ──────────────────────────────────────
+function openUpdateModal(datasetId) {
+  const d = _allDatasets.find(x => x.dataset_id === datasetId);
+  if (!d) return;
+  _updateModalDataset = d;
+  _selectedFile = null;
+  document.getElementById("upload-selected").classList.remove("visible");
+
+  // 情報セット
+  document.getElementById("um-name").textContent = d.display_name;
+  // 説明はAPIの詳細を持っていないのでhint_textで代用
+  document.getElementById("um-desc").textContent = d.hint_text;
+  document.getElementById("um-scope").textContent = d.impact_scope;
+  document.getElementById("um-current").textContent = d.current_file_name || "なし";
+
+  // 詳細定義を取得してタブ構築
+  fetchJSON(`${API}/datasets/${datasetId}`).then(detail => {
+    const defn = detail.definition;
+    document.getElementById("um-exts").textContent = defn.accepted_extensions.join(", ");
+    document.getElementById("um-official-url").textContent = defn.official_source_url || "—";
+    document.getElementById("um-size-limit").textContent =
+      defn.max_browser_upload_mb > 0
+        ? `最大ファイルサイズ: ${defn.max_browser_upload_mb} MB`
+        : "このデータはブラウザアップロード非対応です";
+
+    // アップロード無効表示
+    const uploadDisabled = document.getElementById("upload-disabled-notice");
+    const uploadZone = document.getElementById("upload-zone");
+    if (defn.max_browser_upload_mb === 0 || !defn.accepted_input_modes.includes("upload")) {
+      uploadDisabled.style.display = "block";
+      uploadZone.style.pointerEvents = "none";
+      uploadZone.style.opacity = "0.5";
+    } else {
+      uploadDisabled.style.display = "none";
+      uploadZone.style.pointerEvents = "";
+      uploadZone.style.opacity = "1";
+    }
+
+    // パイプライン説明
+    const pipelineNotice = document.getElementById("um-post-ingest-notice");
+    const pipelineDesc = document.getElementById("um-pipeline-desc");
+    let steps = [];
+    if (defn.requires_normalize) steps.push("整形処理");
+    if (defn.requires_validation) steps.push("内容確認");
+    if (steps.length > 0) {
+      pipelineNotice.style.display = "";
+      pipelineDesc.textContent = ` 取り込み後、自動的に${steps.join(" → ")}が実行されます。`;
+    } else {
+      pipelineNotice.style.display = "none";
+    }
+
+    // タブ構築
+    buildInputTabs(defn.accepted_input_modes);
+  }).catch(err => {
+    showNotice("error", "定義情報の取得に失敗しました");
+  });
+
+  document.getElementById("update-modal").classList.add("open");
+}
+
+function buildInputTabs(modes) {
+  const tabsEl = document.getElementById("input-tabs");
+  const labels = { upload: "📁 ファイル選択", fetch_url: "🔗 URL指定取得", fetch_official: "🌐 公式サイトから取得" };
+  tabsEl.innerHTML = modes.map(m =>
+    `<button class="tab-btn" id="tab-btn-${m}" onclick="switchInputTab('${m}')">${labels[m] || m}</button>`
+  ).join("");
+
+  // 全パネル非表示
+  ["upload", "fetch_url", "fetch_official"].forEach(m => {
+    const p = document.getElementById(`tab-${m}`);
+    if (p) p.classList.remove("active");
+  });
+
+  // 最初のタブを選択
+  if (modes.length > 0) switchInputTab(modes[0]);
+}
+
+function switchInputTab(mode) {
+  _activeInputTab = mode;
+  ["upload", "fetch_url", "fetch_official"].forEach(m => {
+    const btn = document.getElementById(`tab-btn-${m}`);
+    const panel = document.getElementById(`tab-${m}`);
+    if (btn) btn.classList.toggle("active", m === mode);
+    if (panel) panel.classList.toggle("active", m === mode);
+  });
+}
+
+function closeUpdateModal() {
+  document.getElementById("update-modal").classList.remove("open");
+  _updateModalDataset = null;
+  _selectedFile = null;
+}
+
+// ── ファイル選択 ──────────────────────────────────────
+function handleFileSelect(input) {
+  if (input.files && input.files[0]) {
+    setSelectedFile(input.files[0]);
+  }
+}
+
+function handleDrop(event) {
+  event.preventDefault();
+  document.getElementById("upload-zone").classList.remove("dragover");
+  const file = event.dataTransfer.files[0];
+  if (file) setSelectedFile(file);
+}
+
+function setSelectedFile(file) {
+  _selectedFile = file;
+  const el = document.getElementById("upload-selected");
+  document.getElementById("upload-file-name").textContent = file.name;
+  document.getElementById("upload-file-size").textContent = formatBytes(file.size);
+  el.classList.add("visible");
+}
+
+// ── 更新実行 ──────────────────────────────────────────
+async function executeUpdate() {
+  const d = _updateModalDataset;
+  if (!d) return;
+
+  const btn = document.getElementById("um-execute-btn");
+  btn.disabled = true;
+  btn.textContent = "送信中...";
+
+  try {
+    let job_id;
+
+    if (_activeInputTab === "upload") {
+      if (!_selectedFile) { showNotice("error", "ファイルを選択してください"); return; }
+      const formData = new FormData();
+      formData.append("file", _selectedFile);
+      const res = await fetch(`${API}/datasets/${d.dataset_id}/upload`, {
+        method: "POST", body: formData
+      });
+      const json = await res.json();
+      if (!res.ok || !json.accepted) {
+        throw new Error(json.user_message || json.detail || "アップロードに失敗しました");
+      }
+      job_id = json.job_id;
+
+    } else if (_activeInputTab === "fetch_url") {
+      const url = document.getElementById("fetch-url-input").value.trim();
+      if (!url) { showNotice("error", "URLを入力してください"); return; }
+      const json = await postJSON(`${API}/datasets/${d.dataset_id}/fetch-url`, { url });
+      if (!json.accepted) throw new Error(json.user_message || "取得に失敗しました");
+      job_id = json.job_id;
+
+    } else if (_activeInputTab === "fetch_official") {
+      const json = await postJSON(`${API}/datasets/${d.dataset_id}/fetch-official`, {});
+      if (!json.accepted) throw new Error(json.user_message || "取得に失敗しました");
+      job_id = json.job_id;
+    }
+
+    closeUpdateModal();
+    showNotice("success", "処理を受け付けました。ログから進捗を確認できます。");
+    await loadDatasets();
+    if (job_id) openLogModal(job_id);
+
+  } catch (err) {
+    showNotice("error", err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "処理を開始する";
+  }
+}
+
+// ── 反映モーダル ──────────────────────────────────────
+function openDeployModal(datasetId) {
+  const d = _allDatasets.find(x => x.dataset_id === datasetId);
+  if (!d) return;
+  _deployModalDataset = d;
+  document.getElementById("dm-name").textContent = d.display_name;
+  document.getElementById("dm-artifact").textContent = d.current_file_name || "—";
+  document.getElementById("dm-validation").innerHTML =
+    badgeHtml(validationBadgeClass(d.validation_status), validationLabel(d.validation_status));
+  document.getElementById("dm-runtime").textContent = "実行環境 (data_runtime)";
+  document.getElementById("deploy-modal").classList.add("open");
+}
+
+function closeDeployModal() {
+  document.getElementById("deploy-modal").classList.remove("open");
+  _deployModalDataset = null;
+}
+
+async function executeDeploy() {
+  const d = _deployModalDataset;
+  if (!d) return;
+  try {
+    const json = await postJSON(`${API}/datasets/${d.dataset_id}/deploy`, {});
+    if (!json.accepted) throw new Error(json.user_message || "反映に失敗しました");
+    closeDeployModal();
+    showNotice("success", "実行環境への反映を開始しました。");
+    await loadDatasets();
+    openLogModal(json.job_id);
+  } catch (err) {
+    showNotice("error", err.message);
+    closeDeployModal();
+  }
+}
+
+// ── ロールバックモーダル ──────────────────────────────
+function openRollbackModal(datasetId) {
+  const d = _allDatasets.find(x => x.dataset_id === datasetId);
+  if (!d) return;
+  _rollbackModalDataset = d;
+  document.getElementById("rm-name").textContent = d.display_name;
+  document.getElementById("rm-current").textContent = d.current_file_name || "—";
+  document.getElementById("rollback-modal").classList.add("open");
+}
+
+function closeRollbackModal() {
+  document.getElementById("rollback-modal").classList.remove("open");
+  _rollbackModalDataset = null;
+}
+
+async function executeRollback() {
+  const d = _rollbackModalDataset;
+  if (!d) return;
+  try {
+    const json = await postJSON(`${API}/datasets/${d.dataset_id}/rollback`, {});
+    if (!json.accepted) throw new Error(json.user_message || "ロールバックに失敗しました");
+    closeRollbackModal();
+    showNotice("success", "ロールバックを開始しました。");
+    await loadDatasets();
+    openLogModal(json.job_id);
+  } catch (err) {
+    showNotice("error", err.message);
+    closeRollbackModal();
+  }
+}
+
+// ── OSRM 再構築モーダル ───────────────────────────────
+function openOsrmModal(datasetId) {
+  const d = _allDatasets.find(x => x.dataset_id === datasetId);
+  if (!d) return;
+  _osrmModalDataset = d;
+  document.getElementById("om-name").textContent = d.display_name;
+  document.getElementById("osrm-modal").classList.add("open");
+}
+
+function closeOsrmModal() {
+  document.getElementById("osrm-modal").classList.remove("open");
+  _osrmModalDataset = null;
+}
+
+async function executeOsrmRebuild() {
+  const d = _osrmModalDataset;
+  if (!d) return;
+  try {
+    const json = await postJSON(`${API}/datasets/${d.dataset_id}/rebuild-osrm`, {});
+    if (!json.accepted) throw new Error(json.user_message || "再構築に失敗しました");
+    closeOsrmModal();
+    showNotice("success", "ルートエンジンの再構築を開始しました。完了まで数分かかります。");
+    await loadDatasets();
+    openLogModal(json.job_id);
+  } catch (err) {
+    showNotice("error", err.message);
+    closeOsrmModal();
+  }
+}
+
+// ── ジョブログモーダル ────────────────────────────────
+async function openLogModal(jobId) {
+  _logModalJobId = jobId;
+  _logAutoRefresh = true;
+  document.getElementById("log-auto-label").textContent = "自動更新 ON";
+  document.getElementById("log-modal").classList.add("open");
+  await refreshLogModal();
+
+  if (_logRefreshTimer) clearInterval(_logRefreshTimer);
+  _logRefreshTimer = setInterval(async () => {
+    if (!_logAutoRefresh) return;
+    const job = await fetchJSON(`${API}/jobs/${_logModalJobId}`).catch(() => null);
+    if (job && (job.status === "success" || job.status === "failed" || job.status === "canceled")) {
+      _logAutoRefresh = false;
+      document.getElementById("log-auto-label").textContent = "自動更新 OFF（完了）";
+      document.getElementById("log-refresh-status").textContent = "処理完了";
+    }
+    await refreshLogModal();
+  }, POLL_INTERVAL_MS);
+}
+
+async function refreshLogModal() {
+  if (!_logModalJobId) return;
+  try {
+    const [job, logData] = await Promise.all([
+      fetchJSON(`${API}/jobs/${_logModalJobId}`),
+      fetchJSON(`${API}/jobs/${_logModalJobId}/log`),
+    ]);
+
+    document.getElementById("lm-job-id").textContent = job.job_id.substring(0, 8) + "...";
+    document.getElementById("lm-job-type").textContent = jobTypeLabel(job.job_type);
+    document.getElementById("lm-step").textContent = stepLabel(job.step);
+
+    const statusBadge = document.getElementById("lm-status-badge");
+    statusBadge.className = `badge ${jobStatusBadgeClass(job.status)}`;
+    statusBadge.textContent = jobStatusLabel(job.status);
+
+    const progressEl = document.getElementById("lm-progress");
+    if (job.progress_message) {
+      progressEl.textContent = job.progress_message;
+      progressEl.classList.add("visible");
+    } else {
+      progressEl.classList.remove("visible");
+    }
+
+    const logArea = document.getElementById("lm-log-area");
+    logArea.innerHTML = logData.lines.map(line => colorLogLine(line)).join("\n") || "ログなし";
+    logArea.scrollTop = logArea.scrollHeight;
+
+  } catch (err) {
+    console.warn("Log refresh failed:", err);
+  }
+}
+
+function closeLogModal() {
+  document.getElementById("log-modal").classList.remove("open");
+  if (_logRefreshTimer) { clearInterval(_logRefreshTimer); _logRefreshTimer = null; }
+  _logModalJobId = null;
+}
+
+function toggleLogAutoRefresh() {
+  _logAutoRefresh = !_logAutoRefresh;
+  document.getElementById("log-auto-label").textContent = `自動更新 ${_logAutoRefresh ? "ON" : "OFF"}`;
+}
+
+// ── ユーティリティ ────────────────────────────────────
+async function fetchJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.user_message || body.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function postJSON(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json.user_message || json.detail || `HTTP ${res.status}`);
+  }
+  return json;
+}
+
+function showNotice(type, message) {
+  const el = document.getElementById("notice-bar");
+  el.textContent = message;
+  el.className = `notice-bar ${type}`;
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.className = "notice-bar"; }, 6000);
+}
+
+function escHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function badgeHtml(cls, label) {
+  return `<span class="badge ${cls}">${escHtml(label)}</span>`;
+}
+
+function detailRow(label, value) {
+  return `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`;
+}
+
+function colorLogLine(line) {
+  const esc = escHtml(line);
+  if (/ERROR|FAILED|error|failed/.test(line)) return `<span class="log-line-error">${esc}</span>`;
+  if (/success|completed|SUCCESS/.test(line)) return `<span class="log-line-success">${esc}</span>`;
+  if (/WARNING|WARN|warn/.test(line)) return `<span class="log-line-warn">${esc}</span>`;
+  return esc;
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return "—";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + " MB";
+  return (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
+}
+
+function formatDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+
+function regionLabel(r) {
+  const map = { tokyo: "東京都" };
+  return map[r] || r;
+}
+
+function operationLabel(op) {
+  const map = {
+    ingest: "取り込み", normalize: "整形", validate: "内容確認",
+    deploy: "反映", rollback: "ロールバック", osrm_rebuild: "OSRM再構築"
+  };
+  return map[op] || op;
+}
+
+function jobTypeLabel(t) {
+  const map = {
+    ingest_upload: "ファイル取り込み", ingest_fetch_url: "URL取得",
+    ingest_fetch_official: "公式取得", normalize: "整形処理",
+    validate: "内容確認", deploy: "反映", rollback: "ロールバック", osrm_rebuild: "OSRM再構築"
+  };
+  return map[t] || t;
+}
+
+function stepLabel(s) {
+  const map = {
+    accepted: "受付済み", download: "取得中", upload_store: "保管中",
+    normalize: "整形中", validate: "確認中", backup: "バックアップ中",
+    deploy: "反映中", rollback: "ロールバック中",
+    osrm_extract: "データ展開中", osrm_partition: "ルート最適化中", osrm_customize: "インデックス構築中",
+    completed: "完了", failed: "失敗"
+  };
+  return map[s] || s;
+}
+
+function jobStatusLabel(s) {
+  const map = { queued: "待機中", running: "実行中", success: "成功", failed: "失敗", canceled: "キャンセル" };
+  return map[s] || s;
+}
+
+function jobStatusBadgeClass(s) {
+  const map = { queued: "badge-not-start", running: "badge-running", success: "badge-success", failed: "badge-fail", canceled: "badge-none" };
+  return map[s] || "badge-none";
+}
+
+// ── バッジクラス / ラベル ─────────────────────────────
+function storageBadgeClass(s) {
+  return { none: "badge-none", stored: "badge-stored" }[s] || "badge-none";
+}
+function storageLabel(s) {
+  return { none: "未取込", stored: "保管済" }[s] || s;
+}
+
+function normalizeBadgeClass(s) {
+  return {
+    not_required: "badge-not-req", not_started: "badge-not-start",
+    running: "badge-running", success: "badge-success", failed: "badge-fail"
+  }[s] || "badge-none";
+}
+function normalizeLabel(s) {
+  return {
+    not_required: "不要", not_started: "未実行",
+    running: "整形中", success: "整形済", failed: "整形失敗"
+  }[s] || s;
+}
+
+function validationBadgeClass(s) {
+  return {
+    not_required: "badge-not-req", not_started: "badge-not-start",
+    running: "badge-running", pass: "badge-pass", fail: "badge-fail"
+  }[s] || "badge-none";
+}
+function validationLabel(s) {
+  return {
+    not_required: "不要", not_started: "未確認",
+    running: "確認中", pass: "確認済", fail: "確認失敗"
+  }[s] || s;
+}
+
+function deployBadgeClass(s) {
+  return {
+    not_deployed: "badge-not-dep", deployable: "badge-deployable",
+    deploying: "badge-deploying", deployed: "badge-success", failed: "badge-failed"
+  }[s] || "badge-none";
+}
+function deployLabel(s) {
+  return {
+    not_deployed: "未反映", deployable: "反映可能",
+    deploying: "反映中", deployed: "反映済", failed: "反映失敗"
+  }[s] || s;
+}
+
+function osrmBadgeClass(s) {
+  return {
+    not_applicable: "badge-na", not_started: "badge-not-start",
+    running: "badge-running", success: "badge-success", failed: "badge-fail"
+  }[s] || "badge-na";
+}
+function osrmLabel(s) {
+  return {
+    not_applicable: "—", not_started: "未実行",
+    running: "再構築中", success: "構築済", failed: "失敗"
+  }[s] || s;
+}
