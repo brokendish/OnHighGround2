@@ -9,6 +9,7 @@ const ARTIFACTS_DIR = path.join(ROOT, 'artifacts');
 const SUMMARY_FILE = path.join(ARTIFACTS_DIR, 'reroute_harness_summary.json');
 const RUN_SUMMARY_FILE = path.join(ARTIFACTS_DIR, 'reroute_harness_run_summary.json');
 const SNAP_BREAKDOWN_FILE = path.join(ARTIFACTS_DIR, 'reroute_snap_empty_breakdown.json');
+const ESCAPE_NEAREST_BREAKDOWN_FILE = path.join(ARTIFACTS_DIR, 'reroute_escape_nearest_breakdown.json');
 
 const thresholds = {
   minGeneratedCases: Number(process.env.REROUTE_HARNESS_MIN_CASES || 100),
@@ -51,12 +52,38 @@ let snapBreakdown = null;
 if (fs.existsSync(SNAP_BREAKDOWN_FILE)) {
   snapBreakdown = JSON.parse(fs.readFileSync(SNAP_BREAKDOWN_FILE, 'utf8'));
 }
+let escapeNearestBreakdown = null;
+if (fs.existsSync(ESCAPE_NEAREST_BREAKDOWN_FILE)) {
+  escapeNearestBreakdown = JSON.parse(fs.readFileSync(ESCAPE_NEAREST_BREAKDOWN_FILE, 'utf8'));
+}
 
 const passRate = Number(generatedSummary?.passRate || 0);
 const totalGenerated = Number(generatedSummary?.total || 0);
 const dangerousCrossingFalseAccepts = Number(generatedSummary?.dangerousCrossingFalseAccepts || 0);
 const hardRejectAccepted = Number(generatedSummary?.hardRejectAccepted || 0);
 const snapEmptyRate = Number(snapBreakdown?.snapEmptyRate || 0);
+const escapeNearestNullAfterRetryRate = Number(escapeNearestBreakdown?.nearestNullAfterRetryRate || 0);
+const escapeNearestNullAfterRetryCount = Number(escapeNearestBreakdown?.nearestNullAfterRetryCount || 0);
+const allRetryPointsNullCount = Number(escapeNearestBreakdown?.detailBreakdown?.['nearest-null-after-retry:all-retry-points-null'] || 0);
+const retryStrategyExhaustedCount = Object.entries(escapeNearestBreakdown?.retryStrategyExhaustedDetails || {}).reduce((sum, [, count]) => sum + Number(count || 0), 0);
+const acceptedAfterRetryCount = Number(escapeNearestBreakdown?.acceptedAfterRetryCount || 0);
+const unknownDetailCount = Number(escapeNearestBreakdown?.detailBreakdown?.['nearest-null-after-retry:unknown'] || 0);
+const escapeAcceptedAfterRetryRate = ratio(
+  Number(escapeNearestBreakdown?.acceptedAfterRetryCount || 0),
+  Math.max(1, Number(escapeNearestBreakdown?.totalEscapeCandidates || 0))
+);
+const escapeAcceptedAfterAdjustmentRate = ratio(
+  Number(escapeNearestBreakdown?.acceptedAfterAdjustmentCount || 0),
+  Math.max(1, Number(escapeNearestBreakdown?.totalEscapeCandidates || 0))
+);
+const escapeRescueAcceptanceRate = ratio(
+  Number(escapeNearestBreakdown?.acceptedAsRescueCount || 0),
+  Math.max(1, Number(escapeNearestBreakdown?.totalEscapeCandidates || 0))
+);
+const escapeMainlineOnlyRejectRate = ratio(
+  Number(escapeNearestBreakdown?.rejectedAsMainlineOnlyCount || 0),
+  Math.max(1, Number(escapeNearestBreakdown?.totalEscapeCandidates || 0))
+);
 
 const modeSnapEmptyRate = Object.fromEntries(
   Object.entries(snapBreakdown?.modeRates || {}).map(([mode, value]) => [mode, Number(value?.snapEmptyRate || 0)])
@@ -69,8 +96,12 @@ function ratio(numerator, denominator) {
 const dominantCause = snapBreakdown?.dominantCause || 'none';
 const dominantMode = snapBreakdown?.dominantMode || 'none';
 const dominantSide = snapBreakdown?.dominantSide || 'none';
-const sameCorridorTotal = Object.values(snapBreakdown?.modeTotals || {}).reduce((sum, stats) => sum + Number(stats?.rejectSameCorridorCount || 0), 0);
-const insideBlockedTotal = Object.values(snapBreakdown?.modeTotals || {}).reduce((sum, stats) => sum + Number(stats?.rejectInsideBlockedAreaCount || 0), 0);
+const sameCorridorTotal = Object.values(snapBreakdown?.modeTotals || {}).reduce((sum, stats) => (
+  sum + Number(stats?.rejectSameCorridorCount || 0) + Number(stats?.rejectSameCorridorSoftCount || 0)
+), 0);
+const insideBlockedTotal = Object.values(snapBreakdown?.modeTotals || {}).reduce((sum, stats) => (
+  sum + Number(stats?.rejectInsideBlockedAreaCount || 0) + Number(stats?.rejectInsideBlockedAreaSoftCount || 0)
+), 0);
 const nearestSuccessButNoUsableRouteRatio = ratio(
   Object.values(snapBreakdown?.modeTotals || {}).reduce((sum, stats) => sum + ((Number(stats?.nearestSuccessCount || 0) > 0 && Number(stats?.usableRouteCandidateCount || 0) === 0) ? 1 : 0), 0),
   Math.max(1, Object.keys(snapBreakdown?.modeTotals || {}).length)
@@ -85,10 +116,41 @@ if (dominantCause === 'inside-blocked-area' || ratio(insideBlockedTotal, Math.ma
 function buildRecommendation(cause) {
   if (cause === 'same-corridor') return 'candidate-generation-or-same-corridor-tuning';
   if (cause === 'inside-blocked-area') return 'blocked-area-gating-tuning';
-  if (cause === 'nearest-null') return 'nearest-snap-reliability';
+  if (cause === 'nearest-null' || cause === 'nearest-null-after-retry') return 'nearest-snap-reliability';
   if (cause === 'node-build-failure' || cause === 'no-usable-node') return 'node-selection-or-routeability-tuning';
   if (cause === 'too-far-from-candidate') return 'snap-distance-threshold-tuning';
   return 'continue-diagnostics';
+}
+
+function buildEscapeRecommendation() {
+  const details = escapeNearestBreakdown?.detailBreakdown || {};
+  const topDetail = Object.entries(details).sort((a, b) => b[1] - a[1])[0]?.[0] || 'none';
+  if (unknownDetailCount > 0) return 'detail-classification-followup';
+  if (topDetail.includes('retry-no-strategy-enabled')) return 'pruning-too-aggressive';
+  if (topDetail.includes('node-build-failure')) return 'node-build-reliability';
+  if (topDetail.includes('rejected-no-side-road') || topDetail.includes('mainline-only')) return 'mainline-only-filter-review';
+  if (Number(escapeNearestBreakdown?.detailBreakdown?.['nearest-null-after-retry:all-retry-points-null'] || 0) <= 20
+    && escapeAcceptedAfterRetryRate >= 0.06) return 'retry-order-tuning-effective';
+  if (escapeAcceptedAfterRetryRate >= 0.06) return 'continue-priority-pruning';
+  if (escapeAcceptedAfterAdjustmentRate > escapeAcceptedAfterRetryRate) return 'candidate-adjustment-tuning';
+  if (topDetail !== 'none') return 'retry-order-tuning';
+  if (passRate < 0.80) return 'consider-disable-reroute';
+  return 'retry-order-tuning';
+}
+
+function topEntry(map, fallback = 'none') {
+  return Object.entries(map || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || fallback;
+}
+
+function mostWastefulStrategy(strategyStats = {}) {
+  const entries = Object.entries(strategyStats || {}).map(([strategy, stats]) => {
+    const executed = Number(stats?.executed || 0);
+    const success = Number(stats?.success || 0);
+    const nearestReturned = Number(stats?.nearestReturned || 0);
+    return { strategy, executed, success, nearestReturned, waste: executed - success };
+  }).filter(entry => entry.executed > 0);
+  entries.sort((a, b) => (b.waste - a.waste) || (b.executed - a.executed));
+  return entries[0]?.strategy || 'none';
 }
 
 const thresholdFailures = [];
@@ -103,14 +165,31 @@ const runSummary = {
   thresholds,
   generatedSummary,
   snapBreakdown,
+  escapeNearestBreakdown,
   snapEmptyRate,
   modeSnapEmptyRate,
   dominantCause,
   dominantMode,
   dominantSide,
+  escapeStrategyOrder: escapeNearestBreakdown?.strategyOrderUsed || [],
+  escapePrunedStrategies: escapeNearestBreakdown?.prunedStrategies || [],
+  escapeMostEffectiveStrategy: topEntry(escapeNearestBreakdown?.acceptedAfterRetryByStrategy),
+  escapeMostWastefulStrategy: mostWastefulStrategy(escapeNearestBreakdown?.strategyStats),
+  escapeUnknownDetailCount: unknownDetailCount,
+  retryStrategyExhaustedCount,
+  escapeNearestNullAfterRetryRate,
+  escapeNearestNullAfterRetryCount,
+  allRetryPointsNullCount,
+  acceptedAfterRetryCount,
+  escapeAcceptedAfterRetryRate,
+  escapeAcceptedAfterAdjustmentRate,
+  escapeRescueAcceptanceRate,
+  escapeMainlineOnlyRejectRate,
+  escapeDominantFailureCombo: escapeNearestBreakdown?.dominantFailureCombo || 'none',
   nearestSuccessButNoUsableRouteRatio,
   warnings,
   recommendation: buildRecommendation(dominantCause),
+  escapeRecommendation: buildEscapeRecommendation(),
   thresholdFailures,
   exitCode: failedStep || thresholdFailures.length > 0 ? 1 : 0
 };
@@ -129,6 +208,28 @@ if (snapBreakdown) {
   console.log(
     `[RerouteHarnessRunner] snapEmptyRate=${snapEmptyRate.toFixed(3)} dominantCause=${dominantCause} ` +
     `dominantMode=${dominantMode} dominantSide=${dominantSide} recommendation=${runSummary.recommendation}`
+  );
+}
+if (escapeNearestBreakdown) {
+  console.log(
+    `[RerouteHarnessRunner] escapeNearestNullAfterRetryRate=${escapeNearestNullAfterRetryRate.toFixed(3)} ` +
+    `nearestNullAfterRetryCount=${escapeNearestNullAfterRetryCount} retryStrategyExhaustedCount=${retryStrategyExhaustedCount} allRetryPointsNullCount=${allRetryPointsNullCount} ` +
+    `acceptedAfterRetryCount=${acceptedAfterRetryCount} unknownDetailCount=${unknownDetailCount} ` +
+    `escapeAcceptedAfterRetryRate=${escapeAcceptedAfterRetryRate.toFixed(3)} ` +
+    `escapeAcceptedAfterAdjustmentRate=${escapeAcceptedAfterAdjustmentRate.toFixed(3)} ` +
+    `escapeRescueAcceptanceRate=${escapeRescueAcceptanceRate.toFixed(3)} ` +
+    `escapeMainlineOnlyRejectRate=${escapeMainlineOnlyRejectRate.toFixed(3)}`
+  );
+  console.log(
+    `[RerouteHarnessRunner] escapeStrategyOrder=${JSON.stringify(runSummary.escapeStrategyOrder)} ` +
+    `escapePrunedStrategies=${JSON.stringify(runSummary.escapePrunedStrategies)} ` +
+    `escapeMostEffectiveStrategy=${runSummary.escapeMostEffectiveStrategy} ` +
+    `escapeMostWastefulStrategy=${runSummary.escapeMostWastefulStrategy} ` +
+    `escapeUnknownDetailCount=${runSummary.escapeUnknownDetailCount}`
+  );
+  console.log(
+    `[RerouteHarnessRunner] escapeDominantFailureCombo=${runSummary.escapeDominantFailureCombo} ` +
+    `escapeRecommendation=${runSummary.escapeRecommendation}`
   );
 }
 if (thresholdFailures.length > 0) {

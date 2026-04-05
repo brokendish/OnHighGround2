@@ -90,6 +90,8 @@ const BLOCK_ESCAPE_LEG_BACKWARD_M = 15;
 const BLOCK_ESCAPE_LEG_MAX_POINTS = 6;
 const BLOCK_ESCAPE_CORRIDOR_DIFF_M = 18;
 const BLOCK_ESCAPE_SIDE_BEARING_DEG = 35;
+const BLOCK_ESCAPE_NEAREST_RETRY_DISTANCES_M = [5, 10, 15];
+const BLOCK_ESCAPE_ADJUSTMENT_DISTANCES_M = [8, 14];
 const BLOCK_ESCAPE_DEEPER_STEPS_M = [30, 60, 90, 120];
 const BLOCK_ESCAPE_LONG_DEEPER_STEPS_M = [30, 60, 90, 120, 150, 200];
 const BLOCK_ESCAPE_GATE_LENGTH_M = 60;
@@ -251,6 +253,9 @@ function _createSnapDebugBucket() {
         nearestAttemptCount: 0,
         nearestSuccessCount: 0,
         nearestNullCount: 0,
+        nearestRetryCount: 0,
+        nearestRetrySucceeded: 0,
+        nearestRetryFailed: 0,
         rejectSameCorridorCount: 0,
         rejectInsideBlockedAreaCount: 0,
         rejectTooFarFromCandidateCount: 0,
@@ -258,9 +263,228 @@ function _createSnapDebugBucket() {
         rejectDuplicateSnapCount: 0,
         rejectInvalidBearingCount: 0,
         rejectNodeBuildFailureCount: 0,
+        rejectSameCorridorSoftCount: 0,
+        rejectInsideBlockedAreaSoftCount: 0,
+        sameCorridorHardCount: 0,
+        sameCorridorSoftCount: 0,
+        sameCorridorPassCount: 0,
+        insideBlockedHardCount: 0,
+        insideBlockedSoftCount: 0,
+        insideBlockedPassCount: 0,
         usableSnappedCount: 0,
         usableRouteCandidateCount: 0
     };
+}
+
+function _createSnapDecisionBucket() {
+    return {
+        hard: 0,
+        soft: 0,
+        pass: 0
+    };
+}
+
+function _createCountMap() {
+    return {};
+}
+
+function _createEscapeStrategyStat() {
+    return {
+        executed: 0,
+        success: 0,
+        nearestReturned: 0,
+        nearestNull: 0,
+        nodeBuildSuccess: 0,
+        sideRoadContinuationDetected: 0,
+        acceptedAsRescue: 0,
+        rejectedAsMainlineOnly: 0,
+        rejectedAsDuplicate: 0,
+        rejectedAsInvalidBearing: 0
+    };
+}
+
+function _bucketNumericRange(value, steps = [], fallback = 'unknown') {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    const normalizedSteps = Array.isArray(steps) ? steps.filter(step => Number.isFinite(Number(step))).map(Number).sort((a, b) => a - b) : [];
+    if (!normalizedSteps.length) return fallback;
+    if (numeric <= normalizedSteps[0]) return `0-${normalizedSteps[0]}`;
+    for (let i = 1; i < normalizedSteps.length; i++) {
+        if (numeric <= normalizedSteps[i]) return `${normalizedSteps[i - 1]}-${normalizedSteps[i]}`;
+    }
+    return `${normalizedSteps[normalizedSteps.length - 1]}+`;
+}
+
+function _bucketBearingDiff(value) {
+    return _bucketNumericRange(value, [30, 60, 90, 120, 150, 180], 'unknown');
+}
+
+function _bucketCorridorLength(value) {
+    return _bucketNumericRange(value, [15, 30, 60, 90, 120, 180], 'unknown');
+}
+
+function _bucketSnapDistance(value) {
+    return _bucketNumericRange(value, [5, 10, 15, 20, 30, 50], 'unknown');
+}
+
+function _getEscapeNearestRetryMode(candidate) {
+    const injected = (typeof window !== 'undefined' && window.__OHG_TEST_DEPS__ && window.__OHG_TEST_DEPS__.escapeNearestRetryMode)
+        || null;
+    return candidate?.escapeRetryMode || injected || ESCAPE_NEAREST_RETRY_DEFAULT_MODE;
+}
+
+function _orderEscapeNearestRetryStrategies(candidate) {
+    const mode = _getEscapeNearestRetryMode(candidate);
+    const retryProfile = _classifyEscapeRetryProfile(candidate);
+    let ordered = ESCAPE_NEAREST_RETRY_STRATEGIES
+        .filter(strategy => strategy.enabled !== false)
+        .slice()
+        .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
+    if (retryProfile === 'back-right-entrance') {
+        const profileOrder = [
+            'escape-lateral-right-5',
+            'escape-right-forward-10',
+            'escape-right-forward-15',
+            'escape-right-backward-10',
+            'escape-forward-5',
+            'escape-forward-10'
+        ];
+        ordered.sort((a, b) => {
+            const ai = profileOrder.indexOf(a.id);
+            const bi = profileOrder.indexOf(b.id);
+            if (ai >= 0 && bi >= 0) return ai - bi;
+            if (ai >= 0) return -1;
+            if (bi >= 0) return 1;
+            return Number(b.priority || 0) - Number(a.priority || 0);
+        });
+    }
+    return { mode, ordered, retryProfile };
+}
+
+function _shouldSkipEscapeNearestStrategy(strategy, candidate, mode) {
+    if (!strategy) return { skipped: true, reason: 'missing-strategy' };
+    if (mode === 'full' || mode === 'priority-only') return { skipped: false, reason: null };
+    const candidateSide = String(candidate?.side || '');
+    const retryProfile = _classifyEscapeRetryProfile(candidate);
+    if (mode === 'priority-pruned') {
+        const keep = retryProfile === 'back-right-entrance'
+            ? new Set(['escape-lateral-right-5', 'escape-right-forward-10', 'escape-right-forward-15', 'escape-right-backward-10', 'escape-forward-5', 'escape-forward-10'])
+            : new Set(['escape-lateral-right-5', 'escape-right-forward-10', 'escape-right-backward-10']);
+        if (!keep.has(strategy.id)) {
+            if (retryProfile === 'back-right-entrance') {
+                if (strategy.family?.startsWith('left')) return { skipped: true, reason: 'pruned-back-right-policy' };
+                if (strategy.family === 'backward') return { skipped: true, reason: 'pruned-low-value-strategy' };
+                return { skipped: true, reason: 'pruned-entrance-policy' };
+            }
+            return { skipped: true, reason: 'pruned-low-value-strategy' };
+        }
+        if (candidateSide && !candidateSide.includes('right')) {
+            return { skipped: true, reason: 'pruned-non-right-dominant' };
+        }
+        if (retryProfile !== 'back-right-entrance' && String(strategy.family || '').startsWith('left')) {
+            return { skipped: true, reason: 'pruned-unsafe-direction' };
+        }
+    }
+    return { skipped: false, reason: null };
+}
+
+function _buildEscapeRetryPointFromStrategy(candidatePoint, headingUnit, strategyId) {
+    if (!candidatePoint || !headingUnit || !strategyId) return null;
+    const forward = { east: headingUnit.east, north: headingUnit.north };
+    const left = { east: -headingUnit.north, north: headingUnit.east };
+    const right = { east: -left.east, north: -left.north };
+    const builders = {
+        'escape-lateral-right-5': { distanceM: 5, east: right.east * 5, north: right.north * 5 },
+        'escape-lateral-left-5': { distanceM: 5, east: left.east * 5, north: left.north * 5 },
+        'escape-forward-5': { distanceM: 5, east: forward.east * 5, north: forward.north * 5 },
+        'escape-forward-10': { distanceM: 10, east: forward.east * 10, north: forward.north * 10 },
+        'escape-backward-5': { distanceM: 5, east: -forward.east * 5, north: -forward.north * 5 },
+        'escape-right-forward-10': { distanceM: 10, east: (right.east * 6) + (forward.east * 8), north: (right.north * 6) + (forward.north * 8) },
+        'escape-right-forward-15': { distanceM: 15, east: (right.east * 8) + (forward.east * 12), north: (right.north * 8) + (forward.north * 12) },
+        'escape-left-forward-10': { distanceM: 10, east: (left.east * 6) + (forward.east * 8), north: (left.north * 6) + (forward.north * 8) },
+        'escape-right-backward-10': { distanceM: 10, east: (right.east * 6) - (forward.east * 8), north: (right.north * 6) - (forward.north * 8) },
+        'escape-left-backward-10': { distanceM: 10, east: (left.east * 6) - (forward.east * 8), north: (left.north * 6) - (forward.north * 8) }
+    };
+    const spec = builders[strategyId];
+    if (!spec) return null;
+    const point = _offsetPointByMeters(candidatePoint, spec.east, spec.north);
+    if (!point) return null;
+    return {
+        label: strategyId,
+        distanceM: spec.distanceM,
+        point
+    };
+}
+
+function _createEscapeNearestBreakdown() {
+    return {
+        totalCandidates: 0,
+        nearestNullAfterRetryCount: 0,
+        nearestNullAfterRetryDetails: {},
+        strategyStats: {},
+        strategyOrderUsed: [],
+        prunedStrategies: [],
+        enabledStrategies: [],
+        disabledStrategies: [],
+        strategySkipReasons: {},
+        acceptedAfterRetryByStrategy: {},
+        firstWinningStrategyBreakdown: {},
+        nearestReturnedByStrategy: {},
+        allNullByStrategy: {},
+        firstWinningStrategy: 'none',
+        firstWinningStrategyStats: {},
+        retryStrategyExhaustedDetails: {},
+        nearestReturnedButRejectedBreakdown: {},
+        nearestReturnedButRejectedAsMainlineOnly: 0,
+        nearestReturnedButRejectedAsNoSideRoad: 0,
+        nearestReturnedButRejectedAsDuplicate: 0,
+        backRightEntranceBreakdown: {},
+        strategyOrderProfiles: {},
+        sideStats: {},
+        tierStats: {},
+        depthStats: {},
+        positionCategoryStats: {},
+        bearingBucketStats: {},
+        corridorLengthBucketStats: {},
+        snapDistanceBucketStats: {},
+        acceptedAfterRetryCount: 0,
+        acceptedAfterAdjustmentCount: 0,
+        acceptedAsRescueCount: 0,
+        rejectedAsMainlineOnlyCount: 0,
+        rejectedAsDuplicateOnlyCount: 0,
+        rejectedAsInvalidBearingCount: 0,
+        topFailureCombos: []
+    };
+}
+
+const ESCAPE_NEAREST_RETRY_DEFAULT_MODE = 'priority-pruned';
+const ESCAPE_NEAREST_RETRY_STRATEGIES = [
+    { id: 'escape-lateral-right-5', priority: 100, enabled: true, family: 'right-lateral', distanceM: 5 },
+    { id: 'escape-right-forward-10', priority: 90, enabled: true, family: 'right-diagonal', distanceM: 10 },
+    { id: 'escape-right-forward-15', priority: 88, enabled: true, family: 'right-diagonal', distanceM: 15 },
+    { id: 'escape-right-backward-10', priority: 85, enabled: true, family: 'right-diagonal', distanceM: 10 },
+    { id: 'escape-forward-5', priority: 60, enabled: true, family: 'forward', distanceM: 5 },
+    { id: 'escape-forward-10', priority: 58, enabled: true, family: 'forward', distanceM: 10 },
+    { id: 'escape-backward-5', priority: 55, enabled: true, family: 'backward', distanceM: 5 },
+    { id: 'escape-lateral-left-5', priority: 40, enabled: true, family: 'left-lateral', distanceM: 5 },
+    { id: 'escape-left-forward-10', priority: 30, enabled: true, family: 'left-diagonal', distanceM: 10 },
+    { id: 'escape-left-backward-10', priority: 25, enabled: true, family: 'left-diagonal', distanceM: 10 }
+];
+
+function _classifyEscapeRetryProfile(candidate = {}) {
+    const mode = String(candidate?.mode || candidate?.retryMode || 'escape');
+    const side = String(candidate?.side || '');
+    const depth = String(candidate?.depthKind || candidate?.depth || 'entrance');
+    const tier = Number(candidate?.distanceTierM || candidate?.tier || candidate?.lateralM || 0);
+    const rawPosition = String(candidate?.positionCategory || candidate?.candidatePositionCategory || '');
+    const backwardEntryLike = rawPosition === 'backward-entry' || Number(candidate?.backwardM || 0) > 0 || side.startsWith('back-');
+    if (mode === 'escape' && (side === 'right' || side === 'back-right') && depth === 'entrance' && backwardEntryLike && tier >= 60 && tier <= 100) {
+        return 'back-right-entrance';
+    }
+    if (mode === 'escape' && (side === 'right' || side === 'back-right') && depth === 'entrance') {
+        return 'right-entrance';
+    }
+    return 'default';
 }
 
 function _createSnapDebugCollector() {
@@ -270,6 +494,26 @@ function _createSnapDebugCollector() {
         sideStats: {},
         tierStats: {},
         depthStats: {},
+        retryStats: {
+            nearestRetryCount: 0,
+            nearestRetrySucceeded: 0,
+            nearestRetryFailed: 0
+        },
+        escapeRetryStats: {
+            nearestRetryCount: 0,
+            nearestRetrySucceeded: 0,
+            nearestRetryFailed: 0
+        },
+        escapeRetrySuccessByStrategy: _createCountMap(),
+        escapeRetryFailureByStrategy: _createCountMap(),
+        escapeCandidateAdjustmentStats: _createCountMap(),
+        escapeNearestNullReasons: _createCountMap(),
+        escapeNearestAcceptedAfterAdjustment: 0,
+        escapeNearestAcceptedAfterRetry: 0,
+        escapeNearestDetailBreakdown: _createCountMap(),
+        escapeStrategyStats: {},
+        sameCorridorStats: _createSnapDecisionBucket(),
+        insideBlockedStats: _createSnapDecisionBucket(),
         snapEmptyFailureMode: null,
         snapEmptyPrimaryReason: 'none',
         snapEmptyReasonBreakdown: {}
@@ -291,6 +535,17 @@ function _applySnapDebugCounter(target, key, counterName, amount = 1) {
     bucket[counterName] = Number(bucket[counterName] || 0) + amount;
 }
 
+function _incrementSnapDecisionBucket(bucket, decision) {
+    if (!bucket) return;
+    const key = decision === 'hard' || decision === 'soft' ? decision : 'pass';
+    bucket[key] = Number(bucket[key] || 0) + 1;
+}
+
+function _incrementCountMap(map, key, amount = 1) {
+    if (!map || !key) return;
+    map[key] = Number(map[key] || 0) + amount;
+}
+
 function _recordSnapDebugCounters(event = {}, counterName, amount = 1) {
     const collector = _blockAheadPerfMetrics?.snapDebugCollector;
     if (!collector || !counterName) return;
@@ -305,6 +560,7 @@ function _recordSnapDebugEvent(event = {}) {
     const collector = _blockAheadPerfMetrics?.snapDebugCollector;
     if (!collector) return;
     const normalized = {
+        type: event.type || null,
         mode: _normalizeSnapDebugKey(event.mode),
         side: event.side ? _normalizeSnapDebugKey(event.side) : null,
         tier: Number.isFinite(Number(event.tier)) ? Number(event.tier) : null,
@@ -317,8 +573,52 @@ function _recordSnapDebugEvent(event = {}) {
         snapDistanceM: Number.isFinite(Number(event.snapDistanceM)) ? Number(event.snapDistanceM) : null,
         corridorDistanceM: Number.isFinite(Number(event.corridorDistanceM)) ? Number(event.corridorDistanceM) : null,
         blockedDistanceM: Number.isFinite(Number(event.blockedDistanceM)) ? Number(event.blockedDistanceM) : null,
+        bearingDiffDeg: Number.isFinite(Number(event.bearingDiffDeg)) ? Number(event.bearingDiffDeg) : null,
+        lateralM: Number.isFinite(Number(event.lateralM)) ? Number(event.lateralM) : null,
         nodeScore: Number.isFinite(Number(event.nodeScore)) ? Number(event.nodeScore) : null,
+        nearestRetryCount: Number.isFinite(Number(event.nearestRetryCount)) ? Number(event.nearestRetryCount) : 0,
+        nearestRetrySuccess: !!event.nearestRetrySuccess,
+        nearestStrategyUsed: event.nearestStrategyUsed || null,
+        nearestStrategiesTried: Array.isArray(event.nearestStrategiesTried) ? event.nearestStrategiesTried.slice() : [],
+        nearestStrategyAttempts: Array.isArray(event.nearestStrategyAttempts) ? event.nearestStrategyAttempts.slice() : [],
+        strategyOrderUsed: Array.isArray(event.strategyOrderUsed) ? event.strategyOrderUsed.slice() : [],
+        strategiesEnabled: Array.isArray(event.strategiesEnabled) ? event.strategiesEnabled.slice() : [],
+        strategiesPruned: Array.isArray(event.strategiesPruned) ? event.strategiesPruned.slice() : [],
+        strategiesDisabled: Array.isArray(event.strategiesDisabled) ? event.strategiesDisabled.slice() : [],
+        strategySkipReasons: event.strategySkipReasons ? { ...event.strategySkipReasons } : {},
+        retryProfile: event.retryProfile || null,
+        firstNearestReturnedStrategy: event.firstNearestReturnedStrategy || null,
+        firstAcceptedStrategy: event.firstAcceptedStrategy || null,
+        firstWinningStrategy: event.firstWinningStrategy || null,
+        winningStrategyIndex: Number.isFinite(Number(event.winningStrategyIndex)) ? Number(event.winningStrategyIndex) : null,
+        allStrategiesNull: !!event.allStrategiesNull,
+        allStrategiesRejected: !!event.allStrategiesRejected,
+        finalRetryOutcome: event.finalRetryOutcome || null,
+        candidateAdjusted: !!event.candidateAdjusted,
+        candidateAdjustmentType: event.candidateAdjustmentType || null,
+        candidateAdjustmentDistance: Number.isFinite(Number(event.candidateAdjustmentDistance)) ? Number(event.candidateAdjustmentDistance) : null,
+        nearestFailureReason: event.nearestFailureReason || null,
+        nearestReturnedButRejectedReason: event.nearestReturnedButRejectedReason || null,
+        nearestAcceptedAsRescue: !!event.nearestAcceptedAsRescue,
+        nearestReturnedByRetry: !!event.nearestReturnedByRetry,
+        nodeBuildSuccess: typeof event.nodeBuildSuccess === 'boolean' ? event.nodeBuildSuccess : null,
+        sameCorridorDecision: event.sameCorridorDecision || 'pass',
+        insideBlockedDecision: event.insideBlockedDecision || 'pass',
+        sideRoadContinuationDetected: !!event.sideRoadContinuationDetected,
+        sideRoadContinuationDetectedAtSnap: !!event.sideRoadContinuationDetectedAtSnap,
+        mainlineReturnDetected: !!event.mainlineReturnDetected,
+        holdWaypointMode: !!event.holdWaypointMode,
+        blockedBearing: Number.isFinite(Number(event.blockedBearing)) ? Number(event.blockedBearing) : null,
+        blockedBearingBucket: event.blockedBearingBucket || null,
+        corridorLength: Number.isFinite(Number(event.corridorLength)) ? Number(event.corridorLength) : null,
+        corridorLengthBucket: event.corridorLengthBucket || null,
+        snapDistanceBucket: event.snapDistanceBucket || null,
+        effectiveRadiusM: Number.isFinite(Number(event.effectiveRadiusM)) ? Number(event.effectiveRadiusM) : null,
+        candidatePositionCategory: event.candidatePositionCategory || null,
         usable: !!event.usable,
+        nearestRejectedReason: event.nearestRejectedReason || null,
+        snapEmptyPrimaryReason: event.snapEmptyPrimaryReason || null,
+        snapEmptyDetail: event.snapEmptyDetail || null,
         rejectedReason: event.rejectedReason || null,
         detail: event.detail || null
     };
@@ -341,10 +641,52 @@ function _recordSnapDebugEvent(event = {}) {
     }
     if (event.type === 'nearest-null') {
         _recordSnapDebugCounters(normalized, 'nearestNullCount');
+        if (normalized.mode === 'escape') {
+            _incrementCountMap(collector.escapeNearestNullReasons, normalized.nearestFailureReason || normalized.rejectedReason || 'unknown');
+        }
+        return;
+    }
+    if (event.type === 'nearest-retry') {
+        const retryCount = Math.max(0, Number(event.nearestRetryCount || 0));
+        const attemptedRetryFlow = retryCount > 0 || !!event.finalRetryOutcome;
+        if (retryCount > 0) {
+            _recordSnapDebugCounters(normalized, 'nearestRetryCount', retryCount);
+            collector.retryStats.nearestRetryCount += retryCount;
+        }
+        if (event.nearestRetrySuccess) {
+            _recordSnapDebugCounters(normalized, 'nearestRetrySucceeded');
+            collector.retryStats.nearestRetrySucceeded += 1;
+        } else if (attemptedRetryFlow) {
+            _recordSnapDebugCounters(normalized, 'nearestRetryFailed');
+            collector.retryStats.nearestRetryFailed += 1;
+        }
+        if (normalized.mode === 'escape' && attemptedRetryFlow) {
+            collector.escapeRetryStats.nearestRetryCount += retryCount;
+            if (event.nearestRetrySuccess) {
+                collector.escapeRetryStats.nearestRetrySucceeded += 1;
+                _incrementCountMap(collector.escapeRetrySuccessByStrategy, normalized.nearestStrategyUsed || 'retry-unknown');
+            } else {
+                collector.escapeRetryStats.nearestRetryFailed += 1;
+                _incrementCountMap(collector.escapeRetryFailureByStrategy, normalized.nearestStrategyUsed || 'retry-exhausted');
+            }
+        }
+        return;
+    }
+    if (event.type === 'candidate-adjustment') {
+        if (normalized.mode === 'escape') {
+            _incrementCountMap(
+                collector.escapeCandidateAdjustmentStats,
+                normalized.candidateAdjustmentType || 'adjustment-unknown'
+            );
+        }
         return;
     }
     if (event.type === 'usable-snapped') {
         _recordSnapDebugCounters(normalized, 'usableSnappedCount');
+        if (normalized.mode === 'escape') {
+            if (normalized.candidateAdjusted) collector.escapeNearestAcceptedAfterAdjustment += 1;
+            if (normalized.nearestRetrySuccess) collector.escapeNearestAcceptedAfterRetry += 1;
+        }
         return;
     }
     if (event.type === 'usable-route-candidate') {
@@ -359,19 +701,299 @@ function _recordSnapDebugEvent(event = {}) {
             'low-corridor-score': 'rejectLowCorridorScoreCount',
             'duplicate-snap': 'rejectDuplicateSnapCount',
             'invalid-bearing': 'rejectInvalidBearingCount',
-            'node-build-failure': 'rejectNodeBuildFailureCount'
+            'node-build-failure': 'rejectNodeBuildFailureCount',
+            'same-corridor-soft': 'rejectSameCorridorSoftCount',
+            'inside-blocked-area-soft': 'rejectInsideBlockedAreaSoftCount'
         };
         const counterName = counterByReason[event.rejectedReason];
         if (counterName) _recordSnapDebugCounters(normalized, counterName);
+        return;
     }
+    if (event.type === 'decision') {
+        if (event.sameCorridorDecision) {
+            const sameCounter = `sameCorridor${event.sameCorridorDecision === 'hard' ? 'Hard' : (event.sameCorridorDecision === 'soft' ? 'Soft' : 'Pass')}Count`;
+            _recordSnapDebugCounters(normalized, sameCounter);
+            _incrementSnapDecisionBucket(collector.sameCorridorStats, event.sameCorridorDecision);
+        }
+        if (event.insideBlockedDecision) {
+            const blockedCounter = `insideBlocked${event.insideBlockedDecision === 'hard' ? 'Hard' : (event.insideBlockedDecision === 'soft' ? 'Soft' : 'Pass')}Count`;
+            _recordSnapDebugCounters(normalized, blockedCounter);
+            _incrementSnapDecisionBucket(collector.insideBlockedStats, event.insideBlockedDecision);
+        }
+    }
+}
+
+function _deriveEscapeNearestDetail(candidate = {}) {
+    if (!candidate || candidate.mode !== 'escape') return 'none';
+    if (!candidate.rawPoint) return 'nearest-null-after-retry:no-candidate-point';
+    if (Number(candidate.nearestRetryCount || 0) <= 0) return 'none';
+    if (candidate.nearestFailureReason === 'all-pruned-by-policy') return 'nearest-null-after-retry:retry-strategy-exhausted:all-pruned-by-policy';
+    if (!candidate.nearestReturned) {
+        if (candidate.nearestFailureReason === 'retry-strategy-exhausted:no-nearest-returned') {
+            return 'nearest-null-after-retry:retry-strategy-exhausted:no-nearest-returned';
+        }
+        return 'nearest-null-after-retry:all-retry-points-null';
+    }
+    if (candidate.nearestFailureReason === 'retry-strategy-exhausted:only-duplicate-candidates') {
+        return 'nearest-null-after-retry:retry-strategy-exhausted:only-duplicate-candidates';
+    }
+    if (candidate.nearestFailureReason === 'retry-strategy-exhausted:only-mainline-continuation') {
+        return 'nearest-null-after-retry:retry-strategy-exhausted:only-mainline-continuation';
+    }
+    if (candidate.nearestFailureReason === 'retry-strategy-exhausted:nearest-returned-but-all-rejected') {
+        return 'nearest-null-after-retry:retry-strategy-exhausted:nearest-returned-but-all-rejected';
+    }
+    if (candidate.nearestRejectedReason === 'node-build-failure') return 'nearest-null-after-retry:retry-node-build-failure';
+    if (candidate.nearestRejectedReason === 'invalid-bearing') return 'nearest-null-after-retry:retry-invalid-bearing';
+    if (candidate.nearestRejectedReason === 'duplicate-snap') return 'nearest-null-after-retry:retry-duplicate-only';
+    if (candidate.nearestRejectedReason === 'too-far-from-candidate') return 'nearest-null-after-retry:retry-too-far';
+    if (candidate.nearestRejectedReason === 'same-corridor') {
+        return candidate.sideRoadContinuationDetectedAtSnap
+            ? 'nearest-null-after-retry:retry-strategy-exhausted:only-mainline-continuation'
+            : 'nearest-null-after-retry:retry-rejected-no-side-road';
+    }
+    if (candidate.nearestFailureReason === 'retry-no-strategy-enabled') return 'nearest-null-after-retry:retry-no-strategy-enabled';
+    if (candidate.nearestFailureReason === 'all-retry-points-null') return 'nearest-null-after-retry:all-retry-points-null';
+    if (String(candidate.nearestFailureReason || '').startsWith('retry-strategy-exhausted:')) {
+        return `nearest-null-after-retry:${candidate.nearestFailureReason}`;
+    }
+    return `nearest-null-after-retry:${candidate.nearestFailureReason || 'retry-strategy-exhausted:nearest-returned-but-all-rejected'}`;
+}
+
+function _buildEscapeNearestBreakdown(collector) {
+    const breakdown = _createEscapeNearestBreakdown();
+    const candidateMap = {};
+    const strategyStats = {};
+    const events = Array.isArray(collector?.events) ? collector.events : [];
+    const ensureStrategyStat = (strategy) => {
+        const key = strategy || 'unknown';
+        if (!strategyStats[key]) strategyStats[key] = _createEscapeStrategyStat();
+        return strategyStats[key];
+    };
+    const ensureCount = (target, key) => {
+        const normalizedKey = _normalizeSnapDebugKey(key);
+        target[normalizedKey] = Number(target[normalizedKey] || 0) + 1;
+    };
+    const candidateKeyFor = (event) => [
+        _normalizeSnapDebugKey(event.mode),
+        _normalizeSnapDebugKey(event.candidateId),
+        _normalizeSnapDebugKey(event.side),
+        _normalizeSnapDebugKey(event.tier),
+        _normalizeSnapDebugKey(event.depth, 'entrance')
+    ].join('|');
+
+    events.forEach((event) => {
+        if (event.mode !== 'escape') return;
+        const candidateKey = candidateKeyFor(event);
+        if (!candidateMap[candidateKey]) {
+            candidateMap[candidateKey] = {
+                mode: 'escape',
+                candidateId: event.candidateId,
+                side: event.side,
+                tier: event.tier,
+                depth: event.depth || 'entrance',
+                holdWaypointMode: !!event.holdWaypointMode,
+                candidatePositionCategory: event.candidatePositionCategory || 'unknown',
+                blockedBearing: event.blockedBearing,
+                blockedBearingBucket: event.blockedBearingBucket || 'unknown',
+                corridorLength: event.corridorLength,
+                corridorLengthBucket: event.corridorLengthBucket || 'unknown',
+                snapDistanceM: event.snapDistanceM,
+                snapDistanceBucket: event.snapDistanceBucket || 'unknown',
+                nearestStrategyUsed: null,
+                nearestStrategiesTried: [],
+                nearestStrategyAttempts: [],
+                retryProfile: event.retryProfile || 'default',
+                strategyOrderUsed: [],
+                strategiesEnabled: [],
+                strategiesPruned: [],
+                strategiesDisabled: [],
+                strategySkipReasons: {},
+                firstNearestReturnedStrategy: null,
+                firstAcceptedStrategy: null,
+                winningStrategyIndex: null,
+                allStrategiesNull: false,
+                allStrategiesRejected: false,
+                finalRetryOutcome: null,
+                nearestRetryCount: 0,
+                nearestRetrySuccess: false,
+                nearestReturned: false,
+                nodeBuildSuccess: false,
+                sideRoadContinuationDetectedAtSnap: false,
+                nearestAcceptedAsRescue: false,
+                nearestRejectedReason: null,
+                nearestFailureReason: null,
+                nearestReturnedButRejectedReason: null,
+                candidateAdjusted: false,
+                acceptedAfterRetry: false,
+                acceptedAfterAdjustment: false
+            };
+            breakdown.totalCandidates += 1;
+        }
+        const candidate = candidateMap[candidateKey];
+        if (event.rawPoint) candidate.rawPoint = event.rawPoint;
+        if (event.side) candidate.side = event.side;
+        if (Number.isFinite(Number(event.tier))) candidate.tier = Number(event.tier);
+        if (event.depth) candidate.depth = event.depth;
+        if (event.candidatePositionCategory) candidate.candidatePositionCategory = event.candidatePositionCategory;
+        if (Number.isFinite(Number(event.blockedBearing))) candidate.blockedBearing = Number(event.blockedBearing);
+        if (event.blockedBearingBucket) candidate.blockedBearingBucket = event.blockedBearingBucket;
+        if (Number.isFinite(Number(event.corridorLength))) candidate.corridorLength = Number(event.corridorLength);
+        if (event.corridorLengthBucket) candidate.corridorLengthBucket = event.corridorLengthBucket;
+        if (Number.isFinite(Number(event.snapDistanceM))) candidate.snapDistanceM = Number(event.snapDistanceM);
+        if (event.snapDistanceBucket) candidate.snapDistanceBucket = event.snapDistanceBucket;
+        if (typeof event.holdWaypointMode === 'boolean') candidate.holdWaypointMode = event.holdWaypointMode;
+        if (event.nearestStrategyUsed) candidate.nearestStrategyUsed = event.nearestStrategyUsed;
+        if (Array.isArray(event.nearestStrategiesTried) && event.nearestStrategiesTried.length) {
+            candidate.nearestStrategiesTried = Array.from(new Set(candidate.nearestStrategiesTried.concat(event.nearestStrategiesTried)));
+        }
+        if (Array.isArray(event.nearestStrategyAttempts) && event.nearestStrategyAttempts.length) {
+            candidate.nearestStrategyAttempts = event.nearestStrategyAttempts.slice();
+        }
+        if (event.retryProfile) {
+            candidate.retryProfile = event.retryProfile;
+            breakdown.strategyOrderProfiles[event.retryProfile] = Number(breakdown.strategyOrderProfiles[event.retryProfile] || 0) + (event.type === 'nearest-retry' ? 1 : 0);
+        }
+        if (Array.isArray(event.strategyOrderUsed) && event.strategyOrderUsed.length) {
+            candidate.strategyOrderUsed = event.strategyOrderUsed.slice();
+            breakdown.strategyOrderUsed = event.strategyOrderUsed.slice();
+        }
+        if (Array.isArray(event.strategiesEnabled) && event.strategiesEnabled.length) {
+            candidate.strategiesEnabled = event.strategiesEnabled.slice();
+            breakdown.enabledStrategies = Array.from(new Set(breakdown.enabledStrategies.concat(event.strategiesEnabled)));
+        }
+        if (Array.isArray(event.strategiesPruned) && event.strategiesPruned.length) {
+            candidate.strategiesPruned = event.strategiesPruned.slice();
+            breakdown.prunedStrategies = Array.from(new Set(breakdown.prunedStrategies.concat(event.strategiesPruned)));
+        }
+        if (Array.isArray(event.strategiesDisabled) && event.strategiesDisabled.length) {
+            candidate.strategiesDisabled = event.strategiesDisabled.slice();
+            breakdown.disabledStrategies = Array.from(new Set(breakdown.disabledStrategies.concat(event.strategiesDisabled)));
+        }
+        if (event.strategySkipReasons && typeof event.strategySkipReasons === 'object') {
+            candidate.strategySkipReasons = { ...candidate.strategySkipReasons, ...event.strategySkipReasons };
+            Object.entries(event.strategySkipReasons).forEach(([strategy, reason]) => {
+                if (strategy && reason) breakdown.strategySkipReasons[strategy] = reason;
+            });
+        }
+        if (event.firstNearestReturnedStrategy) candidate.firstNearestReturnedStrategy = event.firstNearestReturnedStrategy;
+        if (event.firstAcceptedStrategy) candidate.firstAcceptedStrategy = event.firstAcceptedStrategy;
+        if (Number.isFinite(Number(event.winningStrategyIndex))) candidate.winningStrategyIndex = Number(event.winningStrategyIndex);
+        candidate.allStrategiesNull = candidate.allStrategiesNull || !!event.allStrategiesNull;
+        candidate.allStrategiesRejected = candidate.allStrategiesRejected || !!event.allStrategiesRejected;
+        if (event.finalRetryOutcome) candidate.finalRetryOutcome = event.finalRetryOutcome;
+        candidate.nearestRetryCount = Math.max(candidate.nearestRetryCount, Number(event.nearestRetryCount || 0));
+        candidate.nearestRetrySuccess = candidate.nearestRetrySuccess || !!event.nearestRetrySuccess;
+        candidate.nearestReturned = candidate.nearestReturned || !!event.nearestReturned || !!event.nearestReturnedByRetry || !!event.snappedPoint;
+        candidate.nodeBuildSuccess = candidate.nodeBuildSuccess || !!event.nodeBuildSuccess || !!event.usable;
+        candidate.sideRoadContinuationDetectedAtSnap = candidate.sideRoadContinuationDetectedAtSnap || !!event.sideRoadContinuationDetectedAtSnap;
+        candidate.nearestAcceptedAsRescue = candidate.nearestAcceptedAsRescue || !!event.nearestAcceptedAsRescue;
+        candidate.nearestFailureReason = event.nearestFailureReason || candidate.nearestFailureReason;
+        candidate.nearestReturnedButRejectedReason = event.nearestReturnedButRejectedReason || candidate.nearestReturnedButRejectedReason;
+        candidate.candidateAdjusted = candidate.candidateAdjusted || !!event.candidateAdjusted;
+        if (event.rejectedReason) candidate.nearestRejectedReason = event.rejectedReason;
+        if (event.type === 'usable-snapped') {
+            candidate.acceptedAfterRetry = candidate.acceptedAfterRetry || !!event.nearestRetrySuccess;
+            candidate.acceptedAfterAdjustment = candidate.acceptedAfterAdjustment || !!event.candidateAdjusted;
+        }
+        if (Array.isArray(event.nearestStrategyAttempts)) {
+            event.nearestStrategyAttempts.forEach((attempt) => {
+                const stat = ensureStrategyStat(attempt?.strategy);
+                stat.executed += 1;
+                if (attempt?.nearestReturned) {
+                    stat.nearestReturned += 1;
+                } else {
+                    stat.nearestNull += 1;
+                }
+            });
+        }
+    });
+
+    Object.values(candidateMap).forEach((candidate) => {
+        const strategyUsed = candidate.nearestStrategyUsed || (candidate.candidateAdjusted ? 'escape-adjusted-candidate' : 'point');
+        const usedStat = ensureStrategyStat(strategyUsed);
+        if (candidate.nearestRetrySuccess || candidate.acceptedAfterAdjustment) usedStat.success += 1;
+        if (candidate.nodeBuildSuccess) usedStat.nodeBuildSuccess += 1;
+        if (candidate.sideRoadContinuationDetectedAtSnap) usedStat.sideRoadContinuationDetected += 1;
+        if (candidate.nearestAcceptedAsRescue) usedStat.acceptedAsRescue += 1;
+        if (candidate.nearestRejectedReason === 'same-corridor') usedStat.rejectedAsMainlineOnly += 1;
+        if (candidate.nearestRejectedReason === 'duplicate-snap') usedStat.rejectedAsDuplicate += 1;
+        if (candidate.nearestRejectedReason === 'invalid-bearing') usedStat.rejectedAsInvalidBearing += 1;
+
+        if (candidate.acceptedAfterRetry) breakdown.acceptedAfterRetryCount += 1;
+        if (candidate.acceptedAfterAdjustment) breakdown.acceptedAfterAdjustmentCount += 1;
+        if (candidate.nearestAcceptedAsRescue) breakdown.acceptedAsRescueCount += 1;
+        if (candidate.nearestRejectedReason === 'same-corridor') breakdown.rejectedAsMainlineOnlyCount += 1;
+        if (candidate.nearestRejectedReason === 'duplicate-snap') breakdown.rejectedAsDuplicateOnlyCount += 1;
+        if (candidate.nearestRejectedReason === 'invalid-bearing') breakdown.rejectedAsInvalidBearingCount += 1;
+
+        const detail = _deriveEscapeNearestDetail(candidate);
+        if (candidate.firstAcceptedStrategy) {
+            breakdown.acceptedAfterRetryByStrategy[candidate.firstAcceptedStrategy] = Number(breakdown.acceptedAfterRetryByStrategy[candidate.firstAcceptedStrategy] || 0) + 1;
+            breakdown.firstWinningStrategyBreakdown[candidate.firstAcceptedStrategy] = Number(breakdown.firstWinningStrategyBreakdown[candidate.firstAcceptedStrategy] || 0) + 1;
+        }
+        if (candidate.firstNearestReturnedStrategy) {
+            breakdown.nearestReturnedByStrategy[candidate.firstNearestReturnedStrategy] = Number(breakdown.nearestReturnedByStrategy[candidate.firstNearestReturnedStrategy] || 0) + 1;
+        }
+        if (candidate.allStrategiesNull) {
+            const nullKey = candidate.strategyOrderUsed?.[0] || candidate.nearestStrategyUsed || 'retry-exhausted';
+            breakdown.allNullByStrategy[nullKey] = Number(breakdown.allNullByStrategy[nullKey] || 0) + 1;
+        }
+        if (detail !== 'none') {
+            breakdown.nearestNullAfterRetryCount += 1;
+            ensureCount(breakdown.nearestNullAfterRetryDetails, detail);
+            if (detail.includes('retry-strategy-exhausted')) ensureCount(breakdown.retryStrategyExhaustedDetails, detail);
+            if (candidate.nearestReturnedButRejectedReason) ensureCount(breakdown.nearestReturnedButRejectedBreakdown, candidate.nearestReturnedButRejectedReason);
+            if (candidate.nearestReturnedButRejectedReason === 'mainline-only') breakdown.nearestReturnedButRejectedAsMainlineOnly += 1;
+            if (candidate.nearestReturnedButRejectedReason === 'no-side-road') breakdown.nearestReturnedButRejectedAsNoSideRoad += 1;
+            if (candidate.nearestReturnedButRejectedReason === 'duplicate') breakdown.nearestReturnedButRejectedAsDuplicate += 1;
+            ensureCount(breakdown.sideStats, candidate.side);
+            ensureCount(breakdown.tierStats, Number.isFinite(Number(candidate.tier)) ? Number(candidate.tier) : 'unknown');
+            ensureCount(breakdown.depthStats, candidate.depth || 'entrance');
+            ensureCount(breakdown.positionCategoryStats, candidate.candidatePositionCategory || 'unknown');
+            ensureCount(breakdown.bearingBucketStats, candidate.blockedBearingBucket || 'unknown');
+            ensureCount(breakdown.corridorLengthBucketStats, candidate.corridorLengthBucket || 'unknown');
+            ensureCount(breakdown.snapDistanceBucketStats, candidate.snapDistanceBucket || 'unknown');
+            if (candidate.retryProfile === 'back-right-entrance') ensureCount(breakdown.backRightEntranceBreakdown, detail);
+        }
+    });
+
+    breakdown.strategyStats = strategyStats;
+    const comboCounts = {};
+    Object.values(candidateMap).forEach((candidate) => {
+        const detail = _deriveEscapeNearestDetail(candidate);
+        if (detail === 'none') return;
+        const combo = [
+            detail,
+            candidate.side || 'unknown',
+            Number.isFinite(Number(candidate.tier)) ? Number(candidate.tier) : 'unknown',
+            candidate.depth || 'entrance',
+            candidate.candidatePositionCategory || 'unknown'
+        ].join('|');
+        comboCounts[combo] = Number(comboCounts[combo] || 0) + 1;
+    });
+    breakdown.topFailureCombos = Object.entries(comboCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([combo, count]) => ({ combo, count }));
+    const firstWinningEntries = Object.entries(breakdown.acceptedAfterRetryByStrategy).sort((a, b) => b[1] - a[1]);
+    breakdown.firstWinningStrategy = firstWinningEntries[0]?.[0] || 'none';
+    breakdown.firstWinningStrategyStats = firstWinningEntries.reduce((acc, [strategy, count]) => {
+        acc[strategy] = { acceptedAfterRetry: count };
+        return acc;
+    }, {});
+    return breakdown;
 }
 
 function _deriveSnapEmptyPrimaryReason(modeStats = {}) {
     const stats = modeStats || {};
+    const hasRetryFlow = Number(stats.nearestRetryCount || 0) > 0
+        || Number(stats.nearestRetrySucceeded || 0) > 0
+        || Number(stats.nearestRetryFailed || 0) > 0;
     const candidates = [
-        ['nearest-null', Number(stats.nearestNullCount || 0)],
-        ['same-corridor', Number(stats.rejectSameCorridorCount || 0)],
-        ['inside-blocked-area', Number(stats.rejectInsideBlockedAreaCount || 0)],
+        [hasRetryFlow ? 'nearest-null-after-retry' : 'nearest-null', Number(stats.nearestNullCount || 0)],
+        ['same-corridor', Number(stats.rejectSameCorridorCount || 0) + Number(stats.rejectSameCorridorSoftCount || 0)],
+        ['inside-blocked-area', Number(stats.rejectInsideBlockedAreaCount || 0) + Number(stats.rejectInsideBlockedAreaSoftCount || 0)],
         ['too-far-from-candidate', Number(stats.rejectTooFarFromCandidateCount || 0)],
         ['low-corridor-score', Number(stats.rejectLowCorridorScoreCount || 0)],
         ['duplicate-snap', Number(stats.rejectDuplicateSnapCount || 0)],
@@ -388,10 +1010,16 @@ function _deriveSnapEmptyPrimaryReason(modeStats = {}) {
 
 function _buildSnapEmptyReasonBreakdown(modeStats = {}) {
     const stats = modeStats || {};
+    const hasRetryFlow = Number(stats.nearestRetryCount || 0) > 0
+        || Number(stats.nearestRetrySucceeded || 0) > 0
+        || Number(stats.nearestRetryFailed || 0) > 0;
     return {
-        'nearest-null': Number(stats.nearestNullCount || 0),
+        'nearest-null': hasRetryFlow ? 0 : Number(stats.nearestNullCount || 0),
+        'nearest-null-after-retry': hasRetryFlow ? Number(stats.nearestNullCount || 0) : 0,
         'same-corridor': Number(stats.rejectSameCorridorCount || 0),
+        'same-corridor-soft': Number(stats.rejectSameCorridorSoftCount || 0),
         'inside-blocked-area': Number(stats.rejectInsideBlockedAreaCount || 0),
+        'inside-blocked-area-soft': Number(stats.rejectInsideBlockedAreaSoftCount || 0),
         'too-far-from-candidate': Number(stats.rejectTooFarFromCandidateCount || 0),
         'low-corridor-score': Number(stats.rejectLowCorridorScoreCount || 0),
         'duplicate-snap': Number(stats.rejectDuplicateSnapCount || 0),
@@ -419,7 +1047,27 @@ function _markSnapEmptyFailure(mode) {
 function _summarizeSnapDebugCollector(collector) {
     if (!collector) {
         return {
-            snapDiagnostics: { events: [], modeStats: {}, sideStats: {}, tierStats: {}, depthStats: {}, modePrimaryReasons: {} },
+            snapDiagnostics: {
+                events: [],
+                modeStats: {},
+                sideStats: {},
+                tierStats: {},
+                depthStats: {},
+                retryStats: { nearestRetryCount: 0, nearestRetrySucceeded: 0, nearestRetryFailed: 0 },
+                escapeRetryStats: { nearestRetryCount: 0, nearestRetrySucceeded: 0, nearestRetryFailed: 0 },
+                escapeRetrySuccessByStrategy: {},
+                escapeRetryFailureByStrategy: {},
+                escapeCandidateAdjustmentStats: {},
+                escapeNearestNullReasons: {},
+                escapeNearestAcceptedAfterAdjustment: 0,
+                escapeNearestAcceptedAfterRetry: 0,
+                escapeNearestDetailBreakdown: {},
+                escapeStrategyStats: {},
+                escapeNearestBreakdown: _createEscapeNearestBreakdown(),
+                sameCorridorStats: _createSnapDecisionBucket(),
+                insideBlockedStats: _createSnapDecisionBucket(),
+                modePrimaryReasons: {}
+            },
             snapEmptyPrimaryReason: 'none',
             snapEmptyReasonBreakdown: {},
             snapEmptyFailureMode: null
@@ -429,6 +1077,7 @@ function _summarizeSnapDebugCollector(collector) {
     Object.entries(collector.modeStats || {}).forEach(([mode, stats]) => {
         modePrimaryReasons[mode] = _deriveSnapEmptyPrimaryReason(stats);
     });
+    const escapeNearestBreakdown = _buildEscapeNearestBreakdown(collector);
     return {
         snapDiagnostics: {
             events: Array.isArray(collector.events) ? collector.events.slice() : [],
@@ -436,7 +1085,23 @@ function _summarizeSnapDebugCollector(collector) {
             sideStats: { ...(collector.sideStats || {}) },
             tierStats: { ...(collector.tierStats || {}) },
             depthStats: { ...(collector.depthStats || {}) },
-            modePrimaryReasons
+            retryStats: { ...(collector.retryStats || {}) },
+            escapeRetryStats: { ...(collector.escapeRetryStats || {}) },
+            escapeRetrySuccessByStrategy: { ...(collector.escapeRetrySuccessByStrategy || {}) },
+            escapeRetryFailureByStrategy: { ...(collector.escapeRetryFailureByStrategy || {}) },
+            escapeCandidateAdjustmentStats: { ...(collector.escapeCandidateAdjustmentStats || {}) },
+            escapeNearestNullReasons: { ...(collector.escapeNearestNullReasons || {}) },
+            escapeNearestAcceptedAfterAdjustment: Number(collector.escapeNearestAcceptedAfterAdjustment || 0),
+            escapeNearestAcceptedAfterRetry: Number(collector.escapeNearestAcceptedAfterRetry || 0),
+            escapeNearestDetailBreakdown: { ...(collector.escapeNearestDetailBreakdown || {}) },
+            escapeStrategyStats: { ...(collector.escapeStrategyStats || {}) },
+            escapeNearestBreakdown,
+            sameCorridorStats: { ...(collector.sameCorridorStats || {}) },
+            insideBlockedStats: { ...(collector.insideBlockedStats || {}) },
+            modePrimaryReasons,
+            escapeModePrimaryReasons: Object.fromEntries(
+                Object.entries(modePrimaryReasons).filter(([mode]) => mode === 'escape')
+            )
         },
         snapEmptyPrimaryReason: collector.snapEmptyPrimaryReason || 'none',
         snapEmptyReasonBreakdown: { ...(collector.snapEmptyReasonBreakdown || {}) },
@@ -1508,13 +2173,352 @@ async function _fetchOsrmNearestNode(point, contextLabel = 'nearest') {
     }
 }
 
+function _buildEscapeNearestRetryPoints(candidatePoint, headingUnit) {
+    if (!candidatePoint || !headingUnit) return [];
+    const forward = { east: headingUnit.east, north: headingUnit.north };
+    const left = { east: -headingUnit.north, north: headingUnit.east };
+    const diagonals = [
+        { east: forward.east + left.east, north: forward.north + left.north },
+        { east: forward.east - left.east, north: forward.north - left.north },
+        { east: -forward.east + left.east, north: -forward.north + left.north },
+        { east: -forward.east - left.east, north: -forward.north - left.north }
+    ].map(vec => {
+        const len = Math.hypot(vec.east, vec.north) || 1;
+        return { east: vec.east / len, north: vec.north / len };
+    });
+    const attempts = [
+        { distanceM: 5, label: 'forward-5', east: forward.east * 5, north: forward.north * 5 },
+        { distanceM: 5, label: 'backward-5', east: -forward.east * 5, north: -forward.north * 5 },
+        { distanceM: 5, label: 'left-5', east: left.east * 5, north: left.north * 5 },
+        { distanceM: 5, label: 'right-5', east: -left.east * 5, north: -left.north * 5 },
+        { distanceM: 10, label: 'diag-fl-10', east: diagonals[0].east * 10, north: diagonals[0].north * 10 },
+        { distanceM: 10, label: 'diag-fr-10', east: diagonals[1].east * 10, north: diagonals[1].north * 10 },
+        { distanceM: 10, label: 'diag-bl-10', east: diagonals[2].east * 10, north: diagonals[2].north * 10 },
+        { distanceM: 10, label: 'diag-br-10', east: diagonals[3].east * 10, north: diagonals[3].north * 10 },
+        { distanceM: 15, label: 'forward-15', east: forward.east * 15, north: forward.north * 15 },
+        { distanceM: 15, label: 'backward-15', east: -forward.east * 15, north: -forward.north * 15 }
+    ];
+    return attempts
+        .map(spec => ({
+            ...spec,
+            point: _offsetPointByMeters(candidatePoint, spec.east, spec.north)
+        }))
+        .filter(spec => !!spec.point);
+}
+
+function _buildEscapeModeNearestRetryPoints(candidatePoint, headingUnit, candidate = {}) {
+    if (!candidatePoint || !headingUnit) {
+        return {
+            mode: _getEscapeNearestRetryMode(candidate),
+            retryProfile: _classifyEscapeRetryProfile(candidate),
+            retryPoints: [],
+            strategyOrderUsed: [],
+            enabledStrategies: [],
+            disabledStrategies: [],
+            prunedStrategies: [],
+            strategySkipReasons: {}
+        };
+    }
+    const { mode, ordered, retryProfile } = _orderEscapeNearestRetryStrategies(candidate);
+    const retryPoints = [];
+    const strategyOrderUsed = [];
+    const enabledStrategies = [];
+    const disabledStrategies = [];
+    const prunedStrategies = [];
+    const strategySkipReasons = {};
+    ordered.forEach((strategy) => {
+        strategyOrderUsed.push(strategy.id);
+        const skip = _shouldSkipEscapeNearestStrategy(strategy, candidate, mode);
+        if (skip.skipped) {
+            prunedStrategies.push(strategy.id);
+            disabledStrategies.push(strategy.id);
+            strategySkipReasons[strategy.id] = skip.reason || 'pruned';
+            console.log(`[PedestrianSafety][escape-nearest][prune] strategy=${strategy.id} skipped=true reason=${skip.reason || 'pruned'}`);
+            return;
+        }
+        const built = _buildEscapeRetryPointFromStrategy(candidatePoint, headingUnit, strategy.id);
+        if (!built?.point) {
+            disabledStrategies.push(strategy.id);
+            strategySkipReasons[strategy.id] = 'point-build-failed';
+            console.log(`[PedestrianSafety][escape-nearest][prune] strategy=${strategy.id} skipped=true reason=point-build-failed`);
+            return;
+        }
+        enabledStrategies.push(strategy.id);
+        retryPoints.push(built);
+    });
+    return {
+        mode,
+        retryProfile,
+        retryPoints,
+        strategyOrderUsed,
+        enabledStrategies,
+        disabledStrategies,
+        prunedStrategies,
+        strategySkipReasons
+    };
+}
+
+function _distancePointToRouteSafe(point, coords) {
+    return point ? _distancePointToRoute(point, coords) : Infinity;
+}
+
+function _adjustEscapeCandidateForNearest(candidate, blockedArea, originalCoords, headingUnit) {
+    if (!candidate?.point || !headingUnit) {
+        return {
+            candidate,
+            adjusted: false,
+            adjustmentType: null,
+            adjustmentDistance: 0
+        };
+    }
+    const rawBlockedDistance = _distancePointToBlockedArea(candidate.point, blockedArea, blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS);
+    const rawCorridorDistance = _distancePointToRouteSafe(candidate.point, originalCoords);
+    const needsAdjustment = rawBlockedDistance <= 8
+        || rawCorridorDistance < (BLOCK_ESCAPE_CORRIDOR_DIFF_M - 2)
+        || (!!candidate.sideRoadContinuationDetected && rawCorridorDistance < (BLOCK_ESCAPE_CORRIDOR_DIFF_M + 6));
+    if (!needsAdjustment) {
+        return {
+            candidate,
+            adjusted: false,
+            adjustmentType: null,
+            adjustmentDistance: 0
+        };
+    }
+    const left = { east: -headingUnit.north, north: headingUnit.east };
+    const signed = candidate.side === 'left' ? 1 : -1;
+    const variants = [];
+    BLOCK_ESCAPE_ADJUSTMENT_DISTANCES_M.forEach(distanceM => {
+        variants.push({
+            label: 'lateral-release',
+            distanceM,
+            point: _offsetPointByMeters(candidate.point, left.east * signed * distanceM, left.north * signed * distanceM)
+        });
+        variants.push({
+            label: 'lateral-forward-release',
+            distanceM,
+            point: _offsetPointByMeters(
+                candidate.point,
+                (left.east * signed * distanceM) + (headingUnit.east * 4),
+                (left.north * signed * distanceM) + (headingUnit.north * 4)
+            )
+        });
+    });
+    for (const variant of variants) {
+        if (!variant.point) continue;
+        const variantBlockedDistance = _distancePointToBlockedArea(variant.point, blockedArea, blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS);
+        const variantCorridorDistance = _distancePointToRouteSafe(variant.point, originalCoords);
+        if (variantBlockedDistance <= 0) continue;
+        if (variantCorridorDistance <= rawCorridorDistance && variantBlockedDistance <= rawBlockedDistance) continue;
+        return {
+            candidate: {
+                ...candidate,
+                point: variant.point,
+                originalPoint: candidate.point,
+                candidateAdjusted: true,
+                candidateAdjustmentType: variant.label,
+                candidateAdjustmentDistance: variant.distanceM
+            },
+            adjusted: true,
+            adjustmentType: variant.label,
+            adjustmentDistance: variant.distanceM
+        };
+    }
+    return {
+        candidate,
+        adjusted: false,
+        adjustmentType: null,
+        adjustmentDistance: 0
+    };
+}
+
+function _classifySnapPositionCategory(candidate, blockedComponents = {}) {
+    if (candidate?.positionCategory) return String(candidate.positionCategory);
+    if (Number(candidate?.backwardM || 0) > 0) return 'backward-entry';
+    if (Number(blockedComponents.coreDistance || Infinity) <= 0) return 'blocked-core';
+    if (Number(blockedComponents.intersectionBufferDistance || Infinity) <= 0) return 'intersection-buffer';
+    if (Number(blockedComponents.slitBodyDistance || Infinity) <= 0) return 'slit-body';
+    if (Number(blockedComponents.slitNearDistance || Infinity) <= 0) return 'near-boundary';
+    return 'open-side-entry';
+}
+
+function _evaluateSameCorridorDecision(candidate, corridorDistance, bearingDiff, mode) {
+    if (candidate?.forceSameCorridorDecision) return String(candidate.forceSameCorridorDecision);
+    if (candidate?.forceRejectReason === 'same-corridor') return 'hard';
+    if (candidate?.forceRejectReason === 'same-corridor-soft') return 'soft';
+    if (!Number.isFinite(Number(corridorDistance)) || corridorDistance >= BLOCK_ESCAPE_CORRIDOR_DIFF_M) return 'pass';
+    const lateralM = Number(candidate?.lateralM || candidate?.distanceTierM || 0);
+    const backwardM = Number(candidate?.backwardM || 0);
+    const continuationDetected = !!candidate?.sideRoadContinuationDetected || backwardM > 0 || String(candidate?.side || '').startsWith('back-');
+    const mainlineReturnDetected = !!candidate?.mainlineReturnDetected;
+    const bearingEnough = Number.isFinite(Number(bearingDiff)) && Number(bearingDiff) >= Math.max(28, BLOCK_ESCAPE_SIDE_BEARING_DEG - 7);
+    const lateralEnough = lateralM >= 60;
+    const farEnough = Number(corridorDistance) >= Math.max(10, BLOCK_ESCAPE_CORRIDOR_DIFF_M - 6);
+    if (mode === 'escape-leg' && !mainlineReturnDetected && (continuationDetected || bearingEnough || lateralEnough || farEnough)) {
+        return 'soft';
+    }
+    if (!mainlineReturnDetected && continuationDetected && (bearingEnough || lateralEnough)) {
+        return 'soft';
+    }
+    return 'hard';
+}
+
+function _evaluateInsideBlockedDecision(candidate, blockedArea, snappedPoint, mode) {
+    if (candidate?.forceInsideBlockedDecision) return { decision: String(candidate.forceInsideBlockedDecision), strictComponents: null, nearComponents: null };
+    if (candidate?.forceRejectReason === 'inside-blocked-area') return { decision: 'hard', strictComponents: null, nearComponents: null };
+    if (candidate?.forceRejectReason === 'inside-blocked-area-soft') return { decision: 'soft', strictComponents: null, nearComponents: null };
+    const nearRejectMeters = blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS;
+    const strictComponents = _pointBlockedAreaComponentDistances(snappedPoint, blockedArea, 0);
+    const nearComponents = _pointBlockedAreaComponentDistances(snappedPoint, blockedArea, nearRejectMeters);
+    if (Number(nearComponents.minDistance) > 0) {
+        return { decision: 'pass', strictComponents, nearComponents };
+    }
+    const hardInside = Number(strictComponents.coreDistance) <= 0
+        || Number(strictComponents.slitBodyDistance) <= 0
+        || Number(strictComponents.intersectionBufferDistance) <= 0
+        || Number(strictComponents.minDistance) <= 0;
+    if (!hardInside && mode === 'escape-leg') {
+        return { decision: 'soft', strictComponents, nearComponents };
+    }
+    return { decision: 'hard', strictComponents, nearComponents };
+}
+
+async function _fetchNearestNodeWithRetry(candidate, logPrefix, headingUnit, mode) {
+    const contextBase = `${logPrefix}:${candidate.label}`;
+    const attempts = [];
+    const defaultOrder = mode === 'escape' ? _orderEscapeNearestRetryStrategies(candidate).ordered.map(strategy => strategy.id) : [];
+    const defaultResult = {
+        retryProfile: _classifyEscapeRetryProfile(candidate),
+        strategyOrderUsed: defaultOrder,
+        enabledStrategies: [],
+        disabledStrategies: [],
+        prunedStrategies: [],
+        strategySkipReasons: {},
+        firstNearestReturnedStrategy: null,
+        firstAcceptedStrategy: null,
+        allStrategiesNull: false,
+        allStrategiesRejected: false,
+        finalRetryOutcome: 'point-success'
+    };
+    const first = await _fetchOsrmNearestNode(candidate.point, `${contextBase}:point`);
+    attempts.push({
+        strategy: 'point',
+        nearestReturned: !!first,
+        snapDistanceM: Number(first?.distanceM || 0)
+    });
+    if (first) {
+        return {
+            snappedPoint: first,
+            retryCount: 0,
+            retrySucceeded: false,
+            retryFailed: false,
+            usedRetry: false,
+            finalLabel: 'point',
+            strategyUsed: 'point',
+            failureReason: 'none',
+            attempts,
+            ...defaultResult
+        };
+    }
+    const fallbackRetryPoints = mode === 'escape' ? [] : _buildEscapeNearestRetryPoints(candidate.point, headingUnit);
+    const retryConfig = mode === 'escape'
+        ? _buildEscapeModeNearestRetryPoints(candidate.point, headingUnit, candidate)
+        : {
+            mode: 'full',
+            retryPoints: fallbackRetryPoints,
+            strategyOrderUsed: fallbackRetryPoints.map(point => point.label),
+            enabledStrategies: fallbackRetryPoints.map(point => point.label),
+            disabledStrategies: [],
+            prunedStrategies: [],
+            strategySkipReasons: {}
+        };
+    const retryPoints = Array.isArray(retryConfig.retryPoints) ? retryConfig.retryPoints : [];
+    console.log(
+        `[PedestrianSafety][escape-nearest][order] candidate=${candidate.label} mode=${mode} profile=${retryConfig.retryProfile || 'default'} strategies=${(retryConfig.strategyOrderUsed || []).join(',') || 'none'}`
+    );
+    let retryCount = 0;
+    let firstNearestReturnedStrategy = null;
+    for (let i = 0; i < retryPoints.length; i++) {
+        const retry = retryPoints[i];
+        retryCount += 1;
+        const snapped = await _fetchOsrmNearestNode(retry.point, `${contextBase}:retry-${retryCount}`);
+        attempts.push({
+            strategy: retry.label,
+            nearestReturned: !!snapped,
+            snapDistanceM: Number(snapped?.distanceM || 0)
+        });
+        console.log(
+            `[PedestrianSafety][escape-nearest] candidate=${candidate.label} strategy=${retry.label} attempt=${retryCount} distance=${retry.distanceM}m ` +
+            `result=${snapped ? 'success' : 'fail'}`
+        );
+        if (snapped) {
+            firstNearestReturnedStrategy = retry.label;
+            console.log(`[PedestrianSafety][escape-nearest][winner] candidate=${candidate.label} strategy=${retry.label}`);
+            return {
+                snappedPoint: snapped,
+                retryCount,
+                retrySucceeded: true,
+                retryFailed: false,
+                usedRetry: true,
+                finalLabel: retry.label,
+                strategyUsed: retry.label,
+                failureReason: 'resolved-by-retry',
+                attempts,
+                retryProfile: retryConfig.retryProfile || 'default',
+                strategyOrderUsed: retryConfig.strategyOrderUsed || [],
+                enabledStrategies: retryConfig.enabledStrategies || [],
+                disabledStrategies: retryConfig.disabledStrategies || [],
+                prunedStrategies: retryConfig.prunedStrategies || [],
+                strategySkipReasons: retryConfig.strategySkipReasons || {},
+                firstNearestReturnedStrategy,
+                firstAcceptedStrategy: retry.label,
+                winningStrategyIndex: Math.max(0, (retryConfig.strategyOrderUsed || []).indexOf(retry.label)),
+                allStrategiesNull: false,
+                allStrategiesRejected: false,
+                finalRetryOutcome: 'retry-success'
+            };
+        }
+    }
+    const failureReason = retryConfig.enabledStrategies?.length === 0 && retryConfig.prunedStrategies?.length > 0
+        ? 'all-pruned-by-policy'
+        : retryPoints.length === 0
+            ? 'retry-no-strategy-enabled'
+            : attempts.some(attempt => attempt.strategy !== 'point' && attempt.nearestReturned)
+                ? 'retry-strategy-exhausted:no-nearest-returned'
+                : 'all-retry-points-null';
+    console.log(`[PedestrianSafety][escape-nearest] candidate=${candidate.label} final=nearest-null-after-retry detail=${failureReason} mode=${mode}`);
+    return {
+        snappedPoint: null,
+        retryCount,
+        retrySucceeded: false,
+        retryFailed: retryCount > 0 || (mode === 'escape' && Array.isArray(retryConfig.strategyOrderUsed) && retryConfig.strategyOrderUsed.length > 0),
+        usedRetry: retryCount > 0 || (mode === 'escape' && Array.isArray(retryConfig.strategyOrderUsed) && retryConfig.strategyOrderUsed.length > 0),
+        finalLabel: null,
+        strategyUsed: retryPoints[retryPoints.length - 1]?.label || 'retry-exhausted',
+        failureReason,
+        attempts,
+        retryProfile: retryConfig.retryProfile || 'default',
+        strategyOrderUsed: retryConfig.strategyOrderUsed || [],
+        enabledStrategies: retryConfig.enabledStrategies || [],
+        disabledStrategies: retryConfig.disabledStrategies || [],
+        prunedStrategies: retryConfig.prunedStrategies || [],
+        strategySkipReasons: retryConfig.strategySkipReasons || {},
+        firstNearestReturnedStrategy,
+        firstAcceptedStrategy: null,
+        winningStrategyIndex: null,
+        allStrategiesNull: !attempts.some(attempt => attempt.strategy !== 'point' && attempt.nearestReturned),
+        allStrategiesRejected: retryPoints.length > 0 && !!attempts.some(attempt => attempt.strategy !== 'point'),
+        finalRetryOutcome: failureReason
+    };
+}
+
 async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, originalCoords, logPrefix, options = {}) {
     const rawList = Array.isArray(rawCandidates) ? rawCandidates : [];
     console.log(`[BlockAhead][${logPrefix}] raw-candidates=${rawList.length}`);
     const origin = Array.isArray(originalCoords) && originalCoords.length > 0 ? originalCoords[0] : null;
     const forwardRef = Array.isArray(originalCoords) && originalCoords.length > 1 ? originalCoords[Math.min(1, originalCoords.length - 1)] : null;
     const forwardBearing = origin && forwardRef ? _segmentBearingDeg(origin, forwardRef) : 0;
-    const depthSteps = Array.isArray(options.depthSteps) && options.depthSteps.length > 0
+    const headingUnit = origin && forwardRef ? _headingUnitVectorMeters(origin, forwardRef) : null;
+    const depthSteps = Array.isArray(options.depthSteps)
         ? options.depthSteps
         : BLOCK_ESCAPE_DEEPER_STEPS_M;
     rawList.forEach(candidate => {
@@ -1530,6 +2534,29 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
         });
     });
     const evaluateCandidate = async (candidate) => {
+        const adjustedResult = logPrefix === 'escape'
+            ? _adjustEscapeCandidateForNearest(candidate, blockedArea, originalCoords, headingUnit)
+            : { candidate, adjusted: false, adjustmentType: null, adjustmentDistance: 0 };
+        const workingCandidate = adjustedResult.candidate || candidate;
+        if (adjustedResult.adjusted) {
+            console.log(
+                `[BlockAhead][${logPrefix}] adjusted ${candidate.label}: type=${adjustedResult.adjustmentType} ` +
+                `distance=${Math.round(adjustedResult.adjustmentDistance)}m`
+            );
+            _recordSnapDebugEvent({
+                type: 'candidate-adjustment',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.point,
+                snappedPoint: workingCandidate.point,
+                candidateAdjusted: true,
+                candidateAdjustmentType: adjustedResult.adjustmentType,
+                candidateAdjustmentDistance: adjustedResult.adjustmentDistance
+            });
+        }
         _recordSnapDebugEvent({
             type: 'nearest-attempt',
             mode: logPrefix,
@@ -1537,22 +2564,83 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
             tier: candidate.distanceTierM,
             depth: candidate.depthKind || 'entrance',
             candidateId: candidate.label,
-            rawPoint: candidate.point,
+            rawPoint: workingCandidate.point,
             nearestRequested: true
         });
-        const snappedPoint = await _fetchOsrmNearestNode(candidate.point, `${logPrefix}:${candidate.label}:point`);
+        const nearestResult = await _fetchNearestNodeWithRetry(workingCandidate, logPrefix, headingUnit, logPrefix);
+        const nearestStrategiesTried = (nearestResult.attempts || []).map(attempt => attempt.strategy);
+        const nearestStrategyAttempts = (nearestResult.attempts || []).map(attempt => ({
+            strategy: attempt.strategy,
+            nearestReturned: !!attempt.nearestReturned,
+            snapDistanceM: Number(attempt.snapDistanceM || 0)
+        }));
+        const snappedPoint = nearestResult.snappedPoint;
+        _recordSnapDebugEvent({
+            type: 'nearest-retry',
+            mode: logPrefix,
+            side: candidate.side,
+            tier: candidate.distanceTierM,
+            depth: candidate.depthKind || 'entrance',
+            candidateId: candidate.label,
+            rawPoint: workingCandidate.point,
+            nearestRetryCount: nearestResult.retryCount,
+            nearestRetrySuccess: nearestResult.retrySucceeded,
+            nearestStrategyUsed: nearestResult.strategyUsed,
+            nearestStrategiesTried,
+            nearestStrategyAttempts,
+            retryProfile: nearestResult.retryProfile,
+            strategyOrderUsed: nearestResult.strategyOrderUsed,
+            strategiesEnabled: nearestResult.enabledStrategies,
+            strategiesPruned: nearestResult.prunedStrategies,
+            strategiesDisabled: nearestResult.disabledStrategies,
+            strategySkipReasons: nearestResult.strategySkipReasons,
+            firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+            firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+            winningStrategyIndex: nearestResult.winningStrategyIndex,
+            allStrategiesNull: nearestResult.allStrategiesNull,
+            allStrategiesRejected: nearestResult.allStrategiesRejected,
+            finalRetryOutcome: nearestResult.finalRetryOutcome,
+            candidateAdjusted: adjustedResult.adjusted,
+            candidateAdjustmentType: adjustedResult.adjustmentType,
+            candidateAdjustmentDistance: adjustedResult.adjustmentDistance
+        });
         if (!snappedPoint) {
             console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: no-nearest`);
-            _recordSnapDebugEvent({
-                type: 'nearest-null',
+        _recordSnapDebugEvent({
+            type: 'nearest-null',
                 mode: logPrefix,
                 side: candidate.side,
                 tier: candidate.distanceTierM,
                 depth: candidate.depthKind || 'entrance',
                 candidateId: candidate.label,
-                rawPoint: candidate.point,
+                rawPoint: workingCandidate.point,
                 nearestRequested: true,
-                rejectedReason: 'nearest-null'
+                nearestRetryCount: nearestResult.retryCount,
+                nearestRetrySuccess: false,
+                nearestStrategyUsed: nearestResult.strategyUsed,
+                nearestStrategiesTried,
+                nearestStrategyAttempts,
+                retryProfile: nearestResult.retryProfile,
+                strategyOrderUsed: nearestResult.strategyOrderUsed,
+                strategiesEnabled: nearestResult.enabledStrategies,
+                strategiesPruned: nearestResult.prunedStrategies,
+                strategiesDisabled: nearestResult.disabledStrategies,
+                strategySkipReasons: nearestResult.strategySkipReasons,
+                firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+                firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+                winningStrategyIndex: nearestResult.winningStrategyIndex,
+                allStrategiesNull: nearestResult.allStrategiesNull,
+                allStrategiesRejected: nearestResult.allStrategiesRejected,
+                finalRetryOutcome: nearestResult.finalRetryOutcome,
+                candidateAdjusted: adjustedResult.adjusted,
+                candidateAdjustmentType: adjustedResult.adjustmentType,
+                candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+                nearestFailureReason: nearestResult.failureReason,
+                snapEmptyDetail: nearestResult.usedRetry
+                    ? `nearest-null-after-retry:${nearestResult.failureReason || 'retry-strategy-exhausted'}`
+                    : 'nearest-null-after-retry:no-candidate-point',
+                nearestRejectedReason: nearestResult.usedRetry ? 'nearest-null-after-retry' : 'nearest-null',
+                rejectedReason: nearestResult.usedRetry ? 'nearest-null-after-retry' : 'nearest-null'
             });
             return null;
         }
@@ -1563,21 +2651,162 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
             tier: candidate.distanceTierM,
             depth: candidate.depthKind || 'entrance',
             candidateId: candidate.label,
-            rawPoint: candidate.point,
+            rawPoint: workingCandidate.point,
             snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
             snapDistanceM: snappedPoint.distanceM,
             nearestRequested: true,
-            nearestReturned: true
+            nearestReturned: true,
+            nearestRetryCount: nearestResult.retryCount,
+            nearestRetrySuccess: nearestResult.retrySucceeded,
+            nearestStrategyUsed: nearestResult.strategyUsed,
+            nearestStrategiesTried,
+            nearestStrategyAttempts,
+            retryProfile: nearestResult.retryProfile,
+            strategyOrderUsed: nearestResult.strategyOrderUsed,
+            strategiesEnabled: nearestResult.enabledStrategies,
+            strategiesPruned: nearestResult.prunedStrategies,
+            strategiesDisabled: nearestResult.disabledStrategies,
+            strategySkipReasons: nearestResult.strategySkipReasons,
+            firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+            firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+            winningStrategyIndex: nearestResult.winningStrategyIndex,
+            allStrategiesNull: nearestResult.allStrategiesNull,
+            allStrategiesRejected: nearestResult.allStrategiesRejected,
+            finalRetryOutcome: nearestResult.finalRetryOutcome,
+            candidateAdjusted: adjustedResult.adjusted,
+            candidateAdjustmentType: adjustedResult.adjustmentType,
+            candidateAdjustmentDistance: adjustedResult.adjustmentDistance
         });
         let secondaryHoldWaypoint = null;
-        if (candidate.midHoldRawPoint) {
-            const snappedMid = await _fetchOsrmNearestNode(candidate.midHoldRawPoint, `${logPrefix}:${candidate.label}:mid-hold`);
+        if (workingCandidate.midHoldRawPoint) {
+            const snappedMid = await _fetchOsrmNearestNode(workingCandidate.midHoldRawPoint, `${logPrefix}:${candidate.label}:mid-hold`);
             if (snappedMid) {
                 secondaryHoldWaypoint = { lat: snappedMid.lat, lng: snappedMid.lng };
             }
         }
         const blockedDistance = _distancePointToBlockedArea(snappedPoint, blockedArea, blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS);
-        if (blockedDistance <= 0) {
+        const blockedDecisionResult = _evaluateInsideBlockedDecision(workingCandidate, blockedArea, snappedPoint, logPrefix);
+        const blockedDecision = blockedDecisionResult.decision || 'pass';
+        const strictComponents = blockedDecisionResult.strictComponents || _pointBlockedAreaComponentDistances(snappedPoint, blockedArea, 0);
+        const positionCategory = _classifySnapPositionCategory(workingCandidate, strictComponents);
+        const corridorDistance = _distancePointToRoute(snappedPoint, originalCoords);
+        const bearingToNode = origin ? _segmentBearingDeg(origin, snappedPoint) : 0;
+        const bearingDiff = _bearingDiffDeg(forwardBearing, bearingToNode);
+        const blockedBearing = (blockedArea?.startPoint && blockedArea?.endPoint)
+            ? _segmentBearingDeg(blockedArea.startPoint, blockedArea.endPoint)
+            : null;
+        const blockedBearingBucket = _bucketBearingDiff(
+            Number.isFinite(Number(blockedBearing)) ? _bearingDiffDeg(Number(blockedBearing), Number(bearingToNode)) : null
+        );
+        const lateralM = Number(workingCandidate.lateralM || workingCandidate.distanceTierM || 0);
+        const continuationDetected = !!workingCandidate.sideRoadContinuationDetected || Number(workingCandidate.backwardM || 0) > 0 || String(workingCandidate.side || '').startsWith('back-');
+        const sameCorridorDecision = _evaluateSameCorridorDecision(workingCandidate, corridorDistance, bearingDiff, logPrefix);
+        const escapeRescueAccepted = logPrefix === 'escape'
+            && (adjustedResult.adjusted || nearestResult.retrySucceeded)
+            && continuationDetected
+            && !workingCandidate.mainlineReturnDetected
+            && corridorDistance >= Math.max(8, BLOCK_ESCAPE_CORRIDOR_DIFF_M - 4)
+            && bearingDiff >= 24;
+        if (!Number.isFinite(bearingDiff)) {
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: workingCandidate.point,
+                snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+                nearestRetryCount: nearestResult.retryCount,
+                nearestRetrySuccess: nearestResult.retrySucceeded,
+                nearestStrategyUsed: nearestResult.strategyUsed,
+                nearestStrategiesTried,
+                nearestStrategyAttempts,
+                strategyOrderUsed: nearestResult.strategyOrderUsed,
+                strategiesEnabled: nearestResult.enabledStrategies,
+                strategiesPruned: nearestResult.prunedStrategies,
+                strategiesDisabled: nearestResult.disabledStrategies,
+                strategySkipReasons: nearestResult.strategySkipReasons,
+                firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+                firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+                allStrategiesNull: nearestResult.allStrategiesNull,
+                allStrategiesRejected: nearestResult.allStrategiesRejected,
+                finalRetryOutcome: nearestResult.finalRetryOutcome,
+                candidateAdjusted: adjustedResult.adjusted,
+                candidateAdjustmentType: adjustedResult.adjustmentType,
+                candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+                nearestFailureReason: 'invalid-bearing',
+                nearestReturnedButRejectedReason: 'invalid-bearing',
+                blockedBearing,
+                blockedBearingBucket,
+                corridorLength: corridorDistance,
+                corridorLengthBucket: _bucketCorridorLength(corridorDistance),
+                snapDistanceBucket: _bucketSnapDistance(snappedPoint.distanceM),
+                nearestRejectedReason: 'invalid-bearing',
+                snapEmptyDetail: nearestResult.retrySucceeded ? 'nearest-null-after-retry:retry-invalid-bearing' : null,
+                candidatePositionCategory: positionCategory,
+                rejectedReason: 'invalid-bearing'
+            });
+            return null;
+        }
+        _recordSnapDebugEvent({
+            type: 'decision',
+            mode: logPrefix,
+            side: candidate.side,
+            tier: candidate.distanceTierM,
+            depth: candidate.depthKind || 'entrance',
+            candidateId: candidate.label,
+            rawPoint: workingCandidate.point,
+            snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+            snapDistanceM: snappedPoint.distanceM,
+            corridorDistanceM: corridorDistance,
+            blockedDistanceM: blockedDistance,
+            bearingDiffDeg: bearingDiff,
+            lateralM,
+            nearestRetryCount: nearestResult.retryCount,
+            nearestRetrySuccess: nearestResult.retrySucceeded,
+            nearestStrategyUsed: nearestResult.strategyUsed,
+            nearestStrategiesTried,
+            nearestStrategyAttempts,
+            retryProfile: nearestResult.retryProfile,
+            strategyOrderUsed: nearestResult.strategyOrderUsed,
+            strategiesEnabled: nearestResult.enabledStrategies,
+            strategiesPruned: nearestResult.prunedStrategies,
+            strategiesDisabled: nearestResult.disabledStrategies,
+            strategySkipReasons: nearestResult.strategySkipReasons,
+            firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+            firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+            winningStrategyIndex: nearestResult.winningStrategyIndex,
+            allStrategiesNull: nearestResult.allStrategiesNull,
+            allStrategiesRejected: nearestResult.allStrategiesRejected,
+            finalRetryOutcome: nearestResult.finalRetryOutcome,
+            candidateAdjusted: adjustedResult.adjusted,
+            candidateAdjustmentType: adjustedResult.adjustmentType,
+            candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+            sameCorridorDecision,
+            insideBlockedDecision: blockedDecision,
+            sideRoadContinuationDetected: continuationDetected,
+            sideRoadContinuationDetectedAtSnap: continuationDetected,
+            nearestAcceptedAsRescue: escapeRescueAccepted,
+            mainlineReturnDetected: !!candidate.mainlineReturnDetected,
+            holdWaypointMode: !!workingCandidate.holdWaypoint,
+            blockedBearing,
+            blockedBearingBucket,
+            corridorLength: corridorDistance,
+            corridorLengthBucket: _bucketCorridorLength(corridorDistance),
+            snapDistanceBucket: _bucketSnapDistance(snappedPoint.distanceM),
+            effectiveRadiusM: Number(blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS),
+            candidatePositionCategory: positionCategory
+        });
+        console.log(
+            `[BlockAhead][${logPrefix}] same corridor ${candidate.label}: decision=${sameCorridorDecision} corridor=${Math.round(corridorDistance)}m ` +
+            `bearing=${Math.round(bearingDiff)}deg lateral=${Math.round(lateralM)}m continuation=${continuationDetected}`
+        );
+        console.log(
+            `[BlockAhead][${logPrefix}] inside blocked ${candidate.label}: decision=${blockedDecision} blocked=${Math.round(blockedDistance)}m ` +
+            `effectiveRadius=${Math.round(Number(blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS))}m position=${positionCategory}`
+        );
+        if (blockedDecision === 'hard') {
             console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: snapped inside blocked area`);
             _recordSnapDebugEvent({
                 type: 'reject',
@@ -1586,16 +2815,49 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
                 tier: candidate.distanceTierM,
                 depth: candidate.depthKind || 'entrance',
                 candidateId: candidate.label,
-                rawPoint: candidate.point,
+                rawPoint: workingCandidate.point,
                 snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
                 snapDistanceM: snappedPoint.distanceM,
+                corridorDistanceM: corridorDistance,
                 blockedDistanceM: blockedDistance,
+                bearingDiffDeg: bearingDiff,
+                lateralM,
+                nearestRetryCount: nearestResult.retryCount,
+                nearestRetrySuccess: nearestResult.retrySucceeded,
+                nearestStrategyUsed: nearestResult.strategyUsed,
+                nearestStrategiesTried,
+                nearestStrategyAttempts,
+                strategyOrderUsed: nearestResult.strategyOrderUsed,
+                strategiesEnabled: nearestResult.enabledStrategies,
+                strategiesPruned: nearestResult.prunedStrategies,
+                strategiesDisabled: nearestResult.disabledStrategies,
+                strategySkipReasons: nearestResult.strategySkipReasons,
+                firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+                firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+                allStrategiesNull: nearestResult.allStrategiesNull,
+                allStrategiesRejected: nearestResult.allStrategiesRejected,
+                finalRetryOutcome: nearestResult.finalRetryOutcome,
+                candidateAdjusted: adjustedResult.adjusted,
+                candidateAdjustmentType: adjustedResult.adjustmentType,
+                candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+                nearestFailureReason: blockedDecision === 'hard' ? 'blocked-after-snap' : 'blocked-soft',
+                nearestReturnedButRejectedReason: 'inside-blocked-area',
+                sameCorridorDecision,
+                insideBlockedDecision: blockedDecision,
+                holdWaypointMode: !!workingCandidate.holdWaypoint,
+                blockedBearing,
+                blockedBearingBucket,
+                corridorLength: corridorDistance,
+                corridorLengthBucket: _bucketCorridorLength(corridorDistance),
+                snapDistanceBucket: _bucketSnapDistance(snappedPoint.distanceM),
+                nearestRejectedReason: 'inside-blocked-area',
+                effectiveRadiusM: Number(blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS),
+                candidatePositionCategory: positionCategory,
                 rejectedReason: 'inside-blocked-area'
             });
             return null;
         }
-        const corridorDistance = _distancePointToRoute(snappedPoint, originalCoords);
-        if (corridorDistance < BLOCK_ESCAPE_CORRIDOR_DIFF_M) {
+        if (sameCorridorDecision === 'hard') {
             console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: snapped same corridor ${Math.round(corridorDistance)}m`);
             _recordSnapDebugEvent({
                 type: 'reject',
@@ -1604,10 +2866,50 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
                 tier: candidate.distanceTierM,
                 depth: candidate.depthKind || 'entrance',
                 candidateId: candidate.label,
-                rawPoint: candidate.point,
+                rawPoint: workingCandidate.point,
                 snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
                 snapDistanceM: snappedPoint.distanceM,
                 corridorDistanceM: corridorDistance,
+                blockedDistanceM: blockedDistance,
+                bearingDiffDeg: bearingDiff,
+                lateralM,
+                nearestRetryCount: nearestResult.retryCount,
+                nearestRetrySuccess: nearestResult.retrySucceeded,
+                nearestStrategyUsed: nearestResult.strategyUsed,
+                nearestStrategiesTried,
+                nearestStrategyAttempts,
+                strategyOrderUsed: nearestResult.strategyOrderUsed,
+                strategiesEnabled: nearestResult.enabledStrategies,
+                strategiesPruned: nearestResult.prunedStrategies,
+                strategiesDisabled: nearestResult.disabledStrategies,
+                strategySkipReasons: nearestResult.strategySkipReasons,
+                firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+                firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+                allStrategiesNull: nearestResult.allStrategiesNull,
+                allStrategiesRejected: nearestResult.allStrategiesRejected,
+                finalRetryOutcome: nearestResult.finalRetryOutcome,
+                candidateAdjusted: adjustedResult.adjusted,
+                candidateAdjustmentType: adjustedResult.adjustmentType,
+                candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+                nearestFailureReason: continuationDetected
+                    ? 'retry-strategy-exhausted:only-mainline-continuation'
+                    : 'retry-strategy-exhausted:nearest-returned-but-all-rejected',
+                nearestReturnedButRejectedReason: continuationDetected ? 'mainline-only' : 'no-side-road',
+                sameCorridorDecision,
+                insideBlockedDecision: blockedDecision,
+                holdWaypointMode: !!workingCandidate.holdWaypoint,
+                blockedBearing,
+                blockedBearingBucket,
+                corridorLength: corridorDistance,
+                corridorLengthBucket: _bucketCorridorLength(corridorDistance),
+                snapDistanceBucket: _bucketSnapDistance(snappedPoint.distanceM),
+                nearestRejectedReason: 'same-corridor',
+                snapEmptyDetail: nearestResult.retrySucceeded
+                    ? (continuationDetected
+                        ? 'nearest-null-after-retry:retry-strategy-exhausted:only-mainline-continuation'
+                        : 'nearest-null-after-retry:retry-rejected-no-side-road')
+                    : null,
+                candidatePositionCategory: positionCategory,
                 rejectedReason: 'same-corridor'
             });
             return null;
@@ -1620,26 +2922,40 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
                 tier: candidate.distanceTierM,
                 depth: candidate.depthKind || 'entrance',
                 candidateId: candidate.label,
-                rawPoint: candidate.point,
+                rawPoint: workingCandidate.point,
                 snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
                 snapDistanceM: snappedPoint.distanceM,
+                nearestRetryCount: nearestResult.retryCount,
+                nearestRetrySuccess: nearestResult.retrySucceeded,
+                nearestStrategyUsed: nearestResult.strategyUsed,
+                nearestStrategiesTried,
+                nearestStrategyAttempts,
+                strategyOrderUsed: nearestResult.strategyOrderUsed,
+                strategiesEnabled: nearestResult.enabledStrategies,
+                strategiesPruned: nearestResult.prunedStrategies,
+                strategiesDisabled: nearestResult.disabledStrategies,
+                strategySkipReasons: nearestResult.strategySkipReasons,
+                firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+                firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+                allStrategiesNull: nearestResult.allStrategiesNull,
+                allStrategiesRejected: nearestResult.allStrategiesRejected,
+                finalRetryOutcome: nearestResult.finalRetryOutcome,
+                candidateAdjusted: adjustedResult.adjusted,
+                candidateAdjustmentType: adjustedResult.adjustmentType,
+                candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+                nearestFailureReason: 'snap-too-far',
+                nearestReturnedButRejectedReason: 'too-far-from-candidate',
+                sameCorridorDecision,
+                insideBlockedDecision: blockedDecision,
+                holdWaypointMode: !!workingCandidate.holdWaypoint,
+                blockedBearing,
+                blockedBearingBucket,
+                corridorLength: corridorDistance,
+                corridorLengthBucket: _bucketCorridorLength(corridorDistance),
+                snapDistanceBucket: _bucketSnapDistance(snappedPoint.distanceM),
+                nearestRejectedReason: 'too-far-from-candidate',
+                snapEmptyDetail: nearestResult.retrySucceeded ? 'nearest-null-after-retry:retry-too-far' : null,
                 rejectedReason: 'too-far-from-candidate'
-            });
-            return null;
-        }
-        const bearingToNode = origin ? _segmentBearingDeg(origin, snappedPoint) : 0;
-        const bearingDiff = _bearingDiffDeg(forwardBearing, bearingToNode);
-        if (!Number.isFinite(bearingDiff)) {
-            _recordSnapDebugEvent({
-                type: 'reject',
-                mode: logPrefix,
-                side: candidate.side,
-                tier: candidate.distanceTierM,
-                depth: candidate.depthKind || 'entrance',
-                candidateId: candidate.label,
-                rawPoint: candidate.point,
-                snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
-                rejectedReason: 'invalid-bearing'
             });
             return null;
         }
@@ -1651,19 +2967,61 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
                 tier: candidate.distanceTierM,
                 depth: candidate.depthKind || 'entrance',
                 candidateId: candidate.label,
-                rawPoint: candidate.point,
+                rawPoint: workingCandidate.point,
                 snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
                 snapDistanceM: snappedPoint.distanceM,
                 corridorDistanceM: corridorDistance,
                 blockedDistanceM: blockedDistance,
+                bearingDiffDeg: bearingDiff,
+                lateralM,
+                nearestRetryCount: nearestResult.retryCount,
+                nearestRetrySuccess: nearestResult.retrySucceeded,
+                nearestStrategyUsed: nearestResult.strategyUsed,
+                nearestStrategiesTried,
+                nearestStrategyAttempts,
+                candidateAdjusted: adjustedResult.adjusted,
+                candidateAdjustmentType: adjustedResult.adjustmentType,
+                candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+                sameCorridorDecision,
+                insideBlockedDecision: blockedDecision,
+                holdWaypointMode: !!workingCandidate.holdWaypoint,
+                blockedBearing,
+                blockedBearingBucket,
+                corridorLength: corridorDistance,
+                corridorLengthBucket: _bucketCorridorLength(corridorDistance),
+                snapDistanceBucket: _bucketSnapDistance(snappedPoint.distanceM),
+                nearestRejectedReason: candidate.forceRejectReason,
+                nearestFailureReason: candidate.forceRejectReason === 'duplicate-snap'
+                    ? 'retry-strategy-exhausted:only-duplicate-candidates'
+                    : candidate.forceRejectReason === 'same-corridor'
+                        ? 'retry-strategy-exhausted:only-mainline-continuation'
+                        : candidate.forceRejectReason,
+                nearestReturnedButRejectedReason: candidate.forceRejectReason === 'duplicate-snap'
+                    ? 'duplicate'
+                    : candidate.forceRejectReason === 'same-corridor'
+                        ? 'mainline-only'
+                        : candidate.forceRejectReason,
+                snapEmptyDetail: nearestResult.retrySucceeded && candidate.forceRejectReason === 'node-build-failure'
+                    ? 'nearest-null-after-retry:retry-node-build-failure'
+                    : nearestResult.retrySucceeded && candidate.forceRejectReason === 'duplicate-snap'
+                        ? 'nearest-null-after-retry:retry-strategy-exhausted:only-duplicate-candidates'
+                        : nearestResult.retrySucceeded && candidate.forceRejectReason === 'invalid-bearing'
+                            ? 'nearest-null-after-retry:retry-invalid-bearing'
+                            : null,
+                candidatePositionCategory: positionCategory,
                 rejectedReason: candidate.forceRejectReason
             });
             return null;
         }
-        const nodeType = bearingDiff >= BLOCK_ESCAPE_SIDE_BEARING_DEG ? 'side-road' : 'corridor-like';
+        const nodeType = (bearingDiff >= BLOCK_ESCAPE_SIDE_BEARING_DEG || sameCorridorDecision === 'soft' || continuationDetected)
+            ? 'side-road'
+            : 'corridor-like';
         const depthBonus = _escapeDepthRank(candidate.depthKind) * 80;
         const typeBonus = nodeType === 'side-road' ? 120 : 0;
-        const score = depthBonus + typeBonus + (corridorDistance * 1.8) + (bearingDiff * 1.2) + ((candidate.lateralM || 0) * 0.2) - (Number(snappedPoint.distanceM || 0) * 0.5);
+        const sameCorridorPenalty = sameCorridorDecision === 'soft' ? 70 : 0;
+        const blockedPenalty = blockedDecision === 'soft' ? 95 : 0;
+        const score = depthBonus + typeBonus + (corridorDistance * 1.8) + (bearingDiff * 1.2) + (lateralM * 0.2)
+            - (Number(snappedPoint.distanceM || 0) * 0.5) - sameCorridorPenalty - blockedPenalty;
         if (Number.isFinite(Number(candidate.minNodeScore)) && score < Number(candidate.minNodeScore)) {
             _recordSnapDebugEvent({
                 type: 'reject',
@@ -1672,11 +3030,34 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
                 tier: candidate.distanceTierM,
                 depth: candidate.depthKind || 'entrance',
                 candidateId: candidate.label,
-                rawPoint: candidate.point,
+                rawPoint: workingCandidate.point,
                 snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
                 snapDistanceM: snappedPoint.distanceM,
                 corridorDistanceM: corridorDistance,
+                blockedDistanceM: blockedDistance,
+                bearingDiffDeg: bearingDiff,
+                lateralM,
                 nodeScore: score,
+                nearestRetryCount: nearestResult.retryCount,
+                nearestRetrySuccess: nearestResult.retrySucceeded,
+                nearestStrategyUsed: nearestResult.strategyUsed,
+                nearestStrategiesTried,
+                nearestStrategyAttempts,
+                candidateAdjusted: adjustedResult.adjusted,
+                candidateAdjustmentType: adjustedResult.adjustmentType,
+                candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+                nearestFailureReason: 'low-corridor-score',
+                nearestReturnedButRejectedReason: 'low-corridor-score',
+                sameCorridorDecision,
+                insideBlockedDecision: blockedDecision,
+                holdWaypointMode: !!workingCandidate.holdWaypoint,
+                blockedBearing,
+                blockedBearingBucket,
+                corridorLength: corridorDistance,
+                corridorLengthBucket: _bucketCorridorLength(corridorDistance),
+                snapDistanceBucket: _bucketSnapDistance(snappedPoint.distanceM),
+                nearestRejectedReason: 'low-corridor-score',
+                candidatePositionCategory: positionCategory,
                 rejectedReason: 'low-corridor-score'
             });
             return null;
@@ -1688,17 +3069,56 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
             tier: candidate.distanceTierM,
             depth: candidate.depthKind || 'entrance',
             candidateId: candidate.label,
-            rawPoint: candidate.point,
+            rawPoint: workingCandidate.point,
             snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
             snapDistanceM: snappedPoint.distanceM,
             corridorDistanceM: corridorDistance,
             blockedDistanceM: blockedDistance,
+            bearingDiffDeg: bearingDiff,
+            lateralM,
             nodeScore: score,
+            nearestRetryCount: nearestResult.retryCount,
+            nearestRetrySuccess: nearestResult.retrySucceeded,
+            nearestStrategyUsed: nearestResult.strategyUsed,
+            nearestStrategiesTried,
+            nearestStrategyAttempts,
+            strategyOrderUsed: nearestResult.strategyOrderUsed,
+            strategiesEnabled: nearestResult.enabledStrategies,
+            strategiesPruned: nearestResult.prunedStrategies,
+            strategiesDisabled: nearestResult.disabledStrategies,
+            strategySkipReasons: nearestResult.strategySkipReasons,
+            firstNearestReturnedStrategy: nearestResult.firstNearestReturnedStrategy,
+            firstAcceptedStrategy: nearestResult.firstAcceptedStrategy,
+            allStrategiesNull: nearestResult.allStrategiesNull,
+            allStrategiesRejected: nearestResult.allStrategiesRejected,
+            finalRetryOutcome: nearestResult.finalRetryOutcome,
+            candidateAdjusted: adjustedResult.adjusted,
+            candidateAdjustmentType: adjustedResult.adjustmentType,
+            candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+            nearestAcceptedAsRescue: escapeRescueAccepted,
+            sameCorridorDecision,
+            insideBlockedDecision: blockedDecision,
+            sideRoadContinuationDetectedAtSnap: continuationDetected,
+            holdWaypointMode: !!workingCandidate.holdWaypoint,
+            blockedBearing,
+            blockedBearingBucket,
+            corridorLength: corridorDistance,
+            corridorLengthBucket: _bucketCorridorLength(corridorDistance),
+            snapDistanceBucket: _bucketSnapDistance(snappedPoint.distanceM),
+            nearestReturnedByRetry: nearestResult.retrySucceeded,
+            nodeBuildSuccess: true,
+            candidatePositionCategory: positionCategory,
             usable: true
         });
+        if (logPrefix === 'escape') {
+            console.log(
+                `[PedestrianSafety][escape-nearest][summary] candidate=${candidate.label} strategy=${nearestResult.strategyUsed || 'point'} ` +
+                `retryCount=${nearestResult.retryCount} adjusted=${adjustedResult.adjusted} accepted=${true} rescue=${escapeRescueAccepted}`
+            );
+        }
         return {
-            ...candidate,
-            rawPoint: candidate.point,
+            ...workingCandidate,
+            rawPoint: workingCandidate.originalPoint || candidate.point,
             point: { lat: snappedPoint.lat, lng: snappedPoint.lng },
             snapDistanceM: snappedPoint.distanceM,
             corridorDistanceM: corridorDistance,
@@ -1706,10 +3126,25 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
             bearingDiffDeg: bearingDiff,
             nodeType,
             nodeScore: score,
-            entrancePoint: candidate.entrancePoint || candidate.point,
-            holdWaypoint: candidate.holdWaypoint || null,
+            nearestRetryCount: nearestResult.retryCount,
+            nearestRetrySuccess: nearestResult.retrySucceeded,
+            nearestStrategyUsed: nearestResult.strategyUsed,
+            retryProfile: nearestResult.retryProfile,
+            firstWinningStrategy: nearestResult.firstAcceptedStrategy || nearestResult.strategyUsed,
+            winningStrategyIndex: nearestResult.winningStrategyIndex,
+            candidateAdjusted: adjustedResult.adjusted,
+            candidateAdjustmentType: adjustedResult.adjustmentType,
+            candidateAdjustmentDistance: adjustedResult.adjustmentDistance,
+            nearestAcceptedAsRescue: escapeRescueAccepted,
+            sideRoadContinuationDetectedAtSnap: continuationDetected,
+            sameCorridorDecision,
+            insideBlockedDecision: blockedDecision,
+            candidatePositionCategory: positionCategory,
+            positionCategory,
+            entrancePoint: workingCandidate.entrancePoint || workingCandidate.point,
+            holdWaypoint: workingCandidate.holdWaypoint || null,
             secondaryHoldWaypoint,
-            depthRank: _escapeDepthRank(candidate.depthKind)
+            depthRank: _escapeDepthRank(workingCandidate.depthKind)
         };
     };
 
@@ -1766,6 +3201,12 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
                 snappedPoint: candidate.point,
                 snapDistanceM: candidate.snapDistanceM,
                 corridorDistanceM: candidate.corridorDistanceM,
+                blockedDistanceM: candidate.blockedDistanceM,
+                bearingDiffDeg: candidate.bearingDiffDeg,
+                nearestRetryCount: candidate.nearestRetryCount,
+                nearestRetrySuccess: candidate.nearestRetrySuccess,
+                sameCorridorDecision: candidate.sameCorridorDecision,
+                insideBlockedDecision: candidate.insideBlockedDecision,
                 rejectedReason: 'duplicate-snap'
             });
             continue;
@@ -1779,7 +3220,8 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
         console.log(
             `[BlockAhead][${logPrefix}] node ${candidate.label}: tier=${candidate.distanceTierM || '-'} depth=${candidate.depthKind || 'entrance'} type=${candidate.nodeType} ` +
             `score=${candidate.nodeScore.toFixed(1)} corridor=${Math.round(candidate.corridorDistanceM)}m ` +
-            `bearing=${Math.round(candidate.bearingDiffDeg)}deg snap=${Math.round(candidate.snapDistanceM)}m`
+            `bearing=${Math.round(candidate.bearingDiffDeg)}deg snap=${Math.round(candidate.snapDistanceM)}m ` +
+            `retry=${Number(candidate.nearestRetryCount || 0)} same=${candidate.sameCorridorDecision || 'pass'} blocked=${candidate.insideBlockedDecision || 'pass'}`
         );
     });
     return deduped;

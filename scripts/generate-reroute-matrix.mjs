@@ -445,25 +445,28 @@ function buildEscapeLegCase(index, side, decision, category, deterministicRuns =
   const base = buildBase(index);
   const mockData = baseMockData();
   const dir = side.includes('left') ? -1 : 1;
-  const candidate = escapePoint(base, side, 60, 'deeper-90');
-  candidate.point = point(base.currentLocation.lat - 0.00032, base.currentLocation.lng + (0.00085 * dir));
+  const candidate = rawCandidate(base, `escape-leg-${side}-${index}`, side, 60, 'entrance', {
+    sideRoadContinuationDetected: true
+  });
+  const snappedCandidatePoint = point(base.currentLocation.lat - 0.00032, base.currentLocation.lng + (0.00085 * dir));
   const leg = route([
     point(base.currentLocation.lat, base.currentLocation.lng),
     point(base.currentLocation.lat - 0.00018, base.currentLocation.lng + (0.00035 * dir)),
-    point(candidate.point.lat, candidate.point.lng)
+    point(snappedCandidatePoint.lat, snappedCandidatePoint.lng)
   ], 96);
   const main = route([
-    point(candidate.point.lat, candidate.point.lng),
+    point(snappedCandidatePoint.lat, snappedCandidatePoint.lng),
     point(base.currentLocation.lat + 0.0011, base.currentLocation.lng + (0.00125 * dir)),
     point(base.destination.lat - 0.00025, base.currentLocation.lng + (0.0012 * dir)),
     point(base.destination.lat, base.destination.lng)
   ], 812);
   const merged = mergeRoutes(leg, main);
-  mockData.escapeLegPoints = [candidate];
+  mockData.escapeLegPoints = { rawCandidates: [candidate], options: { depthSteps: [] } };
+  mockData.osrmNearest[`escape-leg:${candidate.label}:retry-1`] = { ...snappedCandidatePoint, distanceM: 6 };
   mockData.osrmRoutesByContext[`escape-leg:leg:${candidate.label}`] = leg;
   mockData.osrmRoutesByContext[`escape-leg:main:${candidate.label}`] = main;
   const acceptedStats = blockedStatsSoft(side, 'intersection-buffer-soft');
-  mockData.defaultRouteBlockedAreaStats = acceptedStats;
+  mockData.defaultRouteBlockedAreaStats = blockedStatsAccepted(side);
   addRouteMaps(mockData, main, acceptedStats, 0.05);
   addRouteMaps(mockData, merged, acceptedStats, 0.05);
   mockData.pedestrianSafetyByLabel[`escape-leg:${candidate.label}`] = unknownPed(`escape-leg:${candidate.label}`);
@@ -580,26 +583,31 @@ function buildSnapDetailCase(index, config) {
   const mockData = baseMockData();
   const raw = config.rawCandidates.map(candidate => ({ ...candidate }));
   const modeKey = config.mode;
-  const injected = { rawCandidates: raw };
+  const injected = { rawCandidates: raw, options: { depthSteps: [], ...(config.options || {}) } };
   if (modeKey === 'escape-leg') mockData.escapeLegPoints = injected;
   if (modeKey === 'escape') mockData.escapePoints = injected;
   if (modeKey === 'long-detour') mockData.longDetourPoints = injected;
   (config.nearestEntries || []).forEach(entry => {
-    mockData.osrmNearest[`${modeKey}:${entry.label}:point`] = entry.value;
+    mockData.osrmNearest[`${modeKey}:${entry.label}:${entry.contextSuffix || 'point'}`] = entry.value;
   });
 
   (config.successRoutes || []).forEach(success => {
     const routeObj = rescueRoute(base, success.side, success.depthMeters || 90);
     if (modeKey === 'escape') {
       mockData.osrmRoutesByContext[`escape:${success.label}`] = routeObj;
-      mockData.pedestrianSafetyByLabel[`escape:${success.label}`] = safePed(`escape:${success.label}`);
-      mockData.pedestrianSafetyByLabel['final:escape'] = safePed('final:escape');
+      mockData.pedestrianSafetyByLabel[`escape:${success.label}`] = success.pedestrian || safePed(`escape:${success.label}`);
+      mockData.pedestrianSafetyByLabel['final:escape'] = success.finalPedestrian || success.pedestrian || safePed('final:escape');
+      if (success.conservative) {
+        mockData.conservativeByLabel[`escape:${success.label}`] = success.conservative;
+        mockData.conservativeByLabel['final:escape'] = success.finalConservative || success.conservative;
+      }
     } else if (modeKey === 'escape-leg') {
       const leg = route([
         point(base.currentLocation.lat, base.currentLocation.lng),
         point(base.currentLocation.lat - 0.00018, base.currentLocation.lng + (success.side.includes('left') ? -0.00035 : 0.00035)),
         point(base.currentLocation.lat - 0.00032, base.currentLocation.lng + (success.side.includes('left') ? -0.00085 : 0.00085))
       ], 96);
+      mockData.defaultRouteBlockedAreaStats = blockedStatsAccepted(success.side);
       mockData.osrmRoutesByContext[`escape-leg:leg:${success.label}`] = leg;
       mockData.osrmRoutesByContext[`escape-leg:main:${success.label}`] = routeObj;
       mockData.pedestrianSafetyByLabel[`escape-leg:${success.label}`] = safePed(`escape-leg:${success.label}`);
@@ -609,7 +617,12 @@ function buildSnapDetailCase(index, config) {
       mockData.pedestrianSafetyByLabel[`long-detour:${success.label}`] = safePed(`long-detour:${success.label}`);
       mockData.pedestrianSafetyByLabel['final:long-detour'] = safePed('final:long-detour');
     }
-    addRouteMaps(mockData, routeObj, blockedStatsSoft(success.side, 'intersection-buffer-soft'), 0.04);
+    addRouteMaps(
+      mockData,
+      routeObj,
+      success.blockedStats || blockedStatsSoft(success.side, 'intersection-buffer-soft'),
+      success.overlap ?? 0.04
+    );
   });
 
   if (config.followupEscape) {
@@ -646,6 +659,17 @@ function buildSnapDetailCase(index, config) {
       expectedSnapEmptyPrimaryReason: config.expectedSnapEmptyPrimaryReason,
       expectedDetailReasonRecorded: config.expectedDetailReasonRecorded,
       expectedModeStats: config.expectedModeStats,
+      expectedRetryStats: config.expectedRetryStats,
+      expectedSameCorridorStats: config.expectedSameCorridorStats,
+      expectedInsideBlockedStats: config.expectedInsideBlockedStats,
+      expectedEscapeAdjustmentStats: config.expectedEscapeAdjustmentStats,
+      expectedEscapeRetrySuccessByStrategy: config.expectedEscapeRetrySuccessByStrategy,
+      expectedEscapeNearestDetail: config.expectedEscapeNearestDetail,
+      expectedEscapeStrategyStats: config.expectedEscapeStrategyStats,
+      expectedEscapeAcceptanceCounts: config.expectedEscapeAcceptanceCounts,
+      expectedEscapeStrategyOrderUsed: config.expectedEscapeStrategyOrderUsed,
+      expectedEscapePrunedStrategies: config.expectedEscapePrunedStrategies,
+      expectedEscapeUnknownDetailCount: config.expectedEscapeUnknownDetailCount,
       allowedSelectedStages: config.allowedSelectedStages
     }
   };
@@ -697,9 +721,10 @@ cases.push(buildSnapDetailCase(321, {
   mode: 'escape-leg',
   mustFindRoute: true,
   expectedSnapMode: 'escape-leg',
-  expectedSnapEmptyPrimaryReason: 'nearest-null',
-  expectedDetailReasonRecorded: 'escape-leg-snap-empty:nearest-null',
+  expectedSnapEmptyPrimaryReason: 'nearest-null-after-retry',
+  expectedDetailReasonRecorded: 'escape-leg-snap-empty:nearest-null-after-retry',
   expectedModeStats: { rawCandidateCount: 2, nearestAttemptCount: 2, nearestSuccessCount: 0, nearestNullCount: 2, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  expectedRetryStats: { nearestRetryCount: 20, nearestRetrySucceeded: 0, nearestRetryFailed: 2 },
   allowedSelectedStages: ['escape'],
   rawCandidates: [
     rawCandidate(buildBase(321), 'diag-leg-right-null', 'right', 60),
@@ -778,9 +803,10 @@ cases.push(buildSnapDetailCase(325, {
   mode: 'escape',
   mustFindRoute: true,
   expectedSnapMode: 'escape',
-  expectedSnapEmptyPrimaryReason: 'nearest-null',
-  expectedDetailReasonRecorded: 'escape-snap-empty:nearest-null',
+  expectedSnapEmptyPrimaryReason: 'nearest-null-after-retry',
+  expectedDetailReasonRecorded: 'escape-snap-empty:nearest-null-after-retry',
   expectedModeStats: { rawCandidateCount: 3, nearestAttemptCount: 3, nearestSuccessCount: 0, nearestNullCount: 3, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  expectedRetryStats: { nearestRetryCount: 24, nearestRetrySucceeded: 0, nearestRetryFailed: 3 },
   rawCandidates: [
     rawCandidate(buildBase(325), 'diag-right-only-1', 'right', 30),
     rawCandidate(buildBase(325), 'diag-right-only-2', 'right', 60),
@@ -819,9 +845,10 @@ cases.push(buildSnapDetailCase(327, {
   mode: 'escape-leg',
   mustFindRoute: true,
   expectedSnapMode: 'escape-leg',
-  expectedSnapEmptyPrimaryReason: 'nearest-null',
-  expectedDetailReasonRecorded: 'escape-leg-snap-empty:nearest-null',
+  expectedSnapEmptyPrimaryReason: 'nearest-null-after-retry',
+  expectedDetailReasonRecorded: 'escape-leg-snap-empty:nearest-null-after-retry',
   expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 0, nearestNullCount: 1, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  expectedRetryStats: { nearestRetryCount: 10, nearestRetrySucceeded: 0, nearestRetryFailed: 1 },
   allowedSelectedStages: ['escape'],
   rawCandidates: [
     rawCandidate(buildBase(327), 'diag-leg-empty', 'back-left', 60)
@@ -848,6 +875,743 @@ cases.push(buildSnapDetailCase(328, {
     { label: 'diag-escape-empty-corridor', value: { ...snappedPointForSide(buildBase(328), 'right'), distanceM: 4 } }
   ],
   followupLongDetour: { label: 'diag-long-after-escape-empty', side: 'back-right', tier: 150, depthKind: 'deeper-120' }
+}));
+
+cases.push(buildSnapDetailCase(329, {
+  category: 'F-snap-empty-diagnostics',
+  slug: 'nearest-retry-success',
+  description: 'escape-leg nearest retry should recover a usable candidate',
+  mode: 'escape-leg',
+  mustFindRoute: true,
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, usableSnappedCount: 1, usableRouteCandidateCount: 1 },
+  expectedRetryStats: { nearestRetryCount: 1, nearestRetrySucceeded: 1, nearestRetryFailed: 0 },
+  allowedSelectedStages: ['escape-leg'],
+  rawCandidates: [
+    rawCandidate(buildBase(329), 'diag-leg-retry-success', 'back-right', 60, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: [
+    { label: 'diag-leg-retry-success', contextSuffix: 'retry-1', value: { lat: buildBase(329).currentLocation.lat - 0.00032, lng: buildBase(329).currentLocation.lng + 0.00085, distanceM: 6 } }
+  ],
+  successRoutes: [
+    { label: 'diag-leg-retry-success', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(330, {
+  category: 'F-snap-empty-diagnostics',
+  slug: 'nearest-retry-all-fail',
+  description: 'escape-leg should report nearest-null-after-retry when every retry fails',
+  mode: 'escape-leg',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape-leg',
+  expectedSnapEmptyPrimaryReason: 'nearest-null-after-retry',
+  expectedDetailReasonRecorded: 'escape-leg-snap-empty:nearest-null-after-retry',
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 0, nearestNullCount: 1, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  expectedRetryStats: { nearestRetryCount: 10, nearestRetrySucceeded: 0, nearestRetryFailed: 1 },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(330), 'diag-leg-retry-fail', 'right', 60)
+  ],
+  nearestEntries: [],
+  followupEscape: { label: 'diag-escape-after-retry-fail', side: 'back-right', tier: 90 }
+}));
+
+cases.push(buildSnapDetailCase(331, {
+  category: 'F-snap-empty-diagnostics',
+  slug: 'same-corridor-hard',
+  description: 'mainline-like escape-leg candidate should stay hard rejected',
+  mode: 'escape-leg',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape-leg',
+  expectedSnapEmptyPrimaryReason: 'same-corridor',
+  expectedDetailReasonRecorded: 'escape-leg-snap-empty:same-corridor',
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, rejectSameCorridorCount: 1, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  expectedSameCorridorStats: { hard: 1, soft: 0, pass: 0 },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(331), 'diag-leg-corridor-hard', 'right', 30, 'entrance', { forceInsideBlockedDecision: 'pass' })
+  ],
+  nearestEntries: [
+    { label: 'diag-leg-corridor-hard', value: { ...snappedPointForSide(buildBase(331), 'right', true), distanceM: 4 } }
+  ],
+  followupEscape: { label: 'diag-escape-after-corridor-hard', side: 'back-right', tier: 90 }
+}));
+
+cases.push(buildSnapDetailCase(332, {
+  category: 'F-snap-empty-diagnostics',
+  slug: 'same-corridor-soft-survives',
+  description: 'side-road continuation should downgrade same-corridor to soft and survive',
+  mode: 'escape-leg',
+  mustFindRoute: true,
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, usableSnappedCount: 1, usableRouteCandidateCount: 1 },
+  expectedSameCorridorStats: { hard: 0, soft: 0, pass: 1 },
+  allowedSelectedStages: ['escape-leg'],
+  rawCandidates: [
+    rawCandidate(buildBase(332), 'diag-leg-corridor-soft', 'back-right', 60, 'entrance', {
+      sideRoadContinuationDetected: true,
+      forceInsideBlockedDecision: 'pass'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-leg-corridor-soft', value: { lat: buildBase(332).currentLocation.lat - 0.00032, lng: buildBase(332).currentLocation.lng + 0.00085, distanceM: 4 } }
+  ],
+  successRoutes: [
+    { label: 'diag-leg-corridor-soft', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(333, {
+  category: 'F-snap-empty-diagnostics',
+  slug: 'inside-blocked-hard',
+  description: 'blocked core should remain hard rejected for escape-leg',
+  mode: 'escape-leg',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape-leg',
+  expectedSnapEmptyPrimaryReason: 'inside-blocked-area',
+  expectedDetailReasonRecorded: 'escape-leg-snap-empty:inside-blocked-area',
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, rejectInsideBlockedAreaCount: 1, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  expectedInsideBlockedStats: { hard: 1, soft: 0, pass: 0 },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(333), 'diag-leg-inside-hard', 'right', 60)
+  ],
+  nearestEntries: [
+    { label: 'diag-leg-inside-hard', value: { lat: buildBase(333).blockedSegment.start.lat, lng: buildBase(333).blockedSegment.start.lng, distanceM: 4 } }
+  ],
+  followupEscape: { label: 'diag-escape-after-inside-hard', side: 'back-left', tier: 90 }
+}));
+
+cases.push(buildSnapDetailCase(334, {
+  category: 'F-snap-empty-diagnostics',
+  slug: 'inside-blocked-soft-survives',
+  description: 'near-boundary escape-leg entry can be soft and still survive',
+  mode: 'escape-leg',
+  mustFindRoute: true,
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, usableSnappedCount: 1, usableRouteCandidateCount: 1 },
+  expectedInsideBlockedStats: { hard: 0, soft: 1, pass: 0 },
+  allowedSelectedStages: ['escape-leg'],
+  rawCandidates: [
+    rawCandidate(buildBase(334), 'diag-leg-inside-soft', 'back-right', 60, 'entrance', {
+      sideRoadContinuationDetected: true,
+      forceInsideBlockedDecision: 'soft'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-leg-inside-soft', value: { lat: buildBase(334).currentLocation.lat - 0.00032, lng: buildBase(334).currentLocation.lng + 0.00085, distanceM: 5 } }
+  ],
+  successRoutes: [
+    { label: 'diag-leg-inside-soft', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(335, {
+  category: 'G-escape-nearest-reliability',
+  slug: 'escape-nearest-retry-success',
+  description: 'escape nearest null should recover via escape retry strategy',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, usableSnappedCount: 1, usableRouteCandidateCount: 1 },
+  expectedRetryStats: { nearestRetryCount: 1, nearestRetrySucceeded: 1, nearestRetryFailed: 0 },
+  expectedEscapeRetrySuccessByStrategy: { 'escape-lateral-right-5': 1 },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(335), 'diag-escape-retry-success', 'back-right', 90, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-retry-success', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(335), 'back-right'), distanceM: 6 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-retry-success', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(336, {
+  category: 'G-escape-nearest-reliability',
+  slug: 'escape-lateral-adjustment-success',
+  description: 'escape candidate adjustment should rescue nearest acceptance',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, usableSnappedCount: 1, usableRouteCandidateCount: 1 },
+  expectedEscapeAdjustmentStats: { 'lateral-release': 1 },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(336), 'diag-escape-adjust-success', 'right', 30, 'entrance', {
+      sideRoadContinuationDetected: true,
+      point: point(buildBase(336).currentLocation.lat + 0.00018, buildBase(336).currentLocation.lng + 0.00005)
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-adjust-success', value: { ...snappedPointForSide(buildBase(336), 'right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-adjust-success', side: 'right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(337, {
+  category: 'G-escape-nearest-reliability',
+  slug: 'escape-still-null',
+  description: 'escape nearest should still report null after all escape retries',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedSnapEmptyPrimaryReason: 'nearest-null-after-retry',
+  expectedDetailReasonRecorded: 'escape-snap-empty:nearest-null-after-retry',
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 0, nearestNullCount: 1, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  expectedRetryStats: { nearestRetryCount: 3, nearestRetrySucceeded: 0, nearestRetryFailed: 1 },
+  rawCandidates: [
+    rawCandidate(buildBase(337), 'diag-escape-still-null', 'right', 90, 'entrance')
+  ],
+  nearestEntries: []
+}));
+
+cases.push(buildSnapDetailCase(338, {
+  category: 'G-escape-nearest-reliability',
+  slug: 'escape-side-road-continuation-rescue',
+  description: 'escape nearest should survive only when side-road continuation is visible',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, usableSnappedCount: 1, usableRouteCandidateCount: 1 },
+  expectedSameCorridorStats: { hard: 0, soft: 1, pass: 0 },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(338), 'diag-escape-side-road-rescue', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true,
+      forceInsideBlockedDecision: 'pass'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-side-road-rescue', value: { ...snappedPointForSide(buildBase(338), 'back-right', true), distanceM: 4 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-side-road-rescue', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(339, {
+  category: 'G-escape-nearest-reliability',
+  slug: 'escape-mainline-only-reject',
+  description: 'escape nearest should stay rejected when only mainline continuation is visible',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedSnapEmptyPrimaryReason: 'same-corridor',
+  expectedDetailReasonRecorded: 'escape-snap-empty:same-corridor',
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 1, rejectSameCorridorCount: 1, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  allowedSelectedStages: ['long-detour'],
+  rawCandidates: [
+    rawCandidate(buildBase(339), 'diag-escape-mainline-only', 'right', 90, 'entrance', { forceInsideBlockedDecision: 'pass' })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-mainline-only', value: { ...snappedPointForSide(buildBase(339), 'right', true), distanceM: 4 } }
+  ],
+  followupLongDetour: { label: 'diag-long-after-mainline-only', side: 'back-right', tier: 150, depthKind: 'deeper-120' }
+}));
+
+cases.push(buildSnapDetailCase(340, {
+  category: 'G-escape-nearest-reliability',
+  slug: 'escape-retry-success-dangerous-still-rejected',
+  description: 'escape retry success must not bypass dangerous crossing rejection',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedRetryStats: { nearestRetryCount: 1, nearestRetrySucceeded: 1, nearestRetryFailed: 0 },
+  rawCandidates: [
+    rawCandidate(buildBase(340), 'diag-escape-dangerous-after-retry', 'back-right', 90, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-dangerous-after-retry', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(340), 'back-right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-dangerous-after-retry', side: 'back-right', depthMeters: 90, pedestrian: unsafePed('escape:diag-escape-dangerous-after-retry') }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(341, {
+  category: 'G-escape-nearest-reliability',
+  slug: 'escape-retry-success-hard-reject-still-not-adopted',
+  description: 'escape retry success must not adopt final conservative hard reject',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedRetryStats: { nearestRetryCount: 1, nearestRetrySucceeded: 1, nearestRetryFailed: 0 },
+  rawCandidates: [
+    rawCandidate(buildBase(341), 'diag-escape-hard-reject-after-retry', 'back-right', 90, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-hard-reject-after-retry', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(341), 'back-right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    {
+      label: 'diag-escape-hard-reject-after-retry',
+      side: 'back-right',
+      depthMeters: 90,
+      pedestrian: unknownPed('escape:diag-escape-hard-reject-after-retry'),
+      finalPedestrian: unknownPed('final:escape'),
+      conservative: conservative('hard-reject', 'diagonal-mainline-shortcut-hard', 0, { diagonalMainlineShortcutDetected: true }),
+      finalConservative: conservative('hard-reject', 'diagonal-mainline-shortcut-hard', 0, { diagonalMainlineShortcutDetected: true })
+    }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(342, {
+  category: 'H-escape-nearest-null-detail',
+  slug: 'retry-all-null-detail',
+  description: 'escape nearest-null-after-retry should classify all retry points null',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedSnapEmptyPrimaryReason: 'nearest-null-after-retry',
+  expectedDetailReasonRecorded: 'escape-snap-empty:nearest-null-after-retry',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:all-retry-points-null': 1 },
+  expectedEscapeStrategyStats: {
+    'escape-lateral-right-5': { executed: 1, nearestNull: 1 },
+    'escape-right-forward-10': { executed: 1, nearestNull: 1 },
+    'escape-right-backward-10': { executed: 1, nearestNull: 1 }
+  },
+  expectedModeStats: { rawCandidateCount: 1, nearestAttemptCount: 1, nearestSuccessCount: 0, nearestNullCount: 1, usableSnappedCount: 0, usableRouteCandidateCount: 0 },
+  expectedRetryStats: { nearestRetryCount: 3, nearestRetrySucceeded: 0, nearestRetryFailed: 1 },
+  rawCandidates: [
+    rawCandidate(buildBase(342), 'diag-escape-retry-all-null-detail', 'right', 90, 'entrance')
+  ],
+  nearestEntries: []
+}));
+
+cases.push(buildSnapDetailCase(343, {
+  category: 'H-escape-nearest-null-detail',
+  slug: 'retry-node-build-failure-detail',
+  description: 'escape retry nearest should classify node build failure detail',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedSnapEmptyPrimaryReason: 'node-build-failure',
+  expectedDetailReasonRecorded: 'escape-snap-empty:node-build-failure',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-node-build-failure': 1 },
+  expectedEscapeStrategyStats: {
+    'escape-lateral-right-5': { executed: 1, nearestReturned: 1, success: 1 }
+  },
+  rawCandidates: [
+    rawCandidate(buildBase(343), 'diag-escape-retry-node-build-failure', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true,
+      forceRejectReason: 'node-build-failure'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-retry-node-build-failure', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(343), 'back-right'), distanceM: 5 } }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(344, {
+  category: 'H-escape-nearest-null-detail',
+  slug: 'retry-duplicate-only-detail',
+  description: 'escape retry nearest should classify duplicate-only detail',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-duplicate-only': 1 },
+  expectedEscapeStrategyStats: {
+    'escape-lateral-right-5': { executed: 1, nearestReturned: 1, success: 1, rejectedAsDuplicate: 1 }
+  },
+  rawCandidates: [
+    rawCandidate(buildBase(344), 'diag-escape-retry-duplicate-only', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true,
+      forceRejectReason: 'duplicate-snap'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-retry-duplicate-only', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(344), 'back-right'), distanceM: 5 } }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(345, {
+  category: 'H-escape-nearest-null-detail',
+  slug: 'retry-invalid-bearing-detail',
+  description: 'escape retry nearest should classify invalid-bearing detail',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-invalid-bearing': 1 },
+  expectedEscapeStrategyStats: {
+    'escape-lateral-right-5': { executed: 1, nearestReturned: 1, success: 1, rejectedAsInvalidBearing: 1 }
+  },
+  rawCandidates: [
+    rawCandidate(buildBase(345), 'diag-escape-retry-invalid-bearing', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true,
+      forceRejectReason: 'invalid-bearing'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-retry-invalid-bearing', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(345), 'back-right'), distanceM: 5 } }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(346, {
+  category: 'H-escape-nearest-null-detail',
+  slug: 'retry-mainline-only-detail',
+  description: 'escape retry nearest should classify mainline-only detail',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedSnapEmptyPrimaryReason: 'same-corridor',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-rejected-no-side-road': 1 },
+  expectedEscapeStrategyStats: {
+    'escape-lateral-right-5': { executed: 1, nearestReturned: 1, success: 1, rejectedAsMainlineOnly: 1 }
+  },
+  rawCandidates: [
+    rawCandidate(buildBase(346), 'diag-escape-retry-mainline-only', 'right', 90, 'entrance', { forceInsideBlockedDecision: 'pass' })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-retry-mainline-only', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(346), 'right', true), distanceM: 4 } }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(347, {
+  category: 'H-escape-nearest-null-detail',
+  slug: 'retry-side-road-rescue-detail',
+  description: 'escape retry nearest should count rescue acceptance detail',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedEscapeStrategyStats: {
+    'escape-lateral-right-5': { executed: 1, nearestReturned: 1, success: 1, nodeBuildSuccess: 1, sideRoadContinuationDetected: 1, acceptedAsRescue: 1 }
+  },
+  expectedEscapeAcceptanceCounts: {
+    acceptedAfterRetryCount: 1,
+    acceptedAsRescueCount: 1
+  },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(347), 'diag-escape-retry-side-road-rescue', 'back-right', 90, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-retry-side-road-rescue', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(347), 'back-right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-retry-side-road-rescue', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(348, {
+  category: 'H-escape-nearest-null-detail',
+  slug: 'adjustment-accepted-detail',
+  description: 'escape adjustment acceptance should be counted separately',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedEscapeAcceptanceCounts: {
+    acceptedAfterAdjustmentCount: 1
+  },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(348), 'diag-escape-adjustment-accepted-detail', 'right', 30, 'entrance', {
+      sideRoadContinuationDetected: true,
+      point: point(buildBase(348).currentLocation.lat + 0.00018, buildBase(348).currentLocation.lng + 0.00005)
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-adjustment-accepted-detail', value: { ...snappedPointForSide(buildBase(348), 'right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-adjustment-accepted-detail', side: 'right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(349, {
+  category: 'H-escape-nearest-null-detail',
+  slug: 'back-right-entrance-failure',
+  description: 'back-right entrance failure should remain visible in breakdown',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:all-retry-points-null': 1 },
+  rawCandidates: [
+    rawCandidate(buildBase(349), 'diag-escape-back-right-entrance-failure', 'back-right', 90, 'entrance')
+  ],
+  nearestEntries: []
+}));
+
+cases.push(buildSnapDetailCase(350, {
+  category: 'I-escape-retry-order-tuning',
+  slug: 'priority-first-strategy-success',
+  description: 'priority-pruned should succeed on the first right-lateral strategy',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedEscapeStrategyOrderUsed: [
+    'escape-lateral-right-5',
+    'escape-right-forward-10',
+    'escape-right-backward-10',
+    'escape-forward-5',
+    'escape-backward-5',
+    'escape-lateral-left-5',
+    'escape-left-forward-10',
+    'escape-left-backward-10'
+  ],
+  expectedEscapePrunedStrategies: [
+    'escape-forward-5',
+    'escape-backward-5',
+    'escape-lateral-left-5',
+    'escape-left-forward-10',
+    'escape-left-backward-10'
+  ],
+  expectedEscapeUnknownDetailCount: 0,
+  expectedEscapeAcceptanceCounts: {
+    acceptedAfterRetryCount: 1
+  },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(350), 'diag-escape-priority-first-success', 'back-right', 90, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-priority-first-success', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(350), 'back-right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-priority-first-success', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(351, {
+  category: 'I-escape-retry-order-tuning',
+  slug: 'priority-pruned-success-preserved',
+  description: 'priority-pruned should preserve success without touching pruned strategies',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedEscapePrunedStrategies: [
+    'escape-forward-5',
+    'escape-backward-5',
+    'escape-lateral-left-5',
+    'escape-left-forward-10',
+    'escape-left-backward-10'
+  ],
+  expectedEscapeUnknownDetailCount: 0,
+  expectedEscapeAcceptanceCounts: {
+    acceptedAfterRetryCount: 1
+  },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(351), 'diag-escape-pruned-success-preserved', 'right', 90, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-pruned-success-preserved', contextSuffix: 'retry-2', value: { ...snappedPointForSide(buildBase(351), 'right'), distanceM: 7 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-pruned-success-preserved', side: 'right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(352, {
+  category: 'I-escape-retry-order-tuning',
+  slug: 'pruned-strategy-guard-case',
+  description: 'left-side guard case should expose pruning-too-aggressive behavior as no enabled strategy',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedSnapEmptyPrimaryReason: 'nearest-null-after-retry',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-no-strategy-enabled': 1 },
+  expectedEscapeUnknownDetailCount: 0,
+  expectedEscapePrunedStrategies: [
+    'escape-lateral-right-5',
+    'escape-right-forward-10',
+    'escape-right-backward-10',
+    'escape-forward-5',
+    'escape-backward-5',
+    'escape-lateral-left-5',
+    'escape-left-forward-10',
+    'escape-left-backward-10'
+  ],
+  rawCandidates: [
+    rawCandidate(buildBase(352), 'diag-escape-pruned-guard-left-only', 'left', 90, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: []
+}));
+
+cases.push(buildSnapDetailCase(353, {
+  category: 'I-escape-retry-order-tuning',
+  slug: 'unknown-detail-resolved',
+  description: 'priority-pruned should classify prior unknown detail as retry-no-strategy-enabled',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-no-strategy-enabled': 1 },
+  expectedEscapeUnknownDetailCount: 0,
+  rawCandidates: [
+    rawCandidate(buildBase(353), 'diag-escape-unknown-detail-resolved', 'back-left', 90, 'entrance')
+  ],
+  nearestEntries: []
+}));
+
+cases.push(buildSnapDetailCase(354, {
+  category: 'I-escape-retry-order-tuning',
+  slug: 'back-right-entrance-priority-reorder',
+  description: 'back-right entrance should prefer the right-lateral strategy and record it as first winner',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedEscapeUnknownDetailCount: 0,
+  expectedEscapeAcceptanceCounts: {
+    acceptedAfterRetryCount: 1
+  },
+  expectedEscapeStrategyStats: {
+    'escape-lateral-right-5': { success: 1 }
+  },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(354), 'diag-escape-back-right-reorder-win', 'back-right', 90, 'entrance', { sideRoadContinuationDetected: true })
+  ],
+  nearestEntries: [
+    { label: 'diag-escape-back-right-reorder-win', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(354), 'back-right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    { label: 'diag-escape-back-right-reorder-win', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(355, {
+  category: 'J-escape-retry-strategy-exhausted',
+  slug: 'back-right-entrance-policy-success',
+  description: 'back-right entrance dedicated retry policy should recover before exhaustion',
+  mode: 'escape',
+  mustFindRoute: true,
+  expectedSnapMode: 'escape',
+  expectedEscapeUnknownDetailCount: 0,
+  expectedEscapeAcceptanceCounts: { acceptedAfterRetryCount: 1 },
+  allowedSelectedStages: ['escape'],
+  rawCandidates: [
+    rawCandidate(buildBase(355), 'diag-back-right-entrance-policy-success', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-back-right-entrance-policy-success', contextSuffix: 'retry-3', value: { ...snappedPointForSide(buildBase(355), 'back-right'), distanceM: 6 } }
+  ],
+  successRoutes: [
+    { label: 'diag-back-right-entrance-policy-success', side: 'back-right', depthMeters: 90 }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(356, {
+  category: 'J-escape-retry-strategy-exhausted',
+  slug: 'back-right-mainline-only-reject',
+  description: 'back-right entrance with nearest return but mainline-only should reject as exhausted mainline-only',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-strategy-exhausted:only-mainline-continuation': 1 },
+  rawCandidates: [
+    rawCandidate(buildBase(356), 'diag-back-right-mainline-only-reject', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true,
+      forceInsideBlockedDecision: 'pass',
+      forceRejectReason: 'same-corridor'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-back-right-mainline-only-reject', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(356), 'back-right', true), distanceM: 5 } }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(357, {
+  category: 'J-escape-retry-strategy-exhausted',
+  slug: 'all-pruned-by-policy',
+  description: 'non-right entrance should surface all-pruned-by-policy explicitly',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedSnapEmptyPrimaryReason: 'nearest-null-after-retry',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-strategy-exhausted:all-pruned-by-policy': 1 },
+  expectedEscapeUnknownDetailCount: 0,
+  rawCandidates: [
+    rawCandidate(buildBase(357), 'diag-all-pruned-by-policy', 'back-left', 90, 'entrance')
+  ],
+  nearestEntries: []
+}));
+
+cases.push(buildSnapDetailCase(358, {
+  category: 'J-escape-retry-strategy-exhausted',
+  slug: 'duplicate-only-exhausted',
+  description: 'nearest returned but duplicate-only should classify exhausted duplicate path',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-strategy-exhausted:only-duplicate-candidates': 1 },
+  rawCandidates: [
+    rawCandidate(buildBase(358), 'diag-duplicate-only-exhausted', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true,
+      forceRejectReason: 'duplicate-snap'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-duplicate-only-exhausted', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(358), 'back-right'), distanceM: 5 } }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(359, {
+  category: 'J-escape-retry-strategy-exhausted',
+  slug: 'no-side-road-exhausted',
+  description: 'nearest returned with no side-road continuation should keep no-side-road detail',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  expectedEscapeNearestDetail: { 'nearest-null-after-retry:retry-rejected-no-side-road': 1 },
+  rawCandidates: [
+    rawCandidate(buildBase(359), 'diag-no-side-road-exhausted', 'right', 90, 'entrance', {
+      forceInsideBlockedDecision: 'pass'
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-no-side-road-exhausted', contextSuffix: 'retry-1', value: { ...snappedPointForSide(buildBase(359), 'right', true), distanceM: 4 } }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(360, {
+  category: 'J-escape-retry-strategy-exhausted',
+  slug: 'dangerous-still-rejected',
+  description: 'dedicated back-right retry policy must still reject dangerous crossing',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  rawCandidates: [
+    rawCandidate(buildBase(360), 'diag-dangerous-still-rejected', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-dangerous-still-rejected', contextSuffix: 'retry-2', value: { ...snappedPointForSide(buildBase(360), 'back-right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    { label: 'diag-dangerous-still-rejected', side: 'back-right', depthMeters: 90, pedestrian: unsafePed('escape:diag-dangerous-still-rejected') }
+  ]
+}));
+
+cases.push(buildSnapDetailCase(361, {
+  category: 'J-escape-retry-strategy-exhausted',
+  slug: 'final-hard-reject-still-not-adopted',
+  description: 'dedicated back-right retry policy must not adopt final conservative hard reject',
+  mode: 'escape',
+  mustFindRoute: false,
+  expectedSnapMode: 'escape',
+  rawCandidates: [
+    rawCandidate(buildBase(361), 'diag-final-hard-reject-still-not-adopted', 'back-right', 90, 'entrance', {
+      sideRoadContinuationDetected: true
+    })
+  ],
+  nearestEntries: [
+    { label: 'diag-final-hard-reject-still-not-adopted', contextSuffix: 'retry-2', value: { ...snappedPointForSide(buildBase(361), 'back-right'), distanceM: 5 } }
+  ],
+  successRoutes: [
+    {
+      label: 'diag-final-hard-reject-still-not-adopted',
+      side: 'back-right',
+      depthMeters: 90,
+      pedestrian: unknownPed('escape:diag-final-hard-reject-still-not-adopted'),
+      finalPedestrian: unknownPed('final:escape'),
+      conservative: conservative('hard-reject', 'diagonal-mainline-shortcut-hard', 0, { diagonalMainlineShortcutDetected: true }),
+      finalConservative: conservative('hard-reject', 'diagonal-mainline-shortcut-hard', 0, { diagonalMainlineShortcutDetected: true })
+    }
+  ]
 }));
 
 fs.mkdirSync(OUT_DIR, { recursive: true });

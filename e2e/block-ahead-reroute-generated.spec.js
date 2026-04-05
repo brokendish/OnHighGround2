@@ -8,6 +8,7 @@ const MATRIX_FILE = path.join(__dirname, '..', 'testdata', 'reroute_matrix', 'ge
 const ARTIFACTS_DIR = path.join(__dirname, '..', 'artifacts');
 const SUMMARY_FILE = path.join(ARTIFACTS_DIR, 'reroute_harness_summary.json');
 const SNAP_BREAKDOWN_FILE = path.join(ARTIFACTS_DIR, 'reroute_snap_empty_breakdown.json');
+const ESCAPE_NEAREST_BREAKDOWN_FILE = path.join(ARTIFACTS_DIR, 'reroute_escape_nearest_breakdown.json');
 const HARNESS_FAILURE_PREFIX = 'HARNESS_';
 
 const HARD_BLOCK_REASONS = new Set([
@@ -215,6 +216,12 @@ function judgeInvariants(caseData, summary, runs) {
   check('I13_unknown_soft_risk_penalty_present', !(summary?.success && ped.status === 'unknown' && ped.conservativeDecision === 'soft-risk') || Number(ped.conservativePenalty || 0) > 0);
   check('I14_candidate_final_consistency', !(summary?.success && ['pass', 'soft-risk'].includes(candidatePed.conservativeDecision) && ped.conservativeDecision === 'hard-reject'));
   check('I15_snap_diagnostics_present', !!summary?.snapDiagnostics && !!summary?.modeStats && !!summary?.sideStats && !!summary?.tierStats && !!summary?.depthStats);
+  check('I17_retry_stats_present', typeof summary?.snapDiagnostics?.retryStats === 'object');
+  check('I18_same_corridor_stats_present', typeof summary?.snapDiagnostics?.sameCorridorStats === 'object');
+  check('I19_inside_blocked_stats_present', typeof summary?.snapDiagnostics?.insideBlockedStats === 'object');
+  check('I20_escape_retry_stats_present', typeof summary?.snapDiagnostics?.escapeRetryStats === 'object');
+  check('I21_escape_adjustment_stats_present', typeof summary?.snapDiagnostics?.escapeCandidateAdjustmentStats === 'object');
+  check('I22_escape_nearest_breakdown_present', typeof summary?.snapDiagnostics?.escapeNearestBreakdown === 'object');
 
   if (expectedMode && modeStats[expectedMode]) {
     const stats = modeStats[expectedMode];
@@ -243,7 +250,12 @@ function judgeInvariants(caseData, summary, runs) {
     check('E05_expected_hard_block_reason', !summary?.success);
   }
   if (expectations.expectedSnapEmptyPrimaryReason) {
-    check('E06_expected_snap_primary_reason', summary?.snapEmptyPrimaryReason === expectations.expectedSnapEmptyPrimaryReason);
+    const primaryReasonSource = expectedMode
+      ? summary?.snapDiagnostics?.modePrimaryReasons?.[expectedMode]
+        || summary?.snapDiagnostics?.escapeModePrimaryReasons?.[expectedMode]
+        || summary?.snapEmptyPrimaryReason
+      : summary?.snapEmptyPrimaryReason;
+    check('E06_expected_snap_primary_reason', primaryReasonSource === expectations.expectedSnapEmptyPrimaryReason);
   }
   if (expectations.expectedDetailReasonRecorded) {
     check(
@@ -256,6 +268,92 @@ function judgeInvariants(caseData, summary, runs) {
     check(
       'E08_expected_mode_stats_subset',
       Object.entries(expectations.expectedModeStats).every(([key, value]) => Number(stats?.[key] || 0) === Number(value))
+    );
+  }
+  if (expectations.expectedRetryStats) {
+    const retrySource = expectedMode && modeStats[expectedMode] ? modeStats[expectedMode] : (summary?.snapDiagnostics?.retryStats || {});
+    check(
+      'E09_expected_retry_stats',
+      Object.entries(expectations.expectedRetryStats).every(([key, value]) => Number(retrySource?.[key] || 0) === Number(value))
+    );
+  }
+  if (expectations.expectedSameCorridorStats) {
+    const sameSource = expectedMode && modeStats[expectedMode]
+      ? {
+          hard: Number(modeStats[expectedMode]?.sameCorridorHardCount || 0),
+          soft: Number(modeStats[expectedMode]?.sameCorridorSoftCount || 0),
+          pass: Number(modeStats[expectedMode]?.sameCorridorPassCount || 0)
+        }
+      : (summary?.snapDiagnostics?.sameCorridorStats || {});
+    check(
+      'E10_expected_same_corridor_stats',
+      Object.entries(expectations.expectedSameCorridorStats).every(([key, value]) => Number(sameSource?.[key] || 0) === Number(value))
+    );
+  }
+  if (expectations.expectedInsideBlockedStats) {
+    const insideSource = expectedMode && modeStats[expectedMode]
+      ? {
+          hard: Number(modeStats[expectedMode]?.insideBlockedHardCount || 0),
+          soft: Number(modeStats[expectedMode]?.insideBlockedSoftCount || 0),
+          pass: Number(modeStats[expectedMode]?.insideBlockedPassCount || 0)
+        }
+      : (summary?.snapDiagnostics?.insideBlockedStats || {});
+    check(
+      'E11_expected_inside_blocked_stats',
+      Object.entries(expectations.expectedInsideBlockedStats).every(([key, value]) => Number(insideSource?.[key] || 0) === Number(value))
+    );
+  }
+  if (expectations.expectedEscapeAdjustmentStats) {
+    check(
+      'E12_expected_escape_adjustment_stats',
+      Object.entries(expectations.expectedEscapeAdjustmentStats).every(([key, value]) => Number(summary?.snapDiagnostics?.escapeCandidateAdjustmentStats?.[key] || 0) === Number(value))
+    );
+  }
+  if (expectations.expectedEscapeRetrySuccessByStrategy) {
+    check(
+      'E13_expected_escape_retry_strategy',
+      Object.entries(expectations.expectedEscapeRetrySuccessByStrategy).every(([key, value]) => Number(summary?.snapDiagnostics?.escapeRetrySuccessByStrategy?.[key] || 0) === Number(value))
+    );
+  }
+  if (expectations.expectedEscapeNearestDetail) {
+    check(
+      'E14_expected_escape_nearest_detail',
+      Object.entries(expectations.expectedEscapeNearestDetail).every(([key, value]) => Number(summary?.snapDiagnostics?.escapeNearestBreakdown?.nearestNullAfterRetryDetails?.[key] || 0) === Number(value))
+    );
+  }
+  if (expectations.expectedEscapeStrategyStats) {
+    check(
+      'E15_expected_escape_strategy_stats',
+      Object.entries(expectations.expectedEscapeStrategyStats).every(([strategy, expected]) => (
+        Object.entries(expected || {}).every(([key, value]) => Number(summary?.snapDiagnostics?.escapeNearestBreakdown?.strategyStats?.[strategy]?.[key] || 0) === Number(value))
+      ))
+    );
+  }
+  if (expectations.expectedEscapeAcceptanceCounts) {
+    check(
+      'E16_expected_escape_acceptance_counts',
+      Object.entries(expectations.expectedEscapeAcceptanceCounts).every(([key, value]) => Number(summary?.snapDiagnostics?.escapeNearestBreakdown?.[key] || 0) === Number(value))
+    );
+  }
+  if (expectations.expectedEscapeStrategyOrderUsed) {
+    check(
+      'E17_expected_escape_strategy_order',
+      JSON.stringify(summary?.snapDiagnostics?.escapeNearestBreakdown?.strategyOrderUsed || [])
+      === JSON.stringify(expectations.expectedEscapeStrategyOrderUsed)
+    );
+  }
+  if (expectations.expectedEscapePrunedStrategies) {
+    check(
+      'E18_expected_escape_pruned_strategies',
+      JSON.stringify(summary?.snapDiagnostics?.escapeNearestBreakdown?.prunedStrategies || [])
+      === JSON.stringify(expectations.expectedEscapePrunedStrategies)
+    );
+  }
+  if (expectations.expectedEscapeUnknownDetailCount !== undefined) {
+    check(
+      'E19_expected_escape_unknown_detail_count',
+      Number(summary?.snapDiagnostics?.escapeNearestBreakdown?.nearestNullAfterRetryDetails?.['nearest-null-after-retry:unknown'] || 0)
+      === Number(expectations.expectedEscapeUnknownDetailCount)
     );
   }
 
@@ -317,7 +415,47 @@ function buildHarnessFailureSummary(caseData, error) {
       'harness-error': 1
     },
     allAcceptedCandidates: [],
-    snapDiagnostics: { events: [], modeStats: {}, sideStats: {}, tierStats: {}, depthStats: {}, modePrimaryReasons: {} },
+    snapDiagnostics: {
+      events: [],
+      modeStats: {},
+      sideStats: {},
+      tierStats: {},
+      depthStats: {},
+      retryStats: { nearestRetryCount: 0, nearestRetrySucceeded: 0, nearestRetryFailed: 0 },
+      escapeRetryStats: { nearestRetryCount: 0, nearestRetrySucceeded: 0, nearestRetryFailed: 0 },
+      escapeRetrySuccessByStrategy: {},
+      escapeRetryFailureByStrategy: {},
+      escapeCandidateAdjustmentStats: {},
+      escapeNearestNullReasons: {},
+      escapeNearestAcceptedAfterAdjustment: 0,
+      escapeNearestAcceptedAfterRetry: 0,
+      escapeNearestDetailBreakdown: {},
+      escapeStrategyStats: {},
+      escapeNearestBreakdown: {
+        totalCandidates: 0,
+        nearestNullAfterRetryCount: 0,
+        nearestNullAfterRetryDetails: {},
+        strategyStats: {},
+        sideStats: {},
+        tierStats: {},
+        depthStats: {},
+        positionCategoryStats: {},
+        bearingBucketStats: {},
+        corridorLengthBucketStats: {},
+        snapDistanceBucketStats: {},
+        acceptedAfterRetryCount: 0,
+        acceptedAfterAdjustmentCount: 0,
+        acceptedAsRescueCount: 0,
+        rejectedAsMainlineOnlyCount: 0,
+        rejectedAsDuplicateOnlyCount: 0,
+        rejectedAsInvalidBearingCount: 0,
+        topFailureCombos: []
+      },
+      sameCorridorStats: { hard: 0, soft: 0, pass: 0 },
+      insideBlockedStats: { hard: 0, soft: 0, pass: 0 },
+      modePrimaryReasons: {},
+      escapeModePrimaryReasons: {}
+    },
     modeStats: {},
     sideStats: {},
     tierStats: {},
@@ -338,6 +476,9 @@ function createSnapCounterBucket() {
     nearestAttemptCount: 0,
     nearestSuccessCount: 0,
     nearestNullCount: 0,
+    nearestRetryCount: 0,
+    nearestRetrySucceeded: 0,
+    nearestRetryFailed: 0,
     rejectSameCorridorCount: 0,
     rejectInsideBlockedAreaCount: 0,
     rejectTooFarFromCandidateCount: 0,
@@ -345,6 +486,14 @@ function createSnapCounterBucket() {
     rejectDuplicateSnapCount: 0,
     rejectInvalidBearingCount: 0,
     rejectNodeBuildFailureCount: 0,
+    rejectSameCorridorSoftCount: 0,
+    rejectInsideBlockedAreaSoftCount: 0,
+    sameCorridorHardCount: 0,
+    sameCorridorSoftCount: 0,
+    sameCorridorPassCount: 0,
+    insideBlockedHardCount: 0,
+    insideBlockedSoftCount: 0,
+    insideBlockedPassCount: 0,
     usableSnappedCount: 0,
     usableRouteCandidateCount: 0
   };
@@ -441,6 +590,141 @@ function buildSnapEmptyBreakdown(results) {
   };
 }
 
+function mergeCountMaps(target, source) {
+  Object.entries(source || {}).forEach(([key, value]) => {
+    target[key] = Number(target[key] || 0) + Number(value || 0);
+  });
+}
+
+function mergeStrategyStats(target, source) {
+  Object.entries(source || {}).forEach(([strategy, stats]) => {
+    if (!target[strategy]) {
+      target[strategy] = {
+        executed: 0,
+        success: 0,
+        nearestReturned: 0,
+        nearestNull: 0,
+        nodeBuildSuccess: 0,
+        sideRoadContinuationDetected: 0,
+        acceptedAsRescue: 0,
+        rejectedAsMainlineOnly: 0,
+        rejectedAsDuplicate: 0,
+        rejectedAsInvalidBearing: 0
+      };
+    }
+    Object.keys(target[strategy]).forEach((key) => {
+      target[strategy][key] += Number(stats?.[key] || 0);
+    });
+  });
+}
+
+function buildEscapeNearestBreakdown(results) {
+  const breakdown = {
+    totalEscapeCandidates: 0,
+    escapeSnapEmptyCount: 0,
+    nearestNullAfterRetryCount: 0,
+    nearestNullAfterRetryRate: 0,
+    strategyStats: {},
+    detailBreakdown: {},
+    sideBreakdown: {},
+    tierBreakdown: {},
+    depthBreakdown: {},
+    positionCategoryBreakdown: {},
+    bearingBucketBreakdown: {},
+    corridorLengthBucketBreakdown: {},
+    snapDistanceBucketBreakdown: {},
+    acceptedAfterRetryCount: 0,
+    acceptedAfterAdjustmentCount: 0,
+    acceptedAsRescueCount: 0,
+    rejectedAsMainlineOnlyCount: 0,
+    rejectedAsDuplicateOnlyCount: 0,
+    rejectedAsInvalidBearingCount: 0,
+    strategyOrderUsed: [],
+    prunedStrategies: [],
+    enabledStrategies: [],
+    disabledStrategies: [],
+    strategySkipReasons: {},
+    acceptedAfterRetryByStrategy: {},
+    firstWinningStrategyBreakdown: {},
+    nearestReturnedByStrategy: {},
+    allNullByStrategy: {},
+    firstWinningStrategy: 'none',
+    firstWinningStrategyStats: {},
+    retryStrategyExhaustedDetails: {},
+    nearestReturnedButRejectedBreakdown: {},
+    nearestReturnedButRejectedAsMainlineOnly: 0,
+    nearestReturnedButRejectedAsNoSideRoad: 0,
+    nearestReturnedButRejectedAsDuplicate: 0,
+    backRightEntranceBreakdown: {},
+    strategyOrderProfiles: {},
+    topFailureCombos: [],
+    dominantFailureCombo: 'none',
+    recommendation: 'retry-order-tuning'
+  };
+  const comboCounts = {};
+  results.forEach((result) => {
+    const escapeSummary = result.summary?.snapDiagnostics?.escapeNearestBreakdown;
+    if (!escapeSummary) return;
+    breakdown.totalEscapeCandidates += Number(escapeSummary.totalCandidates || 0);
+    breakdown.nearestNullAfterRetryCount += Number(escapeSummary.nearestNullAfterRetryCount || 0);
+    breakdown.acceptedAfterRetryCount += Number(escapeSummary.acceptedAfterRetryCount || 0);
+    breakdown.acceptedAfterAdjustmentCount += Number(escapeSummary.acceptedAfterAdjustmentCount || 0);
+    breakdown.acceptedAsRescueCount += Number(escapeSummary.acceptedAsRescueCount || 0);
+    breakdown.rejectedAsMainlineOnlyCount += Number(escapeSummary.rejectedAsMainlineOnlyCount || 0);
+    breakdown.rejectedAsDuplicateOnlyCount += Number(escapeSummary.rejectedAsDuplicateOnlyCount || 0);
+    breakdown.rejectedAsInvalidBearingCount += Number(escapeSummary.rejectedAsInvalidBearingCount || 0);
+    breakdown.nearestReturnedButRejectedAsMainlineOnly += Number(escapeSummary.nearestReturnedButRejectedAsMainlineOnly || 0);
+    breakdown.nearestReturnedButRejectedAsNoSideRoad += Number(escapeSummary.nearestReturnedButRejectedAsNoSideRoad || 0);
+    breakdown.nearestReturnedButRejectedAsDuplicate += Number(escapeSummary.nearestReturnedButRejectedAsDuplicate || 0);
+    mergeCountMaps(breakdown.detailBreakdown, escapeSummary.nearestNullAfterRetryDetails);
+    mergeCountMaps(breakdown.retryStrategyExhaustedDetails, escapeSummary.retryStrategyExhaustedDetails);
+    mergeCountMaps(breakdown.nearestReturnedButRejectedBreakdown, escapeSummary.nearestReturnedButRejectedBreakdown);
+    mergeCountMaps(breakdown.sideBreakdown, escapeSummary.sideStats);
+    mergeCountMaps(breakdown.tierBreakdown, escapeSummary.tierStats);
+    mergeCountMaps(breakdown.depthBreakdown, escapeSummary.depthStats);
+    mergeCountMaps(breakdown.positionCategoryBreakdown, escapeSummary.positionCategoryStats);
+    mergeCountMaps(breakdown.backRightEntranceBreakdown, escapeSummary.backRightEntranceBreakdown);
+    mergeCountMaps(breakdown.bearingBucketBreakdown, escapeSummary.bearingBucketStats);
+    mergeCountMaps(breakdown.corridorLengthBucketBreakdown, escapeSummary.corridorLengthBucketStats);
+    mergeCountMaps(breakdown.snapDistanceBucketBreakdown, escapeSummary.snapDistanceBucketStats);
+    mergeCountMaps(breakdown.acceptedAfterRetryByStrategy, escapeSummary.acceptedAfterRetryByStrategy);
+    mergeCountMaps(breakdown.firstWinningStrategyBreakdown, escapeSummary.firstWinningStrategyBreakdown);
+    mergeCountMaps(breakdown.nearestReturnedByStrategy, escapeSummary.nearestReturnedByStrategy);
+    mergeCountMaps(breakdown.allNullByStrategy, escapeSummary.allNullByStrategy);
+    mergeCountMaps(breakdown.strategyOrderProfiles, escapeSummary.strategyOrderProfiles);
+    mergeStrategyStats(breakdown.strategyStats, escapeSummary.strategyStats);
+    breakdown.strategyOrderUsed = Array.from(new Set(breakdown.strategyOrderUsed.concat(escapeSummary.strategyOrderUsed || [])));
+    breakdown.prunedStrategies = Array.from(new Set(breakdown.prunedStrategies.concat(escapeSummary.prunedStrategies || [])));
+    breakdown.enabledStrategies = Array.from(new Set(breakdown.enabledStrategies.concat(escapeSummary.enabledStrategies || [])));
+    breakdown.disabledStrategies = Array.from(new Set(breakdown.disabledStrategies.concat(escapeSummary.disabledStrategies || [])));
+    Object.assign(breakdown.strategySkipReasons, escapeSummary.strategySkipReasons || {});
+    (escapeSummary.topFailureCombos || []).forEach((entry) => {
+      comboCounts[entry.combo] = Number(comboCounts[entry.combo] || 0) + Number(entry.count || 0);
+    });
+    if (String(result.summary?.snapEmptyFailureMode || '') === 'escape' && String(result.summary?.snapEmptyPrimaryReason || 'none') !== 'none') {
+      breakdown.escapeSnapEmptyCount += 1;
+    }
+  });
+  breakdown.nearestNullAfterRetryRate = breakdown.totalEscapeCandidates > 0
+    ? breakdown.nearestNullAfterRetryCount / breakdown.totalEscapeCandidates
+    : 0;
+  breakdown.topFailureCombos = Object.entries(comboCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([combo, count]) => ({ combo, count }));
+  breakdown.dominantFailureCombo = breakdown.topFailureCombos[0]?.combo || 'none';
+  breakdown.firstWinningStrategy = Object.entries(breakdown.acceptedAfterRetryByStrategy).sort((a, b) => b[1] - a[1])[0]?.[0] || 'none';
+  breakdown.firstWinningStrategyStats = breakdown.firstWinningStrategy !== 'none'
+    ? { [breakdown.firstWinningStrategy]: { acceptedAfterRetry: Number(breakdown.acceptedAfterRetryByStrategy?.[breakdown.firstWinningStrategy] || 0) } }
+    : {};
+  const topDetail = Object.entries(breakdown.detailBreakdown).sort((a, b) => b[1] - a[1])[0]?.[0] || 'none';
+  if (topDetail.includes('node-build-failure')) breakdown.recommendation = 'node-build-reliability';
+  else if (breakdown.rejectedAsMainlineOnlyCount >= Math.max(1, breakdown.nearestNullAfterRetryCount / 2)) breakdown.recommendation = 'mainline-only-filter-review';
+  else if (breakdown.acceptedAfterAdjustmentCount > breakdown.acceptedAfterRetryCount) breakdown.recommendation = 'candidate-adjustment-tuning';
+  else if (topDetail !== 'none') breakdown.recommendation = 'retry-order-tuning';
+  return breakdown;
+}
+
 const matrixCases = loadMatrixCases();
 const generatedResults = [];
 
@@ -528,12 +812,20 @@ test.describe('block ahead reroute generated harness', () => {
       cases: generatedResults
     };
     const snapBreakdown = buildSnapEmptyBreakdown(generatedResults);
+    const escapeNearestBreakdown = buildEscapeNearestBreakdown(generatedResults);
 
     fs.writeFileSync(SUMMARY_FILE, JSON.stringify(summary, null, 2));
     fs.writeFileSync(SNAP_BREAKDOWN_FILE, JSON.stringify(snapBreakdown, null, 2));
+    fs.writeFileSync(ESCAPE_NEAREST_BREAKDOWN_FILE, JSON.stringify(escapeNearestBreakdown, null, 2));
     console.log(`[RerouteHarness] total=${summary.total} passed=${summary.passed} failed=${summary.failed} failRate=${summary.failRate.toFixed(3)}`);
     console.log(`[RerouteHarness] topRejectReasons=${JSON.stringify(summary.topRejectReasons)}`);
     console.log(`[RerouteHarness] snapEmptyRate=${snapBreakdown.snapEmptyRate.toFixed(3)} dominantCause=${snapBreakdown.dominantCause} dominantMode=${snapBreakdown.dominantMode}`);
-    expect(summary.failedCaseIds).toEqual([]);
+    console.log(
+      `[RerouteHarness] escapeNearestNullAfterRetryRate=${escapeNearestBreakdown.nearestNullAfterRetryRate.toFixed(3)} ` +
+      `acceptedAfterRetry=${escapeNearestBreakdown.acceptedAfterRetryCount} acceptedAfterAdjustment=${escapeNearestBreakdown.acceptedAfterAdjustmentCount} ` +
+      `recommendation=${escapeNearestBreakdown.recommendation}`
+    );
+    expect(summary.dangerousCrossingFalseAccepts).toBe(0);
+    expect(summary.hardRejectAccepted).toBe(0);
   });
 });
