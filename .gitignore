@@ -69,6 +69,12 @@ data_lake/validated/
 data_lake/tiles/
 data_lake/logs/
 
+# ---- Admin runtime state (machine-specific, auto-generated on startup) ----
+data_lake/admin/state/*.json
+data_lake/admin/history/*.jsonl
+data_lake/admin/jobs/*.json
+data_lake/admin/logs/*.log
+
 # ---- data_runtime: 配備済みデータ（deploy_to_runtime.sh で生成、git 管理外）----
 # ディレクトリ構造（.gitkeep）と README は管理対象、データファイルは除外
 data_runtime/backend/

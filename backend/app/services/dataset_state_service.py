@@ -56,7 +56,22 @@ class DatasetStateService:
             return self._default_state(dataset_id)
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        return DatasetState(**data)
+        # 古い状態ファイルが別マシンの絶対パスを持っている場合は無効化して再推定させる
+        state = DatasetState(**data)
+        if self._has_stale_paths(state):
+            logger.info("Stale absolute paths detected in state for %s, will re-infer.", dataset_id)
+            path.unlink()
+            return self._default_state(dataset_id)
+        return state
+
+    def _has_stale_paths(self, state: DatasetState) -> bool:
+        """状態ファイルのパスが現在のマシンに存在しない場合 True を返す。"""
+        for attr in ("current_raw_path", "current_normalized_path",
+                     "current_validated_path", "current_runtime_path"):
+            val = getattr(state, attr, None)
+            if val and not Path(val).exists():
+                return True
+        return False
 
     def save(self, state: DatasetState) -> None:
         path = self._state_path(state.dataset_id)
