@@ -769,6 +769,80 @@ test.describe('block ahead reroute regression', () => {
     expect(state.some(candidate => candidate.tier === 60)).toBeTruthy();
   });
 
+  test('escape gate により現在地近くの sideways raw candidate は即 inside 扱いされにくくなる', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    const state = await page.evaluate(() => {
+      const coords = navActiveRoute.coordinates;
+      const projection = _navFindClosestOnRoute(coords, currentLocation.lat, currentLocation.lon);
+      const blockedArea = _buildBlockedArea(coords, projection, {
+        startM: 20,
+        endM: 180,
+        backwardM: 0,
+        baseRadiusM: 50,
+        intersectionBufferM: 40
+      });
+      const gatedArea = _buildEscapeGateBlockedArea(coords, projection, blockedArea, 'escape-gate-test');
+      const headingTarget = _walkAlongRoute(coords, projection, 20);
+      const headingUnit = _headingUnitVectorMeters(projection.snappedPoint, headingTarget);
+      const leftPoint = _buildEscapePoint(projection.snappedPoint, headingUnit, 'left', 30, 0);
+      return {
+        blockedBefore: _distancePointToBlockedArea(leftPoint, blockedArea, blockedArea.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS),
+        blockedAfter: _distancePointToBlockedArea(leftPoint, gatedArea, gatedArea.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS),
+        gateCount: Array.isArray(gatedArea.escapeGates) ? gatedArea.escapeGates.length : 0
+      };
+    });
+
+    expect(state.gateCount).toBeGreaterThan(0);
+    expect(state.blockedBefore).toBeLessThanOrEqual(0);
+    expect(state.blockedAfter).toBeGreaterThan(0);
+  });
+
+  test('escape-leg の先頭 prefix は side-specific gate carve-out で判定し、その後は通常 blocked area に戻す', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    const state = await page.evaluate(() => {
+      const coords = navActiveRoute.coordinates;
+      const projection = _navFindClosestOnRoute(coords, currentLocation.lat, currentLocation.lon);
+      const blockedArea = _buildBlockedArea(coords, projection, {
+        startM: 20,
+        endM: 180,
+        backwardM: 0,
+        baseRadiusM: 50,
+        intersectionBufferM: 40
+      });
+      const gatedArea = _buildEscapeGateBlockedArea(coords, projection, blockedArea, 'escape-leg-prefix-test');
+      const leftGated = _buildSideSpecificEscapeBlockedArea(gatedArea, 'left', 'escape-leg-prefix-left');
+      const headingTarget = _walkAlongRoute(coords, projection, 20);
+      const headingUnit = _headingUnitVectorMeters(projection.snappedPoint, headingTarget);
+      const prefixPoint = _buildEscapePoint(projection.snappedPoint, headingUnit, 'left', 30, 0);
+      const rightPoint = _buildEscapePoint(projection.snappedPoint, headingUnit, 'right', 30, 0);
+      const prefixRoute = [
+        projection.snappedPoint,
+        prefixPoint,
+        _buildEscapePoint(projection.snappedPoint, headingUnit, 'left', 55, 0)
+      ];
+      const suffixRoute = [
+        _buildEscapePoint(projection.snappedPoint, headingUnit, 'left', 55, 0),
+        { lat: projection.snappedPoint.lat + 0.0015, lng: projection.snappedPoint.lng }
+      ];
+      return {
+        leftGateCount: Array.isArray(leftGated.escapeGates) ? leftGated.escapeGates.length : 0,
+        rightBlockedInLeftGate: _distancePointToBlockedArea(rightPoint, leftGated, leftGated.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS),
+        prefixBefore: _routeBlockedAreaStats(prefixRoute, blockedArea),
+        prefixAfter: _routeBlockedAreaStats(prefixRoute, leftGated),
+        suffixAfter: _routeBlockedAreaStats(suffixRoute, blockedArea)
+      };
+    });
+
+    expect(state.leftGateCount).toBeGreaterThan(0);
+    expect(state.rightBlockedInLeftGate).toBeLessThanOrEqual(0);
+    expect(state.prefixAfter.nearBlockedRatio).toBeLessThanOrEqual(state.prefixBefore.nearBlockedRatio);
+    expect(state.prefixAfter.strictOverlapRatio).toBeLessThanOrEqual(state.prefixBefore.strictOverlapRatio);
+    expect(state.prefixAfter.nearBlocked).toBeFalsy();
+    expect(typeof state.suffixAfter.nearBlocked).toBe('boolean');
+  });
+
   test('全 stage 失敗時でも escape-leg fallback で現在地から即時迂回を採用できる', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
@@ -787,7 +861,7 @@ test.describe('block ahead reroute regression', () => {
         }];
       };
       _generateEscapeLegPoints = () => ([
-        { label: 'leg-right-30', point: { lat: 35.0001, lng: 139.0045 } }
+        { label: 'leg-right-30', point: { lat: 35.0001, lng: 139.0100 }, side: 'right' }
       ]);
       _generateEscapePoints = () => {
         window.__escapePointsCalled = true;
@@ -799,29 +873,73 @@ test.describe('block ahead reroute regression', () => {
           return {
             coordinates: [
               { lat: 35.0001, lng: 139.0 },
-              { lat: 35.0001, lng: 139.0038 },
-              { lat: 35.0001, lng: 139.0045 }
+              { lat: 35.0001, lng: 139.0070 },
+              { lat: 35.0001, lng: 139.0100 }
             ],
-            totalDistance: 120,
-            totalTime: 100,
+            totalDistance: 180,
+            totalTime: 130,
             turnCount: 1
           };
         }
         if (Array.isArray(waypoints) && waypoints.length === 2) {
           return {
             coordinates: [
-              { lat: 35.0001, lng: 139.0045 },
-              { lat: 35.0032, lng: 139.0045 },
+              { lat: 35.0001, lng: 139.0100 },
+              { lat: 35.0032, lng: 139.0100 },
               { lat: 35.004,  lng: 139.0 }
             ],
-            summary: { totalDistance: 360, totalTime: 300 },
-            instructions: [{ text: '迂回して進む', distance: 100, latLng: { lat: 35.0032, lng: 139.0045 } }],
-            totalDistance: 360,
-            totalTime: 300,
+            summary: { totalDistance: 300, totalTime: 250 },
+            instructions: [{ text: '迂回して進む', distance: 100, latLng: { lat: 35.0032, lng: 139.0100 } }],
+            totalDistance: 300,
+            totalTime: 250,
             turnCount: 1
           };
         }
         return bypassAlt;
+      };
+      const originalStats = _routeBlockedAreaStats;
+      const originalDistance = _distancePointToBlockedArea;
+      _routeBlockedAreaStats = (coords, blockedArea) => {
+        const firstLng = Array.isArray(coords) && coords.length > 0 ? (coords[0].lng ?? coords[0].lon) : null;
+        const lastLng = Array.isArray(coords) && coords.length > 0 ? (coords[coords.length - 1].lng ?? coords[coords.length - 1].lon) : null;
+        if (Array.isArray(coords)
+            && coords.length === 2
+            && firstLng != null
+            && lastLng != null
+            && firstLng < 139.001
+            && lastLng < 139.002) {
+          return {
+            strictOverlapRatio: 0,
+            nearBlockedRatio: 0,
+            minDistanceToAreaM: 12,
+            intersects: false,
+            nearBlocked: false
+          };
+        }
+        if (Array.isArray(coords)
+            && coords.length >= 2
+            && firstLng != null
+            && lastLng != null
+            && firstLng < 139.001
+            && lastLng > 139.006) {
+          return {
+            strictOverlapRatio: 0,
+            nearBlockedRatio: 0,
+            minDistanceToAreaM: 12,
+            intersects: false,
+            nearBlocked: false
+          };
+        }
+        return originalStats(coords, blockedArea);
+      };
+      _distancePointToBlockedArea = (point, blockedArea, nearRejectMeters) => {
+        const lng = point?.lng ?? point?.lon;
+        if (typeof lng === 'number' && lng > 139.006) return 12;
+        return originalDistance(point, blockedArea, nearRejectMeters);
+      };
+      window.__restoreBlockedStats = () => {
+        _routeBlockedAreaStats = originalStats;
+        _distancePointToBlockedArea = originalDistance;
       };
     }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
 
@@ -835,6 +953,7 @@ test.describe('block ahead reroute regression', () => {
       timing: _blockAheadLastTiming,
       totalDistance: navActiveRoute.summary.totalDistance
     }));
+    await page.evaluate(() => window.__restoreBlockedStats && window.__restoreBlockedStats());
 
     expect(state.altFetchCount).toBe(3);
     expect(state.escapeLegFetchCount).toBeGreaterThan(1);
@@ -856,8 +975,8 @@ test.describe('block ahead reroute regression', () => {
         turnCount: 0
       }]);
       _generateEscapeLegPoints = async () => ([
-        { label: 'leg-right-30', point: { lat: 35.0001, lng: 139.0040 }, lateralM: 30, nodeType: 'corridor-like', nodeScore: 20 },
-        { label: 'leg-right-90', point: { lat: 35.0001, lng: 139.0068 }, lateralM: 90, nodeType: 'side-road', nodeScore: 120 }
+        { label: 'leg-right-30', point: { lat: 35.0001, lng: 139.0040 }, side: 'right', lateralM: 30, nodeType: 'corridor-like', nodeScore: 20 },
+        { label: 'leg-right-90', point: { lat: 35.0001, lng: 139.0108 }, side: 'right', lateralM: 90, nodeType: 'side-road', nodeScore: 120 }
       ]);
       _generateEscapePoints = async () => [];
       _fetchOsrmRouteThroughWaypoints = async (waypoints) => {
@@ -876,8 +995,8 @@ test.describe('block ahead reroute regression', () => {
             return {
               coordinates: [
                 { lat: 35.0001, lng: 139.0 },
-                { lat: 35.0001, lng: 139.0056 },
-                { lat: 35.0001, lng: 139.0068 }
+                { lat: 35.0001, lng: 139.0080 },
+                { lat: 35.0001, lng: 139.0108 }
               ],
               totalDistance: 180,
               totalTime: 150,
@@ -886,18 +1005,62 @@ test.describe('block ahead reroute regression', () => {
           }
           return {
             coordinates: [
-              { lat: 35.0001, lng: 139.0068 },
-              { lat: 35.0032, lng: 139.0068 },
+              { lat: 35.0001, lng: 139.0108 },
+              { lat: 35.0032, lng: 139.0108 },
               { lat: 35.004,  lng: 139.0 }
             ],
             summary: { totalDistance: 300, totalTime: 250 },
-            instructions: [{ text: '脇道から進む', distance: 80, latLng: { lat: 35.0032, lng: 139.0068 } }],
+            instructions: [{ text: '脇道から進む', distance: 80, latLng: { lat: 35.0032, lng: 139.0108 } }],
             totalDistance: 300,
             totalTime: 250,
             turnCount: 1
           };
         }
         return bypassAlt;
+      };
+      const originalStats = _routeBlockedAreaStats;
+      const originalDistance = _distancePointToBlockedArea;
+      _routeBlockedAreaStats = (coords, blockedArea) => {
+        const firstLng = Array.isArray(coords) && coords.length > 0 ? (coords[0].lng ?? coords[0].lon) : null;
+        const lastLng = Array.isArray(coords) && coords.length > 0 ? (coords[coords.length - 1].lng ?? coords[coords.length - 1].lon) : null;
+        if (Array.isArray(coords)
+            && coords.length === 2
+            && firstLng != null
+            && lastLng != null
+            && firstLng < 139.001
+            && lastLng < 139.002) {
+          return {
+            strictOverlapRatio: 0,
+            nearBlockedRatio: 0,
+            minDistanceToAreaM: 12,
+            intersects: false,
+            nearBlocked: false
+          };
+        }
+        if (Array.isArray(coords)
+            && coords.length >= 2
+            && firstLng != null
+            && lastLng != null
+            && firstLng < 139.001
+            && lastLng > 139.006) {
+          return {
+            strictOverlapRatio: 0,
+            nearBlockedRatio: 0,
+            minDistanceToAreaM: 12,
+            intersects: false,
+            nearBlocked: false
+          };
+        }
+        return originalStats(coords, blockedArea);
+      };
+      _distancePointToBlockedArea = (point, blockedArea, nearRejectMeters) => {
+        const lng = point?.lng ?? point?.lon;
+        if (typeof lng === 'number' && lng > 139.006) return 12;
+        return originalDistance(point, blockedArea, nearRejectMeters);
+      };
+      window.__restoreBlockedStats = () => {
+        _routeBlockedAreaStats = originalStats;
+        _distancePointToBlockedArea = originalDistance;
       };
     }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
 
@@ -908,6 +1071,7 @@ test.describe('block ahead reroute regression', () => {
       acceptedStage: _blockAheadLastTiming?.acceptedStage,
       routeDistance: navActiveRoute.summary.totalDistance
     }));
+    await page.evaluate(() => window.__restoreBlockedStats && window.__restoreBlockedStats());
 
     expect(state.acceptedStage).toBe('escape-leg');
     expect(state.routeDistance).toBe(480);
@@ -925,7 +1089,7 @@ test.describe('block ahead reroute regression', () => {
         turnCount: 0
       }]);
       _generateEscapeLegPoints = async () => ([
-        { label: 'leg-right-60', point: { lat: 35.0001, lng: 139.0045 }, lateralM: 60, distanceTierM: 60, depthKind: 'entrance', nodeType: 'side-road', nodeScore: 120 }
+        { label: 'leg-right-60', point: { lat: 35.0001, lng: 139.0100 }, side: 'right', lateralM: 60, distanceTierM: 60, depthKind: 'entrance', nodeType: 'side-road', nodeScore: 120 }
       ]);
       _generateEscapePoints = async () => [];
       _fetchOsrmRouteThroughWaypoints = async (waypoints) => {
@@ -934,31 +1098,62 @@ test.describe('block ahead reroute regression', () => {
           return {
             coordinates: [
               { lat: 35.0001, lng: 139.0 },
-              { lat: 35.0001, lng: 139.0038 },
-              { lat: 35.0001, lng: 139.0045 }
+              { lat: 35.0001, lng: 139.0074 },
+              { lat: 35.0001, lng: 139.0100 }
             ],
-            totalDistance: 120,
-            totalTime: 100,
+            totalDistance: 170,
+            totalTime: 120,
             turnCount: 1
           };
         }
         return {
           coordinates: [
-            { lat: 35.0001, lng: 139.0045 },
-            { lat: 35.0015, lng: 139.0045 },
-            { lat: 35.0032, lng: 139.0045 },
-            { lat: 35.0040, lng: 139.0045 }
+            { lat: 35.0001, lng: 139.0100 },
+            { lat: 35.0015, lng: 139.0100 },
+            { lat: 35.0032, lng: 139.0100 },
+            { lat: 35.0040, lng: 139.0100 }
           ],
-          summary: { totalDistance: 340, totalTime: 280 },
-          instructions: [{ text: '脇道を進む', distance: 100, latLng: { lat: 35.0032, lng: 139.0045 } }],
-          totalDistance: 340,
-          totalTime: 280,
+          summary: { totalDistance: 290, totalTime: 240 },
+          instructions: [{ text: '脇道を進む', distance: 100, latLng: { lat: 35.0032, lng: 139.0100 } }],
+          totalDistance: 290,
+          totalTime: 240,
           turnCount: 1
         };
       };
       const originalStats = _routeBlockedAreaStats;
+      const originalDistance = _distancePointToBlockedArea;
       _routeBlockedAreaStats = (coords, blockedArea) => {
-        if (Array.isArray(coords) && coords.length === 4 && Math.abs((coords[0].lng ?? coords[0].lon) - 139.0045) < 0.0001) {
+        const firstLng = Array.isArray(coords) && coords.length > 0 ? (coords[0].lng ?? coords[0].lon) : null;
+        const lastLng = Array.isArray(coords) && coords.length > 0 ? (coords[coords.length - 1].lng ?? coords[coords.length - 1].lon) : null;
+        if (Array.isArray(coords)
+            && coords.length === 2
+            && firstLng != null
+            && lastLng != null
+            && firstLng < 139.001
+            && lastLng < 139.002) {
+          return {
+            strictOverlapRatio: 0,
+            nearBlockedRatio: 0,
+            minDistanceToAreaM: 12,
+            intersects: false,
+            nearBlocked: false
+          };
+        }
+        if (Array.isArray(coords)
+            && coords.length >= 2
+            && firstLng != null
+            && lastLng != null
+            && firstLng < 139.001
+            && lastLng > 139.006) {
+          return {
+            strictOverlapRatio: 0,
+            nearBlockedRatio: 0,
+            minDistanceToAreaM: 12,
+            intersects: false,
+            nearBlocked: false
+          };
+        }
+        if (Array.isArray(coords) && coords.length === 4 && Math.abs((coords[0].lng ?? coords[0].lon) - 139.0100) < 0.0001) {
           return {
             strictOverlapRatio: 0.18,
             nearBlockedRatio: 0.23,
@@ -969,7 +1164,15 @@ test.describe('block ahead reroute regression', () => {
         }
         return originalStats(coords, blockedArea);
       };
-      window.__restoreBlockedStats = () => { _routeBlockedAreaStats = originalStats; };
+      _distancePointToBlockedArea = (point, blockedArea, nearRejectMeters) => {
+        const lng = point?.lng ?? point?.lon;
+        if (typeof lng === 'number' && lng > 139.006) return 12;
+        return originalDistance(point, blockedArea, nearRejectMeters);
+      };
+      window.__restoreBlockedStats = () => {
+        _routeBlockedAreaStats = originalStats;
+        _distancePointToBlockedArea = originalDistance;
+      };
     }, { blockedRoute: BLOCKED_ROUTE, bypassAlt: makeBypassAlt() });
 
     await page.evaluate(() => blockAheadAndReroute());
@@ -1151,7 +1354,7 @@ test.describe('block ahead reroute regression', () => {
     expect(state.totalDistance).toBe(540);
   });
 
-  test('holdWaypointMode route は overlap が実質 0 かつ strict が低ければ intersects=true でも near-penalty で通る', async ({ page }) => {
+  test('holdWaypointMode route は overlap が低く strict が 0.35 未満なら near-penalty で通る', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
     await page.evaluate(({ blockedRoute }) => {
@@ -1193,10 +1396,10 @@ test.describe('block ahead reroute regression', () => {
       _routeBlockedAreaStats = (coords, blockedArea) => {
         if (Array.isArray(coords) && coords.length === 5 && Math.abs((coords[2].lng ?? coords[2].lon) - 139.0054) < 0.0001) {
           return {
-            strictOverlapRatio: 0.24,
+            strictOverlapRatio: 0.34,
             nearBlockedRatio: 0.28,
-            minDistanceToAreaM: -1,
-            intersects: true,
+            minDistanceToAreaM: 1,
+            intersects: false,
             nearBlocked: true
           };
         }
@@ -1401,5 +1604,77 @@ test.describe('block ahead reroute regression', () => {
 
     expect(state.coords.length).toBeLessThan(6);
     expect(state.hasParallelDuplicate).toBe(false);
+  });
+
+  test('歩行危険横断は横断歩道がない primary 横断を reject する', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      const route = {
+        coordinates: [
+          { lat: 35.0005, lng: 138.9997 },
+          { lat: 35.0005, lng: 139.0003 }
+        ]
+      };
+      const context = {
+        roads: [
+          {
+            id: 1,
+            tags: { highway: 'primary', lanes: '4' },
+            coordinates: [
+              { lat: 35.0002, lng: 139.0 },
+              { lat: 35.0008, lng: 139.0 }
+            ]
+          }
+        ],
+        crosswalks: []
+      };
+      const safety = _evaluatePedestrianRouteAgainstContext(route, context);
+      return {
+        safe: safety.safe,
+        rejectReason: safety.rejectReason,
+        detail: safety.dangerousCrossings[0]?.classification?.reason || null
+      };
+    });
+
+    expect(result.safe).toBe(false);
+    expect(result.rejectReason).toBe('dangerous-crossing');
+    expect(result.detail).toBe('major-no-crosswalk');
+  });
+
+  test('歩行危険横断は近くに横断歩道があれば同じ primary 横断を許可する', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      const route = {
+        coordinates: [
+          { lat: 35.0005, lng: 138.9997 },
+          { lat: 35.0005, lng: 139.0003 }
+        ]
+      };
+      const context = {
+        roads: [
+          {
+            id: 1,
+            tags: { highway: 'primary', lanes: '4' },
+            coordinates: [
+              { lat: 35.0002, lng: 139.0 },
+              { lat: 35.0008, lng: 139.0 }
+            ]
+          }
+        ],
+        crosswalks: [
+          { lat: 35.0005, lng: 139.0, tags: { highway: 'crossing' } }
+        ]
+      };
+      const safety = _evaluatePedestrianRouteAgainstContext(route, context);
+      return {
+        safe: safety.safe,
+        rejectReason: safety.rejectReason,
+        dangerousCount: safety.dangerousCrossings.length
+      };
+    });
+
+    expect(result.safe).toBe(true);
+    expect(result.rejectReason).toBeNull();
+    expect(result.dangerousCount).toBe(0);
   });
 });
