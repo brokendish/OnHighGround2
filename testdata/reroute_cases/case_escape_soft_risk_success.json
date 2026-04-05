@@ -1,0 +1,29 @@
+{
+  "name": "case_escape_soft_risk_success",
+  "profile": "walking",
+  "currentLocation": { "lat": 35.0001, "lng": 139.0 },
+  "destination": { "lat": 35.004, "lng": 139.0 },
+  "blockedSegment": {
+    "start": { "lat": 35.00055, "lng": 139.0 },
+    "end": { "lat": 35.00095, "lng": 139.0 }
+  },
+  "routeGeometry": [
+    [139.0, 35.0001],
+    [139.0, 35.0020],
+    [139.0, 35.0040]
+  ],
+  "fixtures": {
+    "osrmAlternatives": "case_escape_soft_risk_success.osrm.alternatives.json",
+    "osrmNearest": "case_escape_soft_risk_success.osrm.nearest.json",
+    "osrmEscape": "case_escape_soft_risk_success.osrm.escape.json",
+    "pedestrianContext": "case_escape_soft_risk_success.overpass.context.json"
+  },
+  "expectations": {
+    "mustFindRoute": true,
+    "mustAvoidBlockedArea": true,
+    "mustAvoidDangerousCrossing": true,
+    "mustNotFinalConservativeHardReject": true,
+    "mustAllowSoftRisk": true,
+    "allowedSelectedStages": ["escape", "escape-leg", "long-detour"]
+  }
+}

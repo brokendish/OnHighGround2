@@ -1,0 +1,21 @@
+{
+  "stage1": [
+    {
+      "coordinates": [
+        { "lat": 35.0000, "lng": 139.0000 },
+        { "lat": 35.0000, "lng": 139.00015 },
+        { "lat": 35.00042, "lng": 139.00015 },
+        { "lat": 35.00042, "lng": 139.00030 }
+      ],
+      "summary": { "totalDistance": 85, "totalTime": 70 },
+      "instructions": [
+        { "text": "斜めに横断する", "distance": 85, "latLng": { "lat": 35.00042, "lng": 139.00015 } }
+      ],
+      "totalDistance": 85,
+      "totalTime": 70,
+      "turnCount": 2
+    }
+  ],
+  "stage2": [],
+  "stage3": []
+}

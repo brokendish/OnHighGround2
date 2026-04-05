@@ -1,0 +1,25 @@
+{
+  "name": "case_diagonal_shortcut_hard_reject",
+  "profile": "walking",
+  "currentLocation": { "lat": 35.0001, "lng": 139.0 },
+  "destination": { "lat": 35.004, "lng": 139.0 },
+  "blockedSegment": {
+    "start": { "lat": 35.00055, "lng": 139.0 },
+    "end": { "lat": 35.00095, "lng": 139.0 }
+  },
+  "routeGeometry": [
+    [139.0, 35.0001],
+    [139.0, 35.0020],
+    [139.0, 35.0040]
+  ],
+  "fixtures": {
+    "osrmAlternatives": "case_diagonal_shortcut_hard_reject.osrm.alternatives.json",
+    "osrmNearest": "case_diagonal_shortcut_hard_reject.osrm.nearest.json",
+    "osrmEscape": "case_diagonal_shortcut_hard_reject.osrm.escape.json",
+    "pedestrianContext": "case_diagonal_shortcut_hard_reject.overpass.context.json"
+  },
+  "expectations": {
+    "mustFindRoute": false,
+    "mustNotFinalConservativeHardReject": false
+  }
+}

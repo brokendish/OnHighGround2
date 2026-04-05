@@ -1,0 +1,12 @@
+{
+  "status": "unavailable",
+  "source": "compact-cache",
+  "context": null,
+  "failure": {
+    "kind": "timeout",
+    "detail": "core-fetch-timeout",
+    "message": "pedestrian context fetch timed out after 800ms",
+    "aborted": true,
+    "abortSource": "timeout"
+  }
+}

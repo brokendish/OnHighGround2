@@ -77,32 +77,46 @@ const BLOCK_STAGE_CONFIGS = [
         alternativeCount: BLOCK_OSRM_ALTERNATIVES
     }
 ];
-const BLOCK_ESCAPE_LATERAL_OFFSETS_M = [60, 100];
+const BLOCK_ESCAPE_LATERAL_OFFSETS_M = [60, 100, 120, 150, 200];
+const BLOCK_ESCAPE_BACKWARD_LATERAL_OFFSETS_M = [60, 120, 150];
 const BLOCK_ESCAPE_BACKWARD_M = 25;
 const BLOCK_ESCAPE_MAX_POINTS = 6;
+const BLOCK_ESCAPE_LONG_MAX_POINTS = 10;
 const BLOCK_ESCAPE_MAX_LATERAL_M = 200;
 const BLOCK_ESCAPE_PUSH_STEP_M = 20;
 const BLOCK_ESCAPE_IGNORE_METERS = 40;
-const BLOCK_ESCAPE_LEG_LATERAL_OFFSETS_M = [30, 60, 90, 120];
+const BLOCK_ESCAPE_LEG_LATERAL_OFFSETS_M = [30, 60, 90, 120, 150, 200];
 const BLOCK_ESCAPE_LEG_BACKWARD_M = 15;
 const BLOCK_ESCAPE_LEG_MAX_POINTS = 6;
 const BLOCK_ESCAPE_CORRIDOR_DIFF_M = 18;
 const BLOCK_ESCAPE_SIDE_BEARING_DEG = 35;
 const BLOCK_ESCAPE_DEEPER_STEPS_M = [30, 60, 90, 120];
+const BLOCK_ESCAPE_LONG_DEEPER_STEPS_M = [30, 60, 90, 120, 150, 200];
 const BLOCK_ESCAPE_GATE_LENGTH_M = 60;
 const BLOCK_ESCAPE_GATE_WIDTH_M = 16;
 const BLOCK_ESCAPE_GATE_STEPS_M = [15, 30, 45, 60];
 const BLOCK_ESCAPE_LEG_PREFIX_GATE_M = 55;
 const BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX = 0.35;
 const BLOCK_ESCAPE_NEAR_PENALTY_OVERLAP_EPS = 0.08;
+const BLOCK_DESTINATION_NEAR_RELAX_ROUTE_DISTANCE_M = 180;
+const BLOCK_DESTINATION_NEAR_RELAX_STRICT_BONUS = 0.08;
 const PEDESTRIAN_SAFETY_OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const PEDESTRIAN_SAFETY_BBOX_PADDING_M = 45;
+const PEDESTRIAN_SAFETY_COMPACT_BBOX_PADDING_M = 30;
+const PEDESTRIAN_SAFETY_EXPANDED_BBOX_PADDING_M = 80;
 const PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M = 25;
 const PEDESTRIAN_SAFETY_FETCH_TIMEOUT_MS = 800;
 const PEDESTRIAN_SAFETY_MAJOR_HIGHWAYS = new Set(['trunk', 'trunk_link', 'primary', 'primary_link']);
 const PEDESTRIAN_SAFETY_FORBIDDEN_HIGHWAYS = new Set(['motorway', 'motorway_link']);
 const PEDESTRIAN_SAFETY_MIN_CROSSING_BEARING_DEG = 35;
-const PEDESTRIAN_SAFETY_CACHE_TTL_MS = 5 * 60 * 1000;
+const PEDESTRIAN_SAFETY_SUCCESS_CACHE_TTL_MS = 5 * 60 * 1000;
+const PEDESTRIAN_SAFETY_FAILURE_CACHE_TTL_MS = 20 * 1000;
+const PEDESTRIAN_SAFETY_TIMEOUT_CACHE_TTL_MS = 8 * 1000;
+const PEDESTRIAN_SAFETY_UNKNOWN_CROSS_SEGMENT_M = 32;
+const PEDESTRIAN_SAFETY_UNKNOWN_WIDE_CROSS_SEGMENT_M = 45;
+const PEDESTRIAN_SAFETY_UNKNOWN_TURN_DIFF_DEG = 40;
+const PEDESTRIAN_SAFETY_UNKNOWN_FINAL_RETURN_M = 35;
+const PEDESTRIAN_SAFETY_UNKNOWN_SOFT_PENALTY = 180;
 const SIGNIFICANT_INITIAL_TURN_DEG = 30;  // 「最初のターン」とみなす閾値
 const MIN_INITIAL_CLARITY_SEGMENT_M = 18;   // これ未満の初動折れは表示上まとめる
 const MAX_INITIAL_CLARITY_WINDOW_M = 40;    // 初動簡略化を適用する最大距離窓
@@ -140,6 +154,7 @@ function _perfNowMs() {
 
 let _blockAheadPerfMetrics = null;
 let _blockAheadLastTiming = null;
+let _blockAheadDebugSummary = null;
 let _blockAheadRecentSummaries = [];
 let _blockAheadAggregateMetrics = {
     totalRuns: 0,
@@ -207,7 +222,64 @@ function _recordBlockAheadExecutionSummary(summary) {
     if (typeof window !== 'undefined') {
         window._blockAheadRecentSummaries = _blockAheadRecentSummaries;
         window._blockAheadAggregateMetrics = _blockAheadAggregateMetrics;
+        window._blockAheadDebugSummary = _blockAheadDebugSummary;
     }
+}
+
+function _getBlockAheadTestDeps() {
+    if (typeof window === 'undefined') return null;
+    return window.__OHG_TEST_DEPS__ || null;
+}
+
+async function _callBlockAheadTestDep(name, ...args) {
+    const deps = _getBlockAheadTestDeps();
+    const fn = deps && deps[name];
+    if (typeof fn !== 'function') return undefined;
+    return await fn(...args);
+}
+
+function _setBlockAheadDebugSummary(summary) {
+    _blockAheadDebugSummary = summary || null;
+    if (typeof window !== 'undefined') {
+        window._blockAheadDebugSummary = _blockAheadDebugSummary;
+    }
+}
+
+function _buildBlockAheadDebugSummary(summary = {}, extras = {}) {
+    const selectedRoute = extras.route || navActiveRoute || null;
+    const ped = extras.pedestrianSafety || selectedRoute?.__pedestrianSafety || {};
+    const blocked = extras.blockedAreaStats || {};
+    return {
+        success: !!summary.accepted,
+        status: summary.status || 'unknown',
+        selectedStage: summary.acceptedStage || extras.selectedStage || null,
+        selectedNodeId: extras.selectedNodeId || selectedRoute?.__escapeLabel || null,
+        selectedDistance: Number(extras.selectedDistance ?? selectedRoute?.totalDistance ?? selectedRoute?.summary?.totalDistance ?? 0),
+        pedestrianSafety: {
+            status: ped.status || 'unknown',
+            contextUnavailable: !!ped.contextUnavailable,
+            contextSource: ped.contextSource || 'unknown',
+            contextFailureKind: ped.contextFailureKind || 'none',
+            contextFailureDetail: ped.contextFailureDetail || 'none',
+            failOpenApplied: !!ped.failOpenApplied,
+            conservativeDecision: ped.conservativeDecision || 'pass',
+            conservativeReason: ped.conservativeRejectReason || 'none',
+            conservativePenalty: Number(ped.conservativePenalty || 0)
+        },
+        blockedAreaStats: {
+            overlap: Number(blocked.overlap || 0),
+            strict: Number(blocked.strict || 0),
+            near: Number(blocked.near || 0),
+            hardIntersectionDetected: !!blocked.hardIntersectionDetected,
+            rejectReason: blocked.rejectReason || 'accepted'
+        },
+        expectationsView: {
+            avoidsBlockedArea: Number(blocked.overlap || 0) < BLOCK_OVERLAP_REJECT,
+            dangerousCrossingRejected: ped.status === 'unsafe',
+            finalConservativeHardReject: ped.conservativeDecision === 'hard-reject'
+        },
+        rejectReasonsSummary: { ...((_blockAheadPerfMetrics && _blockAheadPerfMetrics.rejectReasons) || {}) }
+    };
 }
 
 function _routeCoordsCacheKey(coords) {
@@ -1019,13 +1091,65 @@ function _routeCoordsSuffix(coords, skipDistanceM) {
     return [points[points.length - 1]];
 }
 
+function _countBy(items, bucketFn) {
+    const counts = {};
+    for (const item of Array.isArray(items) ? items : []) {
+        const key = bucketFn ? bucketFn(item) : item;
+        if (!key) continue;
+        counts[key] = (counts[key] || 0) + 1;
+    }
+    return counts;
+}
+
+function _formatCountMap(counts) {
+    return Object.entries(counts || {})
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([key, value]) => `${key}:${value}`)
+        .join(' ');
+}
+
+function _selectBalancedEscapeSpecs(specs, maxPoints) {
+    const list = Array.isArray(specs) ? specs.slice() : [];
+    if (!Number.isFinite(maxPoints) || maxPoints <= 0 || list.length <= maxPoints) return list;
+    const bucketOrder = ['left', 'right', 'back-left', 'back-right'];
+    const buckets = new Map();
+    for (const spec of list) {
+        const bucketKey = Number(spec.backwardM || 0) > 0 ? `back-${spec.side}` : String(spec.side || 'other');
+        if (!buckets.has(bucketKey)) buckets.set(bucketKey, []);
+        buckets.get(bucketKey).push(spec);
+    }
+    const orderedKeys = [
+        ...bucketOrder.filter(key => buckets.has(key)),
+        ...Array.from(buckets.keys()).filter(key => !bucketOrder.includes(key))
+    ];
+    const selected = [];
+    while (selected.length < maxPoints) {
+        let progressed = false;
+        for (const key of orderedKeys) {
+            const bucket = buckets.get(key);
+            if (!bucket || bucket.length === 0) continue;
+            selected.push(bucket.shift());
+            progressed = true;
+            if (selected.length >= maxPoints) break;
+        }
+        if (!progressed) break;
+    }
+    return selected;
+}
+
 function _buildRawEscapeCandidates(coords, projection, blockedArea, escapeSpecs, logPrefix, maxPoints) {
     const headingTarget = _walkAlongRoute(coords, projection, 20);
     const headingUnit = _headingUnitVectorMeters(projection?.snappedPoint, headingTarget);
     if (!headingUnit) return [];
 
+    const balancedSpecs = _selectBalancedEscapeSpecs(escapeSpecs, maxPoints);
+    console.log(
+        `[BlockAhead][${logPrefix}] candidate-balance raw=${_formatCountMap(_countBy(escapeSpecs, spec => Number(spec.backwardM || 0) > 0 ? `back-${spec.side}` : spec.side))} ` +
+        `selected=${_formatCountMap(_countBy(balancedSpecs, spec => Number(spec.backwardM || 0) > 0 ? `back-${spec.side}` : spec.side))}`
+    );
+
     const deduped = [];
-    for (const spec of escapeSpecs.slice(0, maxPoints)) {
+    for (const spec of balancedSpecs) {
         const beforeDistance = _distancePointToBlockedArea(
             _buildEscapePoint(projection.snappedPoint, headingUnit, spec.side, spec.lateralM, spec.backwardM),
             blockedArea,
@@ -1077,7 +1201,9 @@ function _escapeDepthRank(depthKind) {
     return 0;
 }
 
-async function _fetchOsrmNearestNode(point) {
+async function _fetchOsrmNearestNode(point, contextLabel = 'nearest') {
+    const injected = await _callBlockAheadTestDep('fetchOsrmNearest', point, contextLabel);
+    if (typeof injected !== 'undefined') return injected;
     const transportMode = document.getElementById('transportMode')?.value ?? 'walking';
     const profile = transportMode === 'walking' ? 'walking' : 'driving';
     const routeServiceUrl = OSRM_SERVICE_URLS[profile];
@@ -1106,17 +1232,27 @@ async function _fetchOsrmNearestNode(point) {
     }
 }
 
-async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, originalCoords, logPrefix) {
+async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, originalCoords, logPrefix, options = {}) {
     const rawList = Array.isArray(rawCandidates) ? rawCandidates : [];
     console.log(`[BlockAhead][${logPrefix}] raw-candidates=${rawList.length}`);
     const origin = Array.isArray(originalCoords) && originalCoords.length > 0 ? originalCoords[0] : null;
     const forwardRef = Array.isArray(originalCoords) && originalCoords.length > 1 ? originalCoords[Math.min(1, originalCoords.length - 1)] : null;
     const forwardBearing = origin && forwardRef ? _segmentBearingDeg(origin, forwardRef) : 0;
+    const depthSteps = Array.isArray(options.depthSteps) && options.depthSteps.length > 0
+        ? options.depthSteps
+        : BLOCK_ESCAPE_DEEPER_STEPS_M;
     const evaluateCandidate = async (candidate) => {
-        const snappedPoint = await _fetchOsrmNearestNode(candidate.point);
+        const snappedPoint = await _fetchOsrmNearestNode(candidate.point, `${logPrefix}:${candidate.label}:point`);
         if (!snappedPoint) {
             console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: no-nearest`);
             return null;
+        }
+        let secondaryHoldWaypoint = null;
+        if (candidate.midHoldRawPoint) {
+            const snappedMid = await _fetchOsrmNearestNode(candidate.midHoldRawPoint, `${logPrefix}:${candidate.label}:mid-hold`);
+            if (snappedMid) {
+                secondaryHoldWaypoint = { lat: snappedMid.lat, lng: snappedMid.lng };
+            }
         }
         const blockedDistance = _distancePointToBlockedArea(snappedPoint, blockedArea, blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS);
         if (blockedDistance <= 0) {
@@ -1146,6 +1282,7 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
             nodeScore: score,
             entrancePoint: candidate.entrancePoint || candidate.point,
             holdWaypoint: candidate.holdWaypoint || null,
+            secondaryHoldWaypoint,
             depthRank: _escapeDepthRank(candidate.depthKind)
         };
     };
@@ -1156,9 +1293,12 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
         if (candidate.nodeType !== 'side-road' || !origin) continue;
         const unit = _headingUnitVectorMeters(origin, candidate.point);
         if (!unit) continue;
-        for (const depthM of BLOCK_ESCAPE_DEEPER_STEPS_M) {
+        for (const depthM of depthSteps) {
             const deeperPoint = _offsetPointByMeters(candidate.point, unit.east * depthM, unit.north * depthM);
             if (!deeperPoint) continue;
+            const midHoldRawPoint = depthM >= 120
+                ? _offsetPointByMeters(candidate.point, unit.east * Math.min(60, depthM / 2), unit.north * Math.min(60, depthM / 2))
+                : null;
             deeperRawCandidates.push({
                 ...candidate,
                 label: `${candidate.label}-deep-${depthM}`,
@@ -1166,13 +1306,14 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
                 depthKind: `deeper-${depthM}`,
                 depthMeters: depthM,
                 entrancePoint: candidate.point,
-                holdWaypoint: candidate.point
+                holdWaypoint: candidate.point,
+                midHoldRawPoint
             });
         }
     }
     console.log(
         `[BlockAhead][${logPrefix}] generated-tiers=${[...new Set(rawList.map(candidate => candidate.distanceTierM).filter(Number.isFinite))].join('/')} ` +
-        `depths=${['entrance', ...BLOCK_ESCAPE_DEEPER_STEPS_M.map(step => `deeper-${step}`)].join('/')} ` +
+        `depths=${['entrance', ...depthSteps.map(step => `deeper-${step}`)].join('/')} ` +
         `entrance=${entranceCandidates.length} deeper=${deeperRawCandidates.length}`
     );
     const deeperCandidates = deeperRawCandidates.length > 0
@@ -1192,6 +1333,7 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
     }
     deduped.sort((a, b) => (b.nodeScore - a.nodeScore) || (b.corridorDistanceM - a.corridorDistanceM));
     console.log(`[BlockAhead][${logPrefix}] snapped-candidates=${deduped.length}`);
+    console.log(`[BlockAhead][${logPrefix}] candidate-balance snapped=${_formatCountMap(_countBy(deduped, candidate => Number(candidate.backwardM || 0) > 0 ? `back-${candidate.side}` : candidate.side))}`);
     deduped.forEach(candidate => {
         console.log(
             `[BlockAhead][${logPrefix}] node ${candidate.label}: tier=${candidate.distanceTierM || '-'} depth=${candidate.depthKind || 'entrance'} type=${candidate.nodeType} ` +
@@ -1203,36 +1345,62 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
 }
 
 async function _generateEscapePoints(coords, projection, blockedArea) {
+    const injected = await _callBlockAheadTestDep('generateEscapePoints', coords, projection, blockedArea);
+    if (typeof injected !== 'undefined') return injected;
     const escapeBlockedArea = _buildEscapeGateBlockedArea(coords, projection, blockedArea, 'escape');
     const escapeSpecs = [
-        { side: 'left', lateralM: 60, backwardM: 0, label: 'left-60' },
-        { side: 'right', lateralM: 60, backwardM: 0, label: 'right-60' },
-        { side: 'left', lateralM: 100, backwardM: 0, label: 'left-100' },
-        { side: 'right', lateralM: 100, backwardM: 0, label: 'right-100' },
-        { side: 'left', lateralM: 60, backwardM: BLOCK_ESCAPE_BACKWARD_M, label: 'back-left-60' },
-        { side: 'right', lateralM: 60, backwardM: BLOCK_ESCAPE_BACKWARD_M, label: 'back-right-60' }
+        ...BLOCK_ESCAPE_LATERAL_OFFSETS_M.flatMap(lateralM => ([
+            { side: 'left', lateralM, backwardM: 0, label: `left-${lateralM}` },
+            { side: 'right', lateralM, backwardM: 0, label: `right-${lateralM}` }
+        ])),
+        ...BLOCK_ESCAPE_BACKWARD_LATERAL_OFFSETS_M.flatMap(lateralM => ([
+            { side: 'left', lateralM, backwardM: BLOCK_ESCAPE_BACKWARD_M, label: `back-left-${lateralM}` },
+            { side: 'right', lateralM, backwardM: BLOCK_ESCAPE_BACKWARD_M, label: `back-right-${lateralM}` }
+        ]))
     ];
     const rawCandidates = _buildRawEscapeCandidates(coords, projection, escapeBlockedArea, escapeSpecs, 'escape', BLOCK_ESCAPE_MAX_POINTS);
     return _snapEscapeCandidatesToRoadNodes(rawCandidates, escapeBlockedArea, coords, 'escape');
 }
 
 async function _generateEscapeLegPoints(coords, projection, blockedArea) {
+    const injected = await _callBlockAheadTestDep('generateEscapeLegPoints', coords, projection, blockedArea);
+    if (typeof injected !== 'undefined') return injected;
     const escapeBlockedArea = _buildEscapeGateBlockedArea(coords, projection, blockedArea, 'escape-leg');
     const legSpecs = [
-        { side: 'left', lateralM: 30, backwardM: 0, label: 'leg-left-30' },
-        { side: 'right', lateralM: 30, backwardM: 0, label: 'leg-right-30' },
-        { side: 'left', lateralM: 60, backwardM: 0, label: 'leg-left-60' },
-        { side: 'right', lateralM: 60, backwardM: 0, label: 'leg-right-60' },
-        { side: 'left', lateralM: 90, backwardM: 0, label: 'leg-left-90' },
-        { side: 'right', lateralM: 90, backwardM: 0, label: 'leg-right-90' },
-        { side: 'left', lateralM: 120, backwardM: 0, label: 'leg-left-120' },
-        { side: 'right', lateralM: 120, backwardM: 0, label: 'leg-right-120' },
-        { side: 'left', lateralM: 30, backwardM: BLOCK_ESCAPE_LEG_BACKWARD_M, label: 'leg-back-left-30' },
-        { side: 'right', lateralM: 30, backwardM: BLOCK_ESCAPE_LEG_BACKWARD_M, label: 'leg-back-right-30' }
+        ...BLOCK_ESCAPE_LEG_LATERAL_OFFSETS_M.flatMap(lateralM => ([
+            { side: 'left', lateralM, backwardM: 0, label: `leg-left-${lateralM}` },
+            { side: 'right', lateralM, backwardM: 0, label: `leg-right-${lateralM}` }
+        ])),
+        ...[30, 60].flatMap(lateralM => ([
+            { side: 'left', lateralM, backwardM: BLOCK_ESCAPE_LEG_BACKWARD_M, label: `leg-back-left-${lateralM}` },
+            { side: 'right', lateralM, backwardM: BLOCK_ESCAPE_LEG_BACKWARD_M, label: `leg-back-right-${lateralM}` }
+        ]))
     ];
     const rawCandidates = _buildRawEscapeCandidates(coords, projection, escapeBlockedArea, legSpecs, 'escape-leg', BLOCK_ESCAPE_LEG_MAX_POINTS);
     const snapped = await _snapEscapeCandidatesToRoadNodes(rawCandidates, escapeBlockedArea, coords, 'escape-leg');
     return snapped.sort((a, b) => (a.lateralM - b.lateralM) || (b.nodeScore - a.nodeScore));
+}
+
+async function _generateLongDetourEscapePoints(coords, projection, blockedArea) {
+    const injected = await _callBlockAheadTestDep('generateLongDetourEscapePoints', coords, projection, blockedArea);
+    if (typeof injected !== 'undefined') return injected;
+    const escapeBlockedArea = _buildEscapeGateBlockedArea(coords, projection, blockedArea, 'long-detour');
+    const longLateralOffsets = [...BLOCK_ESCAPE_LATERAL_OFFSETS_M].sort((a, b) => b - a);
+    const longBackwardOffsets = [200, 150, 120, 60];
+    const longSpecs = [
+        ...longLateralOffsets.flatMap(lateralM => ([
+            { side: 'left', lateralM, backwardM: 0, label: `long-left-${lateralM}` },
+            { side: 'right', lateralM, backwardM: 0, label: `long-right-${lateralM}` }
+        ])),
+        ...longBackwardOffsets.flatMap(lateralM => ([
+            { side: 'left', lateralM, backwardM: BLOCK_ESCAPE_BACKWARD_M, label: `long-back-left-${lateralM}` },
+            { side: 'right', lateralM, backwardM: BLOCK_ESCAPE_BACKWARD_M, label: `long-back-right-${lateralM}` }
+        ]))
+    ];
+    const rawCandidates = _buildRawEscapeCandidates(coords, projection, escapeBlockedArea, longSpecs, 'long-detour', BLOCK_ESCAPE_LONG_MAX_POINTS);
+    return _snapEscapeCandidatesToRoadNodes(rawCandidates, escapeBlockedArea, coords, 'long-detour', {
+        depthSteps: BLOCK_ESCAPE_LONG_DEEPER_STEPS_M
+    });
 }
 
 // 経路座標の中でブロックバッファ（円）内に入っている点の割合を返す
@@ -1461,7 +1629,13 @@ function _routeBlockedAreaStats(coords, blockedArea) {
         return {
             strictOverlapRatio: 0, nearBlockedRatio: 0, minDistanceToAreaM: Infinity, intersects: false, nearBlocked: false,
             slitIntersectionDetected: false, coreIntersectionDetected: false, intersectionBufferDetected: false,
-            legacyBroadIntersectionDetected: false, carveOutAdjustedIntersectionDetected: false
+            legacyBroadIntersectionDetected: false, carveOutAdjustedIntersectionDetected: false,
+            softIntersectionBufferDetected: false,
+            softSlitBodyIntersectionDetected: false,
+            hardIntersectionDetected: false,
+            effectiveIntersectionBufferRadius: Number(blockedArea?.intersectionRadiusM || blockedArea?.intersectionBufferM || 0),
+            effectiveSlitBodyPolicy: 'default',
+            candidateSide: null
         };
     }
     let walked = 0;
@@ -1494,7 +1668,13 @@ function _routeBlockedAreaStats(coords, blockedArea) {
         return {
             strictOverlapRatio: 0, nearBlockedRatio: 0, minDistanceToAreaM: Infinity, intersects: false, nearBlocked: false,
             slitIntersectionDetected: false, coreIntersectionDetected: false, intersectionBufferDetected: false,
-            legacyBroadIntersectionDetected: false, carveOutAdjustedIntersectionDetected: false
+            legacyBroadIntersectionDetected: false, carveOutAdjustedIntersectionDetected: false,
+            softIntersectionBufferDetected: false,
+            softSlitBodyIntersectionDetected: false,
+            hardIntersectionDetected: false,
+            effectiveIntersectionBufferRadius: Number(blockedArea?.intersectionRadiusM || blockedArea?.intersectionBufferM || 0),
+            effectiveSlitBodyPolicy: 'default',
+            candidateSide: null
         };
     }
     let strictHits = 0;
@@ -1545,6 +1725,12 @@ function _routeBlockedAreaStats(coords, blockedArea) {
         intersectionBufferDetected,
         legacyBroadIntersectionDetected,
         carveOutAdjustedIntersectionDetected,
+        softIntersectionBufferDetected: false,
+        softSlitBodyIntersectionDetected: false,
+        hardIntersectionDetected: slitBodyIntersectionDetected || coreIntersectionDetected || intersectionBufferDetected,
+        effectiveIntersectionBufferRadius: Number(blockedArea?.intersectionRadiusM || blockedArea?.intersectionBufferM || 0),
+        effectiveSlitBodyPolicy: 'default',
+        candidateSide: null,
         slitBodyOverlapRatio: slitBodyHits / effectiveSamples.length,
         slitCapOverlapRatio: slitCapHits / effectiveSamples.length,
         slitNearRatio: slitNearHits / effectiveSamples.length,
@@ -1609,6 +1795,188 @@ function _pedestrianSafetyCacheKey(bounds) {
         bounds.maxLat.toFixed(4),
         bounds.maxLng.toFixed(4)
     ].join(':');
+}
+
+function _normalizePedestrianSafetyBounds(bounds) {
+    if (!bounds) return null;
+    const minLat = Number(bounds.minLat ?? bounds.south);
+    const minLng = Number(bounds.minLng ?? bounds.west);
+    const maxLat = Number(bounds.maxLat ?? bounds.north);
+    const maxLng = Number(bounds.maxLng ?? bounds.east);
+    if (![minLat, minLng, maxLat, maxLng].every(Number.isFinite)) return null;
+    return {
+        minLat,
+        minLng,
+        maxLat,
+        maxLng,
+        south: minLat,
+        west: minLng,
+        north: maxLat,
+        east: maxLng
+    };
+}
+
+function _boundsContainsPoint(bounds, point) {
+    const normalized = _normalizePedestrianSafetyBounds(bounds);
+    const lat = Number(point?.lat);
+    const lng = Number(point?.lng ?? point?.lon);
+    if (!normalized || !Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    return lat >= normalized.minLat && lat <= normalized.maxLat && lng >= normalized.minLng && lng <= normalized.maxLng;
+}
+
+function _clonePedestrianSafetyFailure(extra = {}) {
+    return {
+        kind: 'none',
+        message: '',
+        aborted: false,
+        abortSource: 'none',
+        detail: 'none',
+        ...extra
+    };
+}
+
+function _buildPedestrianSafetyContextBBox(params = {}) {
+    const points = [];
+    const pushPoint = (point) => {
+        const lat = Number(point?.lat);
+        const lng = Number(point?.lng ?? point?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        points.push({ lat, lng });
+    };
+    const pushPoints = (items) => {
+        for (const item of Array.isArray(items) ? items : []) pushPoint(item);
+    };
+
+    pushPoints(params.points);
+    pushPoint(params.currentLocation);
+    pushPoint(params.startWp);
+    pushPoint(params.destWp);
+    pushPoint(params.blockStart);
+    pushPoint(params.blockEnd);
+    pushPoints(params.blockedCenters);
+    pushPoints(params.stageEndpoints);
+    pushPoints(params.rawCandidates);
+    pushPoints(params.snappedCandidates);
+    pushPoints(params.routeCoords);
+
+    const baseBounds = _routeBoundsWithPadding(points, Number(params.paddingM ?? PEDESTRIAN_SAFETY_BBOX_PADDING_M));
+    return _normalizePedestrianSafetyBounds(baseBounds);
+}
+
+function _classifyPedestrianContextFailure(error, meta = {}) {
+    const status = Number(meta.status);
+    const aborted = !!meta.aborted || error?.name === 'AbortError';
+    const abortSource = meta.abortSource || (aborted ? 'reroute-cancel' : 'none');
+    const message = String(meta.message || error?.message || error || '').trim();
+    if (meta.kind === 'empty-result') {
+        return _clonePedestrianSafetyFailure({
+            kind: 'empty-result',
+            message: message || 'pedestrian context fetch returned empty result',
+            aborted: false,
+            abortSource: 'none',
+            detail: meta.detail || 'empty-overpass-result'
+        });
+    }
+    if (meta.kind === 'invalid-response') {
+        return _clonePedestrianSafetyFailure({
+            kind: 'invalid-response',
+            message: message || 'pedestrian context response was invalid',
+            aborted: false,
+            abortSource: 'none',
+            detail: meta.detail || 'invalid-json-structure'
+        });
+    }
+    if (aborted && abortSource === 'timeout') {
+        return _clonePedestrianSafetyFailure({
+            kind: 'timeout',
+            message: message || `pedestrian context fetch timed out after ${PEDESTRIAN_SAFETY_FETCH_TIMEOUT_MS}ms`,
+            aborted: true,
+            abortSource: 'timeout',
+            detail: meta.detail || 'core-fetch-timeout'
+        });
+    }
+    if (aborted) {
+        return _clonePedestrianSafetyFailure({
+            kind: 'aborted',
+            message: message || 'pedestrian context fetch aborted by reroute cancellation',
+            aborted: true,
+            abortSource,
+            detail: meta.detail || (abortSource === 'superseded-request' ? 'seq-replaced' : 'manual-abort')
+        });
+    }
+    if (Number.isFinite(status) && status >= 400) {
+        return _clonePedestrianSafetyFailure({
+            kind: 'fetch-error',
+            message: message || `pedestrian context fetch failed with HTTP ${status}`,
+            aborted: false,
+            abortSource: 'none',
+            detail: meta.detail || `http-${status}`
+        });
+    }
+    return _clonePedestrianSafetyFailure({
+        kind: 'fetch-error',
+        message: message || 'pedestrian context fetch failed',
+        aborted: false,
+        abortSource: 'none',
+        detail: meta.detail || 'network-error'
+    });
+}
+
+function _pedestrianSafetyCacheEntryTtl(record) {
+    if (!record) return 0;
+    if (record.status === 'ready') return PEDESTRIAN_SAFETY_SUCCESS_CACHE_TTL_MS;
+    if (record.failure?.kind === 'timeout') return PEDESTRIAN_SAFETY_TIMEOUT_CACHE_TTL_MS;
+    return PEDESTRIAN_SAFETY_FAILURE_CACHE_TTL_MS;
+}
+
+function _buildPedestrianSafetyOverpassQuery(bounds, phase = 'core') {
+    const normalizedBounds = _normalizePedestrianSafetyBounds(bounds);
+    if (!normalizedBounds) return '';
+    const area = `${normalizedBounds.minLat},${normalizedBounds.minLng},${normalizedBounds.maxLat},${normalizedBounds.maxLng}`;
+    const body = phase === 'extended'
+        ? `
+  way["highway"~"tertiary|tertiary_link|residential|service|living_street|footway|path|pedestrian"](${area});
+  node["crossing"="traffic_signals"](${area});
+  node["crossing"="marked"](${area});
+  node["highway"="crossing"](${area});
+  way["highway"="footway"]["footway"="crossing"](${area});
+`
+        : `
+  way["highway"~"motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link"](${area});
+  way["motorroad"="yes"](${area});
+  node["highway"="crossing"](${area});
+  node["crossing"](${area});
+  node["highway"="traffic_signals"](${area});
+  way["highway"="footway"]["footway"="crossing"](${area});
+`;
+    return `
+[out:json][timeout:8];
+(
+${body}
+);
+(._;>;);
+out body;
+`.trim();
+}
+
+function _mergePedestrianSafetyContexts(baseContext, extraContext) {
+    const baseRoads = Array.isArray(baseContext?.roads) ? baseContext.roads : [];
+    const extraRoads = Array.isArray(extraContext?.roads) ? extraContext.roads : [];
+    const mergedRoads = [];
+    const seenRoadIds = new Set();
+    for (const road of [...baseRoads, ...extraRoads]) {
+        const id = String(road?.id ?? '');
+        if (id && seenRoadIds.has(id)) continue;
+        if (id) seenRoadIds.add(id);
+        mergedRoads.push(road);
+    }
+    return {
+        roads: mergedRoads,
+        crosswalks: _dedupeNearbyPoints([
+            ...(Array.isArray(baseContext?.crosswalks) ? baseContext.crosswalks : []),
+            ...(Array.isArray(extraContext?.crosswalks) ? extraContext.crosswalks : [])
+        ], 8)
+    };
 }
 
 function _dedupeNearbyPoints(points, thresholdM = 10) {
@@ -1704,54 +2072,248 @@ function _parsePedestrianSafetyContext(data) {
     };
 }
 
-async function _fetchPedestrianSafetyContextForRoute(route) {
-    const coords = Array.isArray(route?.coordinates) ? route.coordinates : [];
-    const bounds = _routeBoundsWithPadding(coords, PEDESTRIAN_SAFETY_BBOX_PADDING_M);
-    if (!bounds) return null;
-    const cacheKey = _pedestrianSafetyCacheKey(bounds);
+async function _fetchPedestrianSafetyContextForBBox(bbox, options = {}) {
+    const injected = await _callBlockAheadTestDep('fetchPedestrianSafetyContext', bbox, options);
+    if (typeof injected !== 'undefined') return injected;
+    const normalizedBounds = _normalizePedestrianSafetyBounds(bbox);
+    const fetchPhase = options.fetchPhase || 'core';
+    const sourceLabel = options.sourceLabel || 'compact-cache';
+    if (!normalizedBounds) {
+        return {
+            status: 'unavailable',
+            context: null,
+            source: sourceLabel,
+            bbox: null,
+            fetchedAt: Date.now(),
+            failure: _classifyPedestrianContextFailure(null, {
+                kind: 'invalid-response',
+                message: 'pedestrian context bbox was invalid',
+                detail: 'bbox-invalid'
+            })
+        };
+    }
+    const cacheKey = _pedestrianSafetyCacheKey(normalizedBounds);
     const cached = _pedestrianSafetyContextCache.get(cacheKey);
-    if (cached && (Date.now() - cached.at) < PEDESTRIAN_SAFETY_CACHE_TTL_MS) {
-        return cached.value;
+    if (cached && (Date.now() - cached.at) < _pedestrianSafetyCacheEntryTtl(cached)) {
+        return {
+            status: cached.status,
+            context: cached.value,
+            source: cached.source || sourceLabel,
+            bbox: normalizedBounds,
+            fetchedAt: cached.at,
+            failure: cached.failure || _clonePedestrianSafetyFailure()
+        };
     }
     if (typeof navigator !== 'undefined' && navigator.webdriver) {
-        return null;
+        return {
+            status: 'unavailable',
+            context: null,
+            source: sourceLabel,
+            bbox: normalizedBounds,
+            fetchedAt: Date.now(),
+            failure: _classifyPedestrianContextFailure(null, {
+                kind: 'aborted',
+                message: 'pedestrian context fetch disabled under webdriver',
+                aborted: true,
+                abortSource: 'webdriver',
+                detail: 'webdriver-disabled'
+            })
+        };
     }
 
-    const query = `
-[out:json][timeout:8];
-(
-  way["highway"~"motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link"](${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng});
-  way["motorroad"="yes"](${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng});
-  node["highway"="crossing"](${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng});
-  node["crossing"](${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng});
-  node["highway"="traffic_signals"](${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng});
-  way["highway"="footway"]["footway"="crossing"](${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng});
-);
-(._;>;);
-out body;
-`.trim();
+    const pedestrianController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timeoutTriggered = false;
+    const timeoutId = pedestrianController ? setTimeout(() => {
+        timeoutTriggered = true;
+        pedestrianController.abort('timeout');
+    }, PEDESTRIAN_SAFETY_FETCH_TIMEOUT_MS) : null;
 
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), PEDESTRIAN_SAFETY_FETCH_TIMEOUT_MS) : null;
     try {
-        const res = await fetch(PEDESTRIAN_SAFETY_OVERPASS_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-            body: query,
-            signal: controller?.signal
+        const fetchPhaseOnce = async (phase) => {
+            console.log(`[PedestrianSafety][fetch] phase=${phase} bbox=${JSON.stringify(normalizedBounds)}`);
+            const res = await fetch(PEDESTRIAN_SAFETY_OVERPASS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+                body: _buildPedestrianSafetyOverpassQuery(normalizedBounds, phase),
+                signal: pedestrianController?.signal
+            });
+            if (!res.ok) {
+                throw Object.assign(new Error(`pedestrian context fetch failed with HTTP ${res.status}`), {
+                    __pedestrianStatus: res.status,
+                    __pedestrianDetail: `${phase}-http-${res.status}`
+                });
+            }
+            const data = await res.json();
+            const parsed = _parsePedestrianSafetyContext(data);
+            if (!parsed || !Array.isArray(parsed.roads) || !Array.isArray(parsed.crosswalks)) {
+                throw Object.assign(new Error('pedestrian context response structure was invalid'), {
+                    __pedestrianKind: 'invalid-response',
+                    __pedestrianDetail: `${phase}-invalid-structure`
+                });
+            }
+            return parsed;
+        };
+
+        const coreContext = await fetchPhaseOnce(fetchPhase);
+        let parsed = coreContext;
+        const shouldFetchExtended = options.allowExtendedFetch !== false
+            && ((Array.isArray(coreContext?.roads) ? coreContext.roads.length : 0) < 3)
+            && (Array.isArray(coreContext?.crosswalks) ? coreContext.crosswalks.length : 0) < 2;
+        if (shouldFetchExtended) {
+            try {
+                const extendedContext = await fetchPhaseOnce('extended');
+                parsed = _mergePedestrianSafetyContexts(coreContext, extendedContext);
+            } catch (extendedError) {
+                console.warn(`[PedestrianSafety][fetch] phase=extended skipped message=${extendedError?.message || extendedError}`);
+            }
+        }
+
+        if (parsed.roads.length === 0 && parsed.crosswalks.length === 0) {
+            const failure = _classifyPedestrianContextFailure(null, {
+                kind: 'empty-result',
+                message: 'pedestrian context fetch returned empty result',
+                detail: `${fetchPhase}-empty-result`
+            });
+            _pedestrianSafetyContextCache.set(cacheKey, {
+                at: Date.now(),
+                status: 'unavailable',
+                value: null,
+                failure,
+                source: sourceLabel
+            });
+            return {
+                status: 'unavailable',
+                context: null,
+                source: sourceLabel,
+                bbox: normalizedBounds,
+                fetchedAt: Date.now(),
+                failure
+            };
+        }
+        const fetchedAt = Date.now();
+        _pedestrianSafetyContextCache.set(cacheKey, {
+            at: fetchedAt,
+            status: 'ready',
+            value: parsed,
+            failure: _clonePedestrianSafetyFailure(),
+            source: sourceLabel
         });
-        if (!res.ok) return null;
-        const data = await res.json();
-        const parsed = _parsePedestrianSafetyContext(data);
-        _pedestrianSafetyContextCache.set(cacheKey, { at: Date.now(), value: parsed });
-        return parsed;
+        return {
+            status: 'ready',
+            context: parsed,
+            source: sourceLabel,
+            bbox: normalizedBounds,
+            fetchedAt,
+            failure: _clonePedestrianSafetyFailure()
+        };
     } catch (error) {
-        console.warn('[PedestrianSafety] context fetch failed:', error?.message || error);
-        _pedestrianSafetyContextCache.set(cacheKey, { at: Date.now(), value: null });
-        return null;
+        const failure = _classifyPedestrianContextFailure(error, {
+            aborted: !!pedestrianController?.signal?.aborted,
+            abortSource: timeoutTriggered ? 'timeout' : (options.abortSource || 'manual-abort'),
+            status: error?.__pedestrianStatus,
+            detail: error?.__pedestrianDetail || (timeoutTriggered ? `${fetchPhase}-fetch-timeout` : `${fetchPhase}-fetch-error`)
+        });
+        _pedestrianSafetyContextCache.set(cacheKey, {
+            at: Date.now(),
+            status: 'unavailable',
+            value: null,
+            failure,
+            source: sourceLabel
+        });
+        return {
+            status: 'unavailable',
+            context: null,
+            source: sourceLabel,
+            bbox: normalizedBounds,
+            fetchedAt: Date.now(),
+            failure
+        };
     } finally {
         if (timeoutId) clearTimeout(timeoutId);
     }
+}
+
+async function _getOrCreatePedestrianSafetyContextForSeq(seqContext, options = {}) {
+    const contextLabel = options.contextLabel || 'route';
+    if (!seqContext) {
+        return {
+            seq: null,
+            status: 'unavailable',
+            context: null,
+            source: 'cache',
+            bbox: null,
+            fetchedAt: Date.now(),
+            failure: _classifyPedestrianContextFailure(null, {
+                kind: 'invalid-response',
+                message: 'pedestrian safety seq context was missing'
+            })
+        };
+    }
+    if (seqContext.status === 'ready' || seqContext.status === 'unavailable') {
+        console.log(`[PedestrianSafety][context] seq=${seqContext.seq} source=${seqContext.source} reused=true`);
+        return seqContext;
+    }
+    const fetched = await _fetchPedestrianSafetyContextForBBox(seqContext.bbox, {
+        ...options,
+        sourceLabel: seqContext.source || 'compact-cache',
+        fetchPhase: seqContext.fetchPhase || 'core'
+    });
+    seqContext.status = fetched.status;
+    seqContext.context = fetched.context;
+    seqContext.fetchedAt = fetched.fetchedAt;
+    seqContext.failure = fetched.failure || _clonePedestrianSafetyFailure();
+    seqContext.source = fetched.source;
+    console.log(
+        `[PedestrianSafety][context] seq=${seqContext.seq} bbox=${JSON.stringify(seqContext.bbox)} source=${seqContext.source}`
+    );
+    if (seqContext.status !== 'ready') {
+        console.warn(
+            `[PedestrianSafety][context] seq=${seqContext.seq} failed kind=${seqContext.failure.kind} ` +
+            `detail=${seqContext.failure.detail || 'none'} aborted=${!!seqContext.failure.aborted} message=${seqContext.failure.message || ''}`
+        );
+    }
+    return seqContext;
+}
+
+async function _expandPedestrianSafetyContextBBoxIfNeeded(seqContext, route, options = {}) {
+    if (!seqContext || seqContext.expanded) return seqContext;
+    const coords = Array.isArray(route?.coordinates) ? route.coordinates : [];
+    const needsExpansion = coords.some(point => !_boundsContainsPoint(seqContext.bbox, point));
+    if (!needsExpansion) return seqContext;
+    const expandedBBox = _buildPedestrianSafetyContextBBox({
+        points: [...(seqContext.seedPoints || []), ...coords],
+        paddingM: Number(options.paddingM ?? PEDESTRIAN_SAFETY_EXPANDED_BBOX_PADDING_M)
+    });
+    if (!expandedBBox) return seqContext;
+    const fetched = await _fetchPedestrianSafetyContextForBBox(expandedBBox, {
+        ...options,
+        sourceLabel: 'expanded-cache',
+        fetchPhase: 'core'
+    });
+    seqContext.bbox = expandedBBox;
+    seqContext.status = fetched.status;
+    seqContext.context = fetched.context;
+    seqContext.fetchedAt = fetched.fetchedAt;
+    seqContext.failure = fetched.failure || _clonePedestrianSafetyFailure();
+    seqContext.source = 'expanded-cache';
+    seqContext.expanded = true;
+    console.log(`[PedestrianSafety][context] seq=${seqContext.seq} source=expanded-cache bbox=${JSON.stringify(expandedBBox)}`);
+    if (seqContext.status !== 'ready') {
+        console.warn(
+            `[PedestrianSafety][context] seq=${seqContext.seq} failed kind=${seqContext.failure.kind} ` +
+            `detail=${seqContext.failure.detail || 'none'} aborted=${!!seqContext.failure.aborted} message=${seqContext.failure.message || ''}`
+        );
+    }
+    return seqContext;
+}
+
+async function _fetchPedestrianSafetyContextForRoute(route, contextLabel = 'route') {
+    const bbox = _buildPedestrianSafetyContextBBox({
+        routeCoords: Array.isArray(route?.coordinates) ? route.coordinates : [],
+        paddingM: PEDESTRIAN_SAFETY_BBOX_PADDING_M
+    });
+    const result = await _fetchPedestrianSafetyContextForBBox(bbox, { contextLabel });
+    return result?.context || null;
 }
 
 function _detectPedestrianCrossings(route, context) {
@@ -1828,6 +2390,21 @@ function _classifyDangerousCrossing(crossing, context, options = {}) {
     };
 }
 
+function _makePedestrianSafetyResult(status, extra = {}) {
+    const normalizedStatus = ['safe', 'unsafe', 'unknown'].includes(status) ? status : 'unknown';
+    return {
+        status: normalizedStatus,
+        safe: normalizedStatus === 'safe',
+        unsafe: normalizedStatus === 'unsafe',
+        contextUnavailable: normalizedStatus === 'unknown',
+        failOpenApplied: normalizedStatus === 'unknown',
+        crossings: [],
+        dangerousCrossings: [],
+        rejectReason: null,
+        ...extra
+    };
+}
+
 function _evaluatePedestrianRouteAgainstContext(route, context, options = {}) {
     const crossings = _detectPedestrianCrossings(route, context);
     const dangerousCrossings = crossings
@@ -1838,31 +2415,290 @@ function _evaluatePedestrianRouteAgainstContext(route, context, options = {}) {
         .filter(item => item.classification.dangerous);
 
     if (dangerousCrossings.length === 0) {
-        console.log('[PedestrianSafety] crossingDetected=false dangerous=false rejectReason=none');
-        return { safe: true, crossings, dangerousCrossings: [], rejectReason: null };
+        console.log('[PedestrianSafety] status=safe crossingDetected=false dangerous=false rejectReason=none failOpenApplied=false');
+        return _makePedestrianSafetyResult('safe', {
+            crossings,
+            dangerousCrossings: [],
+            contextUnavailable: false,
+            failOpenApplied: false,
+            rejectReason: null
+        });
     }
 
     const first = dangerousCrossings[0];
     console.log(
-        `[PedestrianSafety] crossingDetected=true dangerous=true roadType=${first.classification.highway || 'unknown'} ` +
+        `[PedestrianSafety] status=unsafe crossingDetected=true dangerous=true roadType=${first.classification.highway || 'unknown'} ` +
         `lanes=${first.classification.lanes || 0} crosswalkNearby=${!!first.classification.crosswalkNearby} ` +
-        `rejectReason=dangerous-crossing detail=${first.classification.reason || 'unknown'}`
+        `rejectReason=dangerous-crossing detail=${first.classification.reason || 'unknown'} failOpenApplied=false`
     );
-    return {
-        safe: false,
+    return _makePedestrianSafetyResult('unsafe', {
         crossings,
         dangerousCrossings,
+        contextUnavailable: false,
+        failOpenApplied: false,
         rejectReason: 'dangerous-crossing'
+    });
+}
+
+async function _evaluatePedestrianRouteSafety(route, cachedContext, contextLabel = 'route', options = {}) {
+    let seqContext = cachedContext;
+    if (!seqContext || typeof seqContext !== 'object' || !('seq' in seqContext || 'status' in seqContext)) {
+        seqContext = {
+            seq: null,
+            bbox: _buildPedestrianSafetyContextBBox({
+                routeCoords: Array.isArray(route?.coordinates) ? route.coordinates : [],
+                paddingM: PEDESTRIAN_SAFETY_COMPACT_BBOX_PADDING_M
+            }),
+            status: 'pending',
+            context: null,
+            fetchedAt: 0,
+            source: 'compact-cache',
+            fetchPhase: 'core',
+            expanded: false,
+            seedPoints: Array.isArray(route?.coordinates) ? route.coordinates : [],
+            failure: _clonePedestrianSafetyFailure()
+        };
+    }
+    const hadExistingContext = seqContext.status === 'ready' || seqContext.status === 'unavailable';
+    await _getOrCreatePedestrianSafetyContextForSeq(seqContext, { contextLabel });
+    if (seqContext.status !== 'ready') {
+        const routeContextSource = seqContext.source === 'expanded-cache'
+            ? 'expanded-cache'
+            : (seqContext.source === 'compact-cache' ? 'compact-cache' : (hadExistingContext ? 'compact-cache' : (seqContext.source || 'compact-cache')));
+        const failure = seqContext.failure || _clonePedestrianSafetyFailure();
+        console.log(
+            `[PedestrianSafety] status=unknown label=${contextLabel} contextSource=${routeContextSource} ` +
+            `contextFailureKind=${failure.kind} contextFailureDetail=${failure.detail || 'none'} failOpenApplied=true contextUnavailable=true`
+        );
+        if (String(contextLabel || '').startsWith('final:')) {
+            console.log(
+                `[PedestrianSafety] final-check unavailable -> fail-open applied label=${contextLabel} ` +
+                `contextSource=${routeContextSource} contextFailureKind=${failure.kind} contextFailureDetail=${failure.detail || 'none'}`
+            );
+        }
+        return _makePedestrianSafetyResult('unknown', {
+            contextUnavailable: true,
+            failOpenApplied: true,
+            rejectReason: null,
+            label: contextLabel,
+            contextSource: routeContextSource,
+            contextFailureKind: failure.kind,
+            contextFailureDetail: failure.detail || 'none',
+            contextFailureMessage: failure.message,
+            contextBBox: seqContext.bbox,
+            contextSeq: seqContext.seq
+        });
+    }
+    if (Array.isArray(route?.coordinates) && route.coordinates.length > 0) {
+        await _expandPedestrianSafetyContextBBoxIfNeeded(seqContext, route, { contextLabel });
+    }
+    const routeContextSource = seqContext.source === 'expanded-cache'
+        ? 'expanded-cache'
+        : (seqContext.source === 'compact-cache' ? 'compact-cache' : (hadExistingContext ? 'compact-cache' : (seqContext.source || 'compact-cache')));
+    if (seqContext.status !== 'ready' || !seqContext.context || !Array.isArray(seqContext.context.roads) || seqContext.context.roads.length === 0) {
+        const failure = seqContext.failure || _clonePedestrianSafetyFailure({
+            kind: 'empty-result',
+            message: 'pedestrian context had no usable roads'
+        });
+        console.log(
+            `[PedestrianSafety] status=unknown label=${contextLabel} contextSource=${routeContextSource} ` +
+            `contextFailureKind=${failure.kind} contextFailureDetail=${failure.detail || 'none'} failOpenApplied=true contextUnavailable=true`
+        );
+        return _makePedestrianSafetyResult('unknown', {
+            contextUnavailable: true,
+            failOpenApplied: true,
+            rejectReason: null,
+            label: contextLabel,
+            contextSource: routeContextSource,
+            contextFailureKind: failure.kind,
+            contextFailureDetail: failure.detail || 'none',
+            contextFailureMessage: failure.message,
+            contextBBox: seqContext.bbox,
+            contextSeq: seqContext.seq
+        });
+    }
+    const result = _evaluatePedestrianRouteAgainstContext(route, seqContext.context, options);
+    return {
+        ...result,
+        contextUnavailable: false,
+        failOpenApplied: false,
+        label: contextLabel,
+        contextSource: routeContextSource,
+        contextFailureKind: seqContext.failure?.kind || 'none',
+        contextFailureDetail: seqContext.failure?.detail || 'none',
+        contextFailureMessage: seqContext.failure?.message || '',
+        contextBBox: seqContext.bbox,
+        contextSeq: seqContext.seq
     };
 }
 
-async function _evaluatePedestrianRouteSafety(route, contextLabel = 'route', options = {}) {
-    const context = await _fetchPedestrianSafetyContextForRoute(route);
-    if (!context || !Array.isArray(context.roads) || context.roads.length === 0) {
-        console.log(`[PedestrianSafety] contextUnavailable=true label=${contextLabel}`);
-        return { safe: true, crossings: [], dangerousCrossings: [], rejectReason: null, contextUnavailable: true };
+function _evaluateConservativeUnknownPedestrianSafety(route, options = {}) {
+    const coords = Array.isArray(route?.coordinates) ? route.coordinates : [];
+    const totalDistance = Number(route?.totalDistance || route?.summary?.totalDistance || 0);
+    const mode = options.mode || options.phase || 'candidate';
+    const side = options.side || 'unknown';
+    const nearPenaltyMode = options.nearPenaltyMode || {};
+    const hardIntersectionDetected = !!options.hardIntersectionDetected;
+    const actualIntersectionDetected = !!options.actualIntersectionDetected;
+    const blockedBearing = Number.isFinite(options.blockedBearing) ? options.blockedBearing : null;
+    const result = {
+        conservativeRejectEvaluated: true,
+        conservativeRejectApplied: false,
+        conservativeDecision: 'pass',
+        conservativeRejectReason: null,
+        conservativePenalty: 0,
+        suspiciousSegmentIndex: -1,
+        suspiciousSegmentLengthM: 0,
+        phase: options.phase || mode,
+        mode,
+        side,
+        metrics: {
+            longestCrossingSegment: 0,
+            totalCrossingDistance: 0,
+            crossingSegmentCount: 0,
+            maxCrossingRoadClass: 'unknown',
+            wideRoadReturnDetected: false,
+            diagonalMainlineShortcutDetected: false,
+            sideRoadContinuationDetected: false,
+            routeStartsAlongCorridorThenEscapes: false,
+            routeEndsWithWideRoadReturn: false,
+            forwardProgressRatio: 0,
+            candidateBearingVsBlockedBearing: null
+        }
+    };
+    if (coords.length < 2) return result;
+
+    const netDisplacement = _segmentLengthMeters(coords[0], coords[coords.length - 1]);
+    result.metrics.forwardProgressRatio = totalDistance > 0 ? netDisplacement / totalDistance : 0;
+
+    const firstBearing = coords.length >= 2 ? _segmentBearingDeg(coords[0], coords[1]) : null;
+    const finalBearing = coords.length >= 2 ? _segmentBearingDeg(coords[Math.max(0, coords.length - 2)], coords[coords.length - 1]) : null;
+    result.metrics.candidateBearingVsBlockedBearing = Number.isFinite(blockedBearing) && Number.isFinite(firstBearing)
+        ? _bearingDiffDeg(firstBearing, blockedBearing)
+        : null;
+    result.metrics.routeStartsAlongCorridorThenEscapes = Number.isFinite(blockedBearing)
+        && Number.isFinite(firstBearing)
+        && Number.isFinite(finalBearing)
+        && _bearingDiffDeg(firstBearing, blockedBearing) <= 28
+        && _bearingDiffDeg(finalBearing, blockedBearing) >= 35;
+
+    const rescueLikeMode = mode === 'escape-leg' || mode === 'escape' || mode === 'long-detour' || mode.startsWith('final:');
+    const rescueLikeSide = side === 'back-left' || side === 'back-right';
+    const rescueLike = rescueLikeMode && (rescueLikeSide || (!!nearPenaltyMode.eligible && !hardIntersectionDetected && !actualIntersectionDetected));
+
+    for (let i = 1; i < coords.length; i++) {
+        const prev = coords[i - 1];
+        const curr = coords[i];
+        const segmentLength = _segmentLengthMeters(prev, curr);
+        const prevSegmentLength = i >= 2 ? _segmentLengthMeters(coords[i - 2], prev) : Infinity;
+        const nextSegmentLength = i + 1 < coords.length ? _segmentLengthMeters(curr, coords[i + 1]) : Infinity;
+        const segmentBearing = _segmentBearingDeg(prev, curr);
+        const prevBearing = i >= 2 ? _segmentBearingDeg(coords[i - 2], prev) : null;
+        const nextBearing = i + 1 < coords.length ? _segmentBearingDeg(curr, coords[i + 1]) : null;
+        const prevDiff = Number.isFinite(prevBearing) ? _bearingDiffDeg(prevBearing, segmentBearing) : 0;
+        const nextDiff = Number.isFinite(nextBearing) ? _bearingDiffDeg(segmentBearing, nextBearing) : 0;
+        const isFinalSegment = i === coords.length - 1;
+        const suspiciousWideCross = segmentLength >= PEDESTRIAN_SAFETY_UNKNOWN_WIDE_CROSS_SEGMENT_M
+            && (prevDiff >= PEDESTRIAN_SAFETY_UNKNOWN_TURN_DIFF_DEG || nextDiff >= PEDESTRIAN_SAFETY_UNKNOWN_TURN_DIFF_DEG)
+            && (prevSegmentLength <= 25 || nextSegmentLength <= 25);
+        const suspiciousShortcutCross = segmentLength >= Math.max(PEDESTRIAN_SAFETY_UNKNOWN_CROSS_SEGMENT_M, totalDistance * 0.18)
+            && prevDiff >= (PEDESTRIAN_SAFETY_UNKNOWN_TURN_DIFF_DEG + 10)
+            && nextDiff >= (PEDESTRIAN_SAFETY_UNKNOWN_TURN_DIFF_DEG + 10)
+            && prevSegmentLength <= 25
+            && nextSegmentLength <= 25;
+        const suspiciousFinalReturn = isFinalSegment
+            && segmentLength >= PEDESTRIAN_SAFETY_UNKNOWN_FINAL_RETURN_M
+            && prevDiff >= (PEDESTRIAN_SAFETY_UNKNOWN_TURN_DIFF_DEG + 15)
+            && prevSegmentLength <= 25;
+        if (!suspiciousWideCross && !suspiciousShortcutCross && !suspiciousFinalReturn) continue;
+
+        result.metrics.crossingSegmentCount += 1;
+        result.metrics.totalCrossingDistance += segmentLength;
+        result.metrics.longestCrossingSegment = Math.max(result.metrics.longestCrossingSegment, segmentLength);
+        result.metrics.maxCrossingRoadClass = suspiciousShortcutCross ? 'major' : (suspiciousWideCross ? 'wide' : result.metrics.maxCrossingRoadClass);
+        if (suspiciousFinalReturn) {
+            result.metrics.wideRoadReturnDetected = true;
+            result.metrics.routeEndsWithWideRoadReturn = true;
+        }
+        if (suspiciousShortcutCross) {
+            result.metrics.diagonalMainlineShortcutDetected = true;
+        }
+        if (rescueLike && !suspiciousShortcutCross && !suspiciousFinalReturn && segmentLength <= (PEDESTRIAN_SAFETY_UNKNOWN_WIDE_CROSS_SEGMENT_M + 8)) {
+            result.metrics.sideRoadContinuationDetected = true;
+        }
+        if (result.suspiciousSegmentIndex === -1) {
+            result.suspiciousSegmentIndex = i - 1;
+            result.suspiciousSegmentLengthM = segmentLength;
+        }
     }
-    return _evaluatePedestrianRouteAgainstContext(route, context, options);
+
+    const longestCrossingSegment = result.metrics.longestCrossingSegment;
+    const totalCrossingDistanceM = result.metrics.totalCrossingDistance;
+    const crossingCount = result.metrics.crossingSegmentCount;
+    const diagonalMainlineShortcutDetected = result.metrics.diagonalMainlineShortcutDetected;
+    const wideRoadReturnDetected = result.metrics.wideRoadReturnDetected;
+    const sideRoadContinuationDetected = result.metrics.sideRoadContinuationDetected;
+
+    let decision = 'pass';
+    let reason = null;
+    let penalty = 0;
+
+    if (wideRoadReturnDetected) {
+        decision = 'hard-reject';
+        reason = 'wide-road-return-hard';
+    } else if (diagonalMainlineShortcutDetected) {
+        decision = 'hard-reject';
+        reason = 'diagonal-mainline-shortcut-hard';
+    } else if (crossingCount > 0) {
+        const forwardMainlineLike = !rescueLike
+            && (mode === 'stage-candidate' || mode === 'stage1-candidate' || mode === 'stage2-candidate' || mode === 'stage3-candidate' || side === 'left' || side === 'right' || side === 'unknown')
+            && !sideRoadContinuationDetected;
+        const longCrossingHard = longestCrossingSegment >= PEDESTRIAN_SAFETY_UNKNOWN_WIDE_CROSS_SEGMENT_M
+            || totalCrossingDistanceM >= Math.max(PEDESTRIAN_SAFETY_UNKNOWN_WIDE_CROSS_SEGMENT_M + 8, totalDistance * 0.25);
+
+        if (forwardMainlineLike && longCrossingHard) {
+            decision = 'hard-reject';
+            reason = 'long-crossing-segment-hard';
+        } else if (rescueLike && !hardIntersectionDetected && !actualIntersectionDetected
+            && !!nearPenaltyMode.eligible
+            && (sideRoadContinuationDetected || rescueLikeSide || result.metrics.routeStartsAlongCorridorThenEscapes)
+            && longestCrossingSegment <= (PEDESTRIAN_SAFETY_UNKNOWN_WIDE_CROSS_SEGMENT_M + 8)) {
+            decision = 'soft-risk';
+            reason = sideRoadContinuationDetected
+                ? 'unknown-side-road-continue'
+                : 'unknown-rescue-detour-soft';
+            penalty = PEDESTRIAN_SAFETY_UNKNOWN_SOFT_PENALTY;
+        } else if (rescueLike && !hardIntersectionDetected && !actualIntersectionDetected) {
+            decision = 'soft-risk';
+            reason = 'long-crossing-segment-soft';
+            penalty = PEDESTRIAN_SAFETY_UNKNOWN_SOFT_PENALTY + 40;
+        } else {
+            decision = 'hard-reject';
+            reason = 'long-crossing-segment-hard';
+        }
+    } else if (rescueLike && !hardIntersectionDetected && !actualIntersectionDetected) {
+        decision = 'pass';
+        reason = sideRoadContinuationDetected ? 'unknown-pass-side-road' : 'unknown-pass-rescue-candidate';
+    } else {
+        decision = 'pass';
+        reason = 'unknown-pass-low-crossing';
+    }
+
+    result.conservativeDecision = decision;
+    result.conservativeRejectApplied = decision === 'hard-reject';
+    result.conservativeRejectReason = reason;
+    result.conservativePenalty = decision === 'soft-risk' ? penalty : 0;
+
+    console.log(
+        `[PedestrianSafety][unknown-conservative] label=${options.label || mode} mode=${mode} side=${side} ` +
+        `decision=${decision} reason=${reason || 'none'} longestCrossing=${Math.round(longestCrossingSegment)}m ` +
+        `totalCrossing=${Math.round(totalCrossingDistanceM)}m crossingCount=${crossingCount} ` +
+        `wideRoadReturnDetected=${wideRoadReturnDetected} ` +
+        `diagonalMainlineShortcutDetected=${diagonalMainlineShortcutDetected} ` +
+        `sideRoadContinuationDetected=${sideRoadContinuationDetected} ` +
+        `nearPenaltyMode=${!!nearPenaltyMode.eligible} hardIntersectionDetected=${hardIntersectionDetected}`
+    );
+    return result;
 }
 
 function _distancePointToRoute(point, coords) {
@@ -1925,35 +2761,53 @@ function _routeDifferenceMetrics(newCoords, originalCoords, context = {}) {
     return { overallMeanDeviationM, blockedMeanDeviationM, blockedSamePathRatio };
 }
 
-function _assessEscapeNearPenaltyMode(blockedStats, overlap) {
+function _assessEscapeNearPenaltyMode(blockedStats, overlap, options = {}) {
     const strict = Number(blockedStats?.strictOverlapRatio || 0);
     const near = Number(blockedStats?.nearBlockedRatio || 0);
     const overlapValue = Number(overlap || 0);
+    const mode = options.mode || 'escape';
+    const candidateSide = String(options.side || blockedStats?.candidateSide || '');
+    const strictNearPenaltyMax = Number.isFinite(Number(options.strictNearPenaltyMax))
+        ? Number(options.strictNearPenaltyMax)
+        : BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX;
     const slitBodyOverlapRatio = Number(blockedStats?.slitBodyOverlapRatio || 0);
     const slitCapOverlapRatio = Number(blockedStats?.slitCapOverlapRatio || 0);
     const slitNearRatio = Number(blockedStats?.slitNearRatio || 0);
+    const sideBufferScale = /^back-/.test(candidateSide) ? 0.65 : 1;
     const slitLineCrossDetected = overlapValue > BLOCK_ESCAPE_NEAR_PENALTY_OVERLAP_EPS
         && slitBodyOverlapRatio >= 0.08;
     const slitBodyIntersectionDetected = slitBodyOverlapRatio >= 0.18;
     const slitCapIntersectionDetected = slitCapOverlapRatio >= 0.18;
     const slitNearDetected = slitNearRatio > 0;
     const coreIntersectionDetected = !!blockedStats?.coreIntersectionDetected;
-    const intersectionBufferDetected = !!blockedStats?.intersectionBufferDetected;
+    const rawIntersectionBufferDetected = !!blockedStats?.intersectionBufferDetected;
+    const intersectionBufferDetected = rawIntersectionBufferDetected
+        && (Number(blockedStats?.intersectionBufferOverlapRatio || 0) * sideBufferScale) >= 0.18;
     const legacyBroadIntersectionDetected = !!blockedStats?.legacyBroadIntersectionDetected;
     const carveOutAdjustedIntersectionDetected = !!blockedStats?.carveOutAdjustedIntersectionDetected;
+    const slitBodyHard = slitBodyIntersectionDetected
+        && (overlapValue >= 0.08 || strict >= 0.35);
+    const softSlitBodyIntersectionDetected = slitBodyIntersectionDetected && !slitBodyHard;
+    const softIntersectionBufferDetected = rawIntersectionBufferDetected && !intersectionBufferDetected;
     const actualIntersectionDetected = slitLineCrossDetected
-        || slitBodyIntersectionDetected
+        || slitBodyHard
         || coreIntersectionDetected
         || intersectionBufferDetected;
-    const strictThresholdExceeded = strict >= BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX;
+    const strictThresholdExceeded = strict >= strictNearPenaltyMax;
     const shouldUseNearPenaltyMode = overlapValue <= BLOCK_ESCAPE_NEAR_PENALTY_OVERLAP_EPS
         && !actualIntersectionDetected
         && !strictThresholdExceeded;
     const eligible = shouldUseNearPenaltyMode;
-    const penalty = eligible ? ((overlapValue * 600) + (strict * 800) + (near * 400)) : Infinity;
+    const penalty = eligible
+        ? ((overlapValue * 600) + (strict * 800) + (near * 400)
+            + (softSlitBodyIntersectionDetected ? 80 : 0)
+            + (softIntersectionBufferDetected ? 55 : 0))
+        : Infinity;
     return {
         eligible,
         penalty,
+        mode,
+        side: candidateSide,
         strict,
         near,
         overlap: overlapValue,
@@ -1962,16 +2816,22 @@ function _assessEscapeNearPenaltyMode(blockedStats, overlap) {
         slitIntersectionDetected: blockedStats?.slitIntersectionDetected,
         slitLineCrossDetected,
         slitBodyIntersectionDetected,
+        softSlitBodyIntersectionDetected,
+        slitBodyHard,
         slitCapIntersectionDetected,
         slitNearDetected,
         coreIntersectionDetected,
         intersectionBufferDetected,
+        softIntersectionBufferDetected,
         legacyBroadIntersectionDetected,
         carveOutAdjustedIntersectionDetected,
+        hardIntersectionDetected: actualIntersectionDetected,
         strictThresholdExceeded,
         shouldUseNearPenaltyMode,
         overlapEpsilon: BLOCK_ESCAPE_NEAR_PENALTY_OVERLAP_EPS,
-        strictNearPenaltyMax: BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX
+        strictNearPenaltyMax,
+        effectiveIntersectionBufferRadius: Number(blockedStats?.effectiveIntersectionBufferRadius || 0) * sideBufferScale,
+        effectiveSlitBodyPolicy: slitBodyHard ? 'hard' : (softSlitBodyIntersectionDetected ? 'soft' : 'none')
     };
 }
 
@@ -2014,20 +2874,25 @@ function _logEscapeNearPenaltyDecision(prefix, meta = {}) {
     const nearPenaltyMode = meta.nearPenaltyMode || {};
     const rejectReason = meta.rejectReason || 'none';
     console.log(
-        `${prefix} holdWaypointMode=${!!meta.holdWaypointMode} ` +
+        `${prefix} holdWaypointMode=${!!meta.holdWaypointMode} mode=${nearPenaltyMode.mode || 'escape'} side=${nearPenaltyMode.side || 'unknown'} ` +
         `overlapRaw=${Number(nearPenaltyMode.overlap || 0).toFixed(2)} ` +
         `strictRaw=${Number(nearPenaltyMode.strict || 0).toFixed(2)} ` +
         `nearRaw=${Number(nearPenaltyMode.near || 0).toFixed(2)} ` +
         `slitLineCrossDetected=${!!nearPenaltyMode.slitLineCrossDetected} ` +
         `slitBodyIntersectionDetected=${!!nearPenaltyMode.slitBodyIntersectionDetected} ` +
+        `softSlitBodyIntersectionDetected=${!!nearPenaltyMode.softSlitBodyIntersectionDetected} ` +
         `slitCapIntersectionDetected=${!!nearPenaltyMode.slitCapIntersectionDetected} ` +
         `slitNearDetected=${!!nearPenaltyMode.slitNearDetected} ` +
         `coreIntersectionDetected=${!!nearPenaltyMode.coreIntersectionDetected} ` +
         `intersectionBufferDetected=${!!nearPenaltyMode.intersectionBufferDetected} ` +
+        `softIntersectionBufferDetected=${!!nearPenaltyMode.softIntersectionBufferDetected} ` +
         `legacyBroadIntersectionDetected=${!!nearPenaltyMode.legacyBroadIntersectionDetected} ` +
         `carveOutAdjustedIntersectionDetected=${!!nearPenaltyMode.carveOutAdjustedIntersectionDetected} ` +
+        `hardIntersectionDetected=${!!nearPenaltyMode.hardIntersectionDetected} ` +
         `overlapEpsilon=${Number(nearPenaltyMode.overlapEpsilon || 0).toFixed(2)} ` +
         `strictNearPenaltyMax=${Number(nearPenaltyMode.strictNearPenaltyMax || 0).toFixed(2)} ` +
+        `effectiveIntersectionBufferRadius=${Number(nearPenaltyMode.effectiveIntersectionBufferRadius || 0).toFixed(1)} ` +
+        `effectiveSlitBodyPolicy=${nearPenaltyMode.effectiveSlitBodyPolicy || 'none'} ` +
         `actualIntersectionDetected=${!!nearPenaltyMode.actualIntersectionDetected} ` +
         `strictThresholdExceeded=${!!nearPenaltyMode.strictThresholdExceeded} ` +
         `shouldUseNearPenaltyMode=${!!nearPenaltyMode.shouldUseNearPenaltyMode} ` +
@@ -2039,11 +2904,13 @@ function _logEscapeNearPenaltyDecision(prefix, meta = {}) {
 
 function _escapeRejectReason(nearPenaltyMode, flags = {}) {
     if (nearPenaltyMode?.slitLineCrossDetected) return 'slit-line-cross';
-    if (nearPenaltyMode?.slitBodyIntersectionDetected) return 'slit-body-intersection';
+    if (nearPenaltyMode?.slitBodyHard) return 'slit-body-hard';
+    if (nearPenaltyMode?.softSlitBodyIntersectionDetected) return 'slit-body-soft';
     if (nearPenaltyMode?.slitCapIntersectionDetected) return 'slit-cap-intersection';
     if (nearPenaltyMode?.slitNearDetected && flags.nearOnlyReject) return 'slit-near';
     if (nearPenaltyMode?.coreIntersectionDetected) return 'core-intersection';
     if (nearPenaltyMode?.intersectionBufferDetected) return 'intersection-buffer';
+    if (nearPenaltyMode?.softIntersectionBufferDetected) return 'intersection-buffer-soft';
     if (flags.actualIntersectionDetected) return 'actual-intersection';
     if (flags.overlapHard) return 'overlap-hard';
     if (flags.strictThresholdExceeded) return 'strict-threshold';
@@ -2600,6 +3467,8 @@ function _clearBlockAheadLayer() {
 
 // ── OSRM 代替ルート一括取得 ─────────────────────────────────────────────
 async function _fetchOsrmAlternatives(from, to, maxAlts = 3, contextLabel = 'alternatives') {
+    const injected = await _callBlockAheadTestDep('fetchOsrmAlternatives', from, to, maxAlts, contextLabel);
+    if (typeof injected !== 'undefined') return injected;
     const transportMode = document.getElementById('transportMode')?.value ?? 'walking';
     const profile    = transportMode === 'walking' ? 'walking' : 'driving';
     const serviceUrl = OSRM_SERVICE_URLS[profile];
@@ -2630,7 +3499,9 @@ async function _fetchOsrmAlternatives(from, to, maxAlts = 3, contextLabel = 'alt
     }
 }
 
-async function _fetchOsrmRouteThroughWaypoints(waypoints) {
+async function _fetchOsrmRouteThroughWaypoints(waypoints, contextLabel = 'route') {
+    const injected = await _callBlockAheadTestDep('fetchOsrmRoute', waypoints, contextLabel);
+    if (typeof injected !== 'undefined') return injected;
     const transportMode = document.getElementById('transportMode')?.value ?? 'walking';
     const profile = transportMode === 'walking' ? 'walking' : 'driving';
     const serviceUrl = OSRM_SERVICE_URLS[profile];
@@ -2770,6 +3641,7 @@ function _findDeviationAnchor(altCoords, originalCoords, searchWindowM = 250) {
 // 「この先を避けて再ルート」— 前方ブロック区間を避ける代替ルートを選択
 async function blockAheadAndReroute() {
     const rerouteStartedAt = _perfNowMs();
+    _setBlockAheadDebugSummary(null);
     _blockAheadPerfMetrics = {
         startedAt: rerouteStartedAt,
         alternativesEvaluated: 0,
@@ -2779,21 +3651,33 @@ async function blockAheadAndReroute() {
     // ── ガード ────────────────────────────────────────────────────────────
     if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) {
         console.warn('[BlockAhead] no active route');
+        _setBlockAheadDebugSummary(_buildBlockAheadDebugSummary({ status: 'no-active-route', accepted: false }, {
+            blockedAreaStats: { rejectReason: 'no-active-route', hardIntersectionDetected: false }
+        }));
         _blockAheadPerfMetrics = null;
         return;
     }
     if (!navDestination) {
         console.warn('[BlockAhead] no destination');
+        _setBlockAheadDebugSummary(_buildBlockAheadDebugSummary({ status: 'no-destination', accepted: false }, {
+            blockedAreaStats: { rejectReason: 'no-destination', hardIntersectionDetected: false }
+        }));
         _blockAheadPerfMetrics = null;
         return;
     }
     if (!currentLocation) {
         console.warn('[BlockAhead] no current location');
+        _setBlockAheadDebugSummary(_buildBlockAheadDebugSummary({ status: 'no-current-location', accepted: false }, {
+            blockedAreaStats: { rejectReason: 'no-current-location', hardIntersectionDetected: false }
+        }));
         _blockAheadPerfMetrics = null;
         return;
     }
     if (navBlockAheadInProgress) {
         console.log('[BlockAhead] already in progress');
+        _setBlockAheadDebugSummary(_buildBlockAheadDebugSummary({ status: 'already-in-progress', accepted: false }, {
+            blockedAreaStats: { rejectReason: 'already-in-progress', hardIntersectionDetected: false }
+        }));
         _blockAheadPerfMetrics = null;
         return;
     }
@@ -2814,6 +3698,10 @@ async function blockAheadAndReroute() {
         _updateNavUI();
         _showNavBanner('⚠ 現在地をルート上に特定できませんでした', 'danger', 4000);
         _blockAheadLastTiming = { ..._blockAheadPerfMetrics, totalMs: _perfNowMs() - rerouteStartedAt, status: 'projection-failed' };
+        if (typeof window !== 'undefined') window._blockAheadLastTiming = _blockAheadLastTiming;
+        _setBlockAheadDebugSummary(_buildBlockAheadDebugSummary(_blockAheadLastTiming, {
+            blockedAreaStats: { rejectReason: 'projection-failed', hardIntersectionDetected: false }
+        }));
         console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
         _blockAheadPerfMetrics = null;
         return;
@@ -2827,6 +3715,10 @@ async function blockAheadAndReroute() {
             'danger', 5000
         );
         _blockAheadLastTiming = { ..._blockAheadPerfMetrics, totalMs: _perfNowMs() - rerouteStartedAt, status: 'off-route-too-far' };
+        if (typeof window !== 'undefined') window._blockAheadLastTiming = _blockAheadLastTiming;
+        _setBlockAheadDebugSummary(_buildBlockAheadDebugSummary(_blockAheadLastTiming, {
+            blockedAreaStats: { rejectReason: 'off-route-too-far', hardIntersectionDetected: false }
+        }));
         console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
         _blockAheadPerfMetrics = null;
         return;
@@ -2847,6 +3739,28 @@ async function blockAheadAndReroute() {
 
     const startWp = { lat: currentLocation.lat, lng: currentLocation.lon };
     const destWp  = { lat: navDestination.lat,  lng: navDestination.lon  };
+    const pedestrianSafetySeedPoints = [
+        startWp,
+        destWp,
+        blockStart,
+        blockEnd,
+        ...coords
+    ];
+    const pedestrianSafetySeqContext = {
+        seq: mySeq,
+        bbox: _buildPedestrianSafetyContextBBox({
+            points: pedestrianSafetySeedPoints,
+            paddingM: PEDESTRIAN_SAFETY_COMPACT_BBOX_PADDING_M
+        }),
+        status: 'pending',
+        context: null,
+        fetchedAt: 0,
+        source: 'compact-cache',
+        fetchPhase: 'core',
+        expanded: false,
+        seedPoints: [...pedestrianSafetySeedPoints],
+        failure: _clonePedestrianSafetyFailure()
+    };
     let alternatives = [];
     let activeBlockedArea = null;
     let selectedStage = null;
@@ -2854,6 +3768,13 @@ async function blockAheadAndReroute() {
     let meaningful = [];
     let lastStageResult = null;
     let dangerousCrossingRejected = false;
+
+    console.log(`[PedestrianSafety][prefetch] seq=${mySeq} bbox=${JSON.stringify(pedestrianSafetySeqContext.bbox)} started`);
+    await _getOrCreatePedestrianSafetyContextForSeq(pedestrianSafetySeqContext, { contextLabel: 'prefetch:block-ahead' });
+    console.log(
+        `[PedestrianSafety][prefetch] seq=${mySeq} status=${pedestrianSafetySeqContext.status === 'ready' ? 'ready' : 'unknown'} ` +
+        `source=${pedestrianSafetySeqContext.source} failureKind=${pedestrianSafetySeqContext.failure?.kind || 'none'}`
+    );
 
     for (const stage of BLOCK_STAGE_CONFIGS) {
         const stageStartedAt = _perfNowMs();
@@ -2913,13 +3834,51 @@ async function blockAheadAndReroute() {
                 && (!blockedStats.nearBlocked || branchNearPenaltyMode.eligible);
         });
         const stagePedestrianChecked = await Promise.all(stageBlockedPassed.map(async (route) => {
-            const pedestrianSafety = await _evaluatePedestrianRouteSafety(route, `${stage.key}-candidate`);
-            route.__pedestrianSafety = pedestrianSafety;
-            if (!pedestrianSafety.safe) {
+            const pedestrianSafety = await _evaluatePedestrianRouteSafety(route, pedestrianSafetySeqContext, `${stage.key}-candidate`);
+            const conservativeSafety = pedestrianSafety.status === 'unknown'
+                ? _evaluateConservativeUnknownPedestrianSafety(route, {
+                    phase: `${stage.key}-candidate`,
+                    mode: 'stage-candidate',
+                    side: route.__branchBearingDiff > 0 ? 'unknown' : 'unknown',
+                    label: `${stage.key}-candidate`,
+                    blockedBearing: (blockStart && blockEnd) ? _segmentBearingDeg(blockStart, blockEnd) : null
+                })
+                : {
+                    conservativeRejectEvaluated: false,
+                    conservativeRejectApplied: false,
+                    conservativeRejectReason: null,
+                    conservativeDecision: 'pass',
+                    conservativePenalty: 0
+                };
+            route.__pedestrianSafety = { ...pedestrianSafety, ...conservativeSafety };
+            route.__pedestrianConservativePenalty = Number(conservativeSafety.conservativePenalty || 0);
+            console.log(
+                `[BlockAhead][${stage.key}][alt] pedestrianSafety status=${pedestrianSafety.status} ` +
+                `contextUnavailable=${!!pedestrianSafety.contextUnavailable} failOpenApplied=${!!pedestrianSafety.failOpenApplied} ` +
+                `contextSource=${pedestrianSafety.contextSource || 'unknown'} contextFailureKind=${pedestrianSafety.contextFailureKind || 'none'} ` +
+                `contextFailureDetail=${pedestrianSafety.contextFailureDetail || 'none'} ` +
+                `conservativeRejectEvaluated=${!!conservativeSafety.conservativeRejectEvaluated} ` +
+                `conservativeDecision=${conservativeSafety.conservativeDecision || 'pass'} ` +
+                `conservativeRejectApplied=${!!conservativeSafety.conservativeRejectApplied} ` +
+                `conservativeRejectReason=${conservativeSafety.conservativeRejectReason || 'none'} ` +
+                `conservativePenalty=${Number(conservativeSafety.conservativePenalty || 0).toFixed(1)}`
+            );
+            if (pedestrianSafety.status === 'unsafe') {
                 dangerousCrossingRejected = true;
                 _recordBlockAheadRejectReason('dangerous-crossing');
                 console.log(`[BlockAhead][${stage.key}][alt] reject dangerous-crossing dist=${Math.round(route.totalDistance)}m`);
                 return null;
+            }
+            if (conservativeSafety.conservativeRejectApplied) {
+                dangerousCrossingRejected = true;
+                _recordBlockAheadRejectReason('dangerous-crossing-unknown-hard');
+                _recordBlockAheadRejectReason(conservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-hard');
+                console.log(`[BlockAhead][${stage.key}][alt] reject dangerous-crossing-unknown reason=${conservativeSafety.conservativeRejectReason}`);
+                return null;
+            }
+            if (conservativeSafety.conservativeDecision === 'soft-risk') {
+                _recordBlockAheadRejectReason('dangerous-crossing-unknown-soft');
+                _recordBlockAheadRejectReason(conservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-soft');
             }
             return route;
         }));
@@ -2935,7 +3894,11 @@ async function blockAheadAndReroute() {
                 route.__routeDiff = diff;
                 return diff.meaningful;
             })
-            .sort((a, b) => a.totalDistance - b.totalDistance);
+            .sort((a, b) => {
+                const conservativePenaltyDiff = Number(a.__pedestrianConservativePenalty || 0) - Number(b.__pedestrianConservativePenalty || 0);
+                if (conservativePenaltyDiff !== 0) return conservativePenaltyDiff;
+                return a.totalDistance - b.totalDistance;
+            });
 
         const branchFastPathCandidates = (stage.key === 'stage1' || stage.key === 'stage2')
             ? stageMeaningful
@@ -2945,6 +3908,8 @@ async function blockAheadAndReroute() {
                     if (overlapDiff !== 0) return overlapDiff;
                     const penaltyDiff = Number(a.__branchPenalty || 0) - Number(b.__branchPenalty || 0);
                     if (penaltyDiff !== 0) return penaltyDiff;
+                    const conservativePenaltyDiff = Number(a.__pedestrianConservativePenalty || 0) - Number(b.__pedestrianConservativePenalty || 0);
+                    if (conservativePenaltyDiff !== 0) return conservativePenaltyDiff;
                     const lateralDiff = Number(b.__branchLateralDivergenceM || 0) - Number(a.__branchLateralDivergenceM || 0);
                     if (lateralDiff !== 0) return lateralDiff;
                     const bearingDiff = Number(b.__branchBearingDiff || 0) - Number(a.__branchBearingDiff || 0);
@@ -3039,6 +4004,22 @@ async function blockAheadAndReroute() {
         };
         _recordBlockAheadExecutionSummary(summary);
         _blockAheadLastTiming = { ..._blockAheadPerfMetrics, ...summary, totalMs, status: reason };
+        if (typeof window !== 'undefined') window._blockAheadLastTiming = _blockAheadLastTiming;
+        const debugSummary = _buildBlockAheadDebugSummary(summary, {
+            selectedStage: selectedStage?.key || null,
+            route: originalRouteSnapshot,
+            pedestrianSafety: originalRouteSnapshot?.__pedestrianSafety || null,
+            blockedAreaStats: {
+                overlap: 1,
+                strict: 1,
+                near: 1,
+                hardIntersectionDetected: reason === 'failed' || reason === 'dangerous-crossing',
+                rejectReason: reason
+            }
+        });
+        _blockAheadLastTiming.debugSummary = debugSummary;
+        _setBlockAheadDebugSummary(debugSummary);
+        console.log('[BlockAhead] failure distribution', _blockAheadPerfMetrics?.rejectReasons || {});
         console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
         _blockAheadPerfMetrics = null;
     };
@@ -3060,7 +4041,7 @@ async function blockAheadAndReroute() {
                     `[BlockAhead][escape-leg] try ${escapeLeg.label}: distance=${Math.round(escapeLeg.lateralM || 0)}m ` +
                     `type=${escapeLeg.nodeType || 'unknown'} score=${Number(escapeLeg.nodeScore || 0).toFixed(1)}`
                 );
-                const legRoute = await _fetchOsrmRouteThroughWaypoints([startWp, escapeLeg.point]);
+                const legRoute = await _fetchOsrmRouteThroughWaypoints([startWp, escapeLeg.point], `escape-leg:leg:${escapeLeg.label}`);
                 if (!legRoute) {
                     console.log(`[BlockAhead][escape-leg] reject ${escapeLeg.label}: leg-route-empty`);
                     return null;
@@ -3099,7 +4080,7 @@ async function blockAheadAndReroute() {
                     `[BlockAhead][escape-leg] accepted ${escapeLeg.label}: exit=${Math.round(legExitDistance)}m ` +
                     `end=${Math.round(legEndDistance)}m prefix=${BLOCK_ESCAPE_LEG_PREFIX_GATE_M}m`
                 );
-                const mainRoute = await _fetchOsrmRouteThroughWaypoints([escapeLeg.point, destWp]);
+                const mainRoute = await _fetchOsrmRouteThroughWaypoints([escapeLeg.point, destWp], `escape-leg:main:${escapeLeg.label}`);
                 if (!mainRoute) {
                     console.log(`[BlockAhead][escape-leg] reject ${escapeLeg.label}: main-route-empty`);
                     return null;
@@ -3108,7 +4089,11 @@ async function blockAheadAndReroute() {
                 const escapeBufMid = lastStageResult?.bufMid || defaultBufMid;
                 const escapeOverlapRadius = lastStageResult?.overlapRadius || defaultOverlapRadius;
                 const overlap = _calcBlockOverlapRatio(mainRoute.coordinates, escapeBufMid.lat, escapeBufMid.lng, escapeOverlapRadius);
-                const nearPenaltyMode = _assessEscapeNearPenaltyMode(blockedStats, overlap);
+                blockedStats.candidateSide = escapeLeg.side;
+                const nearPenaltyMode = _assessEscapeNearPenaltyMode(blockedStats, overlap, {
+                    mode: 'escape-leg',
+                    side: escapeLeg.side
+                });
                 const overlapHard = overlap >= BLOCK_OVERLAP_REJECT;
                 const strictThresholdExceeded = !!nearPenaltyMode.strictThresholdExceeded;
                 const actualIntersectionDetected = !!nearPenaltyMode.actualIntersectionDetected;
@@ -3129,6 +4114,12 @@ async function blockAheadAndReroute() {
                         : 'accepted'
                 });
                 if (hardReject) {
+                    _recordBlockAheadRejectReason(_escapeRejectReason(nearPenaltyMode, {
+                        actualIntersectionDetected,
+                        overlapHard,
+                        strictThresholdExceeded,
+                        nearOnlyReject
+                    }));
                     console.log(
                         `[BlockAhead][escape-leg] reject ${escapeLeg.label}: main-route blocked strict=${blockedStats.strictOverlapRatio.toFixed(2)} ` +
                         `near=${blockedStats.nearBlockedRatio.toFixed(2)} overlap=${overlap.toFixed(2)} ` +
@@ -3137,12 +4128,52 @@ async function blockAheadAndReroute() {
                     );
                     return null;
                 }
-                const pedestrianSafety = await _evaluatePedestrianRouteSafety(mainRoute, `escape-leg:${escapeLeg.label}`);
-                if (!pedestrianSafety.safe) {
+                const pedestrianSafety = await _evaluatePedestrianRouteSafety(mainRoute, pedestrianSafetySeqContext, `escape-leg:${escapeLeg.label}`);
+                const conservativeSafety = pedestrianSafety.status === 'unknown'
+                    ? _evaluateConservativeUnknownPedestrianSafety(mainRoute, {
+                        phase: `escape-leg:${escapeLeg.label}`,
+                        mode: 'escape-leg',
+                        side: escapeLeg.side,
+                        label: `escape-leg:${escapeLeg.label}`,
+                        nearPenaltyMode,
+                        hardIntersectionDetected: actualIntersectionDetected,
+                        actualIntersectionDetected,
+                        blockedBearing: (blockStart && blockEnd) ? _segmentBearingDeg(blockStart, blockEnd) : null
+                    })
+                    : {
+                        conservativeRejectEvaluated: false,
+                        conservativeRejectApplied: false,
+                        conservativeRejectReason: null,
+                        conservativeDecision: 'pass',
+                        conservativePenalty: 0
+                    };
+                console.log(
+                    `[BlockAhead][escape-leg] pedestrianSafety ${escapeLeg.label}: status=${pedestrianSafety.status} ` +
+                    `contextUnavailable=${!!pedestrianSafety.contextUnavailable} failOpenApplied=${!!pedestrianSafety.failOpenApplied} ` +
+                    `contextSource=${pedestrianSafety.contextSource || 'unknown'} contextFailureKind=${pedestrianSafety.contextFailureKind || 'none'} ` +
+                    `contextFailureDetail=${pedestrianSafety.contextFailureDetail || 'none'} ` +
+                    `conservativeRejectEvaluated=${!!conservativeSafety.conservativeRejectEvaluated} ` +
+                    `conservativeDecision=${conservativeSafety.conservativeDecision || 'pass'} ` +
+                    `conservativeRejectApplied=${!!conservativeSafety.conservativeRejectApplied} ` +
+                    `conservativeRejectReason=${conservativeSafety.conservativeRejectReason || 'none'} ` +
+                    `conservativePenalty=${Number(conservativeSafety.conservativePenalty || 0).toFixed(1)}`
+                );
+                if (pedestrianSafety.status === 'unsafe') {
                     dangerousCrossingRejected = true;
                     _recordBlockAheadRejectReason('dangerous-crossing');
                     console.log(`[BlockAhead][escape-leg] reject ${escapeLeg.label}: dangerous-crossing`);
                     return null;
+                }
+                if (conservativeSafety.conservativeRejectApplied) {
+                    dangerousCrossingRejected = true;
+                    _recordBlockAheadRejectReason('dangerous-crossing-unknown-hard');
+                    _recordBlockAheadRejectReason(conservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-hard');
+                    console.log(`[BlockAhead][escape-leg] reject ${escapeLeg.label}: dangerous-crossing-unknown reason=${conservativeSafety.conservativeRejectReason}`);
+                    return null;
+                }
+                if (conservativeSafety.conservativeDecision === 'soft-risk') {
+                    _recordBlockAheadRejectReason('dangerous-crossing-unknown-soft');
+                    _recordBlockAheadRejectReason(conservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-soft');
                 }
                 console.log(
                     `[BlockAhead][escape-leg] main-route accepted ${escapeLeg.label}: ` +
@@ -3176,7 +4207,8 @@ async function blockAheadAndReroute() {
                 mergedRoute.__escapeStrict = Number(blockedStats.strictOverlapRatio || 0);
                 mergedRoute.__escapeNear = Number(blockedStats.nearBlockedRatio || 0);
                 mergedRoute.__acceptedByHoldWaypointMode = false;
-                mergedRoute.__pedestrianSafety = pedestrianSafety;
+                mergedRoute.__pedestrianConservativePenalty = Number(conservativeSafety.conservativePenalty || 0);
+                mergedRoute.__pedestrianSafety = { ...pedestrianSafety, ...conservativeSafety };
                 return mergedRoute;
             }));
             const validEscapeLegRoutes = escapeLegResults.filter(Boolean).sort((a, b) => {
@@ -3186,6 +4218,8 @@ async function blockAheadAndReroute() {
                 if (strictDiff !== 0) return strictDiff;
                 const penaltyDiff = Number(a.__escapeMainPenalty || 0) - Number(b.__escapeMainPenalty || 0);
                 if (penaltyDiff !== 0) return penaltyDiff;
+                const conservativePenaltyDiff = Number(a.__pedestrianConservativePenalty || 0) - Number(b.__pedestrianConservativePenalty || 0);
+                if (conservativePenaltyDiff !== 0) return conservativePenaltyDiff;
                 const exitDiff = Number(b.__escapeExitDistanceM || 0) - Number(a.__escapeExitDistanceM || 0);
                 if (exitDiff !== 0) return exitDiff;
                 const depthDiff = Number(b.depthRank || _escapeDepthRank(b.__escapeDepthKind)) - Number(a.depthRank || _escapeDepthRank(a.__escapeDepthKind));
@@ -3243,7 +4277,7 @@ async function blockAheadAndReroute() {
                     `[BlockAhead][escape] try ${escape.label}: tier=${escape.distanceTierM || '-'} depth=${escape.depthKind || 'entrance'} ` +
                     `holdWaypointMode=${useHoldWaypointMode} score=${Number(escape.nodeScore || 0).toFixed(1)}`
                 );
-                const route = await _fetchOsrmRouteThroughWaypoints(waypoints);
+                const route = await _fetchOsrmRouteThroughWaypoints(waypoints, `escape:${escape.label}`);
                 if (!route) {
                     console.log(`[BlockAhead][escape] reject ${escape.label}: route-empty holdWaypointMode=${useHoldWaypointMode}`);
                     return null;
@@ -3252,7 +4286,11 @@ async function blockAheadAndReroute() {
                 const escapeBufMid = lastStageResult?.bufMid || defaultBufMid;
                 const escapeOverlapRadius = lastStageResult?.overlapRadius || defaultOverlapRadius;
                 const overlap = _calcBlockOverlapRatio(route.coordinates, escapeBufMid.lat, escapeBufMid.lng, escapeOverlapRadius);
-                const nearPenaltyMode = _assessEscapeNearPenaltyMode(blockedStats, overlap);
+                blockedStats.candidateSide = escape.side;
+                const nearPenaltyMode = _assessEscapeNearPenaltyMode(blockedStats, overlap, {
+                    mode: 'escape',
+                    side: escape.side
+                });
                 const overlapHard = overlap >= BLOCK_OVERLAP_REJECT;
                 const strictThresholdExceeded = !!nearPenaltyMode.strictThresholdExceeded;
                 const actualIntersectionDetected = !!nearPenaltyMode.actualIntersectionDetected;
@@ -3273,6 +4311,12 @@ async function blockAheadAndReroute() {
                         : 'accepted'
                 });
                 if (hardReject) {
+                    _recordBlockAheadRejectReason(_escapeRejectReason(nearPenaltyMode, {
+                        actualIntersectionDetected,
+                        overlapHard,
+                        strictThresholdExceeded,
+                        nearOnlyReject
+                    }));
                     console.log(
                         `[BlockAhead][escape] reject ${escape.label}: blocked strict=${blockedStats.strictOverlapRatio.toFixed(2)} ` +
                         `near=${blockedStats.nearBlockedRatio.toFixed(2)} overlap=${overlap.toFixed(2)} ` +
@@ -3282,12 +4326,52 @@ async function blockAheadAndReroute() {
                     );
                     return null;
                 }
-                const pedestrianSafety = await _evaluatePedestrianRouteSafety(route, `escape:${escape.label}`);
-                if (!pedestrianSafety.safe) {
+                const pedestrianSafety = await _evaluatePedestrianRouteSafety(route, pedestrianSafetySeqContext, `escape:${escape.label}`);
+                const conservativeSafety = pedestrianSafety.status === 'unknown'
+                    ? _evaluateConservativeUnknownPedestrianSafety(route, {
+                        phase: `escape:${escape.label}`,
+                        mode: 'escape',
+                        side: escape.side,
+                        label: `escape:${escape.label}`,
+                        nearPenaltyMode,
+                        hardIntersectionDetected: actualIntersectionDetected,
+                        actualIntersectionDetected,
+                        blockedBearing: (blockStart && blockEnd) ? _segmentBearingDeg(blockStart, blockEnd) : null
+                    })
+                    : {
+                        conservativeRejectEvaluated: false,
+                        conservativeRejectApplied: false,
+                        conservativeRejectReason: null,
+                        conservativeDecision: 'pass',
+                        conservativePenalty: 0
+                    };
+                console.log(
+                    `[BlockAhead][escape] pedestrianSafety ${escape.label}: status=${pedestrianSafety.status} ` +
+                    `contextUnavailable=${!!pedestrianSafety.contextUnavailable} failOpenApplied=${!!pedestrianSafety.failOpenApplied} ` +
+                    `contextSource=${pedestrianSafety.contextSource || 'unknown'} contextFailureKind=${pedestrianSafety.contextFailureKind || 'none'} ` +
+                    `contextFailureDetail=${pedestrianSafety.contextFailureDetail || 'none'} ` +
+                    `conservativeRejectEvaluated=${!!conservativeSafety.conservativeRejectEvaluated} ` +
+                    `conservativeDecision=${conservativeSafety.conservativeDecision || 'pass'} ` +
+                    `conservativeRejectApplied=${!!conservativeSafety.conservativeRejectApplied} ` +
+                    `conservativeRejectReason=${conservativeSafety.conservativeRejectReason || 'none'} ` +
+                    `conservativePenalty=${Number(conservativeSafety.conservativePenalty || 0).toFixed(1)}`
+                );
+                if (pedestrianSafety.status === 'unsafe') {
                     dangerousCrossingRejected = true;
                     _recordBlockAheadRejectReason('dangerous-crossing');
                     console.log(`[BlockAhead][escape] reject ${escape.label}: dangerous-crossing`);
                     return null;
+                }
+                if (conservativeSafety.conservativeRejectApplied) {
+                    dangerousCrossingRejected = true;
+                    _recordBlockAheadRejectReason('dangerous-crossing-unknown-hard');
+                    _recordBlockAheadRejectReason(conservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-hard');
+                    console.log(`[BlockAhead][escape] reject ${escape.label}: dangerous-crossing-unknown reason=${conservativeSafety.conservativeRejectReason}`);
+                    return null;
+                }
+                if (conservativeSafety.conservativeDecision === 'soft-risk') {
+                    _recordBlockAheadRejectReason('dangerous-crossing-unknown-soft');
+                    _recordBlockAheadRejectReason(conservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-soft');
                 }
                 console.log(
                     `[BlockAhead][escape] accepted ${escape.label}: strict=${blockedStats.strictOverlapRatio.toFixed(2)} ` +
@@ -3319,7 +4403,8 @@ async function blockAheadAndReroute() {
                 route.__escapeStrict = Number(blockedStats.strictOverlapRatio || 0);
                 route.__escapeNear = Number(blockedStats.nearBlockedRatio || 0);
                 route.__acceptedByHoldWaypointMode = useHoldWaypointMode;
-                route.__pedestrianSafety = pedestrianSafety;
+                route.__pedestrianConservativePenalty = Number(conservativeSafety.conservativePenalty || 0);
+                route.__pedestrianSafety = { ...pedestrianSafety, ...conservativeSafety };
                 return route;
             }));
             const validEscapeRoutes = escapeResults.filter(Boolean).sort((a, b) => {
@@ -3329,6 +4414,8 @@ async function blockAheadAndReroute() {
                 if (strictDiff !== 0) return strictDiff;
                 const penaltyDiff = Number(a.__escapeMainPenalty || 0) - Number(b.__escapeMainPenalty || 0);
                 if (penaltyDiff !== 0) return penaltyDiff;
+                const conservativePenaltyDiff = Number(a.__pedestrianConservativePenalty || 0) - Number(b.__pedestrianConservativePenalty || 0);
+                if (conservativePenaltyDiff !== 0) return conservativePenaltyDiff;
                 const exitDiff = Number(b.__escapeExitDistanceM || 0) - Number(a.__escapeExitDistanceM || 0);
                 if (exitDiff !== 0) return exitDiff;
                 const depthDiff = _escapeDepthRank(b.__escapeDepthKind) - _escapeDepthRank(a.__escapeDepthKind);
@@ -3372,6 +4459,207 @@ async function blockAheadAndReroute() {
         }
     }
 
+    if (meaningful.length === 0 && activeBlockedArea) {
+        const longDetourPoints = await _generateLongDetourEscapePoints(coords, projection, activeBlockedArea);
+        console.log(`[BlockAhead][long-detour] candidates=${longDetourPoints.length}`);
+        if (longDetourPoints.length > 0) {
+            const longDetourStartedAt = _perfNowMs();
+            const longDetourResults = await Promise.all(longDetourPoints.map(async (escape) => {
+                const useHoldWaypointMode = !!escape.holdWaypoint && _escapeDepthRank(escape.depthKind) > 0;
+                const useMultiHoldWaypointMode = !!escape.secondaryHoldWaypoint && _escapeDepthRank(escape.depthKind) >= 3;
+                const waypointSequence = [startWp];
+                const maybePushWaypoint = (point) => {
+                    if (!point) return;
+                    const last = waypointSequence[waypointSequence.length - 1];
+                    if (last && _segmentLengthMeters(last, point) < 3) return;
+                    waypointSequence.push(point);
+                };
+                if (useMultiHoldWaypointMode) maybePushWaypoint(escape.entrancePoint || escape.holdWaypoint);
+                if (useHoldWaypointMode) maybePushWaypoint(escape.holdWaypoint);
+                if (useMultiHoldWaypointMode) maybePushWaypoint(escape.secondaryHoldWaypoint);
+                maybePushWaypoint(escape.point);
+                maybePushWaypoint(destWp);
+                console.log(
+                    `[BlockAhead][long-detour] try ${escape.label}: tier=${escape.distanceTierM || '-'} depth=${escape.depthKind || 'entrance'} ` +
+                    `holdWaypointMode=${useHoldWaypointMode} multiHoldWaypointMode=${useMultiHoldWaypointMode} score=${Number(escape.nodeScore || 0).toFixed(1)}`
+                );
+                const route = await _fetchOsrmRouteThroughWaypoints(waypointSequence, `long-detour:${escape.label}`);
+                if (!route) {
+                    console.log(`[BlockAhead][long-detour] reject ${escape.label}: route-empty holdWaypointMode=${useHoldWaypointMode} multiHoldWaypointMode=${useMultiHoldWaypointMode}`);
+                    return null;
+                }
+                const blockedStats = _routeBlockedAreaStats(route.coordinates, activeBlockedArea);
+                const escapeBufMid = lastStageResult?.bufMid || defaultBufMid;
+                const escapeOverlapRadius = lastStageResult?.overlapRadius || defaultOverlapRadius;
+                const overlap = _calcBlockOverlapRatio(route.coordinates, escapeBufMid.lat, escapeBufMid.lng, escapeOverlapRadius);
+                const destinationNearRelax = Number(route.totalDistance || 0) <= BLOCK_DESTINATION_NEAR_RELAX_ROUTE_DISTANCE_M;
+                blockedStats.candidateSide = escape.side;
+                const nearPenaltyMode = _assessEscapeNearPenaltyMode(blockedStats, overlap, {
+                    mode: 'long-detour',
+                    side: escape.side,
+                    strictNearPenaltyMax: destinationNearRelax
+                        ? (BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX + BLOCK_DESTINATION_NEAR_RELAX_STRICT_BONUS)
+                        : BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX
+                });
+                const overlapHard = overlap >= BLOCK_OVERLAP_REJECT;
+                const strictThresholdExceeded = !!nearPenaltyMode.strictThresholdExceeded;
+                const actualIntersectionDetected = !!nearPenaltyMode.actualIntersectionDetected;
+                const nearOnlyReject = !nearPenaltyMode.eligible
+                    && blockedStats.nearBlocked
+                    && !actualIntersectionDetected
+                    && !strictThresholdExceeded
+                    && !overlapHard;
+                const hardReject = actualIntersectionDetected
+                    || overlapHard
+                    || strictThresholdExceeded
+                    || nearOnlyReject;
+                _logEscapeNearPenaltyDecision(`[BlockAhead][long-detour][debug] ${escape.label}:`, {
+                    holdWaypointMode: useHoldWaypointMode || useMultiHoldWaypointMode,
+                    nearPenaltyMode,
+                    rejectReason: hardReject
+                        ? _escapeRejectReason(nearPenaltyMode, { actualIntersectionDetected, overlapHard, strictThresholdExceeded, nearOnlyReject })
+                        : 'accepted'
+                });
+                if (hardReject) {
+                    _recordBlockAheadRejectReason(_escapeRejectReason(nearPenaltyMode, {
+                        actualIntersectionDetected,
+                        overlapHard,
+                        strictThresholdExceeded,
+                        nearOnlyReject
+                    }));
+                    console.log(
+                        `[BlockAhead][long-detour] reject ${escape.label}: blocked strict=${blockedStats.strictOverlapRatio.toFixed(2)} ` +
+                        `near=${blockedStats.nearBlockedRatio.toFixed(2)} overlap=${overlap.toFixed(2)} ` +
+                        `nearPenaltyMode=${nearPenaltyMode.eligible} nearPenalty=${Number.isFinite(nearPenaltyMode.penalty) ? nearPenaltyMode.penalty.toFixed(1) : 'inf'} ` +
+                        `destinationNearRelax=${destinationNearRelax} holdWaypointMode=${useHoldWaypointMode} multiHoldWaypointMode=${useMultiHoldWaypointMode}`
+                    );
+                    return null;
+                }
+                const pedestrianSafety = await _evaluatePedestrianRouteSafety(route, pedestrianSafetySeqContext, `long-detour:${escape.label}`);
+                const conservativeSafety = pedestrianSafety.status === 'unknown'
+                    ? _evaluateConservativeUnknownPedestrianSafety(route, {
+                        phase: `long-detour:${escape.label}`,
+                        mode: 'long-detour',
+                        side: escape.side,
+                        label: `long-detour:${escape.label}`,
+                        nearPenaltyMode,
+                        hardIntersectionDetected: actualIntersectionDetected,
+                        actualIntersectionDetected,
+                        blockedBearing: (blockStart && blockEnd) ? _segmentBearingDeg(blockStart, blockEnd) : null
+                    })
+                    : {
+                        conservativeRejectEvaluated: false,
+                        conservativeRejectApplied: false,
+                        conservativeRejectReason: null,
+                        conservativeDecision: 'pass',
+                        conservativePenalty: 0
+                    };
+                console.log(
+                    `[BlockAhead][long-detour] pedestrianSafety ${escape.label}: status=${pedestrianSafety.status} ` +
+                    `contextUnavailable=${!!pedestrianSafety.contextUnavailable} failOpenApplied=${!!pedestrianSafety.failOpenApplied} ` +
+                    `contextSource=${pedestrianSafety.contextSource || 'unknown'} contextFailureKind=${pedestrianSafety.contextFailureKind || 'none'} ` +
+                    `contextFailureDetail=${pedestrianSafety.contextFailureDetail || 'none'} ` +
+                    `conservativeRejectEvaluated=${!!conservativeSafety.conservativeRejectEvaluated} ` +
+                    `conservativeDecision=${conservativeSafety.conservativeDecision || 'pass'} ` +
+                    `conservativeRejectApplied=${!!conservativeSafety.conservativeRejectApplied} ` +
+                    `conservativeRejectReason=${conservativeSafety.conservativeRejectReason || 'none'} ` +
+                    `conservativePenalty=${Number(conservativeSafety.conservativePenalty || 0).toFixed(1)}`
+                );
+                if (pedestrianSafety.status === 'unsafe') {
+                    dangerousCrossingRejected = true;
+                    _recordBlockAheadRejectReason('dangerous-crossing');
+                    console.log(`[BlockAhead][long-detour] reject ${escape.label}: dangerous-crossing`);
+                    return null;
+                }
+                if (conservativeSafety.conservativeRejectApplied) {
+                    dangerousCrossingRejected = true;
+                    _recordBlockAheadRejectReason('dangerous-crossing-unknown-hard');
+                    _recordBlockAheadRejectReason(conservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-hard');
+                    console.log(`[BlockAhead][long-detour] reject ${escape.label}: dangerous-crossing-unknown reason=${conservativeSafety.conservativeRejectReason}`);
+                    return null;
+                }
+                if (conservativeSafety.conservativeDecision === 'soft-risk') {
+                    _recordBlockAheadRejectReason('dangerous-crossing-unknown-soft');
+                    _recordBlockAheadRejectReason(conservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-soft');
+                }
+                const diff = _isMeaningfullyDifferentReroute(route, originalRouteSnapshot, {
+                    bufMid: lastStageResult?.bufMid || defaultBufMid,
+                    overlapRadius: lastStageResult?.overlapRadius || defaultOverlapRadius,
+                    blockedArea: activeBlockedArea
+                });
+                if (!diff.meaningful) {
+                    console.log(`[BlockAhead][long-detour] reject ${escape.label}: no-change`);
+                    return null;
+                }
+                route.__routeDiff = diff;
+                route.__blockedStats = blockedStats;
+                route.__escapeLabel = escape.label;
+                route.__escapeNodeType = escape.nodeType;
+                route.__escapeNodeScore = escape.nodeScore;
+                route.__distanceTierM = escape.distanceTierM;
+                route.__escapeDepthKind = escape.depthKind || 'entrance';
+                route.__escapeMainPenalty = nearPenaltyMode.penalty;
+                route.__escapeNearPenaltyMode = nearPenaltyMode.eligible;
+                route.__escapeExitDistanceM = Number(escape.blockedDistanceM || 0);
+                route.__escapeOverlap = overlap;
+                route.__escapeStrict = Number(blockedStats.strictOverlapRatio || 0);
+                route.__escapeNear = Number(blockedStats.nearBlockedRatio || 0);
+                route.__acceptedByHoldWaypointMode = useHoldWaypointMode || useMultiHoldWaypointMode;
+                route.__acceptedByMultiHoldWaypointMode = useMultiHoldWaypointMode;
+                route.__destinationNearRelax = destinationNearRelax;
+                route.__pedestrianConservativePenalty = Number(conservativeSafety.conservativePenalty || 0);
+                route.__pedestrianSafety = { ...pedestrianSafety, ...conservativeSafety };
+                return route;
+            }));
+            const validLongDetours = longDetourResults.filter(Boolean).sort((a, b) => {
+                const overlapDiff = Number(a.__escapeOverlap || 0) - Number(b.__escapeOverlap || 0);
+                if (overlapDiff !== 0) return overlapDiff;
+                const strictDiff = Number(a.__escapeStrict || 0) - Number(b.__escapeStrict || 0);
+                if (strictDiff !== 0) return strictDiff;
+                const exitDiff = Number(b.__escapeExitDistanceM || 0) - Number(a.__escapeExitDistanceM || 0);
+                if (exitDiff !== 0) return exitDiff;
+                const depthDiff = _escapeDepthRank(b.__escapeDepthKind) - _escapeDepthRank(a.__escapeDepthKind);
+                if (depthDiff !== 0) return depthDiff;
+                const penaltyDiff = Number(a.__escapeMainPenalty || 0) - Number(b.__escapeMainPenalty || 0);
+                if (penaltyDiff !== 0) return penaltyDiff;
+                const conservativePenaltyDiff = Number(a.__pedestrianConservativePenalty || 0) - Number(b.__pedestrianConservativePenalty || 0);
+                if (conservativePenaltyDiff !== 0) return conservativePenaltyDiff;
+                const scoreDiff = Number(b.__escapeNodeScore || 0) - Number(a.__escapeNodeScore || 0);
+                if (scoreDiff !== 0) return scoreDiff;
+                return a.totalDistance - b.totalDistance;
+            });
+            const longDetourDurationMs = _perfNowMs() - longDetourStartedAt;
+            _blockAheadPerfMetrics.stages.push({
+                key: 'long-detour',
+                durationMs: longDetourDurationMs,
+                alternatives: longDetourPoints.length,
+                nonBlocked: validLongDetours.length,
+                meaningful: validLongDetours.length
+            });
+            console.log(`[BlockAhead][long-detour] valid=${validLongDetours.length}/${longDetourPoints.length} ${Math.round(longDetourDurationMs)}ms`);
+            if (validLongDetours.length > 0) {
+                console.log(
+                    `[BlockAhead][long-detour] selected node=${validLongDetours[0].__escapeLabel} ` +
+                    `tier=${validLongDetours[0].__distanceTierM || '-'} depth=${validLongDetours[0].__escapeDepthKind || 'entrance'} ` +
+                    `type=${validLongDetours[0].__escapeNodeType || 'unknown'} score=${Number(validLongDetours[0].__escapeNodeScore || 0).toFixed(1)} ` +
+                    `overlap=${Number(validLongDetours[0].__escapeOverlap || 0).toFixed(2)} strict=${Number(validLongDetours[0].__escapeStrict || 0).toFixed(2)} ` +
+                    `near=${Number(validLongDetours[0].__escapeNear || 0).toFixed(2)} destinationNearRelax=${!!validLongDetours[0].__destinationNearRelax} ` +
+                    `acceptedByHoldWaypointMode=${!!validLongDetours[0].__acceptedByHoldWaypointMode} acceptedByMultiHoldWaypointMode=${!!validLongDetours[0].__acceptedByMultiHoldWaypointMode} ` +
+                    `dist=${Math.round(validLongDetours[0].totalDistance)}m`
+                );
+                selectedStage = { key: 'long-detour' };
+                alternatives = validLongDetours;
+                nonBlocked = validLongDetours;
+                meaningful = validLongDetours;
+                console.log('[BlockAhead][long-detour] road-node fallback succeeded');
+            } else {
+                _recordBlockAheadRejectReason('long-detour-route-blocked');
+            }
+        } else {
+            _recordBlockAheadRejectReason('long-detour-snap-empty');
+        }
+    }
+
     const selectedBufMid = lastStageResult?.bufMid || defaultBufMid;
     const selectedOverlapRadius = lastStageResult?.overlapRadius || defaultOverlapRadius;
 
@@ -3407,9 +4695,25 @@ async function blockAheadAndReroute() {
         overlapRadius: selectedOverlapRadius,
         blockedArea: activeBlockedArea
     });
-    const finalPedestrianSafety = await _evaluatePedestrianRouteSafety(winnerRoute, `final:${selectedStage?.key || 'unknown'}`);
-    const finalNearPenaltyMode = (selectedStage?.key === 'escape-leg' || selectedStage?.key === 'escape')
-        ? _assessEscapeNearPenaltyMode(finalBlockedStats, finalOverlap)
+    const finalPedestrianSafety = await _evaluatePedestrianRouteSafety(winnerRoute, pedestrianSafetySeqContext, `final:${selectedStage?.key || 'unknown'}`);
+    console.log(
+        `[PedestrianSafety][final] source=${finalPedestrianSafety.contextSource || 'unknown'} ` +
+        `status=${finalPedestrianSafety.status} contextFailureKind=${finalPedestrianSafety.contextFailureKind || 'none'} ` +
+        `contextFailureDetail=${finalPedestrianSafety.contextFailureDetail || 'none'}`
+    );
+    finalBlockedStats.candidateSide = winnerRoute?.__escapeLabel?.includes('back-right') ? 'back-right'
+        : winnerRoute?.__escapeLabel?.includes('back-left') ? 'back-left'
+        : winnerRoute?.__escapeLabel?.includes('right') ? 'right'
+        : winnerRoute?.__escapeLabel?.includes('left') ? 'left'
+        : null;
+    const finalNearPenaltyMode = (selectedStage?.key === 'escape-leg' || selectedStage?.key === 'escape' || selectedStage?.key === 'long-detour')
+        ? _assessEscapeNearPenaltyMode(finalBlockedStats, finalOverlap, {
+            mode: selectedStage?.key || 'escape',
+            side: finalBlockedStats.candidateSide,
+            strictNearPenaltyMax: (selectedStage?.key === 'long-detour' && Number(winnerRoute?.__destinationNearRelax))
+                ? (BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX + BLOCK_DESTINATION_NEAR_RELAX_STRICT_BONUS)
+                : BLOCK_ESCAPE_NEAR_PENALTY_STRICT_MAX
+        })
         : { eligible: false, penalty: Infinity };
     const finalOverlapHard = finalOverlap >= BLOCK_OVERLAP_REJECT;
     const finalActualIntersectionDetected = !!finalNearPenaltyMode.actualIntersectionDetected;
@@ -3419,6 +4723,27 @@ async function blockAheadAndReroute() {
         && !finalActualIntersectionDetected
         && !finalStrictThresholdExceeded
         && !finalOverlapHard;
+    const finalConservativeSafety = finalPedestrianSafety.status === 'unknown'
+        ? _evaluateConservativeUnknownPedestrianSafety(winnerRoute, {
+            phase: `final:${selectedStage?.key || 'unknown'}`,
+            mode: 'final',
+            side: finalBlockedStats.candidateSide || 'unknown',
+            label: `final:${selectedStage?.key || 'unknown'}`,
+            nearPenaltyMode: finalNearPenaltyMode,
+            hardIntersectionDetected: finalActualIntersectionDetected,
+            actualIntersectionDetected: finalActualIntersectionDetected,
+            blockedBearing: (blockStart && blockEnd) ? _segmentBearingDeg(blockStart, blockEnd) : null
+        })
+        : {
+            conservativeRejectEvaluated: false,
+            conservativeRejectApplied: false,
+            conservativeRejectReason: null,
+            conservativeDecision: 'pass',
+            conservativePenalty: 0
+        };
+    if (winnerRoute.__pedestrianSafety?.status === 'unknown' && finalPedestrianSafety.status === 'unknown') {
+        console.log(`[PedestrianSafety] final-check unavailable -> fail-open applied label=final:${selectedStage?.key || 'unknown'} candidateStatus=unknown`);
+    }
     _logEscapeNearPenaltyDecision('[BlockAhead][final][debug]', {
         holdWaypointMode: !!winnerRoute.__acceptedByHoldWaypointMode,
         nearPenaltyMode: finalNearPenaltyMode,
@@ -3435,22 +4760,35 @@ async function blockAheadAndReroute() {
         `meaningful=${routeDiff.meaningful} nearPenaltyMode=${finalNearPenaltyMode.eligible} ` +
         `nearPenalty=${Number.isFinite(finalNearPenaltyMode.penalty) ? finalNearPenaltyMode.penalty.toFixed(1) : 'inf'} ` +
         `acceptedByNearPenaltyMode=${finalNearPenaltyMode.eligible && finalBlockedStats.nearBlocked} ` +
-        `pedestrianSafe=${finalPedestrianSafety.safe}`
+        `pedestrianStatus=${finalPedestrianSafety.status} contextUnavailable=${!!finalPedestrianSafety.contextUnavailable} ` +
+        `failOpenApplied=${!!finalPedestrianSafety.failOpenApplied} contextSource=${finalPedestrianSafety.contextSource || 'unknown'} ` +
+        `contextFailureKind=${finalPedestrianSafety.contextFailureKind || 'none'} contextFailureDetail=${finalPedestrianSafety.contextFailureDetail || 'none'} ` +
+        `conservativeRejectEvaluated=${!!finalConservativeSafety.conservativeRejectEvaluated} ` +
+        `conservativeDecision=${finalConservativeSafety.conservativeDecision || 'pass'} ` +
+        `conservativeRejectApplied=${!!finalConservativeSafety.conservativeRejectApplied} ` +
+        `conservativeRejectReason=${finalConservativeSafety.conservativeRejectReason || 'none'} ` +
+        `conservativePenalty=${Number(finalConservativeSafety.conservativePenalty || 0).toFixed(1)}`
     );
 
     const finalBlockedReject = finalActualIntersectionDetected
         || finalOverlapHard
         || finalStrictThresholdExceeded
         || finalNearOnlyReject;
-    if (finalBlockedReject || !routeDiff.meaningful || !finalPedestrianSafety.safe) {
+    if (finalBlockedReject || !routeDiff.meaningful || finalPedestrianSafety.status === 'unsafe' || finalConservativeSafety.conservativeRejectApplied) {
+        if (finalConservativeSafety.conservativeRejectApplied) {
+            _recordBlockAheadRejectReason('dangerous-crossing-unknown-hard');
+            _recordBlockAheadRejectReason(finalConservativeSafety.conservativeRejectReason || 'dangerous-crossing-unknown-hard');
+        }
         fail(
-            !finalPedestrianSafety.safe ? 'dangerous-crossing' : (finalBlockedReject ? 'failed' : 'no-change'),
-            !finalPedestrianSafety.safe
+            (finalPedestrianSafety.status === 'unsafe' || finalConservativeSafety.conservativeRejectApplied)
+                ? 'dangerous-crossing'
+                : (finalBlockedReject ? 'failed' : 'no-change'),
+            (finalPedestrianSafety.status === 'unsafe' || finalConservativeSafety.conservativeRejectApplied)
                 ? '⚠ 危険な道路横断を含むため、迂回ルートを採用できませんでした。現在のルートを継続します。'
                 : finalBlockedReject
                 ? '⚠ 目的地まで到達できる迂回ルートが見つかりませんでした。現在のルートを継続します。'
                 : 'ℹ 現在のルートと実質同じ経路しか見つからなかったため、既存ルートを継続します。',
-            (!finalPedestrianSafety.safe || finalBlockedReject) ? 'danger' : 'info'
+            ((finalPedestrianSafety.status === 'unsafe') || finalConservativeSafety.conservativeRejectApplied || finalBlockedReject) ? 'danger' : 'info'
         );
         return;
     }
@@ -3466,7 +4804,7 @@ async function blockAheadAndReroute() {
         'block-ahead-final:avoid'
     );
     const adoptedRoute = selectedBundle.routes[0];
-    adoptedRoute.__pedestrianSafety = finalPedestrianSafety;
+    adoptedRoute.__pedestrianSafety = { ...finalPedestrianSafety, ...finalConservativeSafety };
     const geometryComparison = {
         selectedToAdopted: _compareRouteGeometries(winnerRoute.coordinates, adoptedRoute.coordinates, 'selected->adopted'),
         selectedToDisplayed: _compareRouteGeometries(winnerRoute.coordinates, selectedBundle.routes[0].coordinates, 'selected->displayed'),
@@ -3526,6 +4864,11 @@ async function blockAheadAndReroute() {
         osrmMs: _blockAheadPerfMetrics?.osrmEval?.totalMs || 0,
         displayPipelineMs,
         acceptedStage: selectedStage?.key || 'stage-unknown',
+        pedestrianStatus: finalPedestrianSafety.status,
+        pedestrianContextFailureKind: finalPedestrianSafety.contextFailureKind || 'none',
+        conservativeDecision: finalConservativeSafety.conservativeDecision || 'pass',
+        conservativeReason: finalConservativeSafety.conservativeRejectReason || 'none',
+        conservativePenalty: Number(finalConservativeSafety.conservativePenalty || 0),
         alternativesEvaluated: alternatives.length,
         nonBlockedCount: nonBlocked.length,
         attemptedStages: Array.isArray(_blockAheadPerfMetrics?.stages) ? _blockAheadPerfMetrics.stages.map(stage => stage.key) : [],
@@ -3533,6 +4876,30 @@ async function blockAheadAndReroute() {
     };
     _recordBlockAheadExecutionSummary(summary);
     _blockAheadLastTiming = { ..._blockAheadPerfMetrics, ...summary, totalMs, status: 'success' };
+    if (typeof window !== 'undefined') window._blockAheadLastTiming = _blockAheadLastTiming;
+    const finalRejectReason = _escapeRejectReason(finalNearPenaltyMode, {
+        actualIntersectionDetected: finalActualIntersectionDetected,
+        overlapHard: finalOverlapHard,
+        strictThresholdExceeded: finalStrictThresholdExceeded,
+        nearOnlyReject: finalNearOnlyReject
+    });
+    const debugSummary = _buildBlockAheadDebugSummary(summary, {
+        selectedStage: selectedStage?.key || 'stage-unknown',
+        selectedNodeId: adoptedRoute.__escapeLabel || null,
+        selectedDistance: adoptedRoute.totalDistance,
+        route: adoptedRoute,
+        pedestrianSafety: adoptedRoute.__pedestrianSafety,
+        blockedAreaStats: {
+            overlap: finalOverlap,
+            strict: finalBlockedStats.strictOverlapRatio,
+            near: finalBlockedStats.nearBlockedRatio,
+            hardIntersectionDetected: finalActualIntersectionDetected,
+            rejectReason: finalRejectReason
+        }
+    });
+    adoptedRoute.__debugSummary = debugSummary;
+    _blockAheadLastTiming.debugSummary = debugSummary;
+    _setBlockAheadDebugSummary(debugSummary);
     console.log('[BlockAhead][timing][total]', _blockAheadLastTiming);
     _blockAheadPerfMetrics = null;
 }

@@ -1,0 +1,18 @@
+{
+  "status": "ready",
+  "source": "fresh",
+  "context": {
+    "roads": [
+      {
+        "id": 11,
+        "tags": { "highway": "primary", "lanes": "4" },
+        "coordinates": [
+          { "lat": 34.9990, "lng": 139.0050 },
+          { "lat": 35.0050, "lng": 139.0050 }
+        ]
+      }
+    ],
+    "crosswalks": []
+  },
+  "failure": { "kind": "none", "detail": "none", "message": "", "aborted": false }
+}

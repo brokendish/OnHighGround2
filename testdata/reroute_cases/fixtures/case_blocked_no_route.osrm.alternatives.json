@@ -1,0 +1,22 @@
+{
+  "stage1": [
+    {
+      "coordinates": [
+        { "lat": 35.00055, "lng": 139.0 },
+        { "lat": 35.00065, "lng": 139.0 },
+        { "lat": 35.00075, "lng": 139.0 },
+        { "lat": 35.00085, "lng": 139.0 },
+        { "lat": 35.00095, "lng": 139.0 }
+      ],
+      "summary": { "totalDistance": 120, "totalTime": 110 },
+      "instructions": [
+        { "text": "そのまま前進", "distance": 120, "latLng": { "lat": 35.00075, "lng": 139.0 } }
+      ],
+      "totalDistance": 120,
+      "totalTime": 110,
+      "turnCount": 0
+    }
+  ],
+  "stage2": [],
+  "stage3": []
+}

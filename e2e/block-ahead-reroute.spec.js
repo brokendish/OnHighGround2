@@ -769,6 +769,35 @@ test.describe('block ahead reroute regression', () => {
     expect(state.some(candidate => candidate.tier === 60)).toBeTruthy();
   });
 
+  test('escape spec selection は left/right/back-left/back-right を偏らせずに残す', async ({ page }) => {
+    await bootstrap(page);
+    const state = await page.evaluate(() => {
+      const specs = [
+        { side: 'left', lateralM: 60, backwardM: 0, label: 'left-60' },
+        { side: 'right', lateralM: 60, backwardM: 0, label: 'right-60' },
+        { side: 'left', lateralM: 120, backwardM: 0, label: 'left-120' },
+        { side: 'right', lateralM: 120, backwardM: 0, label: 'right-120' },
+        { side: 'left', lateralM: 60, backwardM: 25, label: 'back-left-60' },
+        { side: 'right', lateralM: 60, backwardM: 25, label: 'back-right-60' },
+        { side: 'left', lateralM: 150, backwardM: 25, label: 'back-left-150' },
+        { side: 'right', lateralM: 150, backwardM: 25, label: 'back-right-150' }
+      ];
+      const selected = _selectBalancedEscapeSpecs(specs, 6);
+      const counts = selected.reduce((acc, spec) => {
+        const key = (spec.backwardM || 0) > 0 ? `back-${spec.side}` : spec.side;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      return { labels: selected.map(spec => spec.label), counts };
+    });
+
+    expect(state.labels.length).toBe(6);
+    expect(state.counts.left).toBeGreaterThan(0);
+    expect(state.counts.right).toBeGreaterThan(0);
+    expect(state.counts['back-left']).toBeGreaterThan(0);
+    expect(state.counts['back-right']).toBeGreaterThan(0);
+  });
+
   test('escape gate により現在地近くの sideways raw candidate は即 inside 扱いされにくくなる', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
@@ -1354,6 +1383,45 @@ test.describe('block ahead reroute regression', () => {
     expect(state.totalDistance).toBe(540);
   });
 
+  test('long-detour escape generation は farther tiers と deeper nodes を含めて探索できる', async ({ page }) => {
+    await bootstrap(page);
+    await seedNav(page);
+    const state = await page.evaluate(async () => {
+      const coords = navActiveRoute.coordinates;
+      const projection = _navFindClosestOnRoute(coords, currentLocation.lat, currentLocation.lon);
+      const blockedArea = {
+        centers: [{ lat: 35.0002, lng: 139.0002, radius: 20 }],
+        nearRejectMeters: 10
+      };
+      const originalNearest = _fetchOsrmNearestNode;
+      let call = 0;
+      _fetchOsrmNearestNode = async () => {
+        call += 1;
+        return {
+          lat: 35.0010 + (call * 0.00018),
+          lng: 139.0060 + (call * 0.00028),
+          distanceM: 5
+        };
+      };
+      const points = await _generateLongDetourEscapePoints(coords, projection, blockedArea);
+      _fetchOsrmNearestNode = originalNearest;
+      return points.map(point => ({
+        label: point.label,
+        tier: point.distanceTierM,
+        depth: point.depthKind,
+        side: point.side,
+        hasSecondaryHold: !!point.secondaryHoldWaypoint
+      }));
+    });
+
+    expect(state.some(point => point.tier === 150)).toBeTruthy();
+    expect(state.some(point => point.tier === 200)).toBeTruthy();
+    expect(state.some(point => point.depth === 'deeper-200')).toBeTruthy();
+    expect(state.some(point => point.side === 'left')).toBeTruthy();
+    expect(state.some(point => point.side === 'right')).toBeTruthy();
+    expect(state.some(point => point.hasSecondaryHold)).toBeTruthy();
+  });
+
   test('holdWaypointMode route は overlap が低く strict が 0.35 未満なら near-penalty で通る', async ({ page }) => {
     await bootstrap(page);
     await seedNav(page);
@@ -1419,6 +1487,170 @@ test.describe('block ahead reroute regression', () => {
 
     expect(state.acceptedStage).toBe('escape');
     expect(state.totalDistance).toBe(540);
+  });
+
+  test('intersection-buffer 単独は long-detour で hard reject しない', async ({ page }) => {
+    await bootstrap(page);
+    const state = await page.evaluate(() => {
+      const blockedStats = {
+        strictOverlapRatio: 0.22,
+        nearBlockedRatio: 0.21,
+        slitBodyOverlapRatio: 0.04,
+        slitCapOverlapRatio: 0,
+        slitNearRatio: 0.12,
+        coreIntersectionDetected: false,
+        intersectionBufferDetected: true,
+        intersectionBufferOverlapRatio: 0.12,
+        legacyBroadIntersectionDetected: false,
+        carveOutAdjustedIntersectionDetected: false,
+        candidateSide: 'back-right'
+      };
+      const mode = _assessEscapeNearPenaltyMode(blockedStats, 0.04, { mode: 'long-detour', side: 'back-right' });
+      return {
+        actualIntersectionDetected: mode.actualIntersectionDetected,
+        softIntersectionBufferDetected: mode.softIntersectionBufferDetected,
+        eligible: mode.eligible,
+        rejectReason: _escapeRejectReason(mode, {
+          actualIntersectionDetected: mode.actualIntersectionDetected,
+          overlapHard: false,
+          strictThresholdExceeded: mode.strictThresholdExceeded,
+          nearOnlyReject: !mode.eligible
+        })
+      };
+    });
+
+    expect(state.actualIntersectionDetected).toBe(false);
+    expect(state.softIntersectionBufferDetected).toBe(true);
+    expect(state.eligible).toBe(true);
+    expect(state.rejectReason).toBe('intersection-buffer-soft');
+  });
+
+  test('slitBody low-overlap は escape で slit-body-soft 扱いになる', async ({ page }) => {
+    await bootstrap(page);
+    const state = await page.evaluate(() => {
+      const blockedStats = {
+        strictOverlapRatio: 0.19,
+        nearBlockedRatio: 0.17,
+        slitBodyOverlapRatio: 0.19,
+        slitCapOverlapRatio: 0,
+        slitNearRatio: 0.10,
+        coreIntersectionDetected: false,
+        intersectionBufferDetected: false,
+        intersectionBufferOverlapRatio: 0,
+        legacyBroadIntersectionDetected: false,
+        carveOutAdjustedIntersectionDetected: false,
+        candidateSide: 'right'
+      };
+      const mode = _assessEscapeNearPenaltyMode(blockedStats, 0.03, { mode: 'escape', side: 'right' });
+      return {
+        actualIntersectionDetected: mode.actualIntersectionDetected,
+        softSlitBodyIntersectionDetected: mode.softSlitBodyIntersectionDetected,
+        eligible: mode.eligible,
+        rejectReason: _escapeRejectReason(mode, {
+          actualIntersectionDetected: mode.actualIntersectionDetected,
+          overlapHard: false,
+          strictThresholdExceeded: mode.strictThresholdExceeded,
+          nearOnlyReject: !mode.eligible
+        })
+      };
+    });
+
+    expect(state.actualIntersectionDetected).toBe(false);
+    expect(state.softSlitBodyIntersectionDetected).toBe(true);
+    expect(state.eligible).toBe(true);
+    expect(state.rejectReason).toBe('slit-body-soft');
+  });
+
+  test('slitLineCross は従来通り hard reject', async ({ page }) => {
+    await bootstrap(page);
+    const state = await page.evaluate(() => {
+      const blockedStats = {
+        strictOverlapRatio: 0.18,
+        nearBlockedRatio: 0.16,
+        slitBodyOverlapRatio: 0.10,
+        slitCapOverlapRatio: 0,
+        slitNearRatio: 0.12,
+        coreIntersectionDetected: false,
+        intersectionBufferDetected: false,
+        intersectionBufferOverlapRatio: 0,
+        legacyBroadIntersectionDetected: false,
+        carveOutAdjustedIntersectionDetected: false,
+        candidateSide: 'left'
+      };
+      const mode = _assessEscapeNearPenaltyMode(blockedStats, 0.12, { mode: 'escape', side: 'left' });
+      return {
+        actualIntersectionDetected: mode.actualIntersectionDetected,
+        rejectReason: _escapeRejectReason(mode, {
+          actualIntersectionDetected: mode.actualIntersectionDetected,
+          overlapHard: false,
+          strictThresholdExceeded: mode.strictThresholdExceeded,
+          nearOnlyReject: !mode.eligible
+        })
+      };
+    });
+
+    expect(state.actualIntersectionDetected).toBe(true);
+    expect(state.rejectReason).toBe('slit-line-cross');
+  });
+
+  test('back-right / back-left は right / left より intersection buffer に寛容', async ({ page }) => {
+    await bootstrap(page);
+    const state = await page.evaluate(() => {
+      const stats = {
+        strictOverlapRatio: 0.24,
+        nearBlockedRatio: 0.20,
+        slitBodyOverlapRatio: 0.04,
+        slitCapOverlapRatio: 0,
+        slitNearRatio: 0.11,
+        coreIntersectionDetected: false,
+        intersectionBufferDetected: true,
+        intersectionBufferOverlapRatio: 0.19,
+        legacyBroadIntersectionDetected: false,
+        carveOutAdjustedIntersectionDetected: false
+      };
+      const right = _assessEscapeNearPenaltyMode({ ...stats, candidateSide: 'right' }, 0.04, { mode: 'escape', side: 'right' });
+      const backRight = _assessEscapeNearPenaltyMode({ ...stats, candidateSide: 'back-right' }, 0.04, { mode: 'escape', side: 'back-right' });
+      return {
+        rightActual: right.actualIntersectionDetected,
+        backRightActual: backRight.actualIntersectionDetected,
+        rightSoft: right.softIntersectionBufferDetected,
+        backRightSoft: backRight.softIntersectionBufferDetected
+      };
+    });
+
+    expect(state.rightActual).toBe(true);
+    expect(state.backRightActual).toBe(false);
+    expect(state.backRightSoft).toBe(true);
+  });
+
+  test('failure distribution 用の新 reject reason を区別できる', async ({ page }) => {
+    await bootstrap(page);
+    const state = await page.evaluate(() => {
+      const reasons = {};
+      _incrementReasonCounter(reasons, _escapeRejectReason({
+        slitLineCrossDetected: false,
+        slitBodyHard: true,
+        softSlitBodyIntersectionDetected: false,
+        softIntersectionBufferDetected: false
+      }, {}));
+      _incrementReasonCounter(reasons, _escapeRejectReason({
+        slitLineCrossDetected: false,
+        slitBodyHard: false,
+        softSlitBodyIntersectionDetected: true,
+        softIntersectionBufferDetected: false
+      }, {}));
+      _incrementReasonCounter(reasons, _escapeRejectReason({
+        slitLineCrossDetected: false,
+        slitBodyHard: false,
+        softSlitBodyIntersectionDetected: false,
+        softIntersectionBufferDetected: true
+      }, {}));
+      return reasons;
+    });
+
+    expect(state['slit-body-hard']).toBe(1);
+    expect(state['slit-body-soft']).toBe(1);
+    expect(state['intersection-buffer-soft']).toBe(1);
   });
 
   // ── 表示パイプライン ────────────────────────────────────────────────────
@@ -1676,5 +1908,487 @@ test.describe('block ahead reroute regression', () => {
     expect(result.safe).toBe(true);
     expect(result.rejectReason).toBeNull();
     expect(result.dangerousCount).toBe(0);
+  });
+
+  test('歩行危険横断の context unavailable は unknown として fail-open を明示する', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(async () => {
+      const originalFetchContext = _fetchPedestrianSafetyContextForBBox;
+      _fetchPedestrianSafetyContextForBBox = async () => ({
+        status: 'unavailable',
+        context: null,
+        source: 'compact-cache',
+        bbox: { minLat: 35, minLng: 139, maxLat: 35.01, maxLng: 139.01, south: 35, west: 139, north: 35.01, east: 139.01 },
+        fetchedAt: Date.now(),
+        failure: {
+          kind: 'timeout',
+          message: 'pedestrian context fetch timed out after 800ms',
+          aborted: true,
+          abortSource: 'timeout',
+          detail: 'core-fetch-timeout'
+        }
+      });
+      const seqContext = {
+        seq: 12,
+        bbox: { minLat: 35, minLng: 139, maxLat: 35.01, maxLng: 139.01, south: 35, west: 139, north: 35.01, east: 139.01 },
+        status: 'pending',
+        context: null,
+        fetchedAt: 0,
+        source: 'compact-cache',
+        fetchPhase: 'core',
+        expanded: false,
+        seedPoints: [],
+        failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+      };
+      const safety = await _evaluatePedestrianRouteSafety({
+        coordinates: [
+          { lat: 35.0005, lng: 138.9997 },
+          { lat: 35.0005, lng: 139.0003 }
+        ]
+      }, seqContext, 'final:test');
+      _fetchPedestrianSafetyContextForBBox = originalFetchContext;
+      return {
+        status: safety.status,
+        safe: safety.safe,
+        contextUnavailable: safety.contextUnavailable,
+        failOpenApplied: safety.failOpenApplied,
+        rejectReason: safety.rejectReason,
+        contextSource: safety.contextSource,
+        contextFailureKind: safety.contextFailureKind,
+        contextFailureDetail: safety.contextFailureDetail,
+        contextSeq: safety.contextSeq
+      };
+    });
+
+    expect(result.status).toBe('unknown');
+    expect(result.safe).toBe(false);
+    expect(result.contextUnavailable).toBe(true);
+    expect(result.failOpenApplied).toBe(true);
+    expect(result.rejectReason).toBeNull();
+    expect(result.contextSource).toBe('compact-cache');
+    expect(result.contextFailureKind).toBe('timeout');
+    expect(result.contextFailureDetail).toBe('core-fetch-timeout');
+    expect(result.contextSeq).toBe(12);
+  });
+
+  test('同一 seq 内では pedestrian context fetch を 1 回だけ再利用する', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(async () => {
+      let fetchCount = 0;
+      const originalFetchContext = _fetchPedestrianSafetyContextForBBox;
+      _fetchPedestrianSafetyContextForBBox = async (bbox) => {
+        fetchCount += 1;
+        return {
+          status: 'ready',
+          context: {
+            roads: [
+              {
+                id: 1,
+                tags: { highway: 'residential' },
+                coordinates: [
+                  { lat: 35.0, lng: 139.0 },
+                  { lat: 35.001, lng: 139.001 }
+                ]
+              }
+            ],
+            crosswalks: []
+          },
+          source: 'compact-cache',
+          bbox,
+          fetchedAt: Date.now(),
+          failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+        };
+      };
+      const seqContext = {
+        seq: 77,
+        bbox: { minLat: 34.999, minLng: 138.999, maxLat: 35.01, maxLng: 139.01, south: 34.999, west: 138.999, north: 35.01, east: 139.01 },
+        status: 'pending',
+        context: null,
+        fetchedAt: 0,
+        source: 'compact-cache',
+        fetchPhase: 'core',
+        expanded: false,
+        seedPoints: [],
+        failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+      };
+      const candidate = await _evaluatePedestrianRouteSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0005, lng: 139.0005 }
+        ]
+      }, seqContext, 'stage1-candidate');
+      const final = await _evaluatePedestrianRouteSafety({
+        coordinates: [
+          { lat: 35.0001, lng: 139.0001 },
+          { lat: 35.0006, lng: 139.0006 }
+        ]
+      }, seqContext, 'final:escape');
+      _fetchPedestrianSafetyContextForBBox = originalFetchContext;
+      return {
+        fetchCount,
+        candidateSource: candidate.contextSource,
+        finalSource: final.contextSource,
+        candidateSeq: candidate.contextSeq,
+        finalSeq: final.contextSeq
+      };
+    });
+
+    expect(result.fetchCount).toBe(1);
+    expect(result.candidateSource).toBe('compact-cache');
+    expect(result.finalSource).toBe('compact-cache');
+    expect(result.candidateSeq).toBe(77);
+    expect(result.finalSeq).toBe(77);
+  });
+
+  test('pedestrian context failure は fetch-error と aborted を区別する', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      return {
+        fetchError: _classifyPedestrianContextFailure(null, {
+          status: 502,
+          message: 'pedestrian context fetch failed with HTTP 502'
+        }),
+        aborted: _classifyPedestrianContextFailure({ name: 'AbortError', message: 'signal is aborted without reason' }, {
+          aborted: true,
+          abortSource: 'superseded-request'
+        })
+      };
+    });
+
+    expect(result.fetchError.kind).toBe('fetch-error');
+    expect(result.fetchError.aborted).toBe(false);
+    expect(result.aborted.kind).toBe('aborted');
+    expect(result.aborted.aborted).toBe(true);
+    expect(result.aborted.abortSource).toBe('superseded-request');
+    expect(result.aborted.detail).toBe('seq-replaced');
+  });
+
+  test('candidate と final adopt は同じ cached context を再利用する', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(async () => {
+      let fetchCount = 0;
+      const originalFetchContext = _fetchPedestrianSafetyContextForBBox;
+      _fetchPedestrianSafetyContextForBBox = async (bbox) => {
+        fetchCount += 1;
+        return {
+          status: 'ready',
+          context: {
+            roads: [
+              {
+                id: 1,
+                tags: { highway: 'secondary' },
+                coordinates: [
+                  { lat: 35.0, lng: 139.0 },
+                  { lat: 35.001, lng: 139.0 }
+                ]
+              }
+            ],
+            crosswalks: []
+          },
+          source: 'compact-cache',
+          bbox,
+          fetchedAt: Date.now(),
+          failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+        };
+      };
+      const seqContext = {
+        seq: 91,
+        bbox: { minLat: 34.999, minLng: 138.999, maxLat: 35.01, maxLng: 139.01, south: 34.999, west: 138.999, north: 35.01, east: 139.01 },
+        status: 'pending',
+        context: null,
+        fetchedAt: 0,
+        source: 'compact-cache',
+        fetchPhase: 'core',
+        expanded: false,
+        seedPoints: [],
+        failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+      };
+      await _evaluatePedestrianRouteSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0004, lng: 139.0002 }
+        ]
+      }, seqContext, 'escape:left-60');
+      const final = await _evaluatePedestrianRouteSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0005, lng: 139.0003 }
+        ]
+      }, seqContext, 'final:escape');
+      _fetchPedestrianSafetyContextForBBox = originalFetchContext;
+      return {
+        fetchCount,
+        finalSource: final.contextSource,
+        finalSeq: final.contextSeq
+      };
+    });
+
+    expect(result.fetchCount).toBe(1);
+    expect(result.finalSource).toBe('compact-cache');
+    expect(result.finalSeq).toBe(91);
+  });
+
+  test('compact bbox で足りる場合は expanded fetch しない', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(async () => {
+      let expandedCalls = 0;
+      const originalExpand = _expandPedestrianSafetyContextBBoxIfNeeded;
+      _expandPedestrianSafetyContextBBoxIfNeeded = async (seqContext, route, options) => {
+        const coords = Array.isArray(route?.coordinates) ? route.coordinates : [];
+        const needsExpansion = coords.some(point => !_boundsContainsPoint(seqContext.bbox, point));
+        if (needsExpansion) expandedCalls += 1;
+        return originalExpand(seqContext, route, options);
+      };
+      const originalFetchContext = _fetchPedestrianSafetyContextForBBox;
+      _fetchPedestrianSafetyContextForBBox = async (bbox, options) => ({
+        status: 'ready',
+        context: { roads: [{ id: 1, tags: { highway: 'primary' }, coordinates: [{ lat: 35, lng: 139 }, { lat: 35.001, lng: 139.001 }] }], crosswalks: [] },
+        source: options?.sourceLabel || 'compact-cache',
+        bbox,
+        fetchedAt: Date.now(),
+        failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+      });
+      const seqContext = {
+        seq: 101,
+        bbox: { minLat: 34.999, minLng: 138.999, maxLat: 35.01, maxLng: 139.01, south: 34.999, west: 138.999, north: 35.01, east: 139.01 },
+        status: 'pending',
+        context: null,
+        fetchedAt: 0,
+        source: 'compact-cache',
+        fetchPhase: 'core',
+        expanded: false,
+        seedPoints: [],
+        failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+      };
+      const safety = await _evaluatePedestrianRouteSafety({
+        coordinates: [
+          { lat: 35.0002, lng: 139.0002 },
+          { lat: 35.0007, lng: 139.0007 }
+        ]
+      }, seqContext, 'stage1-candidate');
+      _expandPedestrianSafetyContextBBoxIfNeeded = originalExpand;
+      _fetchPedestrianSafetyContextForBBox = originalFetchContext;
+      return { expandedCalls, source: safety.contextSource };
+    });
+
+    expect(result.expandedCalls).toBe(0);
+    expect(result.source).toBe('compact-cache');
+  });
+
+  test('bbox 外候補が出たときだけ expanded-cache を 1 回使う', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(async () => {
+      let fetchSources = [];
+      const originalFetchContext = _fetchPedestrianSafetyContextForBBox;
+      _fetchPedestrianSafetyContextForBBox = async (bbox, options) => {
+        fetchSources.push(options?.sourceLabel || 'compact-cache');
+        return {
+          status: 'ready',
+          context: { roads: [{ id: fetchSources.length, tags: { highway: 'secondary' }, coordinates: [{ lat: 35, lng: 139 }, { lat: 35.01, lng: 139.01 }] }], crosswalks: [] },
+          source: options?.sourceLabel || 'compact-cache',
+          bbox,
+          fetchedAt: Date.now(),
+          failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+        };
+      };
+      const seqContext = {
+        seq: 102,
+        bbox: { minLat: 35.0000, minLng: 139.0000, maxLat: 35.0004, maxLng: 139.0004, south: 35.0000, west: 139.0000, north: 35.0004, east: 139.0004 },
+        status: 'pending',
+        context: null,
+        fetchedAt: 0,
+        source: 'compact-cache',
+        fetchPhase: 'core',
+        expanded: false,
+        seedPoints: [{ lat: 35.0, lng: 139.0 }],
+        failure: { kind: 'none', message: '', aborted: false, abortSource: 'none', detail: 'none' }
+      };
+      const safety = await _evaluatePedestrianRouteSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0020, lng: 139.0020 }
+        ]
+      }, seqContext, 'escape:far');
+      _fetchPedestrianSafetyContextForBBox = originalFetchContext;
+      return { fetchSources, source: safety.contextSource, expanded: seqContext.expanded };
+    });
+
+    expect(result.fetchSources).toEqual(['compact-cache', 'expanded-cache']);
+    expect(result.source).toBe('expanded-cache');
+    expect(result.expanded).toBe(true);
+  });
+
+  test('timeout failure cache TTL は success cache より短い', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      const timeoutRecord = { status: 'unavailable', failure: { kind: 'timeout' } };
+      const successRecord = { status: 'ready', failure: { kind: 'none' } };
+      return {
+        timeoutTtl: _pedestrianSafetyCacheEntryTtl(timeoutRecord),
+        successTtl: _pedestrianSafetyCacheEntryTtl(successRecord)
+      };
+    });
+
+    expect(result.timeoutTtl).toBeLessThan(result.successTtl);
+  });
+
+  test('unknown pedestrian safety でも明らかな長い横断ショートカットは conservative reject する', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      return _evaluateConservativeUnknownPedestrianSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0000, lng: 139.0002 },
+          { lat: 35.0005, lng: 139.0002 },
+          { lat: 35.0005, lng: 139.0008 },
+          { lat: 35.0010, lng: 139.0008 }
+        ],
+        totalDistance: 140
+      }, { phase: 'test-unknown', mode: 'stage-candidate', side: 'right' });
+    });
+
+    expect(result.conservativeRejectEvaluated).toBe(true);
+    expect(result.conservativeRejectApplied).toBe(true);
+    expect(result.conservativeDecision).toBe('hard-reject');
+    expect(result.conservativeRejectReason).toMatch(/hard$/);
+  });
+
+  test('unknown pedestrian safety でも通常の短い進行は conservative reject しない', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      return _evaluateConservativeUnknownPedestrianSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0001, lng: 139.0000 },
+          { lat: 35.0002, lng: 139.0000 },
+          { lat: 35.0003, lng: 139.0000 }
+        ],
+        totalDistance: 36
+      }, { phase: 'test-unknown-safe', mode: 'escape', side: 'back-right', nearPenaltyMode: { eligible: true } });
+    });
+
+    expect(result.conservativeRejectEvaluated).toBe(true);
+    expect(result.conservativeRejectApplied).toBe(false);
+    expect(result.conservativeDecision).toBe('pass');
+    expect(result.conservativeRejectReason).toBeTruthy();
+  });
+
+  test('unknown + back-right rescue detour + side-road continuation は hard reject しない', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      return _evaluateConservativeUnknownPedestrianSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0000, lng: 139.00015 },
+          { lat: 35.00042, lng: 139.00015 },
+          { lat: 35.00055, lng: 139.00015 },
+          { lat: 35.00068, lng: 139.00015 }
+        ],
+        totalDistance: 82
+      }, {
+        phase: 'escape:back-right-60',
+        mode: 'escape',
+        side: 'back-right',
+        nearPenaltyMode: { eligible: true },
+        hardIntersectionDetected: false,
+        actualIntersectionDetected: false
+      });
+    });
+
+    expect(result.conservativeRejectApplied).toBe(false);
+    expect(result.conservativeDecision).toBe('soft-risk');
+    expect(result.conservativeRejectReason).toMatch(/soft|side-road/);
+    expect(result.conservativePenalty).toBeGreaterThan(0);
+  });
+
+  test('unknown + long-detour + low-overlap + nearPenaltyMode=true は soft-risk 扱い', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      return _evaluateConservativeUnknownPedestrianSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0000, lng: 139.00015 },
+          { lat: 35.00042, lng: 139.00015 },
+          { lat: 35.00055, lng: 139.00015 },
+          { lat: 35.00068, lng: 139.00015 }
+        ],
+        totalDistance: 82
+      }, {
+        phase: 'long-detour:back-left-120',
+        mode: 'long-detour',
+        side: 'back-left',
+        nearPenaltyMode: { eligible: true },
+        hardIntersectionDetected: false,
+        actualIntersectionDetected: false
+      });
+    });
+
+    expect(result.conservativeDecision).toBe('soft-risk');
+    expect(result.conservativeRejectApplied).toBe(false);
+    expect(result.conservativePenalty).toBeGreaterThan(0);
+  });
+
+  test('unknown + diagonal shortcut は hard reject', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      return _evaluateConservativeUnknownPedestrianSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0000, lng: 139.00015 },
+          { lat: 35.00042, lng: 139.00015 },
+          { lat: 35.00042, lng: 139.00030 }
+        ],
+        totalDistance: 85
+      }, {
+        phase: 'test-diagonal',
+        mode: 'stage-candidate',
+        side: 'right'
+      });
+    });
+
+    expect(result.conservativeDecision).toBe('hard-reject');
+    expect(result.conservativeRejectReason).toBe('diagonal-mainline-shortcut-hard');
+  });
+
+  test('unknown + final adopt に conservativeDecision / reason が残る', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      return _evaluateConservativeUnknownPedestrianSafety({
+        coordinates: [
+          { lat: 35.0000, lng: 139.0000 },
+          { lat: 35.0000, lng: 139.00015 },
+          { lat: 35.00042, lng: 139.00015 },
+          { lat: 35.00055, lng: 139.00015 }
+        ],
+        totalDistance: 76
+      }, {
+        phase: 'final:escape',
+        mode: 'final',
+        side: 'back-right',
+        nearPenaltyMode: { eligible: true },
+        hardIntersectionDetected: false,
+        actualIntersectionDetected: false
+      });
+    });
+
+    expect(result.conservativeDecision).toBeTruthy();
+    expect(result.conservativeRejectReason).toBeTruthy();
+  });
+
+  test('failure distribution 用に hard / soft reason を区別できる', async ({ page }) => {
+    await bootstrap(page);
+    const result = await page.evaluate(() => {
+      _blockAheadPerfMetrics = { rejectReasons: {} };
+      _recordBlockAheadRejectReason('dangerous-crossing-unknown-hard');
+      _recordBlockAheadRejectReason('long-crossing-segment-hard');
+      _recordBlockAheadRejectReason('dangerous-crossing-unknown-soft');
+      _recordBlockAheadRejectReason('long-crossing-segment-soft');
+      return { ..._blockAheadPerfMetrics.rejectReasons };
+    });
+
+    expect(result['dangerous-crossing-unknown-hard']).toBe(1);
+    expect(result['long-crossing-segment-hard']).toBe(1);
+    expect(result['dangerous-crossing-unknown-soft']).toBe(1);
+    expect(result['long-crossing-segment-soft']).toBe(1);
   });
 });

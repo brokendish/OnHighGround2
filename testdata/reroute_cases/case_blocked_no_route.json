@@ -1,0 +1,25 @@
+{
+  "name": "case_blocked_no_route",
+  "profile": "walking",
+  "currentLocation": { "lat": 35.0001, "lng": 139.0 },
+  "destination": { "lat": 35.004, "lng": 139.0 },
+  "blockedSegment": {
+    "start": { "lat": 35.00055, "lng": 139.0 },
+    "end": { "lat": 35.00095, "lng": 139.0 }
+  },
+  "routeGeometry": [
+    [139.0, 35.0001],
+    [139.0, 35.0020],
+    [139.0, 35.0040]
+  ],
+  "fixtures": {
+    "osrmAlternatives": "case_blocked_no_route.osrm.alternatives.json",
+    "osrmNearest": "case_blocked_no_route.osrm.nearest.json",
+    "osrmEscape": "case_blocked_no_route.osrm.escape.json",
+    "pedestrianContext": "case_blocked_no_route.overpass.context.json"
+  },
+  "expectations": {
+    "mustFindRoute": false,
+    "mustAvoidBlockedArea": true
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "status": "ready",
+  "source": "fresh",
+  "context": {
+    "roads": [
+      {
+        "id": 1,
+        "tags": { "highway": "residential" },
+        "coordinates": [
+          { "lat": 35.0100, "lng": 139.0100 },
+          { "lat": 35.0110, "lng": 139.0100 }
+        ]
+      }
+    ],
+    "crosswalks": []
+  },
+  "failure": { "kind": "none", "detail": "none", "message": "", "aborted": false }
+}

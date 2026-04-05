@@ -1,0 +1,33 @@
+{
+  "escapeLegPoints": [],
+  "escapePoints": [
+    {
+      "label": "back-right-120-deep-90",
+      "side": "back-right",
+      "point": { "lat": 35.00055, "lng": 139.00015 },
+      "distanceTierM": 120,
+      "depthKind": "deeper-90",
+      "nodeType": "side-road",
+      "nodeScore": 220,
+      "blockedDistanceM": 90
+    }
+  ],
+  "longDetourPoints": [],
+  "routes": {
+    "escape:back-right-120-deep-90": {
+      "coordinates": [
+        { "lat": 35.0000, "lng": 139.0000 },
+        { "lat": 35.0000, "lng": 139.0045 },
+        { "lat": 35.0032, "lng": 139.0045 },
+        { "lat": 35.0040, "lng": 139.0000 }
+      ],
+      "summary": { "totalDistance": 510, "totalTime": 440 },
+      "instructions": [
+        { "text": "脇道へ進む", "distance": 120, "latLng": { "lat": 35.0000, "lng": 139.0045 } }
+      ],
+      "totalDistance": 510,
+      "totalTime": 440,
+      "turnCount": 2
+    }
+  }
+}
