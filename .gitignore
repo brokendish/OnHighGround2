@@ -86,3 +86,8 @@ OnHighGround2_presentation.pptx
 node_modules/
 playwright-report/
 test-results/
+
+# ---- Reroute harness generated artifacts ----
+artifacts/reroute_harness_summary.json
+artifacts/reroute_harness_run_summary.json
+artifacts/reroute_snap_empty_breakdown.json
