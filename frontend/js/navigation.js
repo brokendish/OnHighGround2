@@ -245,10 +245,219 @@ function _setBlockAheadDebugSummary(summary) {
     }
 }
 
+function _createSnapDebugBucket() {
+    return {
+        rawCandidateCount: 0,
+        nearestAttemptCount: 0,
+        nearestSuccessCount: 0,
+        nearestNullCount: 0,
+        rejectSameCorridorCount: 0,
+        rejectInsideBlockedAreaCount: 0,
+        rejectTooFarFromCandidateCount: 0,
+        rejectLowCorridorScoreCount: 0,
+        rejectDuplicateSnapCount: 0,
+        rejectInvalidBearingCount: 0,
+        rejectNodeBuildFailureCount: 0,
+        usableSnappedCount: 0,
+        usableRouteCandidateCount: 0
+    };
+}
+
+function _createSnapDebugCollector() {
+    return {
+        events: [],
+        modeStats: {},
+        sideStats: {},
+        tierStats: {},
+        depthStats: {},
+        snapEmptyFailureMode: null,
+        snapEmptyPrimaryReason: 'none',
+        snapEmptyReasonBreakdown: {}
+    };
+}
+
+function _normalizeSnapDebugKey(value, fallback = 'unknown') {
+    if (value === null || typeof value === 'undefined' || value === '') return fallback;
+    return String(value);
+}
+
+function _ensureSnapDebugBucket(target, key) {
+    if (!target[key]) target[key] = _createSnapDebugBucket();
+    return target[key];
+}
+
+function _applySnapDebugCounter(target, key, counterName, amount = 1) {
+    const bucket = _ensureSnapDebugBucket(target, key);
+    bucket[counterName] = Number(bucket[counterName] || 0) + amount;
+}
+
+function _recordSnapDebugCounters(event = {}, counterName, amount = 1) {
+    const collector = _blockAheadPerfMetrics?.snapDebugCollector;
+    if (!collector || !counterName) return;
+    const modeKey = _normalizeSnapDebugKey(event.mode, 'unknown');
+    _applySnapDebugCounter(collector.modeStats, modeKey, counterName, amount);
+    if (event.side) _applySnapDebugCounter(collector.sideStats, _normalizeSnapDebugKey(event.side), counterName, amount);
+    if (Number.isFinite(Number(event.tier))) _applySnapDebugCounter(collector.tierStats, _normalizeSnapDebugKey(Number(event.tier)), counterName, amount);
+    if (event.depth) _applySnapDebugCounter(collector.depthStats, _normalizeSnapDebugKey(event.depth), counterName, amount);
+}
+
+function _recordSnapDebugEvent(event = {}) {
+    const collector = _blockAheadPerfMetrics?.snapDebugCollector;
+    if (!collector) return;
+    const normalized = {
+        mode: _normalizeSnapDebugKey(event.mode),
+        side: event.side ? _normalizeSnapDebugKey(event.side) : null,
+        tier: Number.isFinite(Number(event.tier)) ? Number(event.tier) : null,
+        depth: event.depth ? _normalizeSnapDebugKey(event.depth, 'entrance') : null,
+        candidateId: event.candidateId || null,
+        rawPoint: event.rawPoint || null,
+        snappedPoint: event.snappedPoint || null,
+        nearestRequested: !!event.nearestRequested,
+        nearestReturned: !!event.nearestReturned,
+        snapDistanceM: Number.isFinite(Number(event.snapDistanceM)) ? Number(event.snapDistanceM) : null,
+        corridorDistanceM: Number.isFinite(Number(event.corridorDistanceM)) ? Number(event.corridorDistanceM) : null,
+        blockedDistanceM: Number.isFinite(Number(event.blockedDistanceM)) ? Number(event.blockedDistanceM) : null,
+        nodeScore: Number.isFinite(Number(event.nodeScore)) ? Number(event.nodeScore) : null,
+        usable: !!event.usable,
+        rejectedReason: event.rejectedReason || null,
+        detail: event.detail || null
+    };
+    collector.events.push(normalized);
+    if (collector.events.length > 400) {
+        collector.events = collector.events.slice(-400);
+    }
+
+    if (event.type === 'raw-candidate') {
+        _recordSnapDebugCounters(normalized, 'rawCandidateCount');
+        return;
+    }
+    if (event.type === 'nearest-attempt') {
+        _recordSnapDebugCounters(normalized, 'nearestAttemptCount');
+        return;
+    }
+    if (event.type === 'nearest-success') {
+        _recordSnapDebugCounters(normalized, 'nearestSuccessCount');
+        return;
+    }
+    if (event.type === 'nearest-null') {
+        _recordSnapDebugCounters(normalized, 'nearestNullCount');
+        return;
+    }
+    if (event.type === 'usable-snapped') {
+        _recordSnapDebugCounters(normalized, 'usableSnappedCount');
+        return;
+    }
+    if (event.type === 'usable-route-candidate') {
+        _recordSnapDebugCounters(normalized, 'usableRouteCandidateCount');
+        return;
+    }
+    if (event.type === 'reject') {
+        const counterByReason = {
+            'same-corridor': 'rejectSameCorridorCount',
+            'inside-blocked-area': 'rejectInsideBlockedAreaCount',
+            'too-far-from-candidate': 'rejectTooFarFromCandidateCount',
+            'low-corridor-score': 'rejectLowCorridorScoreCount',
+            'duplicate-snap': 'rejectDuplicateSnapCount',
+            'invalid-bearing': 'rejectInvalidBearingCount',
+            'node-build-failure': 'rejectNodeBuildFailureCount'
+        };
+        const counterName = counterByReason[event.rejectedReason];
+        if (counterName) _recordSnapDebugCounters(normalized, counterName);
+    }
+}
+
+function _deriveSnapEmptyPrimaryReason(modeStats = {}) {
+    const stats = modeStats || {};
+    const candidates = [
+        ['nearest-null', Number(stats.nearestNullCount || 0)],
+        ['same-corridor', Number(stats.rejectSameCorridorCount || 0)],
+        ['inside-blocked-area', Number(stats.rejectInsideBlockedAreaCount || 0)],
+        ['too-far-from-candidate', Number(stats.rejectTooFarFromCandidateCount || 0)],
+        ['low-corridor-score', Number(stats.rejectLowCorridorScoreCount || 0)],
+        ['duplicate-snap', Number(stats.rejectDuplicateSnapCount || 0)],
+        ['invalid-bearing', Number(stats.rejectInvalidBearingCount || 0)],
+        ['node-build-failure', Number(stats.rejectNodeBuildFailureCount || 0)]
+    ];
+    const noUsableNodeCount = Number(stats.nearestSuccessCount || 0) > 0 && Number(stats.usableRouteCandidateCount || 0) === 0
+        ? Math.max(1, Number(stats.usableSnappedCount || 0), Number(stats.nearestSuccessCount || 0) - Number(stats.usableRouteCandidateCount || 0))
+        : 0;
+    candidates.push(['no-usable-node', noUsableNodeCount]);
+    candidates.sort((a, b) => b[1] - a[1]);
+    return candidates[0]?.[1] > 0 ? candidates[0][0] : 'none';
+}
+
+function _buildSnapEmptyReasonBreakdown(modeStats = {}) {
+    const stats = modeStats || {};
+    return {
+        'nearest-null': Number(stats.nearestNullCount || 0),
+        'same-corridor': Number(stats.rejectSameCorridorCount || 0),
+        'inside-blocked-area': Number(stats.rejectInsideBlockedAreaCount || 0),
+        'too-far-from-candidate': Number(stats.rejectTooFarFromCandidateCount || 0),
+        'low-corridor-score': Number(stats.rejectLowCorridorScoreCount || 0),
+        'duplicate-snap': Number(stats.rejectDuplicateSnapCount || 0),
+        'invalid-bearing': Number(stats.rejectInvalidBearingCount || 0),
+        'node-build-failure': Number(stats.rejectNodeBuildFailureCount || 0),
+        'no-usable-node': Number(stats.nearestSuccessCount || 0) > 0 && Number(stats.usableRouteCandidateCount || 0) === 0
+            ? Math.max(1, Number(stats.usableSnappedCount || 0), Number(stats.nearestSuccessCount || 0) - Number(stats.usableRouteCandidateCount || 0))
+            : 0
+    };
+}
+
+function _markSnapEmptyFailure(mode) {
+    const collector = _blockAheadPerfMetrics?.snapDebugCollector;
+    if (!collector || !mode) return null;
+    const modeKey = _normalizeSnapDebugKey(mode);
+    const modeStats = collector.modeStats?.[modeKey] || _createSnapDebugBucket();
+    const primaryReason = _deriveSnapEmptyPrimaryReason(modeStats);
+    const breakdown = _buildSnapEmptyReasonBreakdown(modeStats);
+    collector.snapEmptyFailureMode = modeKey;
+    collector.snapEmptyPrimaryReason = primaryReason;
+    collector.snapEmptyReasonBreakdown = breakdown;
+    return { mode: modeKey, primaryReason, breakdown };
+}
+
+function _summarizeSnapDebugCollector(collector) {
+    if (!collector) {
+        return {
+            snapDiagnostics: { events: [], modeStats: {}, sideStats: {}, tierStats: {}, depthStats: {}, modePrimaryReasons: {} },
+            snapEmptyPrimaryReason: 'none',
+            snapEmptyReasonBreakdown: {},
+            snapEmptyFailureMode: null
+        };
+    }
+    const modePrimaryReasons = {};
+    Object.entries(collector.modeStats || {}).forEach(([mode, stats]) => {
+        modePrimaryReasons[mode] = _deriveSnapEmptyPrimaryReason(stats);
+    });
+    return {
+        snapDiagnostics: {
+            events: Array.isArray(collector.events) ? collector.events.slice() : [],
+            modeStats: { ...(collector.modeStats || {}) },
+            sideStats: { ...(collector.sideStats || {}) },
+            tierStats: { ...(collector.tierStats || {}) },
+            depthStats: { ...(collector.depthStats || {}) },
+            modePrimaryReasons
+        },
+        snapEmptyPrimaryReason: collector.snapEmptyPrimaryReason || 'none',
+        snapEmptyReasonBreakdown: { ...(collector.snapEmptyReasonBreakdown || {}) },
+        snapEmptyFailureMode: collector.snapEmptyFailureMode || null
+    };
+}
+
 function _buildBlockAheadDebugSummary(summary = {}, extras = {}) {
     const selectedRoute = extras.route || navActiveRoute || null;
     const ped = extras.pedestrianSafety || selectedRoute?.__pedestrianSafety || {};
+    const candidatePed = extras.candidatePedestrianSafety || selectedRoute?.__candidatePedestrianSafety || {};
     const blocked = extras.blockedAreaStats || {};
+    const snapSummary = extras.snapSummary || _summarizeSnapDebugCollector(_blockAheadPerfMetrics?.snapDebugCollector);
+    const stageStats = Array.isArray(_blockAheadPerfMetrics?.stages) ? _blockAheadPerfMetrics.stages : [];
+    const candidateCountByStage = {};
+    const acceptedCountByStage = {};
+    stageStats.forEach(stage => {
+        if (!stage?.key) return;
+        candidateCountByStage[stage.key] = Number(stage.alternatives || 0);
+        acceptedCountByStage[stage.key] = Number(stage.meaningful || stage.nonBlocked || 0);
+    });
     return {
         success: !!summary.accepted,
         status: summary.status || 'unknown',
@@ -266,19 +475,47 @@ function _buildBlockAheadDebugSummary(summary = {}, extras = {}) {
             conservativeReason: ped.conservativeRejectReason || 'none',
             conservativePenalty: Number(ped.conservativePenalty || 0)
         },
+        candidatePedestrianSafety: {
+            status: candidatePed.status || 'unknown',
+            contextUnavailable: !!candidatePed.contextUnavailable,
+            contextSource: candidatePed.contextSource || 'unknown',
+            contextFailureKind: candidatePed.contextFailureKind || 'none',
+            contextFailureDetail: candidatePed.contextFailureDetail || 'none',
+            failOpenApplied: !!candidatePed.failOpenApplied,
+            conservativeDecision: candidatePed.conservativeDecision || 'pass',
+            conservativeReason: candidatePed.conservativeRejectReason || 'none',
+            conservativePenalty: Number(candidatePed.conservativePenalty || 0)
+        },
         blockedAreaStats: {
             overlap: Number(blocked.overlap || 0),
             strict: Number(blocked.strict || 0),
             near: Number(blocked.near || 0),
             hardIntersectionDetected: !!blocked.hardIntersectionDetected,
-            rejectReason: blocked.rejectReason || 'accepted'
+            rejectReason: blocked.rejectReason || 'accepted',
+            mode: blocked.mode || extras.selectedStage || null,
+            side: blocked.side || selectedRoute?.__blockedSide || null,
+            nearPenaltyMode: !!blocked.nearPenaltyMode,
+            acceptedByNearPenaltyMode: !!blocked.acceptedByNearPenaltyMode
         },
         expectationsView: {
             avoidsBlockedArea: Number(blocked.overlap || 0) < BLOCK_OVERLAP_REJECT,
             dangerousCrossingRejected: ped.status === 'unsafe',
             finalConservativeHardReject: ped.conservativeDecision === 'hard-reject'
         },
-        rejectReasonsSummary: { ...((_blockAheadPerfMetrics && _blockAheadPerfMetrics.rejectReasons) || {}) }
+        invariantResults: extras.invariantResults || {},
+        failedInvariantIds: Array.isArray(extras.failedInvariantIds) ? extras.failedInvariantIds : [],
+        candidateCountByStage,
+        acceptedCountByStage,
+        rejectReasonsSummary: { ...((_blockAheadPerfMetrics && _blockAheadPerfMetrics.rejectReasons) || {}) },
+        allAcceptedCandidates: Array.isArray(extras.allAcceptedCandidates) ? extras.allAcceptedCandidates : [],
+        snapDiagnostics: snapSummary.snapDiagnostics,
+        modeStats: snapSummary.snapDiagnostics.modeStats,
+        sideStats: snapSummary.snapDiagnostics.sideStats,
+        tierStats: snapSummary.snapDiagnostics.tierStats,
+        depthStats: snapSummary.snapDiagnostics.depthStats,
+        snapEmptyPrimaryReason: snapSummary.snapEmptyPrimaryReason,
+        snapEmptyReasonBreakdown: snapSummary.snapEmptyReasonBreakdown,
+        snapEmptyFailureMode: snapSummary.snapEmptyFailureMode
     };
 }
 
@@ -1140,7 +1377,15 @@ function _selectBalancedEscapeSpecs(specs, maxPoints) {
 function _buildRawEscapeCandidates(coords, projection, blockedArea, escapeSpecs, logPrefix, maxPoints) {
     const headingTarget = _walkAlongRoute(coords, projection, 20);
     const headingUnit = _headingUnitVectorMeters(projection?.snappedPoint, headingTarget);
-    if (!headingUnit) return [];
+    if (!headingUnit) {
+        _recordSnapDebugEvent({
+            type: 'reject',
+            mode: logPrefix,
+            rejectedReason: 'node-build-failure',
+            detail: 'missing-heading-unit'
+        });
+        return [];
+    }
 
     const balancedSpecs = _selectBalancedEscapeSpecs(escapeSpecs, maxPoints);
     console.log(
@@ -1165,6 +1410,15 @@ function _buildRawEscapeCandidates(coords, projection, blockedArea, escapeSpecs,
         );
         if (!pushed?.point) {
             console.log(`[BlockAhead][${logPrefix}] rejected point ${spec.label}: inside blocked area`);
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: spec.side,
+                tier: spec.lateralM,
+                depth: spec.depthKind || 'entrance',
+                candidateId: spec.label,
+                rejectedReason: 'inside-blocked-area'
+            });
             continue;
         }
         const point = pushed.point;
@@ -1178,7 +1432,28 @@ function _buildRawEscapeCandidates(coords, projection, blockedArea, escapeSpecs,
             && Number(existing.distanceTierM || 0) === Number(spec.lateralM || 0)
             && String(existing.depthKind || 'entrance') === String(spec.depthKind || 'entrance')
             && Number(existing.backwardM || 0) === Number(spec.backwardM || 0)
-        )) continue;
+        )) {
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: spec.side,
+                tier: spec.lateralM,
+                depth: spec.depthKind || 'entrance',
+                candidateId: spec.label,
+                rawPoint: point,
+                rejectedReason: 'duplicate-snap'
+            });
+            continue;
+        }
+        _recordSnapDebugEvent({
+            type: 'raw-candidate',
+            mode: logPrefix,
+            side: spec.side,
+            tier: spec.lateralM,
+            depth: spec.depthKind || 'entrance',
+            candidateId: spec.label,
+            rawPoint: point
+        });
         deduped.push({
             label: spec.label,
             point,
@@ -1186,7 +1461,8 @@ function _buildRawEscapeCandidates(coords, projection, blockedArea, escapeSpecs,
             backwardM: spec.backwardM,
             side: spec.side,
             distanceTierM: spec.lateralM,
-            depthKind: spec.depthKind || 'entrance'
+            depthKind: spec.depthKind || 'entrance',
+            __snapRawRecorded: true
         });
     }
     return deduped;
@@ -1241,12 +1517,58 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
     const depthSteps = Array.isArray(options.depthSteps) && options.depthSteps.length > 0
         ? options.depthSteps
         : BLOCK_ESCAPE_DEEPER_STEPS_M;
+    rawList.forEach(candidate => {
+        if (candidate?.__snapRawRecorded) return;
+        _recordSnapDebugEvent({
+            type: 'raw-candidate',
+            mode: logPrefix,
+            side: candidate.side,
+            tier: candidate.distanceTierM || candidate.lateralM,
+            depth: candidate.depthKind || 'entrance',
+            candidateId: candidate.label,
+            rawPoint: candidate.point
+        });
+    });
     const evaluateCandidate = async (candidate) => {
+        _recordSnapDebugEvent({
+            type: 'nearest-attempt',
+            mode: logPrefix,
+            side: candidate.side,
+            tier: candidate.distanceTierM,
+            depth: candidate.depthKind || 'entrance',
+            candidateId: candidate.label,
+            rawPoint: candidate.point,
+            nearestRequested: true
+        });
         const snappedPoint = await _fetchOsrmNearestNode(candidate.point, `${logPrefix}:${candidate.label}:point`);
         if (!snappedPoint) {
             console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: no-nearest`);
+            _recordSnapDebugEvent({
+                type: 'nearest-null',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.point,
+                nearestRequested: true,
+                rejectedReason: 'nearest-null'
+            });
             return null;
         }
+        _recordSnapDebugEvent({
+            type: 'nearest-success',
+            mode: logPrefix,
+            side: candidate.side,
+            tier: candidate.distanceTierM,
+            depth: candidate.depthKind || 'entrance',
+            candidateId: candidate.label,
+            rawPoint: candidate.point,
+            snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+            snapDistanceM: snappedPoint.distanceM,
+            nearestRequested: true,
+            nearestReturned: true
+        });
         let secondaryHoldWaypoint = null;
         if (candidate.midHoldRawPoint) {
             const snappedMid = await _fetchOsrmNearestNode(candidate.midHoldRawPoint, `${logPrefix}:${candidate.label}:mid-hold`);
@@ -1257,19 +1579,123 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
         const blockedDistance = _distancePointToBlockedArea(snappedPoint, blockedArea, blockedArea?.nearRejectMeters ?? BLOCK_NEAR_REJECT_METERS);
         if (blockedDistance <= 0) {
             console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: snapped inside blocked area`);
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.point,
+                snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+                snapDistanceM: snappedPoint.distanceM,
+                blockedDistanceM: blockedDistance,
+                rejectedReason: 'inside-blocked-area'
+            });
             return null;
         }
         const corridorDistance = _distancePointToRoute(snappedPoint, originalCoords);
         if (corridorDistance < BLOCK_ESCAPE_CORRIDOR_DIFF_M) {
             console.log(`[BlockAhead][${logPrefix}] reject ${candidate.label}: snapped same corridor ${Math.round(corridorDistance)}m`);
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.point,
+                snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+                snapDistanceM: snappedPoint.distanceM,
+                corridorDistanceM: corridorDistance,
+                rejectedReason: 'same-corridor'
+            });
+            return null;
+        }
+        if (Number.isFinite(Number(candidate.maxSnapDistanceM)) && Number(snappedPoint.distanceM || 0) > Number(candidate.maxSnapDistanceM)) {
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.point,
+                snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+                snapDistanceM: snappedPoint.distanceM,
+                rejectedReason: 'too-far-from-candidate'
+            });
             return null;
         }
         const bearingToNode = origin ? _segmentBearingDeg(origin, snappedPoint) : 0;
         const bearingDiff = _bearingDiffDeg(forwardBearing, bearingToNode);
+        if (!Number.isFinite(bearingDiff)) {
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.point,
+                snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+                rejectedReason: 'invalid-bearing'
+            });
+            return null;
+        }
+        if (candidate.forceRejectReason) {
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.point,
+                snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+                snapDistanceM: snappedPoint.distanceM,
+                corridorDistanceM: corridorDistance,
+                blockedDistanceM: blockedDistance,
+                rejectedReason: candidate.forceRejectReason
+            });
+            return null;
+        }
         const nodeType = bearingDiff >= BLOCK_ESCAPE_SIDE_BEARING_DEG ? 'side-road' : 'corridor-like';
         const depthBonus = _escapeDepthRank(candidate.depthKind) * 80;
         const typeBonus = nodeType === 'side-road' ? 120 : 0;
         const score = depthBonus + typeBonus + (corridorDistance * 1.8) + (bearingDiff * 1.2) + ((candidate.lateralM || 0) * 0.2) - (Number(snappedPoint.distanceM || 0) * 0.5);
+        if (Number.isFinite(Number(candidate.minNodeScore)) && score < Number(candidate.minNodeScore)) {
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.point,
+                snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+                snapDistanceM: snappedPoint.distanceM,
+                corridorDistanceM: corridorDistance,
+                nodeScore: score,
+                rejectedReason: 'low-corridor-score'
+            });
+            return null;
+        }
+        _recordSnapDebugEvent({
+            type: 'usable-snapped',
+            mode: logPrefix,
+            side: candidate.side,
+            tier: candidate.distanceTierM,
+            depth: candidate.depthKind || 'entrance',
+            candidateId: candidate.label,
+            rawPoint: candidate.point,
+            snappedPoint: { lat: snappedPoint.lat, lng: snappedPoint.lng },
+            snapDistanceM: snappedPoint.distanceM,
+            corridorDistanceM: corridorDistance,
+            blockedDistanceM: blockedDistance,
+            nodeScore: score,
+            usable: true
+        });
         return {
             ...candidate,
             rawPoint: candidate.point,
@@ -1328,7 +1754,22 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
             && existing.side === candidate.side
             && Number(existing.distanceTierM || 0) === Number(candidate.distanceTierM || 0)
             && String(existing.depthKind || 'entrance') === String(candidate.depthKind || 'entrance')
-        )) continue;
+        )) {
+            _recordSnapDebugEvent({
+                type: 'reject',
+                mode: logPrefix,
+                side: candidate.side,
+                tier: candidate.distanceTierM,
+                depth: candidate.depthKind || 'entrance',
+                candidateId: candidate.label,
+                rawPoint: candidate.rawPoint || candidate.point,
+                snappedPoint: candidate.point,
+                snapDistanceM: candidate.snapDistanceM,
+                corridorDistanceM: candidate.corridorDistanceM,
+                rejectedReason: 'duplicate-snap'
+            });
+            continue;
+        }
         deduped.push(candidate);
     }
     deduped.sort((a, b) => (b.nodeScore - a.nodeScore) || (b.corridorDistanceM - a.corridorDistanceM));
@@ -1346,7 +1787,13 @@ async function _snapEscapeCandidatesToRoadNodes(rawCandidates, blockedArea, orig
 
 async function _generateEscapePoints(coords, projection, blockedArea) {
     const injected = await _callBlockAheadTestDep('generateEscapePoints', coords, projection, blockedArea);
-    if (typeof injected !== 'undefined') return injected;
+    if (typeof injected !== 'undefined') {
+        if (Array.isArray(injected)) return injected;
+        if (injected && Array.isArray(injected.rawCandidates)) {
+            return _snapEscapeCandidatesToRoadNodes(injected.rawCandidates, blockedArea, coords, 'escape', injected.options || {});
+        }
+        return injected;
+    }
     const escapeBlockedArea = _buildEscapeGateBlockedArea(coords, projection, blockedArea, 'escape');
     const escapeSpecs = [
         ...BLOCK_ESCAPE_LATERAL_OFFSETS_M.flatMap(lateralM => ([
@@ -1364,7 +1811,14 @@ async function _generateEscapePoints(coords, projection, blockedArea) {
 
 async function _generateEscapeLegPoints(coords, projection, blockedArea) {
     const injected = await _callBlockAheadTestDep('generateEscapeLegPoints', coords, projection, blockedArea);
-    if (typeof injected !== 'undefined') return injected;
+    if (typeof injected !== 'undefined') {
+        if (Array.isArray(injected)) return injected;
+        if (injected && Array.isArray(injected.rawCandidates)) {
+            const snappedInjected = await _snapEscapeCandidatesToRoadNodes(injected.rawCandidates, blockedArea, coords, 'escape-leg', injected.options || {});
+            return snappedInjected.sort((a, b) => (a.lateralM - b.lateralM) || (b.nodeScore - a.nodeScore));
+        }
+        return injected;
+    }
     const escapeBlockedArea = _buildEscapeGateBlockedArea(coords, projection, blockedArea, 'escape-leg');
     const legSpecs = [
         ...BLOCK_ESCAPE_LEG_LATERAL_OFFSETS_M.flatMap(lateralM => ([
@@ -1383,7 +1837,13 @@ async function _generateEscapeLegPoints(coords, projection, blockedArea) {
 
 async function _generateLongDetourEscapePoints(coords, projection, blockedArea) {
     const injected = await _callBlockAheadTestDep('generateLongDetourEscapePoints', coords, projection, blockedArea);
-    if (typeof injected !== 'undefined') return injected;
+    if (typeof injected !== 'undefined') {
+        if (Array.isArray(injected)) return injected;
+        if (injected && Array.isArray(injected.rawCandidates)) {
+            return _snapEscapeCandidatesToRoadNodes(injected.rawCandidates, blockedArea, coords, 'long-detour', injected.options || {});
+        }
+        return injected;
+    }
     const escapeBlockedArea = _buildEscapeGateBlockedArea(coords, projection, blockedArea, 'long-detour');
     const longLateralOffsets = [...BLOCK_ESCAPE_LATERAL_OFFSETS_M].sort((a, b) => b - a);
     const longBackwardOffsets = [200, 150, 120, 60];
@@ -1405,6 +1865,11 @@ async function _generateLongDetourEscapePoints(coords, projection, blockedArea) 
 
 // 経路座標の中でブロックバッファ（円）内に入っている点の割合を返す
 function _calcBlockOverlapRatio(coords, centerLat, centerLng, radiusM) {
+    const injected = _getBlockAheadTestDeps();
+    if (injected && typeof injected.blockOverlapRatio === 'function') {
+        const mocked = injected.blockOverlapRatio(coords, centerLat, centerLng, radiusM);
+        if (Number.isFinite(Number(mocked))) return Number(mocked);
+    }
     if (!coords || coords.length === 0) return 0;
     let inside = 0;
     for (const c of coords) {
@@ -1623,6 +2088,39 @@ function _pointBlockedAreaComponentDistances(point, blockedArea, extraM = 0) {
 }
 
 function _routeBlockedAreaStats(coords, blockedArea) {
+    const injected = _getBlockAheadTestDeps();
+    if (injected && typeof injected.routeBlockedAreaStats === 'function') {
+        const mocked = injected.routeBlockedAreaStats(coords, blockedArea);
+        if (mocked && typeof mocked === 'object') {
+            return {
+                strictOverlapRatio: 0,
+                nearBlockedRatio: 0,
+                minDistanceToAreaM: Infinity,
+                intersects: false,
+                nearBlocked: false,
+                slitIntersectionDetected: false,
+                slitBodyIntersectionDetected: false,
+                slitCapIntersectionDetected: false,
+                slitNearDetected: false,
+                coreIntersectionDetected: false,
+                intersectionBufferDetected: false,
+                legacyBroadIntersectionDetected: false,
+                carveOutAdjustedIntersectionDetected: false,
+                softIntersectionBufferDetected: false,
+                softSlitBodyIntersectionDetected: false,
+                hardIntersectionDetected: false,
+                effectiveIntersectionBufferRadius: Number(blockedArea?.intersectionRadiusM || blockedArea?.intersectionBufferM || 0),
+                effectiveSlitBodyPolicy: 'default',
+                candidateSide: null,
+                slitBodyOverlapRatio: 0,
+                slitCapOverlapRatio: 0,
+                slitNearRatio: 0,
+                coreOverlapRatio: 0,
+                intersectionBufferOverlapRatio: 0,
+                ...mocked
+            };
+        }
+    }
     const sampled = [];
     const ignoreUntilM = Number(blockedArea?.ignoreUntilM || 0);
     if (!Array.isArray(coords) || coords.length === 0) {
@@ -2441,6 +2939,27 @@ function _evaluatePedestrianRouteAgainstContext(route, context, options = {}) {
 }
 
 async function _evaluatePedestrianRouteSafety(route, cachedContext, contextLabel = 'route', options = {}) {
+    const injected = await _callBlockAheadTestDep('evaluatePedestrianRouteSafety', route, cachedContext, contextLabel, options);
+    if (injected && typeof injected === 'object') {
+        return {
+            status: 'unknown',
+            safe: false,
+            unsafe: false,
+            contextUnavailable: true,
+            failOpenApplied: true,
+            crossings: [],
+            dangerousCrossings: [],
+            rejectReason: null,
+            label: contextLabel,
+            contextSource: cachedContext?.source || 'unknown',
+            contextFailureKind: cachedContext?.failure?.kind || 'none',
+            contextFailureDetail: cachedContext?.failure?.detail || 'none',
+            contextFailureMessage: cachedContext?.failure?.message || '',
+            contextBBox: cachedContext?.bbox || null,
+            contextSeq: cachedContext?.seq || null,
+            ...injected
+        };
+    }
     let seqContext = cachedContext;
     if (!seqContext || typeof seqContext !== 'object' || !('seq' in seqContext || 'status' in seqContext)) {
         seqContext = {
@@ -2533,6 +3052,38 @@ async function _evaluatePedestrianRouteSafety(route, cachedContext, contextLabel
 }
 
 function _evaluateConservativeUnknownPedestrianSafety(route, options = {}) {
+    const injected = _getBlockAheadTestDeps();
+    if (injected && typeof injected.evaluateConservativeUnknownPedestrianSafety === 'function') {
+        const mocked = injected.evaluateConservativeUnknownPedestrianSafety(route, options);
+        if (mocked && typeof mocked === 'object') {
+            return {
+                conservativeRejectEvaluated: true,
+                conservativeRejectApplied: false,
+                conservativeDecision: 'pass',
+                conservativeRejectReason: null,
+                conservativePenalty: 0,
+                suspiciousSegmentIndex: -1,
+                suspiciousSegmentLengthM: 0,
+                phase: options.phase || options.mode || 'candidate',
+                mode: options.mode || options.phase || 'candidate',
+                side: options.side || 'unknown',
+                metrics: {
+                    longestCrossingSegment: 0,
+                    totalCrossingDistance: 0,
+                    crossingSegmentCount: 0,
+                    maxCrossingRoadClass: 'unknown',
+                    wideRoadReturnDetected: false,
+                    diagonalMainlineShortcutDetected: false,
+                    sideRoadContinuationDetected: false,
+                    routeStartsAlongCorridorThenEscapes: false,
+                    routeEndsWithWideRoadReturn: false,
+                    forwardProgressRatio: 0,
+                    candidateBearingVsBlockedBearing: null
+                },
+                ...mocked
+            };
+        }
+    }
     const coords = Array.isArray(route?.coordinates) ? route.coordinates : [];
     const totalDistance = Number(route?.totalDistance || route?.summary?.totalDistance || 0);
     const mode = options.mode || options.phase || 'candidate';
@@ -3646,7 +4197,8 @@ async function blockAheadAndReroute() {
         startedAt: rerouteStartedAt,
         alternativesEvaluated: 0,
         rejectReasons: {},
-        stages: []
+        stages: [],
+        snapDebugCollector: _createSnapDebugCollector()
     };
     // ── ガード ────────────────────────────────────────────────────────────
     if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates)) {
@@ -3990,6 +4542,7 @@ async function blockAheadAndReroute() {
         _clearBlockAheadLayer();
         _updateNavUI();
         _showNavBanner(bannerMsg, bannerType, 5000);
+        _recordBlockAheadRejectReason(reason);
         const totalMs = _perfNowMs() - rerouteStartedAt;
         const summary = {
             status: reason,
@@ -4209,6 +4762,20 @@ async function blockAheadAndReroute() {
                 mergedRoute.__acceptedByHoldWaypointMode = false;
                 mergedRoute.__pedestrianConservativePenalty = Number(conservativeSafety.conservativePenalty || 0);
                 mergedRoute.__pedestrianSafety = { ...pedestrianSafety, ...conservativeSafety };
+                _recordSnapDebugEvent({
+                    type: 'usable-route-candidate',
+                    mode: 'escape-leg',
+                    side: escapeLeg.side,
+                    tier: escapeLeg.distanceTierM || escapeLeg.lateralM,
+                    depth: escapeLeg.depthKind || 'entrance',
+                    candidateId: escapeLeg.label,
+                    rawPoint: escapeLeg.rawPoint || escapeLeg.point,
+                    snappedPoint: escapeLeg.point,
+                    snapDistanceM: escapeLeg.snapDistanceM,
+                    corridorDistanceM: escapeLeg.corridorDistanceM,
+                    nodeScore: escapeLeg.nodeScore,
+                    usable: true
+                });
                 return mergedRoute;
             }));
             const validEscapeLegRoutes = escapeLegResults.filter(Boolean).sort((a, b) => {
@@ -4260,6 +4827,10 @@ async function blockAheadAndReroute() {
             }
         } else {
             _recordBlockAheadRejectReason('escape-leg-snap-empty');
+            const snapFailure = _markSnapEmptyFailure('escape-leg');
+            if (snapFailure?.primaryReason && snapFailure.primaryReason !== 'none') {
+                _recordBlockAheadRejectReason(`escape-leg-snap-empty:${snapFailure.primaryReason}`);
+            }
         }
     }
 
@@ -4405,6 +4976,20 @@ async function blockAheadAndReroute() {
                 route.__acceptedByHoldWaypointMode = useHoldWaypointMode;
                 route.__pedestrianConservativePenalty = Number(conservativeSafety.conservativePenalty || 0);
                 route.__pedestrianSafety = { ...pedestrianSafety, ...conservativeSafety };
+                _recordSnapDebugEvent({
+                    type: 'usable-route-candidate',
+                    mode: 'escape',
+                    side: escape.side,
+                    tier: escape.distanceTierM,
+                    depth: escape.depthKind || 'entrance',
+                    candidateId: escape.label,
+                    rawPoint: escape.rawPoint || escape.point,
+                    snappedPoint: escape.point,
+                    snapDistanceM: escape.snapDistanceM,
+                    corridorDistanceM: escape.corridorDistanceM,
+                    nodeScore: escape.nodeScore,
+                    usable: true
+                });
                 return route;
             }));
             const validEscapeRoutes = escapeResults.filter(Boolean).sort((a, b) => {
@@ -4456,6 +5041,10 @@ async function blockAheadAndReroute() {
             }
         } else {
             _recordBlockAheadRejectReason('escape-snap-empty');
+            const snapFailure = _markSnapEmptyFailure('escape');
+            if (snapFailure?.primaryReason && snapFailure.primaryReason !== 'none') {
+                _recordBlockAheadRejectReason(`escape-snap-empty:${snapFailure.primaryReason}`);
+            }
         }
     }
 
@@ -4609,6 +5198,20 @@ async function blockAheadAndReroute() {
                 route.__destinationNearRelax = destinationNearRelax;
                 route.__pedestrianConservativePenalty = Number(conservativeSafety.conservativePenalty || 0);
                 route.__pedestrianSafety = { ...pedestrianSafety, ...conservativeSafety };
+                _recordSnapDebugEvent({
+                    type: 'usable-route-candidate',
+                    mode: 'long-detour',
+                    side: escape.side,
+                    tier: escape.distanceTierM,
+                    depth: escape.depthKind || 'entrance',
+                    candidateId: escape.label,
+                    rawPoint: escape.rawPoint || escape.point,
+                    snappedPoint: escape.point,
+                    snapDistanceM: escape.snapDistanceM,
+                    corridorDistanceM: escape.corridorDistanceM,
+                    nodeScore: escape.nodeScore,
+                    usable: true
+                });
                 return route;
             }));
             const validLongDetours = longDetourResults.filter(Boolean).sort((a, b) => {
@@ -4657,6 +5260,10 @@ async function blockAheadAndReroute() {
             }
         } else {
             _recordBlockAheadRejectReason('long-detour-snap-empty');
+            const snapFailure = _markSnapEmptyFailure('long-detour');
+            if (snapFailure?.primaryReason && snapFailure.primaryReason !== 'none') {
+                _recordBlockAheadRejectReason(`long-detour-snap-empty:${snapFailure.primaryReason}`);
+            }
         }
     }
 
@@ -4679,6 +5286,7 @@ async function blockAheadAndReroute() {
 
     // ── 最短代替ルートをそのまま最終ルートとして採用 ────────────────────
     const winnerRoute = _normalizeAlternativeRouteShape(meaningful[0]);
+    winnerRoute.__candidatePedestrianSafety = winnerRoute.__pedestrianSafety ? { ...winnerRoute.__pedestrianSafety } : null;
     console.log(`[BlockAhead] winner stage=${selectedStage?.key || 'unknown'} dist=${Math.round(winnerRoute.totalDistance)}m`);
 
     if (_blockAheadSeq !== mySeq) {
@@ -4805,6 +5413,11 @@ async function blockAheadAndReroute() {
     );
     const adoptedRoute = selectedBundle.routes[0];
     adoptedRoute.__pedestrianSafety = { ...finalPedestrianSafety, ...finalConservativeSafety };
+    adoptedRoute.__candidatePedestrianSafety = winnerRoute.__candidatePedestrianSafety ? { ...winnerRoute.__candidatePedestrianSafety } : null;
+    adoptedRoute.__blockedMode = selectedStage?.key || null;
+    adoptedRoute.__blockedSide = finalBlockedStats.candidateSide || null;
+    adoptedRoute.__nearPenaltyMode = !!finalNearPenaltyMode.eligible;
+    adoptedRoute.__acceptedByNearPenaltyMode = !!(finalNearPenaltyMode.eligible && finalBlockedStats.nearBlocked);
     const geometryComparison = {
         selectedToAdopted: _compareRouteGeometries(winnerRoute.coordinates, adoptedRoute.coordinates, 'selected->adopted'),
         selectedToDisplayed: _compareRouteGeometries(winnerRoute.coordinates, selectedBundle.routes[0].coordinates, 'selected->displayed'),
@@ -4889,13 +5502,31 @@ async function blockAheadAndReroute() {
         selectedDistance: adoptedRoute.totalDistance,
         route: adoptedRoute,
         pedestrianSafety: adoptedRoute.__pedestrianSafety,
+        candidatePedestrianSafety: adoptedRoute.__candidatePedestrianSafety,
         blockedAreaStats: {
             overlap: finalOverlap,
             strict: finalBlockedStats.strictOverlapRatio,
             near: finalBlockedStats.nearBlockedRatio,
             hardIntersectionDetected: finalActualIntersectionDetected,
-            rejectReason: finalRejectReason
-        }
+            rejectReason: finalRejectReason,
+            mode: selectedStage?.key || 'stage-unknown',
+            side: finalBlockedStats.candidateSide || null,
+            nearPenaltyMode: !!finalNearPenaltyMode.eligible,
+            acceptedByNearPenaltyMode: !!(finalNearPenaltyMode.eligible && finalBlockedStats.nearBlocked)
+        },
+        allAcceptedCandidates: meaningful.slice(0, 5).map(route => ({
+            stage: selectedStage?.key || 'stage-unknown',
+            nodeId: route.__escapeLabel || null,
+            pedestrianSafety: {
+                status: route.__pedestrianSafety?.status || 'unknown',
+                conservativeDecision: route.__pedestrianSafety?.conservativeDecision || 'pass',
+                conservativeReason: route.__pedestrianSafety?.conservativeRejectReason || 'none',
+                conservativePenalty: Number(route.__pedestrianSafety?.conservativePenalty || 0)
+            },
+            overlap: Number(route.__escapeOverlap ?? route.__overlap ?? finalOverlap ?? 0),
+            strict: Number(route.__escapeStrict ?? route.__blockedStats?.strictOverlapRatio ?? 0),
+            near: Number(route.__escapeNear ?? route.__blockedStats?.nearBlockedRatio ?? 0)
+        }))
     });
     adoptedRoute.__debugSummary = debugSummary;
     _blockAheadLastTiming.debugSummary = debugSummary;

@@ -86,6 +86,28 @@ async function seedNav(page, caseData) {
 async function installFixtureDeps(page, caseData) {
   await page.evaluate(({ fixturesData }) => {
     const clone = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
+    const normalizePedestrianContext = (value) => {
+      if (value && typeof value === 'object' && typeof value.status === 'string' && Object.prototype.hasOwnProperty.call(value, 'context')) {
+        return clone(value);
+      }
+      const context = value && typeof value === 'object' ? value : { roads: [], crosswalks: [] };
+      return {
+        status: 'ready',
+        context: {
+          roads: Array.isArray(context.roads) ? context.roads : [],
+          crosswalks: Array.isArray(context.crosswalks) ? context.crosswalks : []
+        },
+        source: 'fixture-replay',
+        bbox: null,
+        fetchedAt: Date.now(),
+        failure: {
+          kind: 'none',
+          detail: 'none',
+          message: '',
+          aborted: false
+        }
+      };
+    };
     const byStage = fixturesData.osrmAlternatives || {};
     const escape = fixturesData.osrmEscape || {};
     const nearest = fixturesData.osrmNearest || {};
@@ -97,7 +119,7 @@ async function installFixtureDeps(page, caseData) {
       fetchOsrmRoute: async (_waypoints, contextLabel) => clone((escape.routes || {})[contextLabel] || null),
       fetchPedestrianSafetyContext: async () => {
         window.__fixturePedFetchCount += 1;
-        return clone(pedestrian);
+        return normalizePedestrianContext(pedestrian);
       },
       generateEscapeLegPoints: async () => clone(escape.escapeLegPoints || []),
       generateEscapePoints: async () => clone(escape.escapePoints || []),
