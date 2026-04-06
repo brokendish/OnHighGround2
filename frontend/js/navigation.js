@@ -7083,7 +7083,7 @@ function _updateNavUI() {
         blockAheadBtn.disabled = anyRerouting;
     }
     if (blockAheadTextEl) {
-        blockAheadTextEl.textContent = navBlockAheadInProgress ? '回避中...' : 'この先を避けて再ルート';
+        blockAheadTextEl.textContent = navBlockAheadInProgress ? '回避中...' : 'この先を避けて再ルート(試験中)';
     }
 
     // 自動再ルートON/OFFボタン
