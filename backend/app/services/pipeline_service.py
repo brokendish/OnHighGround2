@@ -448,28 +448,6 @@ async def run_deploy(
 
     runtime_dir = (_PROJECT_ROOT / defn.runtime_path).resolve()
 
-    # ── バックアップ ─────────────────────────────────────────────────────────
-    backup_dir = runtime_dir.parent / f"{runtime_dir.name}.backup"
-    if runtime_dir.exists():
-        try:
-            if backup_dir.exists():
-                shutil.rmtree(backup_dir)
-            shutil.copytree(runtime_dir, backup_dir)
-            state.backup_path = str(backup_dir)
-            state.backup_at = datetime.utcnow()
-            ss.save(state)
-            jm.log(job, f"Backup created: {backup_dir}")
-        except Exception as exc:
-            state.deploy_status = DeployStatus.failed
-            ss.save(state)
-            _fail(job, jm, "DEPLOY_BACKUP_FAILED",
-                  "バックアップの作成に失敗しました。",
-                  "ディスク容量または権限を確認してください。")
-            return
-
-    # ── staging へコピー ────────────────────────────────────────────────────
-    jm.update(job, step=JobStep.deploy, progress_message="実行環境へ反映中...")
-
     # コピー元決定: validated > normalized > raw
     src_path_str = (
         state.current_validated_path
@@ -485,16 +463,22 @@ async def run_deploy(
         return
 
     src_path = Path(src_path_str)
-    staging_dir = runtime_dir.parent / f"{runtime_dir.name}.staging"
 
-    try:
-        if staging_dir.exists():
-            shutil.rmtree(staging_dir)
+    if defn.deploy_mode == "copy_file":
+        # ── copy_file モード: ディレクトリ内に単一ファイルをコピー（他ファイル保持）─
         if src_path.is_dir():
-            shutil.copytree(src_path, staging_dir)
+            # ディレクトリの場合は代表ファイルを探す
+            candidates = list(src_path.rglob("*.geojson")) + list(src_path.rglob("*.json"))
+            if not candidates:
+                state.deploy_status = DeployStatus.failed
+                ss.save(state)
+                _fail(job, jm, "DEPLOY_FAILED",
+                      "反映対象のファイルが見つかりませんでした。",
+                      "先にデータを取り込んでください。")
+                return
+            src_file = candidates[0]
         elif src_path.is_file():
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_path, staging_dir / src_path.name)
+            src_file = src_path
         else:
             state.deploy_status = DeployStatus.failed
             ss.save(state)
@@ -503,35 +487,120 @@ async def run_deploy(
                   "先にデータを取り込んでください。")
             return
 
-        jm.log(job, f"Staged: {staging_dir}")
-    except Exception as exc:
-        state.deploy_status = DeployStatus.failed
-        ss.save(state)
-        _fail(job, jm, "DEPLOY_FAILED",
-              "実行環境へのコピーに失敗しました。",
-              "ディスク容量または権限を確認してください。")
-        return
+        dest_file = runtime_dir / src_file.name
 
-    # ── staging → current に差し替え ─────────────────────────────────────
-    try:
+        # ── バックアップ（ファイル単位）──────────────────────────────────
+        jm.update(job, step=JobStep.backup, progress_message="現在のファイルをバックアップ中...")
+        backup_file = runtime_dir / f"{src_file.stem}.backup{src_file.suffix}"
+        try:
+            runtime_dir.mkdir(parents=True, exist_ok=True)
+            if dest_file.exists():
+                shutil.copy2(dest_file, backup_file)
+                state.backup_path = str(backup_file)
+                state.backup_at = datetime.utcnow()
+                ss.save(state)
+                jm.log(job, f"Backup created: {backup_file}")
+            else:
+                jm.log(job, f"No existing file to backup at: {dest_file}")
+        except Exception as exc:
+            state.deploy_status = DeployStatus.failed
+            ss.save(state)
+            _fail(job, jm, "DEPLOY_BACKUP_FAILED",
+                  "バックアップの作成に失敗しました。",
+                  "ディスク容量または権限を確認してください。")
+            return
+
+        # ── ファイルコピー ──────────────────────────────────────────────
+        jm.update(job, step=JobStep.deploy, progress_message="実行環境へ反映中...")
+        try:
+            shutil.copy2(src_file, dest_file)
+            jm.log(job, f"Deployed file: {dest_file}")
+        except Exception as exc:
+            state.deploy_status = DeployStatus.failed
+            ss.save(state)
+            _fail(job, jm, "DEPLOY_FAILED",
+                  "実行環境への反映に失敗しました。",
+                  "ディスク容量または権限を確認してください。バックアップからロールバックできます。")
+            return
+
+        state.deploy_status = DeployStatus.deployed
+        state.current_runtime_path = str(dest_file)
+        state.deployed_at = datetime.utcnow()
+        state.is_deployable = False
+        state.last_job_id = job.job_id
+        ss.save(state)
+
+    else:
+        # ── replace_dir モード（デフォルト）: ディレクトリ全体を差し替え ─────
+        # ── バックアップ ─────────────────────────────────────────────────────
+        jm.update(job, step=JobStep.backup, progress_message="現在のデータをバックアップ中...")
+        backup_dir = runtime_dir.parent / f"{runtime_dir.name}.backup"
         if runtime_dir.exists():
-            shutil.rmtree(runtime_dir)
-        shutil.move(str(staging_dir), str(runtime_dir))
-        jm.log(job, f"Deployed to: {runtime_dir}")
-    except Exception as exc:
-        state.deploy_status = DeployStatus.failed
-        ss.save(state)
-        _fail(job, jm, "DEPLOY_FAILED",
-              "実行環境への反映に失敗しました。",
-              "ディスク容量または権限を確認してください。バックアップからロールバックできます。")
-        return
+            try:
+                if backup_dir.exists():
+                    shutil.rmtree(backup_dir)
+                shutil.copytree(runtime_dir, backup_dir)
+                state.backup_path = str(backup_dir)
+                state.backup_at = datetime.utcnow()
+                ss.save(state)
+                jm.log(job, f"Backup created: {backup_dir}")
+            except Exception as exc:
+                state.deploy_status = DeployStatus.failed
+                ss.save(state)
+                _fail(job, jm, "DEPLOY_BACKUP_FAILED",
+                      "バックアップの作成に失敗しました。",
+                      "ディスク容量または権限を確認してください。")
+                return
 
-    state.deploy_status = DeployStatus.deployed
-    state.current_runtime_path = str(runtime_dir)
-    state.deployed_at = datetime.utcnow()
-    state.is_deployable = False  # 再反映するには再検証が必要
-    state.last_job_id = job.job_id
-    ss.save(state)
+        # ── staging へコピー ────────────────────────────────────────────────
+        jm.update(job, step=JobStep.deploy, progress_message="実行環境へ反映中...")
+        staging_dir = runtime_dir.parent / f"{runtime_dir.name}.staging"
+
+        try:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir)
+            if src_path.is_dir():
+                shutil.copytree(src_path, staging_dir)
+            elif src_path.is_file():
+                staging_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_path, staging_dir / src_path.name)
+            else:
+                state.deploy_status = DeployStatus.failed
+                ss.save(state)
+                _fail(job, jm, "DEPLOY_FAILED",
+                      "反映対象のファイルが存在しません。",
+                      "先にデータを取り込んでください。")
+                return
+
+            jm.log(job, f"Staged: {staging_dir}")
+        except Exception as exc:
+            state.deploy_status = DeployStatus.failed
+            ss.save(state)
+            _fail(job, jm, "DEPLOY_FAILED",
+                  "実行環境へのコピーに失敗しました。",
+                  "ディスク容量または権限を確認してください。")
+            return
+
+        # ── staging → current に差し替え ─────────────────────────────────
+        try:
+            if runtime_dir.exists():
+                shutil.rmtree(runtime_dir)
+            shutil.move(str(staging_dir), str(runtime_dir))
+            jm.log(job, f"Deployed to: {runtime_dir}")
+        except Exception as exc:
+            state.deploy_status = DeployStatus.failed
+            ss.save(state)
+            _fail(job, jm, "DEPLOY_FAILED",
+                  "実行環境への反映に失敗しました。",
+                  "ディスク容量または権限を確認してください。バックアップからロールバックできます。")
+            return
+
+        state.deploy_status = DeployStatus.deployed
+        state.current_runtime_path = str(runtime_dir)
+        state.deployed_at = datetime.utcnow()
+        state.is_deployable = False  # 再反映するには再検証が必要
+        state.last_job_id = job.job_id
+        ss.save(state)
 
     _append_history(ss, defn.dataset_id, OperationType.deploy, job,
                     artifact_path=str(runtime_dir))
@@ -561,8 +630,8 @@ async def run_rollback(
               "一度も反映が行われていないか、バックアップが削除されています。")
         return
 
-    backup_dir = Path(state.backup_path)
-    if not backup_dir.exists():
+    backup_path = Path(state.backup_path)
+    if not backup_path.exists():
         _fail(job, jm, "ROLLBACK_NOT_AVAILABLE",
               "バックアップが見つかりません。",
               "バックアップファイルが削除されている可能性があります。")
@@ -570,24 +639,61 @@ async def run_rollback(
 
     runtime_dir = (_PROJECT_ROOT / defn.runtime_path).resolve()
 
-    try:
-        if runtime_dir.exists():
-            shutil.rmtree(runtime_dir)
-        shutil.copytree(backup_dir, runtime_dir)
-        jm.log(job, f"Rolled back to: {runtime_dir} from {backup_dir}")
-    except Exception as exc:
-        _fail(job, jm, "ROLLBACK_FAILED",
-              "ロールバックに失敗しました。",
-              "ディスク容量または権限を確認してください。")
-        return
+    if defn.deploy_mode == "copy_file":
+        # ── copy_file モード: バックアップファイルを元のファイル名に戻す ─
+        # backup_path 例: /data_runtime/backend/shelters/foo.backup.geojson
+        # 元のファイル名を復元: foo.backup.geojson → foo.geojson
+        backup_file = backup_path
+        original_name = backup_file.stem  # "foo.backup" → stem without .suffix
+        # stem は "foo.backup" のままなので suffix を除く処理
+        # backup_file.name 例: "tokyo-shelter-001.backup.geojson"
+        # → original: "tokyo-shelter-001.geojson"
+        parts = backup_file.name.split(".")
+        # format: stem + ".backup" + ext → remove the ".backup" part
+        if ".backup." in backup_file.name:
+            original_name = backup_file.name.replace(".backup.", ".", 1)
+        else:
+            original_name = backup_file.name
+        dest_file = runtime_dir / original_name
+        try:
+            shutil.copy2(backup_file, dest_file)
+            backup_file.unlink()  # バックアップ消費
+            jm.log(job, f"Rolled back file: {dest_file} from {backup_file}")
+        except Exception as exc:
+            _fail(job, jm, "ROLLBACK_FAILED",
+                  "ロールバックに失敗しました。",
+                  "ディスク容量または権限を確認してください。")
+            return
 
-    state.deploy_status = DeployStatus.deployed
-    state.current_runtime_path = str(runtime_dir)
-    state.backup_path = None  # バックアップ消費
-    state.backup_at = None
-    state.is_deployable = False
-    state.last_job_id = job.job_id
-    ss.save(state)
+        state.deploy_status = DeployStatus.deployed
+        state.current_runtime_path = str(dest_file)
+        state.backup_path = None
+        state.backup_at = None
+        state.is_deployable = False
+        state.last_job_id = job.job_id
+        ss.save(state)
+
+    else:
+        # ── replace_dir モード: ディレクトリ全体をバックアップから復元 ──
+        backup_dir = backup_path
+        try:
+            if runtime_dir.exists():
+                shutil.rmtree(runtime_dir)
+            shutil.copytree(backup_dir, runtime_dir)
+            jm.log(job, f"Rolled back to: {runtime_dir} from {backup_dir}")
+        except Exception as exc:
+            _fail(job, jm, "ROLLBACK_FAILED",
+                  "ロールバックに失敗しました。",
+                  "ディスク容量または権限を確認してください。")
+            return
+
+        state.deploy_status = DeployStatus.deployed
+        state.current_runtime_path = str(runtime_dir)
+        state.backup_path = None  # バックアップ消費
+        state.backup_at = None
+        state.is_deployable = False
+        state.last_job_id = job.job_id
+        ss.save(state)
 
     _append_history(ss, defn.dataset_id, OperationType.rollback, job,
                     artifact_path=str(runtime_dir))

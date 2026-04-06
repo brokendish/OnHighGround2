@@ -137,6 +137,10 @@ class DatasetDefinition(BaseModel):
     transformer_name: Optional[str] = None
     validator_name: Optional[str] = None
 
+    # "replace_dir": runtime_path ディレクトリ全体を差し替え（デフォルト）
+    # "copy_file"  : runtime_path ディレクトリ内に単一ファイルをコピー（他ファイルを保持）
+    deploy_mode: str = "replace_dir"
+
     @property
     def browser_upload_enabled(self) -> bool:
         return self.max_browser_upload_mb > 0

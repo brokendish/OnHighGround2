@@ -157,7 +157,20 @@ class DatasetStateService:
                 state.validation_status = ValidationStatus.passed
             # deploy_status は runtime の有無で判定
             runtime_path = (_PROJECT_ROOT / defn.runtime_path).resolve()
-            if runtime_path.exists() and any(runtime_path.iterdir()):
+            if defn.deploy_mode == "copy_file":
+                # copy_file モード: 同じ runtime_path を複数データセットが共有する場合があるため
+                # ディレクトリ存在だけでは deployed と判定しない。
+                # validated ファイルと同名のファイルが runtime 内にあれば deployed とみなす。
+                if validated_file and runtime_path.exists():
+                    deployed_file = runtime_path / validated_file.name
+                    if deployed_file.exists():
+                        state.deploy_status = DeployStatus.deployed
+                        state.current_runtime_path = str(deployed_file)
+                    else:
+                        state.deploy_status = DeployStatus.deployable
+                else:
+                    state.deploy_status = DeployStatus.deployable
+            elif runtime_path.exists() and any(runtime_path.iterdir()):
                 state.deploy_status = DeployStatus.deployed
                 state.current_runtime_path = str(runtime_path)
             else:
