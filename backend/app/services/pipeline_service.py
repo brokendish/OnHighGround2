@@ -307,6 +307,12 @@ async def _run_post_ingest_pipeline(
             return
 
     # 完了
+    # ingest が成功した場合、以前の deploy が中断して "deploying" のまま
+    # 残っていても deployable に戻す（stale state のリセット）
+    if state.deploy_status == DeployStatus.deploying:
+        state.deploy_status = DeployStatus.not_deployed
+        jm.log(job, "deploy_status was stuck at 'deploying', reset to 'not_deployed'")
+
     ss.update_deployable(state, defn)
     state.last_job_id = job.job_id
     ss.save(state)
@@ -454,6 +460,8 @@ async def run_deploy(
             ss.save(state)
             jm.log(job, f"Backup created: {backup_dir}")
         except Exception as exc:
+            state.deploy_status = DeployStatus.failed
+            ss.save(state)
             _fail(job, jm, "DEPLOY_BACKUP_FAILED",
                   "バックアップの作成に失敗しました。",
                   "ディスク容量または権限を確認してください。")
@@ -469,6 +477,8 @@ async def run_deploy(
         or state.current_raw_path
     )
     if not src_path_str:
+        state.deploy_status = DeployStatus.failed
+        ss.save(state)
         _fail(job, jm, "DEPLOY_FAILED",
               "反映対象のデータが見つかりませんでした。",
               "先にデータを取り込んでください。")
@@ -486,6 +496,8 @@ async def run_deploy(
             staging_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_path, staging_dir / src_path.name)
         else:
+            state.deploy_status = DeployStatus.failed
+            ss.save(state)
             _fail(job, jm, "DEPLOY_FAILED",
                   "反映対象のファイルが存在しません。",
                   "先にデータを取り込んでください。")
@@ -493,6 +505,8 @@ async def run_deploy(
 
         jm.log(job, f"Staged: {staging_dir}")
     except Exception as exc:
+        state.deploy_status = DeployStatus.failed
+        ss.save(state)
         _fail(job, jm, "DEPLOY_FAILED",
               "実行環境へのコピーに失敗しました。",
               "ディスク容量または権限を確認してください。")
@@ -505,6 +519,8 @@ async def run_deploy(
         shutil.move(str(staging_dir), str(runtime_dir))
         jm.log(job, f"Deployed to: {runtime_dir}")
     except Exception as exc:
+        state.deploy_status = DeployStatus.failed
+        ss.save(state)
         _fail(job, jm, "DEPLOY_FAILED",
               "実行環境への反映に失敗しました。",
               "ディスク容量または権限を確認してください。バックアップからロールバックできます。")
