@@ -154,6 +154,13 @@
       </div>
       <hr class="modal-divider">
 
+      <!-- ブラウザアップロード非対応の場合の通知（タブ外・常時表示位置） -->
+      <div class="warning-box" id="upload-disabled-notice" style="display:none;margin-bottom:12px">
+        <strong>ブラウザアップロード非対応</strong>
+        このデータセットはファイルが大きすぎるためブラウザからのアップロードはできません。
+        「URL指定取得」または「公式サイトから取得」を利用してください。
+      </div>
+
       <!-- 投入方式タブ -->
       <div class="input-tabs" id="input-tabs"></div>
 
@@ -173,11 +180,6 @@
           <span>✅</span>
           <span id="upload-file-name"></span>
           <span id="upload-file-size" style="margin-left:auto;color:#64748b;font-size:11px"></span>
-        </div>
-        <div class="warning-box" id="upload-disabled-notice" style="display:none">
-          <strong>ブラウザアップロード非対応</strong>
-          このデータセットはファイルが大きすぎるためブラウザからのアップロードはできません。
-          「URL指定取得」または「公式サイトから取得」を利用してください。
         </div>
       </div>
 
