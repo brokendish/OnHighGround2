@@ -2096,6 +2096,14 @@
                     </div>
                 </details>
                 <div class="shelter-status" id="landslideStatus">土砂災害レイヤー: OFF</div>
+                <details class="hazard-group">
+                    <summary class="hazard-group-summary">行政界</summary>
+                    <label class="manual-location-toggle" for="showBoundaryTokyo">
+                        <input type="checkbox" id="showBoundaryTokyo">
+                        東京都
+                    </label>
+                </details>
+                <div class="shelter-status" id="boundaryStatus">行政界レイヤー: OFF</div>
 
                 <div class="current-location" id="currentLocationInfo" style="display: none;">
                     <strong>現在地:</strong><br>
@@ -2300,6 +2308,14 @@
                             <path d="M0 15h2V9H0v6zm3 2h2V7H3v10zm19-8v6h2V9h-2zm-3 8h2V7h-2v10zM16.5 3h-9C6.67 3 6 3.67 6 4.5v15c0 .83.67 1.5 1.5 1.5h9c.83 0 1.5-.67 1.5-1.5v-15c0-.83-.67-1.5-1.5-1.5zM16 19H8V5h8v14z"/>
                         </svg>
                         <span>振動</span>
+                    </button>
+
+                    <!-- 行政界 ON/OFF -->
+                    <button id="boundary-toggle-btn" class="map-overlay-btn" title="行政界の表示/非表示">
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/>
+                        </svg>
+                        <span>行政界</span>
                     </button>
 
                 </div><!-- /#map-top-right-controls -->
@@ -2522,6 +2538,8 @@
     <script src="js/voice-nav.js"></script>
     <!-- ナビゲーションモード -->
     <script src="js/navigation.js"></script>
+    <!-- 行政界レイヤー管理 -->
+    <script src="js/boundary-layers.js"></script>
     <!-- 地図オーバーレイUI -->
     <script src="js/map-overlay-ui.js"></script>
     <script>

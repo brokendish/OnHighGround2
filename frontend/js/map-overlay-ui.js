@@ -14,6 +14,23 @@ const mapUiState = {
     shelterPanelOpen: false,
 };
 
+// ── 行政界レイヤーメニュー定義 ────────────────────────────────────────────
+// ハザードレイヤーとは独立したカテゴリ。
+// 将来の都道府県追加は BOUNDARY_LAYERS (boundary-layers.js) と
+// このリストに 1 エントリ追加するだけでよい。
+const administrativeLayerMenu = [
+    {
+        key: 'administrative',
+        label: '行政界',
+        items: [
+            { checkboxId: 'showBoundaryTokyo', layerKey: 'tokyo', label: '東京都', enabled: true },
+            // 将来追加: { checkboxId: 'showBoundaryKanagawa', layerKey: 'kanagawa', label: '神奈川県', enabled: false },
+            // 将来追加: { checkboxId: 'showBoundaryChiba',    layerKey: 'chiba',    label: '千葉県',   enabled: false },
+        ],
+        legend: [],
+    },
+];
+
 // ── ハザードレイヤーメニュー定義 ──────────────────────────────────────────
 // 将来の都道府県拡張を見越した宣言的データ構造。
 // enabled: false にすると disabled 表示（将来未実装レイヤー向け）。
@@ -354,6 +371,61 @@ function buildLayerPanel() {
             });
             prefs.appendChild(legendEl);
         }
+
+        catEl.appendChild(header);
+        catEl.appendChild(prefs);
+        container.appendChild(catEl);
+    });
+
+    // ── 行政界セクション（ハザードとは独立） ─────────────────────────────
+    const adminSep = document.createElement('hr');
+    adminSep.style.cssText = 'margin:6px 0; border:none; border-top:1px solid rgba(0,0,0,0.12);';
+    container.appendChild(adminSep);
+
+    administrativeLayerMenu.forEach(cat => {
+        const catEl = document.createElement('div');
+        catEl.className = 'layer-panel-category';
+        catEl.dataset.catKey = cat.key;
+
+        const header = document.createElement('div');
+        header.className = 'layer-panel-category-header';
+        header.innerHTML = `<span class="lpc-arrow">▶</span><span>${cat.label}</span>`;
+        header.addEventListener('click', () => catEl.classList.toggle('open'));
+
+        const prefs = document.createElement('div');
+        prefs.className = 'layer-panel-prefectures';
+
+        cat.items.forEach(item => {
+            const labelEl = document.createElement('label');
+            labelEl.className = 'layer-panel-item' + (item.enabled ? '' : ' disabled');
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.disabled = !item.enabled;
+
+            const sourceEl = document.getElementById(item.checkboxId);
+            if (sourceEl) {
+                cb.checked = sourceEl.checked;
+                cb.addEventListener('change', () => {
+                    const newVal = cb.checked;
+                    sourceEl.checked = newVal;
+                    if (typeof setBoundaryLayerVisibility === 'function') {
+                        setBoundaryLayerVisibility(item.layerKey, newVal).catch(err => {
+                            console.error('[overlay] 行政界切替エラー:', err);
+                            cb.checked = !newVal;
+                            sourceEl.checked = !newVal;
+                        });
+                    }
+                });
+                sourceEl.addEventListener('change', () => {
+                    cb.checked = sourceEl.checked;
+                });
+            }
+
+            labelEl.appendChild(cb);
+            labelEl.appendChild(document.createTextNode(item.label));
+            prefs.appendChild(labelEl);
+        });
 
         catEl.appendChild(header);
         catEl.appendChild(prefs);
