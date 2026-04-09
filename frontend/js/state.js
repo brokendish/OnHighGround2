@@ -43,6 +43,9 @@ const shelterRegionVisible = {
     tokyo:    true,
     kanagawa: true,
 };
+
+// 広域ブラウズレイヤー（shelter-browse-layer.js）の表示フラグ
+let isShelterBrowseLayerVisible = true;
 let shelterRefreshTimer = null;
 let suppressNextManualLocationClick = false;
 

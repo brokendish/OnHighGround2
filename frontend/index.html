@@ -7,6 +7,9 @@
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet MarkerCluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
     
     <style>
         :root {
@@ -1688,6 +1691,27 @@
             letter-spacing: 0.05em;
         }
 
+        /* 避難場所広域ブラウズ: MarkerCluster カスタムアイコン */
+        .shelter-cluster {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-weight: 700;
+            color: white;
+            border: 2px solid rgba(255,255,255,0.85);
+            box-shadow: 0 1px 5px rgba(0,0,0,0.35);
+        }
+        .shelter-cluster--sm { background: #5c6bc0; width: 30px; height: 30px; font-size: 11px; }
+        .shelter-cluster--md { background: #3949ab; width: 36px; height: 36px; font-size: 12px; }
+        .shelter-cluster--lg { background: #283593; width: 44px; height: 44px; font-size: 13px; }
+        .shelter-browse-status {
+            font-size: 10px;
+            color: #999;
+            padding: 2px 4px 3px;
+            min-height: 14px;
+        }
+
         /* レイヤーパネル: アコーディオン */
         .layer-panel-category {
             margin-bottom: 2px;
@@ -2070,6 +2094,12 @@
                     <input type="checkbox" id="showShelterKanagawa" checked>
                     神奈川県
                 </label>
+                <div style="margin-top:8px;margin-bottom:2px;font-size:11px;color:#888;padding-left:4px;">広域ブラウズ（zoom≥11）</div>
+                <label class="manual-location-toggle" for="showShelterBrowse">
+                    <input type="checkbox" id="showShelterBrowse" checked>
+                    🔵 全地域を一覧表示する
+                </label>
+                <div id="shelterBrowseStatusSide" style="font-size:11px;color:#888;padding:1px 4px 4px;min-height:14px;"></div>
                 <div class="shelter-status" id="shelterStatus">避難場所データを読み込み中...</div>
                 <details class="hazard-group">
                     <summary class="hazard-group-summary">津波浸水想定</summary>
@@ -2312,6 +2342,7 @@
                         </button>
                         <div id="shelter-panel" class="mou-panel" style="display:none;">
                             <div class="mou-panel-title">避難場所の表示</div>
+                            <div class="mou-panel-section-label">避難候補（近傍ルーティング）</div>
                             <label class="shelter-panel-item">
                                 <input type="checkbox" id="shelterPanel_evacuation" checked>
                                 <span class="shelter-panel-dot" style="background:#2e7d32;"></span>
@@ -2334,6 +2365,14 @@
                                 <span class="shelter-panel-dot" style="background:#26a69a;"></span>
                                 神奈川県
                             </label>
+                            <div class="mou-panel-separator"></div>
+                            <div class="mou-panel-section-label">広域ブラウズ（zoom≥11）</div>
+                            <label class="shelter-panel-item">
+                                <input type="checkbox" id="shelterPanel_browse" checked>
+                                <span class="shelter-panel-dot" style="background:#5c6bc0;border:1px solid rgba(0,0,0,0.15);"></span>
+                                全地域を一覧表示
+                            </label>
+                            <div id="shelterBrowseStatus" class="shelter-browse-status"></div>
                         </div>
                     </div>
 
@@ -2574,6 +2613,8 @@
     
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet MarkerCluster: 避難場所広域ブラウズレイヤーで使用 -->
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     
     <!-- Leaflet Routing Machine -->
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
@@ -2597,8 +2638,10 @@
     <script src="js/ui.js"></script>
     <!-- 避難先検索 -->
     <script src="js/evacuation.js"></script>
-    <!-- 指定緊急避難場所 -->
+    <!-- 指定緊急避難場所（避難候補・ルーティング用） -->
     <script src="js/shelters.js"></script>
+    <!-- 避難場所広域ブラウズレイヤー（業務表示・zoom別クラスタリング） -->
+    <script src="js/shelter-browse-layer.js"></script>
     <!-- 日常目的地設定 -->
     <script src="js/destination.js"></script>
     <!-- アプリ初期化・イベントバインディング -->

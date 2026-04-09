@@ -198,6 +198,7 @@ function bindShelterButton() {
         const _update = (checked) => {
             shelterRegionVisible[regionKey] = checked;
             scheduleEmergencyShelterRefresh();
+            if (typeof onBrowseRegionFilterChanged === 'function') onBrowseRegionFilterChanged();
         };
         if (panelEl) {
             panelEl.addEventListener('change', () => {
@@ -216,6 +217,29 @@ function bindShelterButton() {
     };
     _syncRegion('tokyo',    'shelterPanel_tokyo',    'showShelterTokyo');
     _syncRegion('kanagawa', 'shelterPanel_kanagawa', 'showShelterKanagawa');
+
+    // 広域ブラウズレイヤートグル：パネル ↔ サイドバー双方向同期
+    const _syncBrowse = (panelId, sideId) => {
+        const panelEl = document.getElementById(panelId);
+        const sideEl  = document.getElementById(sideId);
+        const _update = (checked) => {
+            if (typeof setShelterBrowseLayerVisible === 'function') setShelterBrowseLayerVisible(checked);
+            _syncBtnActive();
+        };
+        if (panelEl) {
+            panelEl.addEventListener('change', () => {
+                if (sideEl) sideEl.checked = panelEl.checked;
+                _update(panelEl.checked);
+            });
+        }
+        if (sideEl) {
+            sideEl.addEventListener('change', () => {
+                if (panelEl) panelEl.checked = sideEl.checked;
+                _update(sideEl.checked);
+            });
+        }
+    };
+    _syncBrowse('shelterPanel_browse', 'showShelterBrowse');
 
     // ボタンクリック：パネル開閉（他パネルは閉じる）
     btn.addEventListener('click', (e) => {
