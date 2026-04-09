@@ -1,0 +1,46 @@
+# martin.yaml — Martin ベクタータイルサーバー設定
+#
+# 参照: docs/martin-tile-delivery.md
+#
+# ─ スキャン動作 ──────────────────────────────────────────────────────────────
+#
+#   mbtiles.paths に指定したディレクトリを非再帰でスキャンし *.mbtiles を登録する。
+#   ソース ID = ファイル名ステム（例: tokyo_flood_max.mbtiles → ID: tokyo_flood_max）。
+#   ├─ /tiles/tokyo/flood/     ← paths に指定 → 直下の *.mbtiles を発見
+#   ├─ /tiles/tokyo/tsunami/   ← paths に指定 → 直下の *.mbtiles を発見
+#   └─ /tiles/tokyo/storm_surge/ ← paths に指定 → 直下の *.mbtiles を発見
+#
+#   ★ /tiles 単体（トップレベル）を指定しても再帰スキャンしない。
+#     各 {region}/{hazard_type} ディレクトリを明示的に列挙すること。
+#
+# ─ 将来の地域追加（例: 神奈川）──────────────────────────────────────────────
+#
+#   1. data_runtime/frontend/tiles/kanagawa/{hazard_type}/*.mbtiles を配備する
+#   2. このファイルの mbtiles.paths に以下を追記する:
+#        - /tiles/kanagawa/flood
+#        - /tiles/kanagawa/tsunami
+#   3. docker compose restart martin（タイルファイル追加のみの場合）
+#      ※ このファイル自体を編集した場合は force-recreate は不要。
+#        --config /config/martin.yaml のマウントは維持されるため、
+#        restart だけでファイルの変更が反映される。
+#
+# ─ 確認コマンド ───────────────────────────────────────────────────────────────
+#
+#   # 認識されたソース一覧
+#   curl http://localhost:8080/tiles/catalog | python3 -m json.tool | grep -o '"[^"]*":' | head -20
+#
+#   # 特定ソースのメタデータ
+#   curl http://localhost:8080/tiles/tokyo_flood_max | python3 -m json.tool
+
+listen_addresses: '0.0.0.0:3000'
+
+mbtiles:
+  paths:
+    # ── 東京 ────────────────────────────────────────────────────────────────
+    - /tiles/tokyo/flood
+    - /tiles/tokyo/tsunami
+    - /tiles/tokyo/storm_surge
+    # ── 将来: 神奈川（コメントアウト解除 + deploy_to_runtime.sh --region kanagawa 後に有効化）
+    # - /tiles/kanagawa/flood
+    # - /tiles/kanagawa/tsunami
+    # - /tiles/kanagawa/storm_surge

@@ -256,6 +256,34 @@
             width: auto;
         }
 
+        .manual-location-toggle--disabled {
+            color: #777;
+        }
+
+        .hazard-layer-note {
+            margin-left: auto;
+            display: none;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            line-height: 1.4;
+            background: #eceff1;
+            color: #455a64;
+        }
+
+        .layer-panel-item-note {
+            margin-left: auto;
+            display: none;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            line-height: 1.4;
+            background: #eceff1;
+            color: #455a64;
+        }
+
         .manual-location-hint {
             margin-top: 8px;
             font-size: 12px;
@@ -2051,6 +2079,10 @@
                         <input type="checkbox" id="showFloodTokyoMax">
                         東京都（想定最大規模）
                     </label>
+                    <label class="manual-location-toggle" for="showFloodKanagawaMax">
+                        <input type="checkbox" id="showFloodKanagawaMax">
+                        神奈川県（想定最大規模）
+                    </label>
                     <div id="floodLegend" class="hazard-legend" style="display:none;">
                         <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#ffe082;"></span>0.5m未満</div>
                         <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#ffca28;"></span>0.5〜3m</div>
@@ -2065,6 +2097,10 @@
                     <label class="manual-location-toggle" for="showStormSurgeTokyo">
                         <input type="checkbox" id="showStormSurgeTokyo">
                         東京都
+                    </label>
+                    <label class="manual-location-toggle" for="showStormSurgeKanagawa">
+                        <input type="checkbox" id="showStormSurgeKanagawa">
+                        神奈川県
                     </label>
                     <div id="stormSurgeLegend" class="hazard-legend" style="display:none;">
                         <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#b3e5fc;"></span>0.3m未満</div>

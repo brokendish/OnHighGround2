@@ -34,77 +34,55 @@ const administrativeLayerMenu = [
 // ── ハザードレイヤーメニュー定義 ──────────────────────────────────────────
 // 将来の都道府県拡張を見越した宣言的データ構造。
 // enabled: false にすると disabled 表示（将来未実装レイヤー向け）。
-const hazardLayerMenu = [
-    {
-        key: 'tsunami',
-        label: '津波浸水想定',
-        items: [
-            { checkboxId: 'showTsunamiHazardTokyo',    layerKey: 'tsunami_tokyo',    label: '東京都',   enabled: true },
-            { checkboxId: 'showTsunamiHazardKanagawa', layerKey: 'tsunami_kanagawa', label: '神奈川県', enabled: true },
-            { checkboxId: 'showTsunamiHazardChiba',    layerKey: 'tsunami_chiba',    label: '千葉県',   enabled: true },
-        ],
-        legend: [
-            { color: '#ffe082', label: '〜0.5m' },
-            { color: '#ffca28', label: '0.5〜1m' },
-            { color: '#ff8f00', label: '1〜3m' },
-            { color: '#f4511e', label: '3〜5m' },
-            { color: '#b71c1c', label: '5m超' },
-        ]
-    },
-    {
-        key: 'flood',
-        label: '洪水浸水想定',
-        items: [
-            { checkboxId: 'showFloodTokyoMax', layerKey: 'flood_tokyo_max', label: '東京都（想定最大規模）', enabled: true },
-        ],
-        legend: [
-            { color: '#ffe082', label: '0.5m未満' },
-            { color: '#ffca28', label: '0.5〜3m' },
-            { color: '#ff8f00', label: '3〜5m' },
-            { color: '#f4511e', label: '5〜10m' },
-            { color: '#b71c1c', label: '10m以上' },
-        ]
-    },
-    {
-        key: 'storm_surge',
-        label: '高潮浸水想定',
-        items: [
-            { checkboxId: 'showStormSurgeTokyo', layerKey: 'storm_surge_tokyo', label: '東京都', enabled: true },
-        ],
-        legend: [
-            { color: '#b3e5fc', label: '0.3m未満' },
-            { color: '#4fc3f7', label: '0.3〜0.5m' },
-            { color: '#0288d1', label: '0.5〜1m' },
-            { color: '#01579b', label: '1〜3m' },
-            { color: '#7b1fa2', label: '3〜5m' },
-            { color: '#4a148c', label: '5m超' },
-        ]
-    },
-    {
-        key: 'inland_flood',
-        label: '内水氾濫',
-        items: [
-            { checkboxId: 'showInlandFloodTokyo', layerKey: 'inland_flood_tokyo', label: '東京都', enabled: true },
-        ],
-        legend: [
-            { color: '#b3e5fc', label: '不明・安全' },
-            { color: '#29b6f6', label: '0〜1m' },
-            { color: '#f4511e', label: '1〜3m' },
-            { color: '#b71c1c', label: '3m以上' },
-        ]
-    },
-    {
-        key: 'landslide',
-        label: '土砂災害',
-        items: [
-            { checkboxId: 'showLandslideTokyo', layerKey: 'landslide_tokyo', label: '東京都', enabled: true },
-        ],
-        legend: [
-            { color: '#b71c1c', label: '特別警戒区域' },
-            { color: '#e65100', label: '警戒区域' },
-        ]
-    },
-];
+const hazardLayerMenu = typeof getHazardLayerMenuConfig === 'function'
+    ? getHazardLayerMenuConfig()
+    : [];
+
+function getHazardMenuConfigSafe() {
+    return typeof getHazardLayerMenuConfig === 'function'
+        ? getHazardLayerMenuConfig()
+        : hazardLayerMenu;
+}
+
+function applyHazardPanelItemState(labelEl, checkboxEl, item) {
+    const uiState = typeof getHazardLayerUiState === 'function'
+        ? getHazardLayerUiState(item.layerKey)
+        : {
+            enabled: item.enabled,
+            badgeText: item.badgeText || '',
+            title: item.title || '',
+        };
+    labelEl.className = 'layer-panel-item' + (uiState.enabled ? '' : ' disabled');
+    labelEl.title = uiState.title || '';
+    checkboxEl.disabled = !uiState.enabled;
+    checkboxEl.title = uiState.title || '';
+
+    let noteEl = labelEl.querySelector('.layer-panel-item-note');
+    if (!noteEl) {
+        noteEl = document.createElement('span');
+        noteEl.className = 'layer-panel-item-note';
+        labelEl.appendChild(noteEl);
+    }
+    noteEl.textContent = uiState.badgeText || '';
+    noteEl.style.display = uiState.badgeText ? 'inline-flex' : 'none';
+}
+
+function syncHazardLayerPanelState() {
+    document.querySelectorAll('#layer-panel [data-layer-key]').forEach((labelEl) => {
+        const layerKey = labelEl.dataset.layerKey;
+        const checkboxEl = labelEl.querySelector('input[type="checkbox"]');
+        if (!checkboxEl) {
+            return;
+        }
+        applyHazardPanelItemState(labelEl, checkboxEl, { layerKey, enabled: !checkboxEl.disabled });
+        const sourceEl = document.getElementById(checkboxEl.dataset.sourceCheckboxId || '');
+        if (sourceEl) {
+            checkboxEl.checked = sourceEl.checked;
+            checkboxEl.disabled = sourceEl.disabled;
+            labelEl.classList.toggle('disabled', sourceEl.disabled);
+        }
+    });
+}
 
 // ── 初期化エントリポイント ─────────────────────────────────────────────────
 function initMapOverlayUI() {
@@ -309,7 +287,7 @@ function buildLayerPanel() {
     // タイトルは HTML に書いてあるので category 以降だけ追記
     const container = document.createElement('div');
 
-    hazardLayerMenu.forEach(cat => {
+    getHazardMenuConfigSafe().forEach(cat => {
         const catEl = document.createElement('div');
         catEl.className = 'layer-panel-category';
         catEl.dataset.catKey = cat.key;
@@ -327,17 +305,21 @@ function buildLayerPanel() {
         cat.items.forEach(item => {
             const labelEl = document.createElement('label');
             labelEl.className = 'layer-panel-item' + (item.enabled ? '' : ' disabled');
+            labelEl.dataset.layerKey = item.layerKey;
 
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.disabled = !item.enabled;
+            cb.dataset.sourceCheckboxId = item.checkboxId;
 
             // 既存チェックボックスと双方向同期
             const sourceEl = document.getElementById(item.checkboxId);
             if (sourceEl) {
                 cb.checked = sourceEl.checked;
+                cb.disabled = sourceEl.disabled;
                 // overlay → レイヤー表示切替を直接実行 + サイドバーと同期
                 cb.addEventListener('change', () => {
+                    if (cb.disabled) return;
                     const newVal = cb.checked;
                     sourceEl.checked = newVal;
                     if (typeof setHazardLayerVisibility === 'function') {
@@ -351,11 +333,14 @@ function buildLayerPanel() {
                 // サイドバー側が変わったときはオーバーレイにも反映
                 sourceEl.addEventListener('change', () => {
                     cb.checked = sourceEl.checked;
+                    cb.disabled = sourceEl.disabled;
+                    labelEl.classList.toggle('disabled', sourceEl.disabled);
                 });
             }
 
             labelEl.appendChild(cb);
             labelEl.appendChild(document.createTextNode(item.label));
+            applyHazardPanelItemState(labelEl, cb, item);
             prefs.appendChild(labelEl);
         });
 
@@ -433,6 +418,7 @@ function buildLayerPanel() {
     });
 
     panel.appendChild(container);
+    syncHazardLayerPanelState();
 }
 
 // ── 凡例パネル構築 ────────────────────────────────────────────────────────
@@ -533,4 +519,8 @@ function bindOutsideClick() {
 // app.js より後にロードされる前提。DOM は既に準備済み。
 window.addEventListener('load', () => {
     initMapOverlayUI();
+});
+
+window.addEventListener('hazard-layer-state-change', () => {
+    syncHazardLayerPanelState();
 });

@@ -101,13 +101,15 @@ services:
     image: ghcr.io/maplibre/martin:latest
     container_name: evacuation-navi-martin
     volumes:
-      # [Phase 2] data_runtime/frontend/tiles を正規参照先とする。
-      # deploy_to_runtime.sh で data_lake/tiles → data_runtime/frontend/tiles へ配備すること。
+      # 正規タイル参照先: deploy_to_runtime.sh 実行後に data_runtime/frontend/tiles/ が生成される。
+      # /tiles 配下を config/martin.yaml が再帰スキャンし *.mbtiles を自動認識する。
       - ./data_runtime/frontend/tiles:/tiles:ro
-      # [fallback] data_runtime/frontend/tiles が空の場合に備え data_lake/tiles も残す。
-      # Phase 3 で data_runtime/frontend/tiles が安定したら削除予定。
-      - ./data_lake/tiles:/tiles_legacy:ro
-    command: /tiles/tokyo/flood /tiles/tokyo/tsunami /tiles/tokyo/storm_surge
+      # [fallback] /tiles が空の場合の手動切替用。通常は使用しない。
+      # 使用する場合: volumes の上行を ./data_lake/tiles:/tiles:ro に変更して再起動。
+      - ./data_lake/tiles:/tiles_fallback:ro
+      # Martin 設定ファイル
+      - ./config:/config:ro
+    command: --config /config/martin.yaml
     restart: unless-stopped
 
 networks:
