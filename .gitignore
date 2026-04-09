@@ -64,6 +64,7 @@ frontend/hazard/*.geojson
 
 # ---- Tokyo data lake generated artifacts ----
 data_lake/raw/
+!data_lake/raw/README.md
 data_lake/normalized/
 data_lake/validated/
 data_lake/tiles/
