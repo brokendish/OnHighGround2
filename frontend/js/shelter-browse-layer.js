@@ -53,6 +53,7 @@ const SHELTER_BROWSE_CONFIG = {
 // ── モジュール内部状態 ────────────────────────────────────────────────────
 let _browseClusterGroup  = null;   // L.MarkerClusterGroup
 let _browseAllData       = null;   // フェッチ済み全データキャッシュ (Array)
+let _browseFilteredData  = [];     // 都道府県フィルター適用後のデータ
 let _browseFetchState    = 'idle'; // 'idle' | 'loading' | 'loaded' | 'error'
 let _browseDebounceTimer = null;
 
@@ -114,6 +115,7 @@ function _applyBrowseMapVisibility() {
     } else if (!shouldShow && map.hasLayer(_browseClusterGroup)) {
         map.removeLayer(_browseClusterGroup);
     }
+    _updateBrowseStatusSummary();
 }
 
 // ── ポップアップ HTML ─────────────────────────────────────────────────────
@@ -141,13 +143,38 @@ function _buildBrowsePopupHtml(site) {
         </div>`;
 }
 
+function _countBrowseSitesInCurrentBounds(data) {
+    if (!map || typeof map.getBounds !== 'function') return 0;
+    const bounds = map.getBounds();
+    return data.reduce((count, site) => (
+        bounds.contains([site.lat, site.lon]) ? count + 1 : count
+    ), 0);
+}
+
+function _updateBrowseStatusSummary() {
+    if (_browseFetchState !== 'loaded') return;
+    if (!isShelterBrowseLayerVisible) {
+        _setBrowseStatus('広域ブラウズ: OFF');
+        return;
+    }
+
+    const totalCount = _browseFilteredData.length;
+    if (!_isBrowseZoomVisible()) {
+        _setBrowseStatus(`zoom ${SHELTER_BROWSE_CONFIG.ZOOM_SHOW_MIN}以上で表示（対象 ${totalCount.toLocaleString()} 件）`);
+        return;
+    }
+
+    const visibleCount = _countBrowseSitesInCurrentBounds(_browseFilteredData);
+    _setBrowseStatus(`表示範囲 ${visibleCount.toLocaleString()} 件 / 対象 ${totalCount.toLocaleString()} 件`);
+}
+
 // ── クラスターグループへのマーカー充填 ───────────────────────────────────
 function _populateBrowseCluster(data) {
     if (!_browseClusterGroup) return;
     _browseClusterGroup.clearLayers();
 
     // 都道府県フィルターを適用（_resolveShelterRegion は shelters.js で定義）
-    const filtered = data.filter(site => {
+    _browseFilteredData = data.filter(site => {
         const region = typeof _resolveShelterRegion === 'function'
             ? _resolveShelterRegion(site)
             : (site.region || 'unknown');
@@ -156,7 +183,7 @@ function _populateBrowseCluster(data) {
     });
 
     // マーカーを一括生成してバルク追加（パフォーマンス最適化）
-    const markers = filtered.map(site => {
+    const markers = _browseFilteredData.map(site => {
         const isEES  = site.category === 'emergency_evacuation_site';
         const color  = isEES ? SHELTER_BROWSE_CONFIG.COLOR_EES : SHELTER_BROWSE_CONFIG.COLOR_EVS;
         const m = L.circleMarker([site.lat, site.lon], {
@@ -172,7 +199,7 @@ function _populateBrowseCluster(data) {
     });
 
     _browseClusterGroup.addLayers(markers);
-    _setBrowseStatus(`${filtered.length.toLocaleString()} 件表示中`);
+    _updateBrowseStatusSummary();
 }
 
 // ── ステータス表示 ────────────────────────────────────────────────────────
@@ -245,7 +272,9 @@ async function setShelterBrowseLayerVisible(visible) {
         if (_browseClusterGroup && map.hasLayer(_browseClusterGroup)) {
             map.removeLayer(_browseClusterGroup);
         }
+        _browseFilteredData = [];
         _setBrowseStatus('広域ブラウズ: OFF');
+        if (typeof scheduleEmergencyShelterRefresh === 'function') scheduleEmergencyShelterRefresh();
         return;
     }
     // error 状態でトグルONした場合は自動リトライ
@@ -254,6 +283,7 @@ async function setShelterBrowseLayerVisible(visible) {
         _browseAllData = null;
     }
     await refreshShelterBrowseLayer();
+    if (typeof scheduleEmergencyShelterRefresh === 'function') scheduleEmergencyShelterRefresh();
 }
 
 // ── 公開: 都道府県フィルター変更時の再描画 ───────────────────────────────
@@ -270,6 +300,7 @@ function initShelterBrowseLayer() {
 
     // ズーム変化で表示/非表示を切り替え
     map.on('zoomend', _applyBrowseMapVisibility);
+    map.on('moveend', _updateBrowseStatusSummary);
 
     // 初回データ取得 + 表示
     if (isShelterBrowseLayerVisible) {

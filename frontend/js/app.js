@@ -131,6 +131,13 @@ map.on('moveend', () => {
     scheduleEmergencyShelterRefresh();
 });
 
+map.on('zoomend', () => {
+    if (!isEmergencyShelterVisible && !isEmergencyEvacuationSiteVisible) {
+        return;
+    }
+    scheduleEmergencyShelterRefresh();
+});
+
 
 map.on('click', async (event) => {
     const { lat, lng } = event.latlng;

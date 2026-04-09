@@ -20,6 +20,18 @@ function _resolveShelterRegion(site) {
     return Object.keys(shelterRegionVisible).find(r => src.includes(r)) || 'unknown';
 }
 
+function _shouldHideEmergencyShelterCandidatesForBrowse() {
+    if (!isShelterBrowseLayerVisible || !map || typeof map.getZoom !== 'function') return false;
+    const browseZoomMin = typeof SHELTER_BROWSE_CONFIG !== 'undefined'
+        ? SHELTER_BROWSE_CONFIG.ZOOM_SHOW_MIN
+        : 11;
+    const individualZoom = typeof SHELTER_BROWSE_CONFIG !== 'undefined'
+        ? SHELTER_BROWSE_CONFIG.DISABLE_CLUSTERING_ZOOM
+        : 14;
+    const zoom = map.getZoom();
+    return zoom >= browseZoomMin && zoom < individualZoom;
+}
+
 function clearEmergencyShelterMarkers() {
     emergencyShelterMarkers.forEach(marker => map.removeLayer(marker));
     emergencyShelterMarkers = [];
@@ -35,6 +47,12 @@ function scheduleEmergencyShelterRefresh() {
 }
 
 async function refreshEmergencyShelters() {
+    if (_shouldHideEmergencyShelterCandidatesForBrowse()) {
+        clearEmergencyShelterMarkers();
+        setShelterStatus('近傍避難候補は広域ブラウズ中のため zoom 14以上で表示されます。');
+        return;
+    }
+
     const bounds = map.getBounds();
     const params = new URLSearchParams({
         south: bounds.getSouth().toString(),
