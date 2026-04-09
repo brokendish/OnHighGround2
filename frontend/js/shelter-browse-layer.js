@@ -12,7 +12,7 @@
  *   zoom ≥ 14  : MarkerCluster が自動的に個別マーカーを展開（disableClusteringAtZoom）
  *
  * ── 将来のリージョン追加 ──────────────────────────────────────────────────
- *   1. state.js の shelterRegionVisible にキーを追加する（例: saitama: true）
+ *   1. config.js の SHELTER_REGION_CONFIGS に1エントリ追加する
  *   2. 対応する避難所データを data_runtime/backend/shelters/ に配備する
  *   3. このファイルの変更は不要 — フィルターは shelterRegionVisible を自動参照する
  *

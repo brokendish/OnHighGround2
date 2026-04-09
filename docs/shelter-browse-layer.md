@@ -71,7 +71,7 @@ shelter-browse-layer.js
 └── onBrowseRegionFilterChanged()   公開: 都道府県フィルター変更時に呼ばれる
 ```
 
-`map-overlay-ui.js` の `_syncRegion` が `onBrowseRegionFilterChanged()` を呼び出すことで、
+`map-overlay-ui.js` の region toggle バインドが `onBrowseRegionFilterChanged()` を呼び出すことで、
 都道府県チェックボックスの変更が両レイヤーに反映される。
 
 ---
@@ -114,17 +114,9 @@ shelter-browse-layer.js
 新しい都道府県（例: 千葉・埼玉）を追加する手順：
 
 1. `data_runtime/backend/shelters/` に `{region}_shelter.geojson` を配備する
-2. `state.js` の `shelterRegionVisible` にキーを追加する:
-   ```javascript
-   const shelterRegionVisible = {
-       tokyo:    true,
-       kanagawa: true,
-       chiba:    true,   // ← 追加
-   };
-   ```
-3. `index.html` の「都道府県」セクションにチェックボックスを追加する
-4. `map-overlay-ui.js` の `_syncRegion` 呼び出しを追加する
-5. **`shelter-browse-layer.js` の変更は不要**（`shelterRegionVisible` を動的に参照するため）
+2. `frontend/js/config.js` の `SHELTER_REGION_CONFIGS` に 1 エントリ追加する
+3. 可能ならバックエンドの shelter API が `region` フィールドを返すようにする
+4. **`state.js` / `index.html` / `map-overlay-ui.js` / `shelter-browse-layer.js` の追加編集は不要**
 
 ---
 
@@ -135,7 +127,7 @@ shelter-browse-layer.js
 | zoom ≥ 14 での重複表示 | 広域ブラウズと避難候補の両レイヤーが同時に表示されるが、視覚スタイルが異なる（ブラウズ: 小・低 opacity / 候補: 大・高 opacity） |
 | クラスター境界アーティファクト | ズームレベル変更直後に一瞬クラスターが崩れる場合がある（MarkerCluster のアニメーションによる仕様） |
 | 全件フェッチの初回遅延 | 15,000 件フェッチのため初回表示までやや時間がかかる可能性がある（2 回目以降はキャッシュで即時） |
-| フェッチ失敗時の再試行 | 自動再試行なし。ページリロードが必要 |
+| フェッチ失敗時の再試行 | 自動再試行はしないが、ステータスの「再試行」リンクまたは OFF→ON トグルで再試行できる |
 
 ---
 
@@ -146,4 +138,4 @@ shelter-browse-layer.js
 | クラスターが表示されない | ブラウザコンソールで `[shelter-browse]` ログを確認。MarkerCluster が読み込まれているか確認 |
 | zoom 11 以上でも非表示 | `isShelterBrowseLayerVisible` が false になっていないか確認。チェックボックスの状態を確認 |
 | クラスターアイコンのスタイルが崩れる | `index.html` の `.shelter-cluster` CSS クラスが存在するか確認 |
-| ステータスが「取得失敗」 | バックエンドが起動しているか確認。`/api/emergency-shelters?limit=1` で疎通確認 |
+| ステータスが「取得失敗」 | バックエンド疎通を確認し、ステータスの「再試行」リンクまたは OFF→ON トグルで再試行 |
