@@ -1675,6 +1675,18 @@
             border-radius: 50%;
             flex-shrink: 0;
         }
+        .mou-panel-separator {
+            border: none;
+            border-top: 1px solid rgba(0,0,0,0.1);
+            margin: 4px 0;
+        }
+        .mou-panel-section-label {
+            font-size: 10px;
+            color: #888;
+            padding: 2px 4px 1px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
 
         /* レイヤーパネル: アコーディオン */
         .layer-panel-category {
@@ -2049,6 +2061,15 @@
                     <input type="checkbox" id="showEmergencyEvacuationSites" checked>
                     🔴 指定緊急避難場所を地図に表示する
                 </label>
+                <div style="margin-top:6px;margin-bottom:2px;font-size:11px;color:#888;padding-left:4px;">表示する都道府県</div>
+                <label class="manual-location-toggle" for="showShelterTokyo">
+                    <input type="checkbox" id="showShelterTokyo" checked>
+                    東京都
+                </label>
+                <label class="manual-location-toggle" for="showShelterKanagawa">
+                    <input type="checkbox" id="showShelterKanagawa" checked>
+                    神奈川県
+                </label>
                 <div class="shelter-status" id="shelterStatus">避難場所データを読み込み中...</div>
                 <details class="hazard-group">
                     <summary class="hazard-group-summary">津波浸水想定</summary>
@@ -2300,6 +2321,18 @@
                                 <input type="checkbox" id="shelterPanel_emergency" checked>
                                 <span class="shelter-panel-dot" style="background:#c62828;"></span>
                                 指定緊急避難場所
+                            </label>
+                            <div class="mou-panel-separator"></div>
+                            <div class="mou-panel-section-label">都道府県</div>
+                            <label class="shelter-panel-item">
+                                <input type="checkbox" id="shelterPanel_tokyo" checked>
+                                <span class="shelter-panel-dot" style="background:#5c6bc0;"></span>
+                                東京都
+                            </label>
+                            <label class="shelter-panel-item">
+                                <input type="checkbox" id="shelterPanel_kanagawa" checked>
+                                <span class="shelter-panel-dot" style="background:#26a69a;"></span>
+                                神奈川県
                             </label>
                         </div>
                     </div>

@@ -191,6 +191,32 @@ function bindShelterButton() {
     _syncToSide(panelEl1, sideEl1);
     _syncToSide(panelEl2, sideEl2);
 
+    // 都道府県フィルター：パネル ↔ サイドバー双方向同期 + shelterRegionVisible 更新
+    const _syncRegion = (regionKey, panelId, sideId) => {
+        const panelEl = document.getElementById(panelId);
+        const sideEl  = document.getElementById(sideId);
+        const _update = (checked) => {
+            shelterRegionVisible[regionKey] = checked;
+            scheduleEmergencyShelterRefresh();
+        };
+        if (panelEl) {
+            panelEl.addEventListener('change', () => {
+                if (sideEl) sideEl.checked = panelEl.checked;
+                _update(panelEl.checked);
+                _syncBtnActive();
+            });
+        }
+        if (sideEl) {
+            sideEl.addEventListener('change', () => {
+                if (panelEl) panelEl.checked = sideEl.checked;
+                _update(sideEl.checked);
+                _syncBtnActive();
+            });
+        }
+    };
+    _syncRegion('tokyo',    'shelterPanel_tokyo',    'showShelterTokyo');
+    _syncRegion('kanagawa', 'shelterPanel_kanagawa', 'showShelterKanagawa');
+
     // ボタンクリック：パネル開閉（他パネルは閉じる）
     btn.addEventListener('click', (e) => {
         e.stopPropagation();

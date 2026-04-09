@@ -52,6 +52,12 @@ async function refreshEmergencyShelters() {
             if (isEES && !isEmergencyEvacuationSiteVisible) return;
             if (!isEES && !isEmergencyShelterVisible) return;
 
+            // 都道府県別表示フラグのチェック
+            // source_file に地域識別子が含まれるかで判定する
+            const srcFile = (site.source_file || '').toLowerCase();
+            const siteRegion = Object.keys(shelterRegionVisible).find(r => srcFile.includes(r)) || 'tokyo';
+            if (!shelterRegionVisible[siteRegion]) return;
+
             const markerColor = isEES ? '#c62828' : '#2e7d32';
 
             // 視覚マーカー（小さい丸・非インタラクティブ）

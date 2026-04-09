@@ -38,6 +38,11 @@ let isManualLocationMode = false;
 let isAutoRefreshOnManualUpdate = true;
 let isEmergencyShelterVisible = true;
 let isEmergencyEvacuationSiteVisible = true; // 指定緊急避難場所（赤）の表示フラグ
+// 都道府県別表示フラグ（キー = source_file に含まれる地域識別子）
+const shelterRegionVisible = {
+    tokyo:    true,
+    kanagawa: true,
+};
 let shelterRefreshTimer = null;
 let suppressNextManualLocationClick = false;
 
