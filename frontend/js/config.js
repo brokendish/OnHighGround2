@@ -28,6 +28,25 @@ const OSRM_SERVICE_URLS = {
 // true にすると apiFetch の試行ログをコンソールに出力する
 const DEBUG_API_FETCH = true;
 
+// ── 避難場所リージョン定義 ──────────────────────────────────────────
+// 新しい都道府県を追加するときはここに1エントリ追加するだけでよい。
+// state.js・map-overlay-ui.js・index.html の手動編集は不要になる。
+//
+// フィールド:
+//   key        : shelterRegionVisible のキー（バックエンドの region フィールドと一致させる）
+//   label      : UI に表示する都道府県名
+//   dotColor   : オーバーレイパネルの識別ドット色
+//   defaultOn  : 初期表示状態
+//   panelId    : オーバーレイパネルのチェックボックス ID
+//   sidebarId  : サイドバーのチェックボックス ID
+const SHELTER_REGION_CONFIGS = [
+    { key: 'tokyo',    label: '東京都',   dotColor: '#5c6bc0', defaultOn: true,  panelId: 'shelterPanel_tokyo',    sidebarId: 'showShelterTokyo'    },
+    { key: 'kanagawa', label: '神奈川県', dotColor: '#26a69a', defaultOn: true,  panelId: 'shelterPanel_kanagawa', sidebarId: 'showShelterKanagawa' },
+    // 将来の追加例:
+    // { key: 'chiba',    label: '千葉県',   dotColor: '#ef6c00', defaultOn: false, panelId: 'shelterPanel_chiba',    sidebarId: 'showShelterChiba'    },
+    // { key: 'saitama',  label: '埼玉県',   dotColor: '#6a1b9a', defaultOn: false, panelId: 'shelterPanel_saitama',  sidebarId: 'showShelterSaitama'  },
+];
+
 // ── レイヤーパス設定 ─────────────────────────────────────────────
 // [Phase 2] frontend/layers/ を公式配置先として /layers/ に切替済み。
 // nginx が /layers/ を frontend/layers/ から配信する。

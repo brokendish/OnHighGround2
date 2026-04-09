@@ -38,11 +38,11 @@ let isManualLocationMode = false;
 let isAutoRefreshOnManualUpdate = true;
 let isEmergencyShelterVisible = true;
 let isEmergencyEvacuationSiteVisible = true; // 指定緊急避難場所（赤）の表示フラグ
-// 都道府県別表示フラグ（キー = source_file に含まれる地域識別子）
-const shelterRegionVisible = {
-    tokyo:    true,
-    kanagawa: true,
-};
+// 都道府県別表示フラグ — SHELTER_REGION_CONFIGS (config.js) から自動生成
+// 新しいリージョンは config.js の SHELTER_REGION_CONFIGS に追加するだけでよい
+const shelterRegionVisible = Object.fromEntries(
+    SHELTER_REGION_CONFIGS.map(r => [r.key, r.defaultOn])
+);
 
 // 広域ブラウズレイヤー（shelter-browse-layer.js）の表示フラグ
 let isShelterBrowseLayerVisible = true;

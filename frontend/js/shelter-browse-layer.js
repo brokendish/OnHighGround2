@@ -146,10 +146,12 @@ function _populateBrowseCluster(data) {
     if (!_browseClusterGroup) return;
     _browseClusterGroup.clearLayers();
 
-    // 都道府県フィルターを適用
+    // 都道府県フィルターを適用（_resolveShelterRegion は shelters.js で定義）
     const filtered = data.filter(site => {
-        const src    = (site.source_file || '').toLowerCase();
-        const region = Object.keys(shelterRegionVisible).find(r => src.includes(r)) || 'tokyo';
+        const region = typeof _resolveShelterRegion === 'function'
+            ? _resolveShelterRegion(site)
+            : (site.region || 'unknown');
+        // shelterRegionVisible に登録されていないリージョンは常に表示する
         return shelterRegionVisible[region] !== false;
     });
 
@@ -174,12 +176,25 @@ function _populateBrowseCluster(data) {
 }
 
 // ── ステータス表示 ────────────────────────────────────────────────────────
-function _setBrowseStatus(msg) {
-    const els = [
-        document.getElementById('shelterBrowseStatus'),
-        document.getElementById('shelterBrowseStatusSide'),
-    ];
-    els.forEach(el => { if (el) el.textContent = msg; });
+function _setBrowseStatus(msg, isError = false) {
+    const ids = ['shelterBrowseStatus', 'shelterBrowseStatusSide'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (isError) {
+            el.innerHTML = `${msg} <a href="#" style="color:#1565c0;text-decoration:underline;" onclick="event.preventDefault();_retryBrowseFetch()">再試行</a>`;
+        } else {
+            el.textContent = msg;
+        }
+    });
+}
+
+// ── リトライ（ステータスの「再試行」リンクから呼ばれる） ──────────────────
+async function _retryBrowseFetch() {
+    if (_browseFetchState === 'loading') return;
+    _browseFetchState = 'idle'; // error → idle に戻してフェッチを許可
+    _browseAllData = null;
+    await refreshShelterBrowseLayer();
 }
 
 // ── データフェッチ ────────────────────────────────────────────────────────
@@ -199,7 +214,7 @@ async function _fetchAllBrowseShelters() {
     } catch (err) {
         _browseFetchState = 'error';
         console.warn('[shelter-browse] データ取得失敗:', err);
-        _setBrowseStatus('取得失敗（リロードで再試行）');
+        _setBrowseStatus('取得失敗', true);
         return null;
     }
 }
@@ -232,6 +247,11 @@ async function setShelterBrowseLayerVisible(visible) {
         }
         _setBrowseStatus('広域ブラウズ: OFF');
         return;
+    }
+    // error 状態でトグルONした場合は自動リトライ
+    if (_browseFetchState === 'error') {
+        _browseFetchState = 'idle';
+        _browseAllData = null;
     }
     await refreshShelterBrowseLayer();
 }

@@ -2086,14 +2086,8 @@
                     🔴 指定緊急避難場所を地図に表示する
                 </label>
                 <div style="margin-top:6px;margin-bottom:2px;font-size:11px;color:#888;padding-left:4px;">表示する都道府県</div>
-                <label class="manual-location-toggle" for="showShelterTokyo">
-                    <input type="checkbox" id="showShelterTokyo" checked>
-                    東京都
-                </label>
-                <label class="manual-location-toggle" for="showShelterKanagawa">
-                    <input type="checkbox" id="showShelterKanagawa" checked>
-                    神奈川県
-                </label>
+                <!-- 都道府県チェックボックスは map-overlay-ui.js が SHELTER_REGION_CONFIGS から動的生成 -->
+                <div id="shelterSidebar_regionList"></div>
                 <div style="margin-top:8px;margin-bottom:2px;font-size:11px;color:#888;padding-left:4px;">広域ブラウズ（zoom≥11）</div>
                 <label class="manual-location-toggle" for="showShelterBrowse">
                     <input type="checkbox" id="showShelterBrowse" checked>
@@ -2355,16 +2349,8 @@
                             </label>
                             <div class="mou-panel-separator"></div>
                             <div class="mou-panel-section-label">都道府県</div>
-                            <label class="shelter-panel-item">
-                                <input type="checkbox" id="shelterPanel_tokyo" checked>
-                                <span class="shelter-panel-dot" style="background:#5c6bc0;"></span>
-                                東京都
-                            </label>
-                            <label class="shelter-panel-item">
-                                <input type="checkbox" id="shelterPanel_kanagawa" checked>
-                                <span class="shelter-panel-dot" style="background:#26a69a;"></span>
-                                神奈川県
-                            </label>
+                            <!-- 都道府県チェックボックスは map-overlay-ui.js が SHELTER_REGION_CONFIGS から動的生成 -->
+                            <div id="shelterPanel_regionList"></div>
                             <div class="mou-panel-separator"></div>
                             <div class="mou-panel-section-label">広域ブラウズ（zoom≥11）</div>
                             <label class="shelter-panel-item">

@@ -158,6 +158,63 @@ function bindClearButton() {
     });
 }
 
+// ── 都道府県チェックボックスの DOM 生成 + バインド ────────────────────────
+// SHELTER_REGION_CONFIGS (config.js) からオーバーレイパネルとサイドバー両方に
+// チェックボックスを生成し、双方向同期 + 表示フラグ更新をバインドする。
+// 新しいリージョンは config.js への1行追加で自動反映される。
+function _buildAndBindRegionToggles() {
+    const panelList   = document.getElementById('shelterPanel_regionList');
+    const sideList    = document.getElementById('shelterSidebar_regionList');
+
+    SHELTER_REGION_CONFIGS.forEach(r => {
+        // ── パネル側 ──
+        if (panelList) {
+            const label = document.createElement('label');
+            label.className = 'shelter-panel-item';
+            label.innerHTML = `
+                <input type="checkbox" id="${r.panelId}"${r.defaultOn ? ' checked' : ''}>
+                <span class="shelter-panel-dot" style="background:${r.dotColor};"></span>
+                ${r.label}`;
+            panelList.appendChild(label);
+        }
+
+        // ── サイドバー側 ──
+        if (sideList) {
+            const label = document.createElement('label');
+            label.className = 'manual-location-toggle';
+            label.setAttribute('for', r.sidebarId);
+            label.innerHTML = `<input type="checkbox" id="${r.sidebarId}"${r.defaultOn ? ' checked' : ''}> ${r.label}`;
+            sideList.appendChild(label);
+        }
+    });
+
+    // DOM 生成後にバインド
+    SHELTER_REGION_CONFIGS.forEach(r => _syncRegionBinding(r.key, r.panelId, r.sidebarId));
+}
+
+// 個別リージョンのバインド（_syncRegion から改名して外部化）
+function _syncRegionBinding(regionKey, panelId, sideId) {
+    const panelEl = document.getElementById(panelId);
+    const sideEl  = document.getElementById(sideId);
+    const _update = (checked) => {
+        shelterRegionVisible[regionKey] = checked;
+        scheduleEmergencyShelterRefresh();
+        if (typeof onBrowseRegionFilterChanged === 'function') onBrowseRegionFilterChanged();
+    };
+    if (panelEl) {
+        panelEl.addEventListener('change', () => {
+            if (sideEl) sideEl.checked = panelEl.checked;
+            _update(panelEl.checked);
+        });
+    }
+    if (sideEl) {
+        sideEl.addEventListener('change', () => {
+            if (panelEl) panelEl.checked = sideEl.checked;
+            _update(sideEl.checked);
+        });
+    }
+}
+
 // ── 避難場所ボタン：パネル開閉 + チェックボックス制御 ────────────────────
 function bindShelterButton() {
     const btn     = document.getElementById('shelter-toggle-btn');
@@ -191,32 +248,8 @@ function bindShelterButton() {
     _syncToSide(panelEl1, sideEl1);
     _syncToSide(panelEl2, sideEl2);
 
-    // 都道府県フィルター：パネル ↔ サイドバー双方向同期 + shelterRegionVisible 更新
-    const _syncRegion = (regionKey, panelId, sideId) => {
-        const panelEl = document.getElementById(panelId);
-        const sideEl  = document.getElementById(sideId);
-        const _update = (checked) => {
-            shelterRegionVisible[regionKey] = checked;
-            scheduleEmergencyShelterRefresh();
-            if (typeof onBrowseRegionFilterChanged === 'function') onBrowseRegionFilterChanged();
-        };
-        if (panelEl) {
-            panelEl.addEventListener('change', () => {
-                if (sideEl) sideEl.checked = panelEl.checked;
-                _update(panelEl.checked);
-                _syncBtnActive();
-            });
-        }
-        if (sideEl) {
-            sideEl.addEventListener('change', () => {
-                if (panelEl) panelEl.checked = sideEl.checked;
-                _update(sideEl.checked);
-                _syncBtnActive();
-            });
-        }
-    };
-    _syncRegion('tokyo',    'shelterPanel_tokyo',    'showShelterTokyo');
-    _syncRegion('kanagawa', 'shelterPanel_kanagawa', 'showShelterKanagawa');
+    // 都道府県フィルター：SHELTER_REGION_CONFIGS から DOM 生成 + バインドを自動実行
+    _buildAndBindRegionToggles();
 
     // 広域ブラウズレイヤートグル：パネル ↔ サイドバー双方向同期
     const _syncBrowse = (panelId, sideId) => {

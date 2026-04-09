@@ -258,6 +258,26 @@ def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
     return [default_path] if default_path.exists() else [legacy_default_path]
 
 
+# ファイルパス部分文字列 → リージョン識別子
+# source_file パスに含まれるキーワードで地域を判定する。
+# 判定は先頭から順に行い最初にマッチしたものを使う。
+REGION_PATH_MAP: List[tuple] = [
+    ("kanagawa", "kanagawa"),
+    ("chiba",    "chiba"),
+    ("saitama",  "saitama"),
+    ("tokyo",    "tokyo"),
+    ("13000",    "tokyo"),  # legacy Tokyo CSV ファイル名
+]
+
+def _region_from_path(path_str: str) -> str:
+    """ファイルパスからリージョン識別子を返す。マッチしなければ 'unknown'。"""
+    lower = path_str.lower()
+    for keyword, region in REGION_PATH_MAP:
+        if keyword in lower:
+            return region
+    return "unknown"
+
+
 # 国土地理院 13000_2（指定緊急避難場所）ハザード列 → システムキー対応表
 HAZARD_COLUMN_MAP: Dict[str, str] = {
     "洪水":               "flood",
@@ -306,6 +326,7 @@ def load_emergency_shelters_from_csv(csv_path: Path, shelters: List[Dict[str, An
             has_hazard_cols = any(col in row for col in HAZARD_COLUMN_MAP)
             category = "emergency_evacuation_site" if has_hazard_cols else "evacuation_site"
 
+            src = str(csv_path.relative_to(BASE_DIR.parent)) if csv_path.is_relative_to(BASE_DIR.parent) else str(csv_path)
             shelters.append({
                 "name": name or "名称未設定",
                 "address": address,
@@ -314,7 +335,8 @@ def load_emergency_shelters_from_csv(csv_path: Path, shelters: List[Dict[str, An
                 "designation": designation or "指定緊急避難場所",
                 "category": category,
                 "hazard_types": hazard_types,
-                "source_file": str(csv_path.relative_to(BASE_DIR.parent)) if csv_path.is_relative_to(BASE_DIR.parent) else str(csv_path)
+                "region": _region_from_path(src),
+                "source_file": src,
             })
 
 
@@ -373,6 +395,7 @@ def load_emergency_shelters_from_geojson(geojson_path: Path, shelters: List[Dict
         has_hazard_cols = any(col in properties for col in HAZARD_COLUMN_MAP)
         category = "emergency_evacuation_site" if has_hazard_cols else "evacuation_site"
 
+        src = str(geojson_path.relative_to(BASE_DIR.parent)) if geojson_path.is_relative_to(BASE_DIR.parent) else str(geojson_path)
         shelters.append({
             "name": name,
             "address": address,
@@ -381,7 +404,8 @@ def load_emergency_shelters_from_geojson(geojson_path: Path, shelters: List[Dict
             "designation": designation or "指定緊急避難場所",
             "category": category,
             "hazard_types": hazard_types,
-            "source_file": str(geojson_path.relative_to(BASE_DIR.parent)) if geojson_path.is_relative_to(BASE_DIR.parent) else str(geojson_path)
+            "region": _region_from_path(src),
+            "source_file": src,
         })
 
 

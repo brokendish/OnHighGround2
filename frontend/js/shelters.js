@@ -8,6 +8,18 @@
  * - triggerShelterRoute: ポップアップボタンからルートを起動（グローバル）
  */
 
+/**
+ * サイトデータからリージョン識別子を返す共有ヘルパー。
+ * バックエンドが region フィールドを持つ場合はそれを優先する。
+ * 持たない場合は source_file の部分一致でフォールバックする（後方互換）。
+ * どちらにもマッチしない場合は 'unknown' を返す（'tokyo' への暗黙デフォルトを廃止）。
+ */
+function _resolveShelterRegion(site) {
+    if (site.region && site.region !== 'unknown') return site.region;
+    const src = (site.source_file || '').toLowerCase();
+    return Object.keys(shelterRegionVisible).find(r => src.includes(r)) || 'unknown';
+}
+
 function clearEmergencyShelterMarkers() {
     emergencyShelterMarkers.forEach(marker => map.removeLayer(marker));
     emergencyShelterMarkers = [];
@@ -53,9 +65,8 @@ async function refreshEmergencyShelters() {
             if (!isEES && !isEmergencyShelterVisible) return;
 
             // 都道府県別表示フラグのチェック
-            // source_file に地域識別子が含まれるかで判定する
-            const srcFile = (site.source_file || '').toLowerCase();
-            const siteRegion = Object.keys(shelterRegionVisible).find(r => srcFile.includes(r)) || 'tokyo';
+            // region フィールドを優先し、なければ source_file の部分一致で判定する
+            const siteRegion = _resolveShelterRegion(site);
             if (!shelterRegionVisible[siteRegion]) return;
 
             const markerColor = isEES ? '#c62828' : '#2e7d32';
