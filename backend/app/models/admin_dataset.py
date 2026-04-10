@@ -141,6 +141,10 @@ class DatasetDefinition(BaseModel):
     # "copy_file"  : runtime_path ディレクトリ内に単一ファイルをコピー（他ファイルを保持）
     deploy_mode: str = "replace_dir"
 
+    # レイヤータイプ（shelter / tsunami / flood / storm_surge / inland_flood / landslide / admin_boundary）
+    # インフラ系データセット（dem, osm）は null
+    layer_type: Optional[str] = None
+
     @property
     def browser_upload_enabled(self) -> bool:
         return self.max_browser_upload_mb > 0
@@ -227,6 +231,7 @@ class DatasetSummary(BaseModel):
     dataset_id: str
     region: str
     category: str
+    layer_type: Optional[str] = None
     display_name: str
     hint_text: str
     impact_scope: str
@@ -250,6 +255,12 @@ class DatasetSummary(BaseModel):
 
     # ジョブ実行中フラグ
     has_running_job: bool = False
+
+    # ロールバック可能か（バックアップが存在する場合 True）
+    has_backup: bool = False
+
+    # このデータセットがそのレイヤータイプ+地域の有効データセットかどうか
+    is_active: bool = False
 
 
 class DatasetDetail(BaseModel):

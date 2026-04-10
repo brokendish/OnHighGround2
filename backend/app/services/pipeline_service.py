@@ -353,10 +353,9 @@ async def _do_normalize(
     else:
         output_path = (_PROJECT_ROOT / defn.raw_storage_path).resolve() / f"{defn.dataset_id.lower()}_normalized.geojson"
 
-    ret = await _run_subprocess(
-        ["python3", str(script_path), "--input", input_path, "--output", str(output_path)],
-        job, jm,
-    )
+    cmd = ["python3", str(script_path), "--input", input_path, "--output", str(output_path),
+           "--dataset-id", defn.dataset_id]
+    ret = await _run_subprocess(cmd, job, jm)
 
     if ret != 0:
         _fail(job, jm, "NORMALIZE_FAILED",
@@ -605,6 +604,12 @@ async def run_deploy(
     _append_history(ss, defn.dataset_id, OperationType.deploy, job,
                     artifact_path=str(runtime_dir))
 
+    # shelter データを更新した場合は ShelterRegistry のキャッシュを即時クリアする
+    if defn.layer_type == "shelter":
+        from app.services.shelter_service import get_shelter_registry
+        get_shelter_registry().invalidate()
+        jm.log(job, "ShelterRegistry cache invalidated")
+
     jm.update(job, status=JobStatus.success, step=JobStep.completed,
                progress_message="実行環境への反映が完了しました。",
                exit_code=0)
@@ -697,6 +702,12 @@ async def run_rollback(
 
     _append_history(ss, defn.dataset_id, OperationType.rollback, job,
                     artifact_path=str(runtime_dir))
+
+    # shelter データをロールバックした場合は ShelterRegistry のキャッシュを即時クリアする
+    if defn.layer_type == "shelter":
+        from app.services.shelter_service import get_shelter_registry
+        get_shelter_registry().invalidate()
+        jm.log(job, "ShelterRegistry cache invalidated")
 
     jm.update(job, status=JobStatus.success, step=JobStep.completed,
                progress_message="1世代前のデータに戻しました。",

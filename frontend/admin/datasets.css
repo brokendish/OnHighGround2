@@ -86,6 +86,7 @@ table.dataset-table {
   border-bottom: 1px solid #f1f5f9; transition: background 0.1s;
 }
 .dataset-table tbody tr:hover { background: #fafbff; }
+.dataset-table tbody tr.row-active { background: #f0fdf4; }
 .dataset-table tbody td { padding: 10px 12px; vertical-align: middle; }
 
 .dataset-id { font-family: monospace; font-size: 11px; color: #6366f1; font-weight: 600; }
@@ -126,6 +127,7 @@ table.dataset-table {
 .badge-deployed  { background: #dcfce7; color: #166534; }
 .badge-not-dep   { background: #f1f5f9; color: #94a3b8; }
 .badge-na        { background: #f1f5f9; color: #cbd5e1; }
+.badge-active    { background: #dcfce7; color: #166534; border: 1px solid #86efac; font-weight: 700; }
 
 @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
 
@@ -157,6 +159,8 @@ table.dataset-table {
 .btn-detail:not(:disabled):hover   { background: #c7d2fe; }
 .btn-osrm     { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
 .btn-osrm:not(:disabled):hover     { background: #fde68a; }
+.btn-activate { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.btn-activate:not(:disabled):hover { background: #dcfce7; }
 
 /* ── 詳細パネル ────────────────────────────────────────── */
 #detail-panel {

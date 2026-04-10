@@ -31,22 +31,78 @@ let _detailRefreshTimer = null;
 let _logRefreshTimer = null;
 let _detailAutoRefresh = true;
 let _logAutoRefresh = true;
+let _activateModalDataset = null;  // 有効化確認対象
 
 // ── 初期化 ────────────────────────────────────────────
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
+  await Promise.all([populateLayerTypeFilter(), populateRegionFilter()]);
   loadDatasets();
   _listRefreshTimer = setInterval(loadDatasets, LIST_AUTO_REFRESH_INTERVAL_MS);
 });
+
+async function populateLayerTypeFilter() {
+  try {
+    const layerTypes = await fetchJSON(`${API}/layer-types`);
+    const sel = document.getElementById("layer-type-filter");
+    layerTypes
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .forEach(lt => {
+        const opt = document.createElement("option");
+        opt.value = lt.layer_type;
+        opt.textContent = lt.display_name;
+        sel.appendChild(opt);
+      });
+  } catch (err) {
+    console.warn("Failed to load layer types:", err);
+    // フォールバック: 静的オプション
+    const fallback = [
+      ["shelter","避難場所"],["tsunami","津波浸水想定"],["flood","洪水浸水想定"],
+      ["storm_surge","高潮浸水想定"],["inland_flood","内水氾濫リスク"],
+      ["landslide","土砂災害警戒"],["admin_boundary","行政区域境界"],
+    ];
+    const sel = document.getElementById("layer-type-filter");
+    fallback.forEach(([v, t]) => {
+      const opt = document.createElement("option");
+      opt.value = v; opt.textContent = t;
+      sel.appendChild(opt);
+    });
+  }
+}
+
+async function populateRegionFilter() {
+  try {
+    const datasets = await fetchJSON(`${API}/datasets`);
+    const regions = [...new Set(datasets.map(d => d.region))].sort();
+    const sel = document.getElementById("region-filter");
+    regions.forEach(r => {
+      const opt = document.createElement("option");
+      opt.value = r;
+      opt.textContent = regionLabel(r);
+      sel.appendChild(opt);
+    });
+  } catch (err) {
+    console.warn("Failed to load regions:", err);
+    // フォールバック
+    [["tokyo","東京都"],["kanagawa","神奈川県"]].forEach(([v, t]) => {
+      const opt = document.createElement("option");
+      opt.value = v; opt.textContent = t;
+      document.getElementById("region-filter").appendChild(opt);
+    });
+  }
+}
 
 // ── データセット一覧ロード ─────────────────────────────
 async function loadDatasets() {
   try {
     const region = document.getElementById("region-filter").value;
-    const category = document.getElementById("category-filter").value;
-    const url = region ? `${API}/datasets?region=${region}` : `${API}/datasets`;
+    const layerType = document.getElementById("layer-type-filter").value;
+    const params = new URLSearchParams();
+    if (region) params.set("region", region);
+    if (layerType) params.set("layer_type", layerType);
+    const url = `${API}/datasets${params.toString() ? "?" + params.toString() : ""}`;
     const data = await fetchJSON(url);
     _allDatasets = data;
-    renderDatasetTable(data.filter(d => !category || d.category === category));
+    renderDatasetTable(data);
     // 詳細パネルが開いている場合は更新
     if (_currentDatasetId && _detailAutoRefresh) {
       await refreshDetail(_currentDatasetId);
@@ -57,10 +113,7 @@ async function loadDatasets() {
 }
 
 document.getElementById("region-filter").addEventListener("change", loadDatasets);
-document.getElementById("category-filter").addEventListener("change", () => {
-  const category = document.getElementById("category-filter").value;
-  renderDatasetTable(_allDatasets.filter(d => !category || d.category === category));
-});
+document.getElementById("layer-type-filter").addEventListener("change", loadDatasets);
 
 // ── テーブル描画 ──────────────────────────────────────
 function renderDatasetTable(datasets) {
@@ -75,8 +128,9 @@ function renderDatasetTable(datasets) {
 function renderDatasetRow(d) {
   const isRunning = d.has_running_job;
   const canDeploy = d.is_deployable && !isRunning;
-  const canRollback = d.deploy_status === "deployed" && !isRunning;
+  const canRollback = d.deploy_status === "deployed" && d.has_backup && !isRunning;
   const canOsrm = d.requires_osrm_rebuild && d.deploy_status === "deployed" && !isRunning;
+  const canActivate = d.layer_type && d.deploy_status === "deployed" && !d.is_active && !isRunning;
 
   const fileInfo = d.current_file_name
     ? `<div class="file-name" title="${d.current_file_name}">${d.current_file_name}</div>
@@ -91,7 +145,13 @@ function renderDatasetRow(d) {
     ? badgeHtml(osrmBadgeClass(d.osrm_rebuild_status), osrmLabel(d.osrm_rebuild_status))
     : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
 
-  return `<tr data-id="${d.dataset_id}">
+  const activeCell = d.layer_type
+    ? (d.is_active
+        ? `<span class="badge badge-active" title="このレイヤー種別+地域の有効データセット">有効</span>`
+        : `<span style="color:#cbd5e1;font-size:11px">—</span>`)
+    : `<span style="color:#e2e8f0;font-size:11px">対象外</span>`;
+
+  return `<tr data-id="${d.dataset_id}" ${d.is_active ? 'class="row-active"' : ''}>
     <td><span style="font-size:11px;color:#64748b">${regionLabel(d.region)}</span></td>
     <td><span class="dataset-id">${d.dataset_id}</span></td>
     <td>
@@ -110,6 +170,7 @@ function renderDatasetRow(d) {
     <td>${badgeHtml(validationBadgeClass(d.validation_status), validationLabel(d.validation_status))}</td>
     <td>${badgeHtml(deployBadgeClass(d.deploy_status), deployLabel(d.deploy_status))}</td>
     <td>${osrmCell}</td>
+    <td>${activeCell}</td>
     <td>
       <div class="action-group">
         <button class="btn btn-primary"
@@ -124,7 +185,11 @@ function renderDatasetRow(d) {
         <button class="btn btn-secondary"
           onclick="openRollbackModal('${d.dataset_id}')"
           ${canRollback ? "" : "disabled"}
-          title="${canRollback ? '1世代前に戻す' : 'バックアップがないか処理中'}">戻す</button>
+          title="${canRollback ? '1世代前に戻す' : (!d.has_backup ? 'バックアップがありません（初回デプロイ後に利用可）' : '処理中のため実行不可')}">戻す</button>
+        ${d.layer_type ? `<button class="btn btn-activate"
+          onclick="openActivateModal('${d.dataset_id}')"
+          ${canActivate ? "" : "disabled"}
+          title="${d.is_active ? '既に有効です' : (d.layer_type ? '有効データセットに設定' : 'レイヤー種別なし')}">有効化</button>` : ""}
         ${d.requires_osrm_rebuild ? `<button class="btn btn-osrm"
           onclick="openOsrmModal('${d.dataset_id}')"
           ${canOsrm ? "" : "disabled"}
@@ -502,6 +567,42 @@ async function executeRollback() {
   }
 }
 
+// ── 有効化モーダル ────────────────────────────────────
+function openActivateModal(datasetId) {
+  const d = _allDatasets.find(x => x.dataset_id === datasetId);
+  if (!d) return;
+  _activateModalDataset = d;
+  document.getElementById("am-name").textContent = d.display_name;
+  document.getElementById("am-layer-type").textContent = layerTypeLabel(d.layer_type);
+  document.getElementById("am-region").textContent = regionLabel(d.region);
+  document.getElementById("activate-modal").classList.add("open");
+}
+
+function closeActivateModal() {
+  document.getElementById("activate-modal").classList.remove("open");
+  _activateModalDataset = null;
+}
+
+async function executeActivate() {
+  const d = _activateModalDataset;
+  if (!d) return;
+  try {
+    const res = await fetch(`${API}/active-mappings/${d.layer_type}/${d.region}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataset_id: d.dataset_id }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`);
+    closeActivateModal();
+    showNotice("success", json.message || "有効データセットを設定しました。");
+    await loadDatasets();
+  } catch (err) {
+    showNotice("error", err.message);
+    closeActivateModal();
+  }
+}
+
 // ── OSRM 再構築モーダル ───────────────────────────────
 function openOsrmModal(datasetId) {
   const d = _allDatasets.find(x => x.dataset_id === datasetId);
@@ -665,8 +766,17 @@ function formatDate(iso) {
 }
 
 function regionLabel(r) {
-  const map = { tokyo: "東京都" };
+  const map = { tokyo: "東京都", kanagawa: "神奈川県" };
   return map[r] || r;
+}
+
+function layerTypeLabel(lt) {
+  const map = {
+    shelter: "避難場所", tsunami: "津波浸水想定", flood: "洪水浸水想定",
+    storm_surge: "高潮浸水想定", inland_flood: "内水氾濫リスク",
+    landslide: "土砂災害警戒", admin_boundary: "行政区域境界",
+  };
+  return lt ? (map[lt] || lt) : "—";
 }
 
 function operationLabel(op) {

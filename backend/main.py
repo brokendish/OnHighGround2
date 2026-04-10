@@ -24,7 +24,18 @@ from app.api.hazards import router as hazards_router
 from app.api.admin import router as admin_router
 from app.api.admin_datasets import router as admin_datasets_router
 from app.api.admin_datasets import jobs_router as admin_jobs_router
+from app.api.layer_types_api import router as layer_types_router
 from app.services.job_manager import get_job_manager
+from app.services.shelter_service import (
+    HAZARD_COLUMN_MAP,
+    REGION_PATH_MAP,
+    _region_from_path,
+    parse_float,
+    load_emergency_shelters_from_csv,
+    load_emergency_shelters_from_geojson,
+    load_emergency_shelters,
+    get_shelter_registry,
+)
 
 # 設定ファイル読み込み
 BASE_DIR = Path(__file__).resolve().parent
@@ -160,6 +171,7 @@ app.include_router(hazards_router)
 app.include_router(admin_router)
 app.include_router(admin_datasets_router)
 app.include_router(admin_jobs_router)
+app.include_router(layer_types_router)
 
 
 @app.on_event("startup")
@@ -183,16 +195,6 @@ dem_path = resolve_existing_path(
 )
 DEM_PATH = str(dem_path)
 elevation_service = ElevationService(DEM_PATH)
-
-
-def parse_float(value: Any) -> Optional[float]:
-    """文字列/数値をfloatに変換（失敗時はNone）"""
-    if value is None:
-        return None
-    try:
-        return float(str(value).strip())
-    except (TypeError, ValueError):
-        return None
 
 
 def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
@@ -258,188 +260,12 @@ def parse_shelter_paths(path_config: Optional[str]) -> List[Path]:
     return [default_path] if default_path.exists() else [legacy_default_path]
 
 
-# ファイルパス部分文字列 → リージョン識別子
-# source_file パスに含まれるキーワードで地域を判定する。
-# 判定は先頭から順に行い最初にマッチしたものを使う。
-REGION_PATH_MAP: List[tuple] = [
-    ("kanagawa", "kanagawa"),
-    ("chiba",    "chiba"),
-    ("saitama",  "saitama"),
-    ("tokyo",    "tokyo"),
-    ("13000",    "tokyo"),  # legacy Tokyo CSV ファイル名
-]
-
-def _region_from_path(path_str: str) -> str:
-    """ファイルパスからリージョン識別子を返す。マッチしなければ 'unknown'。"""
-    lower = path_str.lower()
-    for keyword, region in REGION_PATH_MAP:
-        if keyword in lower:
-            return region
-    return "unknown"
-
-
-# 国土地理院 13000_2（指定緊急避難場所）ハザード列 → システムキー対応表
-HAZARD_COLUMN_MAP: Dict[str, str] = {
-    "洪水":               "flood",
-    "崖崩れ、土石流及び地滑り": "landslide",
-    "高潮":               "storm_surge",
-    "地震":               "earthquake",
-    "津波":               "tsunami",
-    "大規模な火事":         "fire",
-    "内水氾濫":            "inland_flood",
-    "火山現象":            "volcano",
-}
-
-
-def load_emergency_shelters_from_csv(csv_path: Path, shelters: List[Dict[str, Any]], seen: set) -> None:
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            name = (
-                row.get("施設・場所名")
-                or row.get("name")
-                or row.get("名称")
-                or row.get("施設名")
-                or ""
-            ).strip()
-            address = (row.get("住所") or row.get("address") or "").strip()
-            lat = parse_float(row.get("緯度") or row.get("lat"))
-            lon = parse_float(row.get("経度") or row.get("lon"))
-
-            if lat is None or lon is None:
-                continue
-
-            designation = (row.get("designation") or "指定緊急避難場所").strip()
-            if designation and designation not in ("指定緊急避難場所", "緊急避難場所"):
-                continue
-
-            key = (name, round(lat, 7), round(lon, 7), designation)
-            if key in seen:
-                continue
-            seen.add(key)
-
-            # ハザード種別フラグ（13000_2 形式）
-            hazard_types = [
-                en_key for jp_col, en_key in HAZARD_COLUMN_MAP.items()
-                if str(row.get(jp_col, "")).strip() == "1"
-            ]
-            has_hazard_cols = any(col in row for col in HAZARD_COLUMN_MAP)
-            category = "emergency_evacuation_site" if has_hazard_cols else "evacuation_site"
-
-            src = str(csv_path.relative_to(BASE_DIR.parent)) if csv_path.is_relative_to(BASE_DIR.parent) else str(csv_path)
-            shelters.append({
-                "name": name or "名称未設定",
-                "address": address,
-                "lat": lat,
-                "lon": lon,
-                "designation": designation or "指定緊急避難場所",
-                "category": category,
-                "hazard_types": hazard_types,
-                "region": _region_from_path(src),
-                "source_file": src,
-            })
-
-
-def load_emergency_shelters_from_geojson(geojson_path: Path, shelters: List[Dict[str, Any]], seen: set) -> None:
-    with geojson_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if data.get("type") != "FeatureCollection":
-        logger.warning("GeoJSON shelter source is not a FeatureCollection: %s", geojson_path)
-        return
-
-    for feature in data.get("features", []):
-        properties = feature.get("properties", {}) or {}
-        geometry = feature.get("geometry", {}) or {}
-        coordinates = geometry.get("coordinates")
-        if geometry.get("type") != "Point" or not isinstance(coordinates, list) or len(coordinates) < 2:
-            continue
-
-        lon = parse_float(coordinates[0])
-        lat = parse_float(coordinates[1])
-        if lat is None or lon is None:
-            continue
-
-        name = (
-            properties.get("施設・場所名")
-            or properties.get("name")
-            or properties.get("名称")
-            or properties.get("施設名")
-            or "名称未設定"
-        ).strip()
-        address = (
-            properties.get("住所")
-            or properties.get("address")
-            or properties.get("所在地")
-            or ""
-        ).strip()
-        designation = (
-            properties.get("designation")
-            or properties.get("指定区分")
-            or "指定緊急避難場所"
-        ).strip()
-
-        if designation and designation not in ("指定緊急避難場所", "緊急避難場所"):
-            continue
-
-        key = (name, round(lat, 7), round(lon, 7), designation)
-        if key in seen:
-            continue
-        seen.add(key)
-
-        # ハザード種別フラグ（13000_2 形式）
-        hazard_types = [
-            en_key for jp_col, en_key in HAZARD_COLUMN_MAP.items()
-            if str(properties.get(jp_col, "")).strip() == "1"
-        ]
-        has_hazard_cols = any(col in properties for col in HAZARD_COLUMN_MAP)
-        category = "emergency_evacuation_site" if has_hazard_cols else "evacuation_site"
-
-        src = str(geojson_path.relative_to(BASE_DIR.parent)) if geojson_path.is_relative_to(BASE_DIR.parent) else str(geojson_path)
-        shelters.append({
-            "name": name,
-            "address": address,
-            "lat": lat,
-            "lon": lon,
-            "designation": designation or "指定緊急避難場所",
-            "category": category,
-            "hazard_types": hazard_types,
-            "region": _region_from_path(src),
-            "source_file": src,
-        })
-
-
-def load_emergency_shelters(paths: List[Path]) -> List[Dict[str, Any]]:
-    """指定された CSV / GeoJSON 群から指定緊急避難場所を読み込む"""
-    shelters: List[Dict[str, Any]] = []
-    seen = set()
-
-    for path in paths:
-        if path.is_dir():
-            data_paths = sorted(list(path.rglob("*.geojson")) + list(path.rglob("*.csv")))
-        else:
-            data_paths = [path]
-
-        for data_path in data_paths:
-            if not data_path.exists():
-                logger.warning(f"避難場所データが見つかりません: {data_path}")
-                continue
-
-            try:
-                if data_path.suffix.lower() == ".csv":
-                    load_emergency_shelters_from_csv(data_path, shelters, seen)
-                elif data_path.suffix.lower() == ".geojson":
-                    load_emergency_shelters_from_geojson(data_path, shelters, seen)
-            except Exception as e:
-                logger.exception("避難場所データの読み込みに失敗しました: %s", data_path)
-
-    logger.info(f"避難場所データ読み込み件数: {len(shelters)}")
-    return shelters
-
-
-SHELTER_CSV_PATHS = parse_shelter_paths(APP_CONFIG.get("evacuation.sites.path"))
-logger.info("Shelter data sources: %s", [str(p) for p in SHELTER_CSV_PATHS])
-EMERGENCY_SHELTERS = load_emergency_shelters(SHELTER_CSV_PATHS)
+# 起動時にキャッシュをウォームアップ（初回リクエスト遅延を防ぐ）
+_shelter_registry = get_shelter_registry()
+logger.info("ShelterRegistry initialized — warming up cache")
+_initial_shelters = _shelter_registry.get_shelters()
+logger.info("Shelter data sources (initial): %d shelters loaded", len(_initial_shelters))
+del _initial_shelters  # 参照を解放（registry が保持するため不要）
 
 # ハザードサービスの初期化
 try:
@@ -1199,7 +1025,7 @@ async def health_check():
             "missing_sources": missing_tsunami,
             "full_coverage": not bool(missing_tsunami),
         },
-        "shelters_loaded": len(EMERGENCY_SHELTERS),
+        "shelters_loaded": len(get_shelter_registry().get_shelters()),
     }
 
 
@@ -1387,12 +1213,13 @@ async def find_evacuation_destinations(request: EvacuationRequest):
 
         # 避難候補を検索
         # 避難所データがあれば shelter ベース、なければグリッドフォールバック
-        if EMERGENCY_SHELTERS:
+        _shelters = get_shelter_registry().get_shelters()
+        if _shelters:
             raw_destinations = search_shelter_destinations(
                 current_lat=request.lat,
                 current_lon=request.lon,
                 current_elevation=current_elevation,
-                shelters=EMERGENCY_SHELTERS,
+                shelters=_shelters,
                 elev_service=elevation_service,
                 haz_service=hazard_service,
                 min_elevation_gain=request.min_elevation_gain,
@@ -1615,7 +1442,8 @@ async def get_emergency_shelters(
 
     bbox（south/west/north/east）指定時は範囲内データのみ返却
     """
-    if not EMERGENCY_SHELTERS:
+    _shelters = get_shelter_registry().get_shelters()
+    if not _shelters:
         return {
             "count": 0,
             "data": [],
@@ -1628,11 +1456,11 @@ async def get_emergency_shelters(
 
     if has_bbox:
         filtered = [
-            s for s in EMERGENCY_SHELTERS
+            s for s in _shelters
             if south <= s["lat"] <= north and west <= s["lon"] <= east
         ]
     else:
-        filtered = EMERGENCY_SHELTERS
+        filtered = _shelters
 
     data = filtered[:limit]
 

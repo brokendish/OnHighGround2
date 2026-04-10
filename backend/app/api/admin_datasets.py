@@ -45,6 +45,7 @@ from app.models.admin_dataset import (
 from app.services.dataset_definition_service import get_definition_service
 from app.services.dataset_state_service import get_state_service
 from app.services.job_manager import get_job_manager
+from app.services.active_mapping_service import get_active_mapping_service
 from app.services import pipeline_service
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,7 @@ def _build_summary(dataset_id: str) -> Optional[DatasetSummary]:
     ds = get_definition_service()
     ss = get_state_service()
     jm = get_job_manager()
+    am = get_active_mapping_service()
 
     defn = ds.get(dataset_id)
     if defn is None:
@@ -134,10 +136,14 @@ def _build_summary(dataset_id: str) -> Optional[DatasetSummary]:
     state = ss.init_from_definition(defn)
     ss.update_deployable(state, defn)
 
+    is_active = am.is_active(defn.layer_type, defn.region, dataset_id)
+    has_backup = bool(state.backup_path)
+
     return DatasetSummary(
         dataset_id=defn.dataset_id,
         region=defn.region,
         category=defn.category,
+        layer_type=defn.layer_type,
         display_name=defn.display_name,
         hint_text=defn.hint_text,
         impact_scope=defn.impact_scope,
@@ -157,15 +163,22 @@ def _build_summary(dataset_id: str) -> Optional[DatasetSummary]:
         deployed_at=state.deployed_at,
         last_job_id=state.last_job_id,
         has_running_job=jm.has_running_job(dataset_id),
+        has_backup=has_backup,
+        is_active=is_active,
     )
 
 
 # ── GET /datasets ─────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[DatasetSummary])
-async def list_datasets(region: Optional[str] = Query(None)):
+async def list_datasets(
+    region: Optional[str] = Query(None),
+    layer_type: Optional[str] = Query(None),
+):
     ds = get_definition_service()
     defns = ds.list_by_region(region) if region else ds.list_all()
+    if layer_type:
+        defns = [d for d in defns if d.layer_type == layer_type]
     result = []
     for defn in defns:
         s = _build_summary(defn.dataset_id)
