@@ -256,26 +256,53 @@ def _load_zip(path: Path, source_dataset: str, region_code: str) -> list[dict]:
         )
 
     features: list[dict] = []
+    gml_parsed: list[str] = []    # feature を 1 件以上取得できた GML エントリ名
+    gml_skipped: list[str] = []   # パース不能だったエントリ名
 
     if gml_names:
         with zipfile.ZipFile(path) as zf:
             for entry in gml_names:
+                print(f"  [gml] processing: {entry}", file=sys.stderr)
                 content = zf.read(entry)
                 try:
                     batch = _parse_gml_bytes(content, source_dataset, region_code)
-                    features.extend(batch)
+                    if batch:
+                        features.extend(batch)
+                        gml_parsed.append(entry)
+                        print(f"  [gml] {entry}: {len(batch)} features", file=sys.stderr)
+                    else:
+                        # XML として読めたが shelter feature が 0 件（非データ XML or 非 P20 形式）
+                        gml_skipped.append(entry)
+                        print(f"  [skip] {entry}: shelter feature なし（非 P20 XML の可能性）",
+                              file=sys.stderr)
                 except ValueError as exc:
                     # KS-META-*.xml など Shift-JIS エンコードのメタデータファイルは
                     # ElementTree が "multi-byte encodings are not supported" を返す。
-                    # これは正常なスキップ（データファイルではない）。
+                    gml_skipped.append(entry)
                     print(f"  [skip] {entry}: パース対象外 ({exc})", file=sys.stderr)
+
+        # XML/GML は見つかったが feature が 1 件も得られなかった場合は明確なエラー
+        if gml_names and not features and not json_names:
+            raise ValueError(
+                f"ZIP 内の XML/GML から shelter feature を取得できませんでした: {path.name}\n"
+                f"処理対象: {gml_names}\n"
+                f"想定フォーマット: 国土数値情報 P20 (ksj:EvacuationFacilities)\n"
+                f"ZIP 内が非 P20 XML の場合は、対応する GML または GeoJSON を用意してください。"
+            )
 
     if not features and json_names:
         # GML が空だった場合のみ GeoJSON にフォールバック
         with zipfile.ZipFile(path) as zf:
             for entry in json_names:
+                print(f"  [json] processing: {entry}", file=sys.stderr)
                 content = zf.read(entry)
-                data = json.loads(content.decode("utf-8"))
+                try:
+                    data = json.loads(content.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    raise ValueError(
+                        f"ZIP 内の JSON エントリを読み込めませんでした: {entry}\n"
+                        f"原因: {exc}"
+                    ) from exc
                 if data.get("type") == "FeatureCollection":
                     for feat in data.get("features", []):
                         props = dict(feat.get("properties") or {})
@@ -286,6 +313,12 @@ def _load_zip(path: Path, source_dataset: str, region_code: str) -> list[dict]:
                             "geometry": feat.get("geometry"),
                             "properties": props,
                         })
+                    print(f"  [json] {entry}: {len(features)} features", file=sys.stderr)
+                else:
+                    raise ValueError(
+                        f"ZIP 内の JSON エントリが GeoJSON FeatureCollection ではありません: {entry}\n"
+                        f"(type={data.get('type')!r})"
+                    )
 
     return features
 
