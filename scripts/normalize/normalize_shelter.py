@@ -1,51 +1,52 @@
 #!/usr/bin/env python3
 """
-normalize_shelter.py — 指定緊急避難場所 GeoJSON 正規化スクリプト
+normalize_shelter.py — 指定緊急避難場所データ正規化スクリプト
+
+サポートする入力フォーマット:
+  geojson / json  : GeoJSON FeatureCollection
+  gml / xml       : 国土数値情報 KSJ P20 GML
+  zip             : 上記いずれかを含む ZIP（国土数値情報 P20 配布 ZIP 含む）
 
 使用方法:
-  python3 normalize_shelter.py --input <input.geojson> --output <output.geojson>
-  python3 normalize_shelter.py --input <input.geojson> --output <output.geojson> \
+  python3 normalize_shelter.py --input <input> --output <output.geojson>
+  python3 normalize_shelter.py --input <P20-12_14_GML.zip> --output <out.geojson> \\
       --dataset-id KANAGAWA-SHELTER-001
-
---dataset-id が省略された場合は入力パスから推定する。
 """
 import argparse
 import json
-import re
 import sys
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Optional
 
+# ── 地域マッピング ─────────────────────────────────────────────────────────────
 
-# 都道府県コード（JIS X 0401）マッピング
-# dataset_id のプレフィックス → 都道府県コード
 _REGION_CODE_MAP: dict[str, str] = {
-    "tokyo": "13",
+    "tokyo":    "13",
     "kanagawa": "14",
-    "saitama": "11",
-    "chiba": "12",
-    "osaka": "27",
-    "aichi": "23",
+    "saitama":  "11",
+    "chiba":    "12",
+    "osaka":    "27",
+    "aichi":    "23",
 }
 
-# dataset_id プレフィックス → region キー
 _DATASET_PREFIX_MAP: dict[str, str] = {
-    "TOKYO": "tokyo",
+    "TOKYO":    "tokyo",
     "KANAGAWA": "kanagawa",
-    "SAITAMA": "saitama",
-    "CHIBA": "chiba",
-    "OSAKA": "osaka",
-    "AICHI": "aichi",
+    "SAITAMA":  "saitama",
+    "CHIBA":    "chiba",
+    "OSAKA":    "osaka",
+    "AICHI":    "aichi",
 }
 
 
 def _infer_region(dataset_id: str) -> str:
-    """dataset_id プレフィックスから region キーを推定する。"""
     prefix = dataset_id.split("-")[0].upper()
     return _DATASET_PREFIX_MAP.get(prefix, "unknown")
 
 
 def _infer_region_from_path(path: Path) -> str:
-    """パス文字列から region キーを推定する（フォールバック用）。"""
     parts = str(path).lower().split("/")
     for p in parts:
         if p in _REGION_CODE_MAP:
@@ -53,33 +54,282 @@ def _infer_region_from_path(path: Path) -> str:
     return "unknown"
 
 
+# ── XML ユーティリティ ─────────────────────────────────────────────────────────
+
+def _local(tag: str) -> str:
+    """namespace を除いたローカル名を返す: {ns}local → local"""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+# ── GML (国土数値情報 KSJ P20) パーサー ───────────────────────────────────────
+
+# KSJ P20 ハザード要素名 → 共通スキーマの日本語列名
+# P20-12 (2012版) の hazardClassification サブ要素
+_KSJ_HAZARD_MAP: dict[str, str] = {
+    "earthquakeHazard":  "地震",
+    "tsunamiHazard":     "津波",
+    # windAndFloodDamage は洪水・高潮・崖崩れの合算フィールド。
+    # 2012版では個別フラグがないため 洪水 に代表させる。
+    "windAndFloodDamage": "洪水",
+    "volcanicHazard":    "火山現象",
+}
+
+# GeoJSON 入力時の日本語ハザード列名セット（setdefault 補完用）
+_ALL_HAZARD_JP: tuple[str, ...] = (
+    "洪水", "崖崩れ、土石流及び地滑り", "高潮",
+    "地震", "津波", "大規模な火事", "内水氾濫", "火山現象",
+)
+
+
+def _parse_gml_bytes(content: bytes, source_dataset: str, region_code: str) -> list[dict]:
+    """
+    GML/XML バイト列から GeoJSON Feature リストを生成する。
+
+    国土数値情報 P20 形式を前提とする:
+      - ksj:EvacuationFacilities が各施設フィーチャー
+      - gml:Point/{gml:pos} で座標（lat lon 順 → GeoJSON では lon lat に変換）
+      - ksj:position の xlink:href で gml:Point を参照
+    """
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as exc:
+        raise ValueError(f"GML/XML パースエラー: {exc}") from exc
+
+    # ── gml:id → (lat, lon) の座標マップを構築 ────────────────────────────
+    # P20 XML では <gml:Point gml:id="ptXXXXXX"><gml:pos>lat lon</gml:pos>
+    point_map: dict[str, tuple[float, float]] = {}
+    for elem in root.iter():
+        if _local(elem.tag) != "Point":
+            continue
+        # gml:id 属性: {ns}id 形式 or プレーン "id"
+        gml_id = None
+        for attr_name, attr_val in elem.attrib.items():
+            if _local(attr_name) == "id":
+                gml_id = attr_val
+                break
+        if gml_id is None:
+            continue
+        pos_elem = next(
+            (c for c in elem if _local(c.tag) == "pos"),
+            None,
+        )
+        if pos_elem is None or not pos_elem.text:
+            continue
+        parts = pos_elem.text.strip().split()
+        if len(parts) < 2:
+            continue
+        try:
+            point_map[gml_id] = (float(parts[0]), float(parts[1]))  # lat, lon
+        except ValueError:
+            continue
+
+    # ── EvacuationFacilities フィーチャーを変換 ────────────────────────────
+    features: list[dict] = []
+    for elem in root.iter():
+        if _local(elem.tag) != "EvacuationFacilities":
+            continue
+
+        # 位置: ksj:position[xlink:href] → gml:Point 参照
+        lonlat: Optional[tuple[float, float]] = None
+        pos_elem = next(
+            (c for c in elem if _local(c.tag) == "position"),
+            None,
+        )
+        if pos_elem is not None:
+            href = next(
+                (v for k, v in pos_elem.attrib.items() if _local(k) == "href"),
+                None,
+            )
+            if href:
+                ref_id = href.lstrip("#")
+                entry = point_map.get(ref_id)
+                if entry:
+                    lat, lon = entry
+                    lonlat = (lon, lat)  # GeoJSON は (lon, lat)
+
+        if lonlat is None:
+            continue
+
+        # 子要素からプロパティを収集（local name → text）
+        raw: dict[str, str] = {}
+        for child in elem:
+            raw[_local(child.tag)] = (child.text or "").strip()
+
+        # ハザードフラグは hazardClassification の孫要素
+        hazard_vals: dict[str, str] = {}
+        haz_cls = next(
+            (c for c in elem if _local(c.tag) == "hazardClassification"),
+            None,
+        )
+        if haz_cls is not None:
+            cls = next(
+                (c for c in haz_cls if _local(c.tag) == "Classification"),
+                None,
+            )
+            if cls is not None:
+                for child in cls:
+                    hazard_vals[_local(child.tag)] = (child.text or "").strip()
+
+        # 共通スキーマへ変換
+        name = raw.get("name", "名称未設定") or "名称未設定"
+        address = raw.get("address", "")
+
+        props: dict = {
+            "施設・場所名": name,
+            "住所": address,
+            "designation": "指定緊急避難場所",
+            "source_dataset": source_dataset,
+            "normalized_region_code": region_code,
+        }
+
+        # KSJ ハザードフラグ → 日本語列名（"1"/"0"）
+        for ksj_key, jp_col in _KSJ_HAZARD_MAP.items():
+            val = hazard_vals.get(ksj_key, "false")
+            props[jp_col] = "1" if val.lower() == "true" else "0"
+
+        # 未マップの標準列はデフォルト "0"
+        for jp_col in _ALL_HAZARD_JP:
+            props.setdefault(jp_col, "0")
+
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": list(lonlat)},
+            "properties": props,
+        })
+
+    return features
+
+
+# ── フォーマット別ローダー ─────────────────────────────────────────────────────
+
+def _load_geojson(path: Path, source_dataset: str, region_code: str) -> list[dict]:
+    """GeoJSON/JSON FeatureCollection を読み込む（既存フロー互換）。"""
+    with path.open(encoding="utf-8") as f:
+        data = json.load(f)
+
+    if data.get("type") != "FeatureCollection":
+        raise ValueError(f"Input is not a GeoJSON FeatureCollection: {path.name}")
+
+    features: list[dict] = []
+    for feature in data.get("features", []):
+        props = dict(feature.get("properties") or {})
+        props.setdefault("source_dataset", source_dataset)
+        props.setdefault("normalized_region_code", region_code)
+        features.append({
+            "type": "Feature",
+            "geometry": feature.get("geometry"),
+            "properties": props,
+        })
+    return features
+
+
+def _load_gml_file(path: Path, source_dataset: str, region_code: str) -> list[dict]:
+    """GML/XML ファイルを読み込む。"""
+    return _parse_gml_bytes(path.read_bytes(), source_dataset, region_code)
+
+
+def _load_zip(path: Path, source_dataset: str, region_code: str) -> list[dict]:
+    """
+    ZIP アーカイブを開いて中身のフォーマットを自動判定し読み込む。
+
+    優先順位:
+      1. .gml / .xml ファイル → GML パーサーで処理
+         （KS-META- で始まるメタデータファイルは 0 フィーチャーを返すだけ）
+      2. .geojson / .json ファイル → GeoJSON パーサーで処理
+      3. いずれも存在しない → 明確なエラー
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"ZIP 展開エラー ({path.name}): {exc}") from exc
+
+    gml_names  = [n for n in names if n.lower().endswith((".gml", ".xml"))]
+    json_names = [n for n in names if n.lower().endswith((".geojson", ".json"))]
+
+    if not gml_names and not json_names:
+        visible = [n for n in names if not n.endswith("/")]
+        raise ValueError(
+            f"ZIP 内にサポートされるファイルが見つかりません: {path.name}\n"
+            f"含まれるファイル: {visible[:15]}{'...' if len(visible) > 15 else ''}\n"
+            f"サポートされる形式: .gml, .xml, .geojson, .json"
+        )
+
+    features: list[dict] = []
+
+    if gml_names:
+        with zipfile.ZipFile(path) as zf:
+            for entry in gml_names:
+                content = zf.read(entry)
+                try:
+                    batch = _parse_gml_bytes(content, source_dataset, region_code)
+                    features.extend(batch)
+                except ValueError as exc:
+                    # KS-META-*.xml など Shift-JIS エンコードのメタデータファイルは
+                    # ElementTree が "multi-byte encodings are not supported" を返す。
+                    # これは正常なスキップ（データファイルではない）。
+                    print(f"  [skip] {entry}: パース対象外 ({exc})", file=sys.stderr)
+
+    if not features and json_names:
+        # GML が空だった場合のみ GeoJSON にフォールバック
+        with zipfile.ZipFile(path) as zf:
+            for entry in json_names:
+                content = zf.read(entry)
+                data = json.loads(content.decode("utf-8"))
+                if data.get("type") == "FeatureCollection":
+                    for feat in data.get("features", []):
+                        props = dict(feat.get("properties") or {})
+                        props.setdefault("source_dataset", source_dataset)
+                        props.setdefault("normalized_region_code", region_code)
+                        features.append({
+                            "type": "Feature",
+                            "geometry": feat.get("geometry"),
+                            "properties": props,
+                        })
+
+    return features
+
+
+def load_input(input_path: Path, source_dataset: str, region_code: str) -> list[dict]:
+    """
+    入力フォーマットを自動判定して GeoJSON Feature リストを返す。
+
+    対応フォーマット: geojson, json, gml, xml, zip
+    """
+    suffix = input_path.suffix.lower()
+
+    if suffix in (".geojson", ".json"):
+        return _load_geojson(input_path, source_dataset, region_code)
+    elif suffix in (".gml", ".xml"):
+        return _load_gml_file(input_path, source_dataset, region_code)
+    elif suffix == ".zip":
+        return _load_zip(input_path, source_dataset, region_code)
+    else:
+        raise ValueError(
+            f"未対応の入力フォーマット: '{suffix}' ({input_path.name})\n"
+            f"サポートされる形式: .geojson, .json, .gml, .xml, .zip"
+        )
+
+
+# ── CLI ───────────────────────────────────────────────────────────────────────
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Normalize shelter GeoJSON for any region.")
-    parser.add_argument(
-        "--input",
-        required=True,
-        help="Input raw GeoJSON path.",
+    parser = argparse.ArgumentParser(
+        description="Normalize shelter data (GeoJSON / GML / ZIP) for any region."
     )
-    parser.add_argument(
-        "--output",
-        required=True,
-        help="Output normalized GeoJSON path.",
-    )
-    parser.add_argument(
-        "--dataset-id",
-        default=None,
-        help="Dataset ID (e.g. KANAGAWA-SHELTER-001). Used to set metadata fields.",
-    )
+    parser.add_argument("--input",      required=True, help="Input file (.geojson/.json/.gml/.xml/.zip)")
+    parser.add_argument("--output",     required=True, help="Output normalized GeoJSON path")
+    parser.add_argument("--dataset-id", default=None,  help="Dataset ID (e.g. KANAGAWA-SHELTER-001)")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    input_path = Path(args.input)
+    input_path  = Path(args.input)
     output_path = Path(args.output)
 
     if not input_path.exists():
-        print(f"Input not found: {input_path}", file=sys.stderr)
+        print(f"[ERROR] 入力ファイルが見つかりません: {input_path}", file=sys.stderr)
         return 1
 
     # dataset_id と region の決定
@@ -87,44 +337,38 @@ def main() -> int:
     if dataset_id:
         region = _infer_region(dataset_id)
     else:
-        # パスから推定（後方互換）
         region = _infer_region_from_path(input_path)
-        # output パスに dataset_id に近い情報が含まれる場合は取り出す
         stem = output_path.stem.upper().replace("_NORMALIZED", "").replace("-", "_")
-        # 一致するプレフィックスを探す
         for prefix in _DATASET_PREFIX_MAP:
             if stem.startswith(prefix):
                 region = _DATASET_PREFIX_MAP[prefix]
                 break
 
-    region_code = _REGION_CODE_MAP.get(region, "00")
+    region_code    = _REGION_CODE_MAP.get(region, "00")
     source_dataset = dataset_id or f"{region.upper()}-SHELTER-001"
 
-    with input_path.open(encoding="utf-8") as handle:
-        data = json.load(handle)
+    print(f"Input:   {input_path} ({input_path.suffix})")
+    print(f"Dataset: {source_dataset}  region={region}  region_code={region_code}")
 
-    if data.get("type") != "FeatureCollection":
-        print("Input is not a FeatureCollection.", file=sys.stderr)
+    try:
+        features = load_input(input_path, source_dataset, region_code)
+    except ValueError as exc:
+        print(f"[ERROR] 読み込み失敗: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[ERROR] 予期しないエラー: {exc}", file=sys.stderr)
         return 1
 
-    normalized_features = []
-    for feature in data.get("features", []):
-        properties = dict(feature.get("properties", {}))
-        properties.setdefault("source_dataset", source_dataset)
-        properties.setdefault("normalized_region_code", region_code)
-        normalized_features.append(
-            {
-                "type": "Feature",
-                "geometry": feature.get("geometry"),
-                "properties": properties,
-            }
-        )
+    if not features:
+        print("[ERROR] フィーチャーが 0 件です。入力フォーマットまたはパスを確認してください。",
+              file=sys.stderr)
+        return 1
 
     normalized = {
         "type": "FeatureCollection",
         "name": f"{region}_shelter_normalized",
         "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
-        "features": normalized_features,
+        "features": features,
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,8 +376,7 @@ def main() -> int:
         json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"Wrote {len(normalized_features)} features to {output_path}")
-    print(f"  source_dataset={source_dataset}  region={region}  region_code={region_code}")
+    print(f"Output:  {output_path}  ({len(features)} features)")
     return 0
 
 
