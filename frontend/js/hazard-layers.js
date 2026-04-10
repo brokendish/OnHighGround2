@@ -97,13 +97,16 @@ const HAZARD_LAYERS = {
         lastError: null,
         datasetState: 'ready',
         availabilityState: 'uninitialized',
-        type: 'tsunami'
+        type: 'tsunami',
+        preferApi: true
     },
     tsunami_kanagawa: {
         name: "津波浸水想定（神奈川県）",
         menuLabel: '神奈川県',
         region: 'kanagawa',
         regionLabel: '神奈川県',
+        apiUrl: '/api/hazards/tsunami/kanagawa',
+        metaUrl: '/api/hazards/tsunami/kanagawa/meta',
         path: `${LAYER_BASE_PATH}/tsunami_kanagawa.geojson`,
         checkboxId: "showTsunamiHazardKanagawa",
         layer: null,
@@ -113,13 +116,16 @@ const HAZARD_LAYERS = {
         lastError: null,
         datasetState: 'ready',
         availabilityState: 'uninitialized',
-        type: 'tsunami'
+        type: 'tsunami',
+        preferApi: true
     },
     tsunami_chiba: {
         name: "津波浸水想定（千葉県）",
         menuLabel: '千葉県',
         region: 'chiba',
         regionLabel: '千葉県',
+        apiUrl: '/api/hazards/tsunami/chiba',
+        metaUrl: '/api/hazards/tsunami/chiba/meta',
         path: `${LAYER_BASE_PATH}/tsunami_chiba.geojson`,
         checkboxId: "showTsunamiHazardChiba",
         layer: null,
@@ -129,7 +135,8 @@ const HAZARD_LAYERS = {
         lastError: null,
         datasetState: 'ready',
         availabilityState: 'uninitialized',
-        type: 'tsunami'
+        type: 'tsunami',
+        preferApi: true
     },
     flood_tokyo_max: {
         name: "洪水浸水想定（東京都・想定最大規模）",
@@ -418,6 +425,9 @@ function debugHazardLayer(stage, layerKey, payload = {}) {
 }
 
 function shouldUseVectorTiles(layerKey, hazard) {
+    if (hazard?.preferApi) {
+        return false;
+    }
     if (!isHazardDatasetReady(hazard) || !useMartinTiles || !VECTOR_TILE_SOURCES[layerKey]) {
         return false;
     }

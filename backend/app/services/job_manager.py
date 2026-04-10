@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable, Coroutine, Dict, List, Optional
 
 from app.models.admin_dataset import Job, JobStatus, JobStep, JobType
+from app.models.admin_dataset import DeployStatus, NormalizeStatus, OsrmRebuildStatus, ValidationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +228,9 @@ class JobManager:
 
     def cleanup_stale_running(self) -> None:
         """起動時に queued/running のまま残ったジョブを failed にリセットする。"""
+        from app.services.dataset_state_service import get_state_service
+
+        ss = get_state_service()
         for path in self._jobs_dir.glob("*.json"):
             try:
                 with path.open("r", encoding="utf-8") as f:
@@ -239,6 +243,21 @@ class JobManager:
                     data["ended_at"] = datetime.utcnow().isoformat()
                     with path.open("w", encoding="utf-8") as f:
                         json.dump(data, f, ensure_ascii=False, indent=2)
+
+                    dataset_id = data.get("dataset_id")
+                    if dataset_id:
+                        state = ss.load(dataset_id)
+                        step = data.get("step")
+                        if step == "normalize" and state.normalize_status == NormalizeStatus.running:
+                            state.normalize_status = NormalizeStatus.failed
+                        elif step == "validate" and state.validation_status != ValidationStatus.passed:
+                            state.validation_status = ValidationStatus.failed
+                        elif step in ("deploy", "backup") and state.deploy_status == DeployStatus.deploying:
+                            state.deploy_status = DeployStatus.not_deployed
+                        elif step == "osrm_rebuild" and state.osrm_rebuild_status == OsrmRebuildStatus.running:
+                            state.osrm_rebuild_status = OsrmRebuildStatus.failed
+                        state.updated_at = datetime.utcnow()
+                        ss.save(state)
             except Exception as exc:
                 logger.warning("Failed to cleanup stale job %s: %s", path, exc)
 

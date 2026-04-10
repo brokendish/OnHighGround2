@@ -24,11 +24,42 @@ def parse_args() -> argparse.Namespace:
         "--output",
         help="Optional validated output path. If provided, the validated input is copied there.",
     )
+    parser.add_argument(
+        "--allowed-geometry-types",
+        help="Comma-separated geometry types allowed for every feature.",
+    )
+    parser.add_argument(
+        "--require-bbox",
+        action="store_true",
+        help="Require every feature geometry to produce a valid bbox.",
+    )
     return parser.parse_args()
+
+
+def _iter_points(coords):
+    if isinstance(coords, (list, tuple)):
+        if len(coords) >= 2 and all(isinstance(v, (int, float)) for v in coords[:2]):
+            yield float(coords[0]), float(coords[1])
+            return
+        for item in coords:
+            yield from _iter_points(item)
+
+
+def _compute_bbox(geometry):
+    coords = geometry.get("coordinates")
+    points = list(_iter_points(coords))
+    if not points:
+        return None
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return [min(xs), min(ys), max(xs), max(ys)]
 
 
 def main() -> int:
     args = parse_args()
+    allowed_types = None
+    if args.allowed_geometry_types:
+        allowed_types = {t.strip() for t in args.allowed_geometry_types.split(",") if t.strip()}
     input_path = Path(args.input)
     if not input_path.exists():
         print(f"Input not found: {input_path}", file=sys.stderr)
@@ -56,9 +87,21 @@ def main() -> int:
         if geometry_type not in VALID_GEOMETRY_TYPES:
             print(f"Feature {index} has invalid geometry type: {geometry_type}", file=sys.stderr)
             return 1
+        if allowed_types and geometry_type not in allowed_types:
+            print(
+                f"Feature {index} has disallowed geometry type: {geometry_type} "
+                f"(allowed={sorted(allowed_types)})",
+                file=sys.stderr,
+            )
+            return 1
         if geometry_type != "GeometryCollection" and coordinates is None:
             print(f"Feature {index} has no coordinates.", file=sys.stderr)
             return 1
+        if args.require_bbox:
+            bbox = _compute_bbox(geometry)
+            if bbox is None:
+                print(f"Feature {index} has invalid bbox.", file=sys.stderr)
+                return 1
 
     if args.output:
         output_path = Path(args.output)
