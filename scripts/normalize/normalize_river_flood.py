@@ -34,11 +34,16 @@
 import argparse
 import io
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 from typing import Generator, Iterator, Optional
+
+# 国土数値情報 A31a/A31b ZIP 内の非 MaximumScale ディレクトリ（スキーマ不一致）
+# 20_想定最大規模 以外のディレクトリはサイレントスキップする
+_NON_MAXSCALE_DIR = re.compile(r"(?:^|[/\\])(?:10|30|41|42)_")
 
 # ── ランクルックアップ ─────────────────────────────────────────────────────
 
@@ -426,6 +431,10 @@ def _iter_zip(zf: zipfile.ZipFile, zip_label: str) -> Iterator[dict]:
         yield from features
 
     for name in gml_names:
+        # 10_計画規模 / 30_セグメント / 41_ / 42_ は MaximumScale を持たない別スキーマ
+        # WARN を出さずサイレントスキップ
+        if _NON_MAXSCALE_DIR.search(name):
+            continue
         label = f"{zip_label}::{name}"
         raw = zf.read(name)
         try:
@@ -613,7 +622,10 @@ def normalize(input_path: Path, output_path: Path, dataset_id: str) -> int:
         tmp_path.unlink(missing_ok=True)
         print(
             f"[ERROR] 出力フィーチャが 0 件です。入力データを確認してください。\n"
-            f"  入力: {total_in}  ジオメトリなし: {skipped_no_geom}  非対応ジオメトリ: {skipped_bad_geom}",
+            f"  入力: {total_in}  ジオメトリなし: {skipped_no_geom}  非対応ジオメトリ: {skipped_bad_geom}\n"
+            f"  ヒント: 国土数値情報 A31a/A31b データの場合は「20_想定最大規模」ディレクトリを含む\n"
+            f"          ZIP ファイルをアップロードしてください。10_/30_/41_/42_ のみのデータは\n"
+            f"          MaximumScale 要素を持たないため取り込み対象外です。",
             file=sys.stderr,
         )
         return 1
