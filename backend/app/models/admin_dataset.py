@@ -220,6 +220,10 @@ class Job(BaseModel):
 
     log_path: Optional[str] = None
 
+    # ジョブが開始したプロセス起動を一意に識別する ID
+    # cleanup_stale_running で「別プロセス起動による中断」かどうかの判断に使う
+    boot_id: Optional[str] = None
+
     # ingest_fetch_url 用
     fetch_url: Optional[str] = None
 

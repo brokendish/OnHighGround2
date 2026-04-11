@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,73 @@ logger = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _ADMIN_JOBS_DIR = _PROJECT_ROOT / "data_lake" / "admin" / "jobs"
 _ADMIN_LOGS_DIR = _PROJECT_ROOT / "data_lake" / "admin" / "logs"
+_BOOT_STATE_PATH = _PROJECT_ROOT / "data_lake" / "admin" / "boot_state.json"
 _LOG_TAIL_LINES = 200
+
+
+# ── ブート情報収集 ────────────────────────────────────────────────────────────
+
+def _get_container_id() -> Optional[str]:
+    """Docker コンテナ ID を /proc/self/cgroup から取得する。非 Docker 環境では None。"""
+    try:
+        cgroup = Path("/proc/self/cgroup").read_text(encoding="utf-8")
+        for line in cgroup.splitlines():
+            # 形式: "12:memory:/docker/<id>" or "0::/system.slice/docker-<id>.scope"
+            parts = line.split("/")
+            for part in reversed(parts):
+                part = part.strip()
+                if len(part) == 64 and all(c in "0123456789abcdef" for c in part):
+                    return part[:12]  # 短縮 ID（12文字）
+                # systemd cgroup v2: "docker-<id>.scope"
+                if part.startswith("docker-") and part.endswith(".scope"):
+                    cid = part[len("docker-"):-len(".scope")]
+                    return cid[:12]
+    except Exception:
+        pass
+    return None
+
+
+def _load_or_create_boot_state() -> dict:
+    """
+    起動時に boot_state.json を読み書きし、現在のブート情報を返す。
+
+    返却フィールド:
+      boot_id      : このプロセス起動を一意に識別する UUID
+      pid          : 現在の PID
+      started_at   : 起動タイムスタンプ (ISO 8601)
+      container_id : Docker コンテナ短縮 ID（非 Docker 環境では null）
+      prev_boot_id : 直前の boot_id（初回は null）
+    """
+    _BOOT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    prev_boot_id: Optional[str] = None
+    if _BOOT_STATE_PATH.exists():
+        try:
+            prev = json.loads(_BOOT_STATE_PATH.read_text(encoding="utf-8"))
+            prev_boot_id = prev.get("boot_id")
+        except Exception:
+            pass
+
+    current: dict = {
+        "boot_id": str(uuid.uuid4()),
+        "pid": os.getpid(),
+        "started_at": datetime.utcnow().isoformat(),
+        "container_id": _get_container_id(),
+        "prev_boot_id": prev_boot_id,
+    }
+    try:
+        _BOOT_STATE_PATH.write_text(
+            json.dumps(current, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("Failed to write boot_state.json: %s", exc)
+
+    return current
+
+
+# プロセス起動時に一度だけ実行
+_BOOT_STATE: dict = _load_or_create_boot_state()
 
 
 class JobManager:
@@ -82,6 +149,7 @@ class JobManager:
             log_path=log_path,
             requested_by=requested_by,
             fetch_url=fetch_url,
+            boot_id=_BOOT_STATE["boot_id"],
         )
         self._save(job)
         return job
@@ -237,14 +305,60 @@ class JobManager:
         except Exception as exc:
             logger.warning("Failed to append to log %s: %s", log_path, exc)
 
+    @staticmethod
+    def _diagnose_restart(job_boot_id: Optional[str]) -> dict:
+        """
+        ジョブの boot_id と現在の boot_id を比較し、中断原因を推定する。
+
+        返却:
+          cause        : "different_boot" | "no_boot_id" | "same_boot_crash"
+          possible     : ユーザ向けの可能性列挙リスト
+          diag         : ログ向け詳細情報 dict
+        """
+        current = _BOOT_STATE
+        now_boot  = current["boot_id"]
+        prev_boot = current.get("prev_boot_id")
+        container_id = current.get("container_id")
+
+        diag: dict = {
+            "current_boot_id":    now_boot,
+            "previous_boot_id":   prev_boot,
+            "current_pid":        current.get("pid"),
+            "current_started_at": current.get("started_at"),
+            "container_id":       container_id,
+            "job_boot_id":        job_boot_id,
+        }
+
+        if job_boot_id is None:
+            # 旧フォーマット（boot_id 未記録）の場合
+            cause = "no_boot_id"
+            possible = [
+                "process_restarted",
+                "container_restarted",
+                "unknown_external_restart",
+            ]
+        elif job_boot_id != now_boot:
+            # boot_id が違う → 別プロセス起動をまたいでいることが確実
+            cause = "different_boot"
+            if container_id:
+                possible = ["container_restarted", "process_restarted"]
+            else:
+                possible = ["process_restarted", "unknown_external_restart"]
+        else:
+            # 同一 boot_id だが running のまま残っている（asyncio タスク例外など）
+            cause = "same_boot_crash"
+            possible = ["asyncio_task_exception", "process_signal"]
+
+        return {"cause": cause, "possible": possible, "diag": diag}
+
     def cleanup_stale_running(self) -> None:
         """起動時に queued/running のまま残ったジョブを failed にリセットする。
 
-        再起動によって中断されたジョブを検出し、以下を行う:
-          1. ジョブ JSON を failed に更新（より詳細なメッセージ付き）
-          2. ジョブログへ中断理由を追記
-          3. normalize 中断時は current_normalized_path をクリア（不完全成果物を参照させない）
-          4. normalize 中断時は *.tmp.geojson を削除（次回実行の妨げを防ぐ）
+        処理内容:
+          1. boot_id 比較で中断原因を推定し、ジョブログへ診断情報を追記
+          2. ジョブ JSON を failed に更新（原因別の user_message）
+          3. normalize 中断時: current_normalized_path をクリア
+          4. normalize 中断時: *.tmp.geojson を削除
         """
         from app.services.dataset_state_service import get_state_service
         from app.services.dataset_definition_service import get_definition_service
@@ -259,29 +373,55 @@ class JobManager:
                 if data.get("status") not in ("queued", "running"):
                     continue
 
-                step = data.get("step") or "unknown"
+                step     = data.get("step") or "unknown"
                 log_path = data.get("log_path")
 
-                # ① ジョブ JSON を更新
-                data["status"] = "failed"
-                data["error_code"] = "INTERNAL_ERROR"
-                data["user_message"] = (
-                    f"サーバ再起動によりジョブが中断されました（ステップ: {step}）。"
-                    "出力ファイルは未確定です。tmp ファイルが残っている場合があります。"
+                # ── 原因診断 ─────────────────────────────────────────────────
+                result   = self._diagnose_restart(data.get("boot_id"))
+                cause    = result["cause"]
+                possible = result["possible"]
+                diag     = result["diag"]
+
+                # cause 別の user_message
+                if cause == "different_boot":
+                    user_msg = (
+                        f"backend プロセスが再起動・再生成されたため、ジョブが中断されました"
+                        f"（ステップ: {step}）。"
+                        "原因はアプリ外（Docker restart / host 再起動など）の可能性があります。"
+                        "出力は未確定です。"
+                    )
+                elif cause == "same_boot_crash":
+                    user_msg = (
+                        f"同一プロセス内でジョブが異常終了しました（ステップ: {step}）。"
+                        "asyncio タスク例外またはシグナルによる中断の可能性があります。"
+                    )
+                else:  # no_boot_id
+                    user_msg = (
+                        f"プロセス再起動によりジョブが中断されました（ステップ: {step}）。"
+                        "原因の詳細は特定できません（旧フォーマットのジョブ）。"
+                    )
+
+                # ── ジョブ JSON 更新 ──────────────────────────────────────────
+                data["status"]         = "failed"
+                data["error_code"]     = "INTERNAL_ERROR"
+                data["user_message"]   = user_msg
+                data["action_message"] = (
+                    "再度実行してください。前回の出力は無効化されています。"
+                    f" 推定原因: {', '.join(possible)}"
                 )
-                data["action_message"] = "再度実行してください。前回の出力は無効化されています。"
                 data["ended_at"] = datetime.utcnow().isoformat()
                 with path.open("w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
 
-                # ② ジョブログへ中断理由を追記
-                self._append_log(
-                    log_path,
-                    f"[SYSTEM] サーバ再起動を検出。ジョブをサーバ起動時に failed に移行しました。"
-                    f" (中断ステップ: {step})",
-                )
+                # ── ジョブログへ診断情報を追記 ────────────────────────────────
+                self._append_log(log_path, (
+                    f"[SYSTEM] プロセス起動変化を検出。ジョブを failed に移行します。"
+                    f" cause={cause}  possible={possible}"
+                ))
+                for k, v in diag.items():
+                    self._append_log(log_path, f"[SYSTEM]   {k}: {v}")
 
-                # ③・④ データセット state の整合性回復
+                # ── データセット state の整合性回復 ───────────────────────────
                 dataset_id = data.get("dataset_id")
                 if not dataset_id:
                     continue
@@ -291,16 +431,14 @@ class JobManager:
                 if step == "normalize" and state.normalize_status == NormalizeStatus.running:
                     state.normalize_status = NormalizeStatus.failed
 
-                    # current_normalized_path をクリア（中断前の古いパスが misleading に残るのを防ぐ）
                     if state.current_normalized_path:
                         self._append_log(
                             log_path,
-                            f"[SYSTEM] current_normalized_path をクリアしました"
-                            f" (中断前の参照: {state.current_normalized_path})",
+                            f"[SYSTEM] current_normalized_path をクリア"
+                            f" (中断前参照: {state.current_normalized_path})",
                         )
                         state.current_normalized_path = None
 
-                    # *.tmp.geojson を削除（normalize の atomic write が中途半端に残ったもの）
                     defn = ds.get(dataset_id)
                     if defn and defn.normalized_storage_path:
                         norm_dir = (_PROJECT_ROOT / defn.normalized_storage_path).resolve()
@@ -309,7 +447,7 @@ class JobManager:
                                 tmp_file.unlink()
                                 self._append_log(
                                     log_path,
-                                    f"[SYSTEM] 中断された tmp ファイルを削除しました: {tmp_file.name}",
+                                    f"[SYSTEM] 中断 tmp ファイルを削除: {tmp_file.name}",
                                 )
                                 logger.info("Removed stale tmp file: %s", tmp_file)
                             except OSError as exc:
