@@ -280,8 +280,13 @@ function renderDetail(detail) {
   const errorSection = document.getElementById("detail-error-section");
   if (job && job.error_code) {
     errorSection.style.display = "";
+    // INTERNAL_ERROR かつ exit_code がない場合はサーバ再起動による中断と判定
+    const isRestartInterrupt = job.error_code === "INTERNAL_ERROR" && job.exit_code == null;
+    const errorCodeLabel = isRestartInterrupt
+      ? `<span style="font-family:monospace;color:#b91c1c">${job.error_code}</span> <span style="color:#92400e;font-size:0.85em">（アプリ再起動による中断）</span>`
+      : `<span style="font-family:monospace;color:#b91c1c">${job.error_code}</span>`;
     document.getElementById("detail-error").innerHTML = [
-      detailRow("エラーコード", `<span style="font-family:monospace;color:#b91c1c">${job.error_code}</span>`),
+      detailRow("エラーコード", errorCodeLabel),
       detailRow("内容", `<span style="color:#b91c1c">${escHtml(job.user_message || "")}</span>`),
       detailRow("対応方法", escHtml(job.action_message || "")),
     ].join("");

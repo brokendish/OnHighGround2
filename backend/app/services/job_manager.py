@@ -226,38 +226,105 @@ class JobManager:
                 logger.warning("Failed to read job file %s: %s", path, exc)
         return jobs
 
+    def _append_log(self, log_path: Optional[str], message: str) -> None:
+        """ジョブログファイルに 1 行追記する（ファイルが存在しない場合は作成）。"""
+        if not log_path:
+            return
+        try:
+            ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] {message}\n")
+        except Exception as exc:
+            logger.warning("Failed to append to log %s: %s", log_path, exc)
+
     def cleanup_stale_running(self) -> None:
-        """起動時に queued/running のまま残ったジョブを failed にリセットする。"""
+        """起動時に queued/running のまま残ったジョブを failed にリセットする。
+
+        再起動によって中断されたジョブを検出し、以下を行う:
+          1. ジョブ JSON を failed に更新（より詳細なメッセージ付き）
+          2. ジョブログへ中断理由を追記
+          3. normalize 中断時は current_normalized_path をクリア（不完全成果物を参照させない）
+          4. normalize 中断時は *.tmp.geojson を削除（次回実行の妨げを防ぐ）
+        """
         from app.services.dataset_state_service import get_state_service
+        from app.services.dataset_definition_service import get_definition_service
 
         ss = get_state_service()
+        ds = get_definition_service()
+
         for path in self._jobs_dir.glob("*.json"):
             try:
                 with path.open("r", encoding="utf-8") as f:
                     data = json.load(f)
-                if data.get("status") in ("queued", "running"):
-                    data["status"] = "failed"
-                    data["error_code"] = "INTERNAL_ERROR"
-                    data["user_message"] = "サーバ再起動により処理が中断されました。"
-                    data["action_message"] = "再度実行してください。"
-                    data["ended_at"] = datetime.utcnow().isoformat()
-                    with path.open("w", encoding="utf-8") as f:
-                        json.dump(data, f, ensure_ascii=False, indent=2)
+                if data.get("status") not in ("queued", "running"):
+                    continue
 
-                    dataset_id = data.get("dataset_id")
-                    if dataset_id:
-                        state = ss.load(dataset_id)
-                        step = data.get("step")
-                        if step == "normalize" and state.normalize_status == NormalizeStatus.running:
-                            state.normalize_status = NormalizeStatus.failed
-                        elif step == "validate" and state.validation_status != ValidationStatus.passed:
-                            state.validation_status = ValidationStatus.failed
-                        elif step in ("deploy", "backup") and state.deploy_status == DeployStatus.deploying:
-                            state.deploy_status = DeployStatus.not_deployed
-                        elif step == "osrm_rebuild" and state.osrm_rebuild_status == OsrmRebuildStatus.running:
-                            state.osrm_rebuild_status = OsrmRebuildStatus.failed
-                        state.updated_at = datetime.utcnow()
-                        ss.save(state)
+                step = data.get("step") or "unknown"
+                log_path = data.get("log_path")
+
+                # ① ジョブ JSON を更新
+                data["status"] = "failed"
+                data["error_code"] = "INTERNAL_ERROR"
+                data["user_message"] = (
+                    f"サーバ再起動によりジョブが中断されました（ステップ: {step}）。"
+                    "出力ファイルは未確定です。tmp ファイルが残っている場合があります。"
+                )
+                data["action_message"] = "再度実行してください。前回の出力は無効化されています。"
+                data["ended_at"] = datetime.utcnow().isoformat()
+                with path.open("w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+
+                # ② ジョブログへ中断理由を追記
+                self._append_log(
+                    log_path,
+                    f"[SYSTEM] サーバ再起動を検出。ジョブをサーバ起動時に failed に移行しました。"
+                    f" (中断ステップ: {step})",
+                )
+
+                # ③・④ データセット state の整合性回復
+                dataset_id = data.get("dataset_id")
+                if not dataset_id:
+                    continue
+
+                state = ss.load(dataset_id)
+
+                if step == "normalize" and state.normalize_status == NormalizeStatus.running:
+                    state.normalize_status = NormalizeStatus.failed
+
+                    # current_normalized_path をクリア（中断前の古いパスが misleading に残るのを防ぐ）
+                    if state.current_normalized_path:
+                        self._append_log(
+                            log_path,
+                            f"[SYSTEM] current_normalized_path をクリアしました"
+                            f" (中断前の参照: {state.current_normalized_path})",
+                        )
+                        state.current_normalized_path = None
+
+                    # *.tmp.geojson を削除（normalize の atomic write が中途半端に残ったもの）
+                    defn = ds.get(dataset_id)
+                    if defn and defn.normalized_storage_path:
+                        norm_dir = (_PROJECT_ROOT / defn.normalized_storage_path).resolve()
+                        for tmp_file in norm_dir.glob("*.tmp.geojson"):
+                            try:
+                                tmp_file.unlink()
+                                self._append_log(
+                                    log_path,
+                                    f"[SYSTEM] 中断された tmp ファイルを削除しました: {tmp_file.name}",
+                                )
+                                logger.info("Removed stale tmp file: %s", tmp_file)
+                            except OSError as exc:
+                                logger.warning("Failed to remove tmp file %s: %s", tmp_file, exc)
+
+                elif step == "validate" and state.validation_status != ValidationStatus.passed:
+                    state.validation_status = ValidationStatus.failed
+                elif step in ("deploy", "backup") and state.deploy_status == DeployStatus.deploying:
+                    state.deploy_status = DeployStatus.not_deployed
+                elif step == "osrm_rebuild" and state.osrm_rebuild_status == OsrmRebuildStatus.running:
+                    state.osrm_rebuild_status = OsrmRebuildStatus.failed
+
+                state.updated_at = datetime.utcnow()
+                ss.save(state)
+
             except Exception as exc:
                 logger.warning("Failed to cleanup stale job %s: %s", path, exc)
 
