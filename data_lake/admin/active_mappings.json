@@ -1,0 +1,9 @@
+{
+  "shelter:kanagawa": "KANAGAWA-SHELTER-001",
+  "shelter:tokyo": "TOKYO-SHELTER-001",
+  "admin_boundary:tokyo": "TOKYO-BOUNDARY-001",
+  "tsunami:kanagawa": "KANAGAWA-TSUNAMI-001",
+  "storm_surge:tokyo": "TOKYO-SURGE-001",
+  "flood:tokyo": "TOKYO-RIVER-001",
+  "inland_flood:tokyo": "TOKYO-URBAN-001"
+}

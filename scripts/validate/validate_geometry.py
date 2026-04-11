@@ -65,8 +65,12 @@ def main() -> int:
         print(f"Input not found: {input_path}", file=sys.stderr)
         return 1
 
-    with input_path.open(encoding="utf-8") as handle:
-        data = json.load(handle)
+    try:
+        with input_path.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        print(f"Invalid JSON in input file: {exc}", file=sys.stderr)
+        return 1
 
     if data.get("type") != "FeatureCollection":
         print("GeoJSON root type must be FeatureCollection.", file=sys.stderr)

@@ -28,11 +28,29 @@ class HazardLayersSourceGuardsTest(unittest.TestCase):
         self.assertIn("return hazard.layer;", SOURCE)
         self.assertIn("hazard.layer = L.geoJSON(featureCollection, {", SOURCE)
 
-    def test_flood_and_storm_surge_prefer_vector_tiles_when_martin_is_available(self):
+    def test_all_managed_hazard_layers_prefer_api(self):
+        # shouldUseVectorTiles exists and short-circuits on preferApi
         self.assertIn("function shouldUseVectorTiles(layerKey, hazard) {", SOURCE)
-        self.assertIn("layerKey === 'flood_tokyo_max' || layerKey === 'storm_surge_tokyo' || !hazard?.apiUrl;", SOURCE)
+        self.assertIn("if (hazard?.preferApi) {", SOURCE)
+        # VECTOR_TILE_SOURCES entries are retained for future tile support
         self.assertIn("storm_surge_tokyo: [", SOURCE)
         self.assertIn("tilesetId: 'tokyo_storm_surge'", SOURCE)
+        self.assertIn("flood_tokyo_max: [", SOURCE)
+        # Each managed layer must have preferApi: true
+        for layer_key, next_key in [
+            ("storm_surge_tokyo: {", "storm_surge_kanagawa:"),
+            ("flood_tokyo_max: {",   "flood_kanagawa_max:"),
+            ("inland_flood_tokyo: {", "landslide_tokyo:"),
+        ]:
+            start = SOURCE.find(layer_key)
+            end   = SOURCE.find(next_key, start)
+            self.assertGreater(end, start, f"{layer_key} block not found")
+            self.assertIn("preferApi: true", SOURCE[start:end], f"{layer_key} missing preferApi: true")
+        # inland_flood_tokyo must also have metaUrl for mapping-aware existence check
+        il_start = SOURCE.find("inland_flood_tokyo: {")
+        il_end   = SOURCE.find("landslide_tokyo:", il_start)
+        self.assertIn("metaUrl:", SOURCE[il_start:il_end])
+        # vector tile code path still exists (used when preferApi is absent)
         self.assertIn("if (shouldUseVectorTiles(layerKey, hazard)) {", SOURCE)
         self.assertIn("return { layerKey, enabled: true, reason: 'vector-tiles' };", SOURCE)
 

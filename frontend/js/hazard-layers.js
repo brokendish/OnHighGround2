@@ -154,7 +154,8 @@ const HAZARD_LAYERS = {
         lastError: null,
         datasetState: 'ready',
         availabilityState: 'uninitialized',
-        type: 'flood'
+        type: 'flood',
+        preferApi: true
     },
     flood_kanagawa_max: {
         name: "洪水浸水想定（神奈川県・想定最大規模）",
@@ -190,7 +191,8 @@ const HAZARD_LAYERS = {
         lastError: null,
         datasetState: 'ready',
         availabilityState: 'uninitialized',
-        type: 'storm_surge'
+        type: 'storm_surge',
+        preferApi: true
     },
     storm_surge_kanagawa: {
         name: "高潮浸水想定（神奈川県）",
@@ -216,6 +218,7 @@ const HAZARD_LAYERS = {
         region: 'tokyo',
         regionLabel: '東京都',
         apiUrl: '/api/hazards/inland_flood/tokyo',
+        metaUrl: '/api/hazards/inland_flood/tokyo/meta',
         path: `${LAYER_BASE_PATH}/inland_flood_tokyo.geojson`,
         checkboxId: "showInlandFloodTokyo",
         layer: null,
@@ -225,7 +228,8 @@ const HAZARD_LAYERS = {
         lastError: null,
         datasetState: 'ready',
         availabilityState: 'uninitialized',
-        type: 'inland_flood'
+        type: 'inland_flood',
+        preferApi: true
     },
     landslide_tokyo: {
         name: "土砂災害警戒区域（東京都）",

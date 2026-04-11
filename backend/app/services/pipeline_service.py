@@ -354,7 +354,10 @@ async def _do_normalize(
         output_path = (_PROJECT_ROOT / defn.raw_storage_path).resolve() / f"{defn.dataset_id.lower()}_normalized.geojson"
 
     cmd = ["python3", str(script_path), "--input", input_path, "--output", str(output_path)]
-    if defn.transformer_name in {"normalize_shelter", "normalize_tsunami"}:
+    if defn.transformer_name in {
+        "normalize_shelter", "normalize_tsunami",
+        "normalize_storm_surge", "normalize_river_flood", "normalize_inland_flood",
+    }:
         cmd.extend(["--dataset-id", defn.dataset_id])
     ret = await _run_subprocess(cmd, job, jm)
 
@@ -410,7 +413,7 @@ async def _do_validate(
         output_path = Path(input_path)
 
     cmd = ["python3", str(script_path), "--input", input_path, "--output", str(output_path)]
-    if defn.layer_type == "tsunami":
+    if defn.layer_type in {"tsunami", "storm_surge", "flood", "inland_flood"}:
         cmd.extend(["--allowed-geometry-types", "Polygon,MultiPolygon", "--require-bbox"])
 
     ret = await _run_subprocess(cmd, job, jm)
