@@ -30,6 +30,7 @@ from app.models.admin_dataset import (
     OperationType,
     OsrmRebuildStatus,
     StorageStatus,
+    TileBuildStatus,
     ValidationStatus,
 )
 from app.services.dataset_state_service import DatasetStateService
@@ -615,10 +616,77 @@ async def run_deploy(
         get_shelter_registry().invalidate()
         jm.log(job, "ShelterRegistry cache invalidated")
 
+    # タイルビルドが必要なレイヤーはデプロイ後に非同期で実行
+    if defn.requires_tile_build:
+        await _do_tile_build(job, defn, state, jm, ss)
+
     jm.update(job, status=JobStatus.success, step=JobStep.completed,
                progress_message="実行環境への反映が完了しました。",
                exit_code=0)
     jm.log(job, "=== deploy completed ===")
+
+
+# ── tile_build ────────────────────────────────────────────────────────────────
+
+async def _do_tile_build(
+    job: Job,
+    defn: DatasetDefinition,
+    state: DatasetState,
+    jm: JobManager,
+    ss: DatasetStateService,
+) -> None:
+    """
+    validated GeoJSON から vector tile（.mbtiles）を生成する。
+
+    出力先: data_runtime/frontend/tiles/{region}/{layer_type}/{dataset_id_snake}.mbtiles
+    Martin がこのディレクトリをスキャンし *.mbtiles を自動認識する。
+
+    失敗しても deploy ジョブは成功扱いにする（GeoJSON API が引き続き有効）。
+    """
+    jm.update(job, step=JobStep.tile_build,
+               progress_message="ベクタータイルをビルド中（完了まで数分かかります）...")
+    jm.log(job, "--- tile_build start ---")
+
+    state.tile_build_status = TileBuildStatus.running
+    ss.save(state)
+
+    # 入力: validated → normalized の順で解決
+    src_geojson = state.current_validated_path or state.current_normalized_path
+    if not src_geojson or not Path(src_geojson).is_file():
+        jm.log(job, "WARN: tile build をスキップ — validated/normalized GeoJSON が存在しません")
+        state.tile_build_status = TileBuildStatus.failed
+        ss.save(state)
+        return
+
+    # 出力パス: data_runtime/frontend/tiles/{region}/{layer_type}/{snake_id}.mbtiles
+    tile_stem = defn.dataset_id.lower().replace("-", "_")
+    tile_dir  = (_PROJECT_ROOT / "data_runtime" / "frontend" / "tiles"
+                 / defn.region / defn.layer_type)
+    tile_dir.mkdir(parents=True, exist_ok=True)
+    tile_path = tile_dir / f"{tile_stem}.mbtiles"
+
+    build_script = _SCRIPTS_DIR / "tiles" / "build_tiles_flood.sh"
+    if not build_script.exists():
+        jm.log(job, f"WARN: tile build スクリプトが見つかりません: {build_script}")
+        state.tile_build_status = TileBuildStatus.failed
+        ss.save(state)
+        return
+
+    ret = await _run_subprocess(
+        ["bash", str(build_script), src_geojson, str(tile_path), defn.layer_type],
+        job, jm,
+    )
+
+    if ret != 0:
+        jm.log(job, f"WARN: tile build が失敗しました (exit={ret})。GeoJSON API は引き続き有効です。")
+        state.tile_build_status = TileBuildStatus.failed
+        ss.save(state)
+        return
+
+    state.tile_build_status = TileBuildStatus.success
+    state.current_tile_path = str(tile_path)
+    ss.save(state)
+    jm.log(job, f"tile build 完了: {tile_path}")
 
 
 # ── rollback ──────────────────────────────────────────────────────────────────

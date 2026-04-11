@@ -154,8 +154,7 @@ const HAZARD_LAYERS = {
         lastError: null,
         datasetState: 'ready',
         availabilityState: 'uninitialized',
-        type: 'flood',
-        preferApi: true
+        type: 'flood'
     },
     flood_kanagawa_max: {
         name: "洪水浸水想定（神奈川県・想定最大規模）",
@@ -266,9 +265,9 @@ const VECTOR_TILE_SOURCES = {
     ],
     flood_tokyo_max: [
         {
-            tilesetId: 'tokyo_flood_max',
-            sourceLayer: 'tokyo_flood_max',
-            colorFn: (props) => getFloodRankColor(props['A31a_205']),
+            tilesetId: 'tokyo_river_001',   // active mapping で上書きされる（_activeTilesetId）
+            sourceLayer: 'flood',
+            colorFn: (props) => getFloodRankColor(props['flood_rank']),
             borderStyle: FLOOD_BORDER,
             maxNativeZoom: 16
         }
@@ -624,7 +623,7 @@ function getStormSurgeFeatureStyle(feature) {
 }
 
 function getFloodFeatureStyle(feature) {
-    const rank = feature?.properties?.['A31a_205'];
+    const rank = feature?.properties?.['flood_rank'];
     const fillColor = getFloodRankColor(rank);
     return {
         ...FLOOD_BORDER,
@@ -733,7 +732,7 @@ async function loadHazardLayer(layerKey) {
 
     if (shouldUseVectorTiles(layerKey, hazard)) {
         const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom }) =>
-            createVectorTileLayer(tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom)
+            createVectorTileLayer(hazard._activeTilesetId || tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom)
         );
         hazard.layer = L.layerGroup(vtLayers);
         hazard.loaded = true;
@@ -866,7 +865,25 @@ async function _initializeHazardTogglesImpl() {
 
             if (shouldUseVectorTiles(layerKey, hazard)) {
                 const firstTileset = VECTOR_TILE_SOURCES[layerKey][0];
-                const checkPath = `/tiles/${firstTileset.tilesetId}`;
+
+                // active mapping から tileset ID を解決（metaUrl がある場合）
+                let activeTilesetId = firstTileset.tilesetId;
+                if (hazard.metaUrl) {
+                    try {
+                        const metaResp = await apiFetch(hazard.metaUrl, { cache: 'no-cache' });
+                        if (metaResp.ok) {
+                            const meta = await metaResp.json();
+                            if (meta?.dataset_id) {
+                                activeTilesetId = meta.dataset_id.toLowerCase().replace(/-/g, '_');
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`[hazard:init] ${layerKey}: metaUrl 解決失敗、静的 tilesetId を使用します`, e);
+                    }
+                }
+                hazard._activeTilesetId = activeTilesetId;
+
+                const checkPath = `/tiles/${activeTilesetId}`;
                 const tilesExist = await hazardDataExists({ ...hazard, path: checkPath, metaUrl: null, apiUrl: null });
                 if (!tilesExist) {
                     if (hazard.apiUrl) {

@@ -60,6 +60,14 @@ class OsrmRebuildStatus(str, Enum):
     failed = "failed"
 
 
+class TileBuildStatus(str, Enum):
+    not_applicable = "not_applicable"
+    not_started = "not_started"
+    running = "running"
+    success = "success"
+    failed = "failed"
+
+
 class JobType(str, Enum):
     ingest_upload = "ingest_upload"
     ingest_fetch_url = "ingest_fetch_url"
@@ -87,6 +95,7 @@ class JobStep(str, Enum):
     validate = "validate"
     backup = "backup"
     deploy = "deploy"
+    tile_build = "tile_build"
     rollback = "rollback"
     osrm_extract = "osrm_extract"
     osrm_partition = "osrm_partition"
@@ -145,6 +154,10 @@ class DatasetDefinition(BaseModel):
     # インフラ系データセット（dem, osm）は null
     layer_type: Optional[str] = None
 
+    # デプロイ後に vector tile（.mbtiles）をビルドするか
+    # True の場合、validated GeoJSON から tippecanoe でタイル生成する
+    requires_tile_build: bool = False
+
     @property
     def browser_upload_enabled(self) -> bool:
         return self.max_browser_upload_mb > 0
@@ -163,11 +176,14 @@ class DatasetState(BaseModel):
     current_validated_path: Optional[str] = None
     current_runtime_path: Optional[str] = None
 
+    current_tile_path: Optional[str] = None
+
     storage_status: StorageStatus = StorageStatus.none
     normalize_status: NormalizeStatus = NormalizeStatus.not_started
     validation_status: ValidationStatus = ValidationStatus.not_started
     deploy_status: DeployStatus = DeployStatus.not_deployed
     osrm_rebuild_status: OsrmRebuildStatus = OsrmRebuildStatus.not_applicable
+    tile_build_status: TileBuildStatus = TileBuildStatus.not_applicable
 
     is_deployable: bool = False
 
@@ -248,6 +264,7 @@ class DatasetSummary(BaseModel):
     validation_status: ValidationStatus
     deploy_status: DeployStatus
     osrm_rebuild_status: OsrmRebuildStatus
+    tile_build_status: TileBuildStatus = TileBuildStatus.not_applicable
     is_deployable: bool
     updated_at: Optional[datetime]
     deployed_at: Optional[datetime]

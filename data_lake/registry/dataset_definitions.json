@@ -48,7 +48,8 @@
     "runtime_path": "data_runtime/backend/hazard/flood",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_river_flood",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "requires_tile_build": true
   },
   {
     "dataset_id": "TOKYO-TSUNAMI-001",

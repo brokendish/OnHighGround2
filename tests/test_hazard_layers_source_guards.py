@@ -28,29 +28,50 @@ class HazardLayersSourceGuardsTest(unittest.TestCase):
         self.assertIn("return hazard.layer;", SOURCE)
         self.assertIn("hazard.layer = L.geoJSON(featureCollection, {", SOURCE)
 
-    def test_all_managed_hazard_layers_prefer_api(self):
+    def test_hazard_layer_source_routing(self):
         # shouldUseVectorTiles exists and short-circuits on preferApi
         self.assertIn("function shouldUseVectorTiles(layerKey, hazard) {", SOURCE)
         self.assertIn("if (hazard?.preferApi) {", SOURCE)
-        # VECTOR_TILE_SOURCES entries are retained for future tile support
-        self.assertIn("storm_surge_tokyo: [", SOURCE)
-        self.assertIn("tilesetId: 'tokyo_storm_surge'", SOURCE)
-        self.assertIn("flood_tokyo_max: [", SOURCE)
-        # Each managed layer must have preferApi: true
+
+        # storm_surge and inland_flood prefer API (GeoJSON)
         for layer_key, next_key in [
             ("storm_surge_tokyo: {", "storm_surge_kanagawa:"),
-            ("flood_tokyo_max: {",   "flood_kanagawa_max:"),
             ("inland_flood_tokyo: {", "landslide_tokyo:"),
         ]:
             start = SOURCE.find(layer_key)
             end   = SOURCE.find(next_key, start)
             self.assertGreater(end, start, f"{layer_key} block not found")
             self.assertIn("preferApi: true", SOURCE[start:end], f"{layer_key} missing preferApi: true")
-        # inland_flood_tokyo must also have metaUrl for mapping-aware existence check
+
+        # flood uses vector tiles — no preferApi in flood_tokyo_max block
+        fl_start = SOURCE.find("flood_tokyo_max: {")
+        fl_end   = SOURCE.find("flood_kanagawa_max:", fl_start)
+        self.assertGreater(fl_end, fl_start, "flood_tokyo_max block not found")
+        self.assertNotIn("preferApi: true", SOURCE[fl_start:fl_end],
+                         "flood_tokyo_max must NOT have preferApi: true (uses vector tiles)")
+
+        # flood VECTOR_TILE_SOURCES: normalized property names
+        vts_start = SOURCE.find("flood_tokyo_max: [")
+        vts_end   = SOURCE.find("],", vts_start) + 2
+        flood_vts = SOURCE[vts_start:vts_end]
+        self.assertIn("sourceLayer: 'flood'", flood_vts, "sourceLayer must be 'flood' (normalized)")
+        self.assertIn("flood_rank", flood_vts, "colorFn must reference flood_rank (not A31a_205)")
+        self.assertNotIn("A31a_205", flood_vts, "A31a_205 is raw field; must not appear in VECTOR_TILE_SOURCES")
+
+        # dynamic tileset ID resolution via metaUrl
+        self.assertIn("hazard._activeTilesetId", SOURCE)
+        self.assertIn("meta.dataset_id.toLowerCase().replace(/-/g, '_')", SOURCE)
+
+        # inland_flood_tokyo must have metaUrl for mapping-aware existence check
         il_start = SOURCE.find("inland_flood_tokyo: {")
         il_end   = SOURCE.find("landslide_tokyo:", il_start)
         self.assertIn("metaUrl:", SOURCE[il_start:il_end])
-        # vector tile code path still exists (used when preferApi is absent)
+
+        # VECTOR_TILE_SOURCES entries for storm_surge retained
+        self.assertIn("storm_surge_tokyo: [", SOURCE)
+        self.assertIn("tilesetId: 'tokyo_storm_surge'", SOURCE)
+
+        # vector tile code path used for flood
         self.assertIn("if (shouldUseVectorTiles(layerKey, hazard)) {", SOURCE)
         self.assertIn("return { layerKey, enabled: true, reason: 'vector-tiles' };", SOURCE)
 
