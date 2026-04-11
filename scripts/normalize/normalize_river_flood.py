@@ -54,8 +54,10 @@ RANK_TABLE: dict[int, tuple] = {
 # 浸水深テキスト → rank（テキストで入ってくる場合）
 TEXT_TO_RANK: dict[str, int] = {v[0]: k for k, v in RANK_TABLE.items()}
 
-# プロパティキー優先順: A31a_205（国管理）, A31b_205（都道府県管理）, 正規化済みキー
-_RANK_KEYS = ("A31a_205", "A31b_205", "flood_rank", "water_depth")
+# プロパティキー優先順: 正規化済みキー優先, 旧 raw キーはフォールバック
+# flood_rank: _iter_gml_features が DEPTH_TO_RANK で変換済みの値を入れる（1-5）
+# water_depth: ksj:waterDepth の生値（1-6）。flood_rank がない場合のフォールバック
+_RANK_KEYS = ("flood_rank", "water_depth", "A31a_205", "A31b_205")
 
 
 def _extract_rank(props: dict) -> int:
@@ -131,7 +133,12 @@ def _collect_curves(root: ET.Element) -> dict[str, list[tuple[float, float]]]:
             continue
         for child in elem.iter():
             if _local(child.tag) == "posList" and child.text:
-                curves[geom_id] = _parse_pos_list(child.text.strip())
+                coords = _parse_pos_list(child.text.strip())
+                curves[geom_id] = coords
+                # 国土数値情報 A31a/A31b の xlink:href は gml:id に '_' を付けて参照する
+                # 例: gml:id="cv0_0" → xlink:href="#_cv0_0"
+                # 両方のキーで引けるようにエイリアスを登録する
+                curves["_" + geom_id] = coords
                 break
 
     for elem in root.iter():
@@ -153,6 +160,7 @@ def _collect_curves(root: ET.Element) -> dict[str, list[tuple[float, float]]]:
             if orientation == "-":
                 coords = list(reversed(coords))
             curves[geom_id] = coords
+            curves["_" + geom_id] = coords
 
     return curves
 
@@ -252,76 +260,89 @@ def _extract_inline_geom(elem: ET.Element) -> Optional[dict]:
 
 # ── GML フィーチャ抽出 ────────────────────────────────────────────────────
 
-_FLOOD_FEATURE_TAGS = {"A31a", "A31b"}
+# 国土数値情報 A31a/A31b の waterDepth (1-6) → flood_rank (1-5) 変換
+# waterDepth=6 (20m以上) は最大ランク 5 に統合（RANK_TABLE の上限に合わせる）
+DEPTH_TO_RANK: dict[int, int] = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 5}
+
+
+def _parse_xml(raw: bytes, label: str) -> ET.Element:
+    """
+    XML バイト列を安全にパースして Element ツリーのルートを返す。
+
+    ET.fromstring(raw) は一部の multi-byte encoding 宣言を持つファイルで失敗する。
+    ET.parse(BytesIO(raw)) は encoding 宣言を正しく処理するため、こちらを使用する。
+    """
+    try:
+        return ET.parse(io.BytesIO(raw)).getroot()
+    except (ET.ParseError, ValueError) as exc:
+        raise ValueError(f"GML/XML パースエラー ({label}): {exc}") from exc
 
 
 def _iter_gml_features(raw: bytes, label: str) -> Iterator[dict]:
     """
-    A31a / A31b GML バイト列からフィーチャ dict を yield する。
+    国土数値情報 A31a / A31b GML バイト列から Feature dict を yield する。
 
-    各フィーチャの properties には A31a_205（または A31b_205）、river_name、
-    river_number を含む。geometry は GeoJSON 形式（lon/lat）。
+    実データの GML 構造:
+      ksj:MaximumScale          ← フィーチャ単位（旧コードの "A31a"/"A31b" は誤り）
+        ksj:bounds xlink:href="#sfN"   ← Surface への参照
+        ksj:waterDepth          ← 浸水深ランク (1-6)
+        ksj:riverName           ← 河川名
+        ksj:riverNumber         ← 河川番号
 
-    ジオメトリ取得方法:
-      1. A31a_208 / A31b_208 の xlink:href → 事前収集 surfaces 辞書から解決
-      2. A31a_208 / A31b_208 の直接埋め込み GML → インライン解析
+    座標参照の特記事項:
+      curveMember の xlink:href は "#_cvN_M" 形式（先頭に '_'）だが、
+      Curve 要素の gml:id は "cvN_M" 形式（'_' なし）。
+      _collect_curves() でエイリアスを登録することでこのミスマッチを吸収する。
     """
     try:
-        root = ET.fromstring(raw)
-    except ET.ParseError as exc:
-        raise ValueError(f"GML/XML パースエラー ({label}): {exc}") from exc
+        root = _parse_xml(raw, label)
+    except ValueError:
+        raise
 
     curves   = _collect_curves(root)
     surfaces = _collect_surfaces(root, curves)
 
-    found = 0
+    found    = 0
+    skipped  = 0
+
     for elem in root.iter():
-        feature_type = _local(elem.tag)
-        if feature_type not in _FLOOD_FEATURE_TAGS:
+        if _local(elem.tag) != "MaximumScale":
             continue
 
-        rank_key     = f"{feature_type}_205"
-        geom_key     = f"{feature_type}_208"
-        system_key   = f"{feature_type}_201"   # 水系名
-        river_key    = f"{feature_type}_202"   # 河川名
-        river_no_key = f"{feature_type}_203"   # 河川コード
-
-        rank_text    = ""
-        system_name  = ""
+        water_depth  = 0
         river_name   = ""
         river_number = ""
-        geom         = None
+        sf_id        = None
 
         for child in elem:
             cl = _local(child.tag)
-            if cl == rank_key:
-                rank_text = (child.text or "").strip()
-            elif cl == system_key:
-                system_name = (child.text or "").strip()
-            elif cl == river_key:
-                river_name = (child.text or "").strip()
-            elif cl == river_no_key:
-                river_number = (child.text or "").strip()
-            elif cl == geom_key:
+            if cl == "bounds":
                 href = _href_target(
                     next((v for k, v in child.attrib.items() if _local(k) == "href"), None)
                 )
                 if href:
-                    geom = surfaces.get(href)
-                if geom is None:
-                    geom = _extract_inline_geom(child)
+                    sf_id = href
+            elif cl == "waterDepth":
+                try:
+                    water_depth = int((child.text or "").strip())
+                except ValueError:
+                    pass
+            elif cl == "riverName":
+                river_name = (child.text or "").strip()
+            elif cl == "riverNumber":
+                river_number = (child.text or "").strip()
 
-        if geom is None:
-            print(
-                f"[WARN] {label}: {feature_type} ジオメトリを取得できませんでした、スキップ",
-                file=sys.stderr,
-            )
+        if sf_id is None:
+            skipped += 1
             continue
 
-        props: dict = {rank_key: rank_text}
-        # 水系名→河川名の順で river_name を設定（より具体的な河川名を優先）
-        if system_name:
-            props["river_name"] = system_name
+        geom = surfaces.get(sf_id)
+        if geom is None:
+            skipped += 1
+            continue
+
+        rank = DEPTH_TO_RANK.get(water_depth, 0)
+        props: dict = {"flood_rank": rank, "water_depth": water_depth}
         if river_name:
             props["river_name"] = river_name
         if river_number:
@@ -332,8 +353,14 @@ def _iter_gml_features(raw: bytes, label: str) -> Iterator[dict]:
 
     if found == 0:
         print(
-            f"[WARN] {label}: A31a / A31b フィーチャが見つかりませんでした "
-            f"(surfaces={len(surfaces)}, curves={len(curves)})",
+            f"[WARN] {label}: MaximumScale フィーチャが見つかりませんでした "
+            f"(surfaces={len(surfaces)}, curves={len(curves)//2}, skipped={skipped})\n"
+            f"  → XML 構造が想定外の可能性があります",
+            file=sys.stderr,
+        )
+    elif skipped:
+        print(
+            f"[WARN] {label}: {skipped} フィーチャをスキップ（surface 未解決）",
             file=sys.stderr,
         )
 
