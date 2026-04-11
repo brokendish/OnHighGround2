@@ -230,50 +230,54 @@ class TestNormalizeProperties:
         assert nrf._extract_rank({}) == 0
 
 
-class TestNonMaxscaleFileFilter:
-    """_NON_MAXSCALE_FILE パターンのテスト
+class TestFloodGmlFilter:
+    """_is_flood_gml() の許可方式フィルタのテスト
 
-    ディレクトリ名が文字化けしても、ファイル名（ASCII）で正しくスキップ判定できること。
+    A31a-20-* / A31b-20-* のみ True を返し、
+    KS-META-*.xml や 10_/30_/41_/42_ カテゴリはすべて False になること。
     """
 
-    def test_a31a_10_skipped(self):
-        """A31a-10- ファイルはスキップ対象"""
-        assert nrf._NON_MAXSCALE_FILE.search("A31a-10-24_13_1300020001_10.xml")
+    def test_a31a_20_allowed(self):
+        """A31a-20- は処理対象"""
+        assert nrf._is_flood_gml("A31a-20-24_13_1300020001_10.xml")
 
-    def test_a31a_30_skipped(self):
-        assert nrf._NON_MAXSCALE_FILE.search("A31a-30-24_13_1300020001_10.xml")
+    def test_a31b_20_allowed(self):
+        """A31b-20- も処理対象"""
+        assert nrf._is_flood_gml("A31b-20-24_13_1300020001_10.xml")
 
-    def test_a31a_41_skipped(self):
-        assert nrf._NON_MAXSCALE_FILE.search("A31a-41-24_13_1300020001_10.xml")
+    def test_a31a_10_rejected(self):
+        """A31a-10- はスキップ"""
+        assert not nrf._is_flood_gml("A31a-10-24_13_1300020001_10.xml")
 
-    def test_a31a_42_skipped(self):
-        assert nrf._NON_MAXSCALE_FILE.search("A31a-42-24_13_1300020001_10.xml")
+    def test_a31a_30_rejected(self):
+        assert not nrf._is_flood_gml("A31a-30-24_13_1300020001_10.xml")
 
-    def test_a31b_10_skipped(self):
-        """A31b-10- も同様にスキップ対象"""
-        assert nrf._NON_MAXSCALE_FILE.search("A31b-10-24_13_1300020001_10.xml")
+    def test_a31a_41_rejected(self):
+        assert not nrf._is_flood_gml("A31a-41-24_13_1300020001_10.xml")
 
-    def test_a31a_20_not_skipped(self):
-        """A31a-20- は処理対象（MaximumScale あり）"""
-        assert not nrf._NON_MAXSCALE_FILE.search("A31a-20-24_13_1300020001_10.xml")
+    def test_a31a_42_rejected(self):
+        assert not nrf._is_flood_gml("A31a-42-24_13_1300020001_10.xml")
 
-    def test_a31b_20_not_skipped(self):
-        assert not nrf._NON_MAXSCALE_FILE.search("A31b-20-24_13_1300020001_10.xml")
+    def test_ks_meta_rejected(self):
+        """KS-META-*.xml はスキップ（メタデータ）"""
+        assert not nrf._is_flood_gml("KS-META-A31a-24_13_10.xml")
 
-    def test_garbled_dir_with_a31a_20_not_skipped(self):
-        """文字化けしたディレクトリ名の中でも A31a-20- ファイルはスキップされない"""
-        # 文字化けしたパス例: A31a-24_13_10_GML/20_îvëµïKû═/A31a-20-24_13_...xml
+    def test_unknown_xml_rejected(self):
+        """未知の XML はスキップ"""
+        assert not nrf._is_flood_gml("flood_data.xml")
+        assert not nrf._is_flood_gml("some_other.xml")
+
+    def test_garbled_dir_with_a31a_20_allowed(self):
+        """文字化けしたディレクトリ配下の A31a-20- ファイルは処理対象"""
         garbled_path = "A31a-24_13_10_GML/20_\x91\x6D\x92\xE8/A31a-20-24_13_1300020001_10.xml"
-        basename = garbled_path.replace("\\", "/").rsplit("/", 1)[-1]
-        assert not nrf._NON_MAXSCALE_FILE.search(basename)
+        assert nrf._is_flood_gml(garbled_path)
 
-    def test_garbled_dir_with_a31a_10_skipped(self):
-        """文字化けしたディレクトリ名でも A31a-10- ファイルはスキップされる"""
-        garbled_path = "A31a-24_13_10_GML/10_\x91\x6D\x92\xE8/A31a-10-24_13_1300020001_10.xml"
-        basename = garbled_path.replace("\\", "/").rsplit("/", 1)[-1]
-        assert nrf._NON_MAXSCALE_FILE.search(basename)
+    def test_garbled_dir_with_ks_meta_rejected(self):
+        """文字化けしたディレクトリ配下の KS-META-*.xml もスキップ"""
+        garbled_path = "A31a-24_13_10_GML/\x91\x6D\x92\xE8/KS-META-A31a-24_13_10.xml"
+        assert not nrf._is_flood_gml(garbled_path)
 
-    def test_non_a31_file_not_skipped(self):
-        """A31a/A31b パターンに合致しないファイルはスキップされない"""
-        assert not nrf._NON_MAXSCALE_FILE.search("flood_data.xml")
-        assert not nrf._NON_MAXSCALE_FILE.search("KS-META-A31a-24_13_10.xml")
+    def test_case_insensitive(self):
+        """大文字・小文字を区別しない"""
+        assert nrf._is_flood_gml("a31a-20-24_13_1300020001_10.xml")
+        assert nrf._is_flood_gml("A31B-20-24_13_1300020001_10.xml")

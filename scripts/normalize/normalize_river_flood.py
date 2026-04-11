@@ -41,18 +41,27 @@ import zipfile
 from pathlib import Path
 from typing import Generator, Iterator, Optional
 
-# 国土数値情報 A31a/A31b の非 MaximumScale ファイルを識別するパターン
+# 洪水本体 GML のファイル名許可パターン（許可方式）
 #
-# ZIP 内のディレクトリ名は日本語 Windows で作成された場合に Shift-JIS → CP437 変換で
-# 文字化けする。特に Shift-JIS の第2バイトが 0x5C (バックスラッシュ) になる文字が含まれる
-# と、パス区切り文字と誤認されて正規表現が誤マッチする。
+# ZIP 内の .xml/.gml は以下のみ処理する:
+#   A31a-20-*.xml / A31b-20-*.xml  →  20_想定最大規模（MaximumScale 要素あり）
 #
-# 一方、ファイル名（A31a-20-24_13_...xml 等）は常に ASCII のためエンコーディングの影響を
-# 受けない。カテゴリコード（-10- / -20- / -30- / -41- / -42-）でスキーマを判定する。
+# 除外（サイレントスキップ）:
+#   KS-META-*.xml   … メタデータ XML (Shift-JIS encoding で parse できない)
+#   A31a-10-*.xml   … 10_計画規模（別スキーマ、MaximumScale なし）
+#   A31a-30-*.xml   … 30_セグメント整備状況（同上）
+#   A31a-41-*.xml   … 41_（同上）
+#   A31a-42-*.xml   … 42_（同上）
+#   その他 *.xml    … 未知スキーマ、処理対象外
 #
-# 処理対象: A31a-20- / A31b-20-（20_想定最大規模 → MaximumScale 要素あり）
-# スキップ:  A31a-10- / A31a-30- / A31a-41- / A31a-42- （別スキーマ、MaximumScale なし）
-_NON_MAXSCALE_FILE = re.compile(r"A31[ab]-(?:10|30|41|42)-", re.IGNORECASE)
+# ファイル名は常に ASCII のためエンコーディング・文字化けの影響を受けない。
+_FLOOD_GML_PATTERN = re.compile(r"^A31[ab]-20-", re.IGNORECASE)
+
+
+def _is_flood_gml(name: str) -> bool:
+    """ZIP エントリ名または Path から、洪水本体 GML として処理すべきかを返す。"""
+    basename = name.replace("\\", "/").rsplit("/", 1)[-1]
+    return bool(_FLOOD_GML_PATTERN.match(basename))
 
 # ── ランクルックアップ ─────────────────────────────────────────────────────
 
@@ -440,11 +449,9 @@ def _iter_zip(zf: zipfile.ZipFile, zip_label: str) -> Iterator[dict]:
         yield from features
 
     for name in gml_names:
-        # ファイル名（常に ASCII）のカテゴリコードで判定する。
-        # ディレクトリ名は Shift-JIS 文字化けの影響を受けるため使用しない。
-        # A31a-10- / A31a-30- / A31a-41- / A31a-42- は MaximumScale を持たない別スキーマ
-        basename = name.replace("\\", "/").rsplit("/", 1)[-1]
-        if _NON_MAXSCALE_FILE.search(basename):
+        # 許可方式: A31a-20-* / A31b-20-* のみ処理する。
+        # KS-META-*.xml や 10_/30_/41_/42_ のファイルはサイレントスキップ。
+        if not _is_flood_gml(name):
             continue
         label = f"{zip_label}::{name}"
         raw = zf.read(name)
@@ -527,6 +534,9 @@ def iter_features(input_path: Path) -> Generator[dict, None, None]:
         return
 
     if suffix in {".gml", ".xml"}:
+        # 許可方式: A31a-20-* / A31b-20-* のみ処理する（ディレクトリスキャン時も同じ判定）
+        if not _is_flood_gml(input_path.name):
+            return
         print(f"読み込み中 (GML): {input_path}")
         try:
             raw = input_path.read_bytes()
