@@ -23,7 +23,7 @@ let _deployModalDataset = null;  // 反映確認対象
 let _rollbackModalDataset = null;// ロールバック確認対象
 let _osrmModalDataset = null;    // OSRM再構築確認対象
 let _logModalJobId = null;       // ジョブログモーダル対象
-let _selectedFile = null;        // アップロード選択ファイル
+let _selectedFiles = [];         // アップロード選択ファイル（複数対応）
 let _activeInputTab = null;      // 現在の投入方式タブ
 
 let _listRefreshTimer = null;
@@ -341,8 +341,12 @@ function openUpdateModal(datasetId) {
   const d = _allDatasets.find(x => x.dataset_id === datasetId);
   if (!d) return;
   _updateModalDataset = d;
-  _selectedFile = null;
+  _selectedFiles = [];
   document.getElementById("upload-selected").classList.remove("visible");
+  document.getElementById("upload-file-list").classList.remove("visible");
+  document.getElementById("upload-file-list").innerHTML = "";
+  const uploadInput = document.getElementById("upload-input");
+  if (uploadInput) uploadInput.value = "";
 
   // 情報セット
   document.getElementById("um-name").textContent = d.display_name;
@@ -426,29 +430,46 @@ function switchInputTab(mode) {
 function closeUpdateModal() {
   document.getElementById("update-modal").classList.remove("open");
   _updateModalDataset = null;
-  _selectedFile = null;
+  _selectedFiles = [];
 }
 
 // ── ファイル選択 ──────────────────────────────────────
 function handleFileSelect(input) {
-  if (input.files && input.files[0]) {
-    setSelectedFile(input.files[0]);
+  if (input.files && input.files.length > 0) {
+    setSelectedFiles(Array.from(input.files));
   }
 }
 
 function handleDrop(event) {
   event.preventDefault();
   document.getElementById("upload-zone").classList.remove("dragover");
-  const file = event.dataTransfer.files[0];
-  if (file) setSelectedFile(file);
+  const files = Array.from(event.dataTransfer.files);
+  if (files.length > 0) setSelectedFiles(files);
 }
 
-function setSelectedFile(file) {
-  _selectedFile = file;
-  const el = document.getElementById("upload-selected");
-  document.getElementById("upload-file-name").textContent = file.name;
-  document.getElementById("upload-file-size").textContent = formatBytes(file.size);
-  el.classList.add("visible");
+function setSelectedFiles(files) {
+  _selectedFiles = files;
+  const totalBytes = files.reduce((s, f) => s + f.size, 0);
+  const summaryEl = document.getElementById("upload-selected");
+  const listEl    = document.getElementById("upload-file-list");
+
+  if (files.length === 1) {
+    document.getElementById("upload-file-name").textContent = files[0].name;
+    document.getElementById("upload-file-size").textContent = formatBytes(files[0].size);
+    listEl.classList.remove("visible");
+    listEl.innerHTML = "";
+  } else {
+    document.getElementById("upload-file-name").textContent = `${files.length} ファイル選択済み`;
+    document.getElementById("upload-file-size").textContent = `合計 ${formatBytes(totalBytes)}`;
+    listEl.innerHTML = files.map((f) =>
+      `<div class="upload-file-list-item">
+        <span class="fname" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+        <span class="fsize">${formatBytes(f.size)}</span>
+      </div>`
+    ).join("");
+    listEl.classList.add("visible");
+  }
+  summaryEl.classList.add("visible");
 }
 
 // ── 更新実行 ──────────────────────────────────────────
@@ -464,9 +485,11 @@ async function executeUpdate() {
     let job_id;
 
     if (_activeInputTab === "upload") {
-      if (!_selectedFile) { showNotice("error", "ファイルを選択してください"); return; }
+      if (!_selectedFiles.length) { showNotice("error", "ファイルを選択してください"); return; }
       const formData = new FormData();
-      formData.append("file", _selectedFile);
+      for (const f of _selectedFiles) {
+        formData.append("files", f);
+      }
       const res = await fetch(`${API}/datasets/${d.dataset_id}/upload`, {
         method: "POST", body: formData
       });

@@ -3,10 +3,16 @@
 洪水浸水想定区域データ正規化スクリプト
 
 対応入力フォーマット:
-  - GeoJSON / JSON (.geojson, .json)
-  - ZIP アーカイブ (内部の .geojson / .json を自動検出)
+  - 単一 GeoJSON / JSON ファイル (.geojson, .json)
+  - 単一 GML / XML ファイル (.gml, .xml) — 国土数値情報 A31a / A31b 形式
+  - ZIP アーカイブ（内部の GeoJSON / GML を全件マージ）
+  - ZIP の中に ZIP（ネスト ZIP を再帰展開）
+  - ディレクトリ（.geojson / .json / .gml / .xml / .zip を再帰スキャン）
 
-出力: GeoJSON FeatureCollection
+複数 ZIP をひとつにまとめてアップロードする場合:
+  zip bundle.zip 荒川.zip 江戸川.zip 多摩川.zip
+
+出力: GeoJSON FeatureCollection（ストリーミング書き出し）
 
 正規化プロパティ:
   hazard_type   = "flood"
@@ -14,8 +20,8 @@
   flood_rank    (int 1-5): 浸水深区分
   depth_text    (str): 区分テキスト
   depth         (float): 代表浸水深 [m]
-  river_name    (str): 河川名 (あれば)
-  river_number  (str): 河川番号 (あれば)
+  river_name    (str): 河川名（あれば）
+  river_number  (str): 河川番号（あれば）
 
 浸水深ランク対応 (A31a_205 / A31b_205):
   1: 0.5m未満        → depth 0.25
@@ -26,15 +32,18 @@
 """
 
 import argparse
+import io
 import json
 import sys
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+from typing import Generator, Iterator, Optional
 
 # ── ランクルックアップ ─────────────────────────────────────────────────────
 
 # rank → (depth_text, representative_depth_m)
-RANK_TABLE: dict[int, tuple[str, float]] = {
+RANK_TABLE: dict[int, tuple] = {
     1: ("0.5m未満",       0.25),
     2: ("0.5m以上3m未満", 1.75),
     3: ("3m以上5m未満",   4.00),
@@ -42,10 +51,10 @@ RANK_TABLE: dict[int, tuple[str, float]] = {
     5: ("10m以上20m未満", 15.0),
 }
 
-# 浸水深テキスト → rank (テキストで入ってくる場合)
+# 浸水深テキスト → rank（テキストで入ってくる場合）
 TEXT_TO_RANK: dict[str, int] = {v[0]: k for k, v in RANK_TABLE.items()}
 
-# プロパティキー優先順: A31a_205 (都管理), A31b_205 (国管理), flood_rank, water_depth
+# プロパティキー優先順: A31a_205（国管理）, A31b_205（都道府県管理）, 正規化済みキー
 _RANK_KEYS = ("A31a_205", "A31b_205", "flood_rank", "water_depth")
 
 
@@ -71,9 +80,271 @@ def _extract_rank(props: dict) -> int:
     return 0
 
 
-# ── 入力読み込み ───────────────────────────────────────────────────────────
+# ── GML ジオメトリユーティリティ ───────────────────────────────────────────
+# 国土数値情報 GML 3.x 形式（A31a / A31b）に対応。
+# 座標系は JGD2011 (EPSG:6668) で (lat, lon) 順のため lon/lat へ変換して出力する。
+
+def _local(tag: str) -> str:
+    """名前空間 URI を除いたローカル名を返す。"""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+def _href_target(value: Optional[str]) -> Optional[str]:
+    """xlink:href の値から '#' プレフィックスを除去して返す。"""
+    if not value:
+        return None
+    return value[1:] if value.startswith("#") else value
+
+
+def _elem_id(elem: ET.Element) -> Optional[str]:
+    """gml:id 属性値を返す。"""
+    for attr_name, attr_val in elem.attrib.items():
+        if _local(attr_name) == "id":
+            return attr_val
+    return None
+
+
+def _parse_pos_list(text: str) -> list[tuple[float, float]]:
+    """
+    GML posList テキスト（lat lon lat lon ...）を [(lon, lat), ...] のリストに変換する。
+    GeoJSON は lon/lat 順のため、ここで swap する。
+    """
+    vals = text.split()
+    return [
+        (float(vals[i + 1]), float(vals[i]))   # (lon, lat)
+        for i in range(0, len(vals) - 1, 2)
+    ]
+
+
+def _collect_curves(root: ET.Element) -> dict[str, list[tuple[float, float]]]:
+    """
+    ドキュメント全体から id 付き Curve / LineString / LinearRing を収集し、
+    {id: [(lon, lat), ...]} の辞書を返す。OrientableCurve の方向反転も処理する。
+    """
+    curves: dict[str, list[tuple[float, float]]] = {}
+
+    for elem in root.iter():
+        if _local(elem.tag) not in ("Curve", "LineString", "LinearRing"):
+            continue
+        geom_id = _elem_id(elem)
+        if not geom_id:
+            continue
+        for child in elem.iter():
+            if _local(child.tag) == "posList" and child.text:
+                curves[geom_id] = _parse_pos_list(child.text.strip())
+                break
+
+    for elem in root.iter():
+        if _local(elem.tag) != "OrientableCurve":
+            continue
+        geom_id = _elem_id(elem)
+        if not geom_id:
+            continue
+        orientation = elem.attrib.get("orientation", "+")
+        base_ref = None
+        for child in elem:
+            if _local(child.tag) == "baseCurve":
+                base_ref = _href_target(
+                    next((v for k, v in child.attrib.items() if _local(k) == "href"), None)
+                )
+                break
+        if base_ref and base_ref in curves:
+            coords = list(curves[base_ref])
+            if orientation == "-":
+                coords = list(reversed(coords))
+            curves[geom_id] = coords
+
+    return curves
+
+
+def _collect_surfaces(
+    root: ET.Element,
+    curves: dict[str, list[tuple[float, float]]],
+) -> dict[str, dict]:
+    """
+    ドキュメント全体から id 付き Surface / Polygon / MultiSurface を収集し、
+    {id: geojson_geometry} の辞書を返す。
+    """
+    surfaces: dict[str, dict] = {}
+
+    for elem in root.iter():
+        local = _local(elem.tag)
+        if local not in ("Surface", "Polygon", "MultiSurface"):
+            continue
+        geom_id = _elem_id(elem)
+        if not geom_id:
+            continue
+
+        polygons: list[list[list[float]]] = []
+        ring_refs: list[str] = []
+
+        for child in elem.iter():
+            if _local(child.tag) in ("curveMember", "ringMember"):
+                href = _href_target(
+                    next((v for k, v in child.attrib.items() if _local(k) == "href"), None)
+                )
+                if href:
+                    ring_refs.append(href)
+            elif _local(child.tag) == "posList" and child.text:
+                ring = [[lon, lat] for lon, lat in _parse_pos_list(child.text.strip())]
+                if ring and ring[0] != ring[-1]:
+                    ring.append(ring[0])
+                polygons.append([ring])
+
+        if not polygons and ring_refs:
+            ring: list[list[float]] = []
+            for ref in ring_refs:
+                coords = curves.get(ref, [])
+                points = [[lon, lat] for lon, lat in coords]
+                if ring and points and ring[-1] == points[0]:
+                    ring.extend(points[1:])
+                else:
+                    ring.extend(points)
+            if ring:
+                if ring[0] != ring[-1]:
+                    ring.append(ring[0])
+                polygons.append([ring])
+
+        if not polygons:
+            continue
+
+        geom_type = "MultiPolygon" if len(polygons) > 1 else "Polygon"
+        surfaces[geom_id] = {
+            "type": geom_type,
+            "coordinates": polygons if geom_type == "MultiPolygon" else polygons[0],
+        }
+
+    return surfaces
+
+
+def _extract_inline_geom(elem: ET.Element) -> Optional[dict]:
+    """
+    A31a_208 / A31b_208 要素に直接埋め込まれた GML ジオメトリを解析する。
+    surfaceMember 単位で Polygon を収集し、複数なら MultiPolygon として返す。
+    """
+    polygons: list[list[list[list[float]]]] = []
+
+    for sub in elem.iter():
+        if _local(sub.tag) != "Polygon":
+            continue
+        rings: list[list[list[float]]] = []
+        for ring_container in sub:               # exterior / interior
+            rl = _local(ring_container.tag)
+            if rl not in ("exterior", "interior"):
+                continue
+            for pos_elem in ring_container.iter():
+                if _local(pos_elem.tag) == "posList" and pos_elem.text:
+                    coords = [[lon, lat] for lon, lat in _parse_pos_list(pos_elem.text.strip())]
+                    if len(coords) >= 3:
+                        if coords[0] != coords[-1]:
+                            coords.append(coords[0])
+                        rings.append(coords)
+                    break
+        if rings:
+            polygons.append(rings)
+
+    if not polygons:
+        return None
+    if len(polygons) == 1:
+        return {"type": "Polygon", "coordinates": polygons[0]}
+    return {"type": "MultiPolygon", "coordinates": polygons}
+
+
+# ── GML フィーチャ抽出 ────────────────────────────────────────────────────
+
+_FLOOD_FEATURE_TAGS = {"A31a", "A31b"}
+
+
+def _iter_gml_features(raw: bytes, label: str) -> Iterator[dict]:
+    """
+    A31a / A31b GML バイト列からフィーチャ dict を yield する。
+
+    各フィーチャの properties には A31a_205（または A31b_205）、river_name、
+    river_number を含む。geometry は GeoJSON 形式（lon/lat）。
+
+    ジオメトリ取得方法:
+      1. A31a_208 / A31b_208 の xlink:href → 事前収集 surfaces 辞書から解決
+      2. A31a_208 / A31b_208 の直接埋め込み GML → インライン解析
+    """
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        raise ValueError(f"GML/XML パースエラー ({label}): {exc}") from exc
+
+    curves   = _collect_curves(root)
+    surfaces = _collect_surfaces(root, curves)
+
+    found = 0
+    for elem in root.iter():
+        feature_type = _local(elem.tag)
+        if feature_type not in _FLOOD_FEATURE_TAGS:
+            continue
+
+        rank_key     = f"{feature_type}_205"
+        geom_key     = f"{feature_type}_208"
+        system_key   = f"{feature_type}_201"   # 水系名
+        river_key    = f"{feature_type}_202"   # 河川名
+        river_no_key = f"{feature_type}_203"   # 河川コード
+
+        rank_text    = ""
+        system_name  = ""
+        river_name   = ""
+        river_number = ""
+        geom         = None
+
+        for child in elem:
+            cl = _local(child.tag)
+            if cl == rank_key:
+                rank_text = (child.text or "").strip()
+            elif cl == system_key:
+                system_name = (child.text or "").strip()
+            elif cl == river_key:
+                river_name = (child.text or "").strip()
+            elif cl == river_no_key:
+                river_number = (child.text or "").strip()
+            elif cl == geom_key:
+                href = _href_target(
+                    next((v for k, v in child.attrib.items() if _local(k) == "href"), None)
+                )
+                if href:
+                    geom = surfaces.get(href)
+                if geom is None:
+                    geom = _extract_inline_geom(child)
+
+        if geom is None:
+            print(
+                f"[WARN] {label}: {feature_type} ジオメトリを取得できませんでした、スキップ",
+                file=sys.stderr,
+            )
+            continue
+
+        props: dict = {rank_key: rank_text}
+        # 水系名→河川名の順で river_name を設定（より具体的な河川名を優先）
+        if system_name:
+            props["river_name"] = system_name
+        if river_name:
+            props["river_name"] = river_name
+        if river_number:
+            props["river_number"] = river_number
+
+        found += 1
+        yield {"type": "Feature", "geometry": geom, "properties": props}
+
+    if found == 0:
+        print(
+            f"[WARN] {label}: A31a / A31b フィーチャが見つかりませんでした "
+            f"(surfaces={len(surfaces)}, curves={len(curves)})",
+            file=sys.stderr,
+        )
+
+
+# ── 入力読み込み（ジェネレータ）────────────────────────────────────────────
 
 def _parse_geojson_bytes(raw: bytes, label: str) -> dict:
+    """
+    バイト列を GeoJSON dict に変換する。
+    失敗時は ValueError（呼び出し側が WARN してスキップ）。
+    """
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -88,106 +359,222 @@ def _parse_geojson_bytes(raw: bytes, label: str) -> dict:
     return data
 
 
-def load_input(path: Path) -> dict:
-    suffix = path.suffix.lower()
+def _iter_zip(zf: zipfile.ZipFile, zip_label: str) -> Iterator[dict]:
+    """
+    ZipFile オブジェクト内のエントリを再帰的にスキャンし Feature を yield する。
 
-    if suffix in {".geojson", ".json"}:
-        print(f"読み込み中 (GeoJSON): {path}")
+    処理順序: GeoJSON → GML/XML → ネスト ZIP
+    各エントリの失敗は WARN してスキップ（他エントリの処理を継続）。
+    """
+    names = sorted(
+        n for n in zf.namelist()
+        if not n.startswith("__MACOSX") and not n.endswith("/")
+    )
+    geojson_names = [n for n in names if n.lower().endswith((".geojson", ".json"))]
+    gml_names     = [n for n in names if n.lower().endswith((".gml", ".xml"))]
+    zip_names     = [n for n in names if n.lower().endswith(".zip")]
+
+    if not geojson_names and not gml_names and not zip_names:
+        print(
+            f"[WARN] ZIP 内に対応ファイルなし（スキップ）: {zip_label}\n"
+            f"  含まれるファイル: {names[:10]}{'...' if len(names) > 10 else ''}",
+            file=sys.stderr,
+        )
+        return
+
+    for name in geojson_names:
+        label = f"{zip_label}::{name}"
+        raw = zf.read(name)
         try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            raise FileNotFoundError(f"入力ファイルを開けません: {exc}") from exc
-        return _parse_geojson_bytes(raw, str(path))
+            data = _parse_geojson_bytes(raw, label)
+        except ValueError as exc:
+            print(f"[WARN] スキップ: {exc}", file=sys.stderr)
+            continue
+        features = (
+            data.get("features") or []
+            if data["type"] == "FeatureCollection"
+            else [data]
+        )
+        print(f"  [{label}] {len(features):,} フィーチャ (GeoJSON)")
+        yield from features
+
+    for name in gml_names:
+        label = f"{zip_label}::{name}"
+        raw = zf.read(name)
+        try:
+            feats = list(_iter_gml_features(raw, label))
+        except ValueError as exc:
+            print(f"[WARN] GML スキップ: {exc}", file=sys.stderr)
+            continue
+        print(f"  [{label}] {len(feats):,} フィーチャ (GML)")
+        yield from feats
+
+    for name in zip_names:
+        label = f"{zip_label}::{name}"
+        raw = zf.read(name)
+        try:
+            inner_zf = zipfile.ZipFile(io.BytesIO(raw))
+        except zipfile.BadZipFile as exc:
+            print(f"[WARN] 内部 ZIP を開けません、スキップ: {label}: {exc}", file=sys.stderr)
+            continue
+        print(f"  内部 ZIP 展開: {label}")
+        with inner_zf:
+            yield from _iter_zip(inner_zf, label)
+
+
+def iter_features(input_path: Path) -> Generator[dict, None, None]:
+    """
+    入力パス（ファイル / ZIP / ディレクトリ）から Feature dict を yield する。
+
+    ディレクトリ: .geojson / .json / .gml / .xml / .zip を再帰スキャンして全件マージ
+    ZIP        : 内部 GeoJSON・GML を全件マージ、ネスト ZIP も再帰展開
+    GeoJSON    : 直接読み込み
+    GML/XML    : A31a / A31b フォーマットとして解析
+
+    ValueError: 入力が存在しない、対応形式でない、読み込み不可の場合。
+    """
+    if input_path.is_dir():
+        sources = sorted(
+            f for f in input_path.rglob("*")
+            if f.is_file()
+            and f.suffix.lower() in {".geojson", ".json", ".gml", ".xml", ".zip"}
+        )
+        if not sources:
+            raise ValueError(
+                f"ディレクトリ内に対応ファイルが見つかりません: {input_path}\n"
+                f"  対応: .geojson / .json / .gml / .xml / .zip"
+            )
+        print(f"ディレクトリ読み込み: {len(sources)} ファイル")
+        for fp in sources:
+            yield from iter_features(fp)
+        return
+
+    suffix = input_path.suffix.lower()
 
     if suffix == ".zip":
-        print(f"読み込み中 (ZIP): {path}")
+        print(f"読み込み中 (ZIP): {input_path}")
         try:
-            with zipfile.ZipFile(path, "r") as zf:
-                candidates = [
-                    n for n in zf.namelist()
-                    if n.lower().endswith((".geojson", ".json"))
-                    and not n.startswith("__MACOSX")
-                ]
-                if not candidates:
-                    raise ValueError(
-                        f"ZIP 内に .geojson / .json ファイルが見つかりません: {path}\n"
-                        f"  ZIP 内容: {zf.namelist()[:20]}"
-                    )
-                chosen = candidates[0]
-                if len(candidates) > 1:
-                    print(
-                        f"  複数候補を検出。先頭を使用: {chosen}\n"
-                        f"  全候補: {candidates}",
-                        file=sys.stderr,
-                    )
-                raw = zf.read(chosen)
-                print(f"  ZIP 内ファイル: {chosen} ({len(raw):,} bytes)")
-                return _parse_geojson_bytes(raw, f"{path}::{chosen}")
+            with zipfile.ZipFile(input_path, "r") as zf:
+                yield from _iter_zip(zf, str(input_path))
         except zipfile.BadZipFile as exc:
             raise ValueError(
-                f"ZIP の読み込みに失敗しました: {path}\n"
+                f"ZIP 読み込みエラー: {input_path}\n"
                 f"  ファイルが破損しているか ZIP 形式ではありません: {exc}"
             ) from exc
+        return
+
+    if suffix in {".geojson", ".json"}:
+        print(f"読み込み中 (GeoJSON): {input_path}")
+        try:
+            raw = input_path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"ファイルを開けません: {exc}") from exc
+        data = _parse_geojson_bytes(raw, str(input_path))
+        features = (
+            data.get("features") or []
+            if data["type"] == "FeatureCollection"
+            else [data]
+        )
+        print(f"  {len(features):,} フィーチャ (GeoJSON)")
+        yield from features
+        return
+
+    if suffix in {".gml", ".xml"}:
+        print(f"読み込み中 (GML): {input_path}")
+        try:
+            raw = input_path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"ファイルを開けません: {exc}") from exc
+        yield from _iter_gml_features(raw, str(input_path))
+        return
 
     raise ValueError(
         f"非対応の入力形式: {suffix!r}\n"
-        f"  対応拡張子: .geojson / .json / .zip\n"
-        f"  入力: {path}"
+        f"  対応: .geojson / .json / .gml / .xml / .zip / ディレクトリ\n"
+        f"  入力: {input_path}"
     )
 
 
-# ── 正規化 ────────────────────────────────────────────────────────────────
+# ── 正規化（ストリーミング書き出し）───────────────────────────────────────
 
 def normalize(input_path: Path, output_path: Path, dataset_id: str) -> int:
+    """
+    iter_features() で取得した Feature を正規化しながら逐次書き出す。
+    features リストを全件メモリに保持しないため、大規模データに対応。
+    出力は tmp ファイルへ書き出し後に atomic rename する。
+    """
     try:
-        data = load_input(input_path)
-    except (FileNotFoundError, ValueError) as exc:
+        feature_iter = iter_features(input_path)
+    except ValueError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 1
 
-    features_in = data.get("features", []) if data["type"] == "FeatureCollection" else [data]
-    total_in = len(features_in)
-
-    features_out: list[dict] = []
-    skipped_no_geom = 0
+    total_in         = 0
+    out_count        = 0
+    skipped_no_geom  = 0
     skipped_bad_geom = 0
     unknown_rank_count = 0
+    rank_counts: dict[int, int] = {}
 
-    for feat in features_in:
-        props = feat.get("properties") or {}
-        geom  = feat.get("geometry")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(".tmp.geojson")
 
-        if not geom:
-            skipped_no_geom += 1
-            continue
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            f.write('{"type":"FeatureCollection","name":"flood_merged","features":[\n')
+            first = True
 
-        geom_type = geom.get("type", "")
-        if geom_type not in {"Polygon", "MultiPolygon"}:
-            skipped_bad_geom += 1
-            print(f"[WARN] 非対応ジオメトリをスキップ: {geom_type!r}", file=sys.stderr)
-            continue
+            for feat in feature_iter:
+                total_in += 1
+                props = feat.get("properties") or {}
+                geom  = feat.get("geometry")
 
-        rank = _extract_rank(props)
-        if rank == 0:
-            unknown_rank_count += 1
-        rank_info = RANK_TABLE.get(rank)
-        depth_text = rank_info[0] if rank_info else ""
-        depth      = rank_info[1] if rank_info else None
+                if not geom:
+                    skipped_no_geom += 1
+                    continue
 
-        out_props: dict = {
-            "hazard_type": "flood",
-            "flood_rank":  rank,
-            "depth_text":  depth_text,
-        }
-        if depth is not None:
-            out_props["depth"] = depth
-        for extra in ("river_name", "river_number", "source"):
-            if props.get(extra):
-                out_props[extra] = props[extra]
-        if dataset_id:
-            out_props["dataset_id"] = dataset_id
+                geom_type = geom.get("type", "")
+                if geom_type not in {"Polygon", "MultiPolygon"}:
+                    skipped_bad_geom += 1
+                    print(f"[WARN] 非対応ジオメトリをスキップ: {geom_type!r}", file=sys.stderr)
+                    continue
 
-        features_out.append({"type": "Feature", "properties": out_props, "geometry": geom})
+                rank = _extract_rank(props)
+                if rank == 0:
+                    unknown_rank_count += 1
+                rank_info  = RANK_TABLE.get(rank)
+                depth_text = rank_info[0] if rank_info else ""
+                depth      = rank_info[1] if rank_info else None
+
+                out_props: dict = {
+                    "hazard_type": "flood",
+                    "flood_rank":  rank,
+                    "depth_text":  depth_text,
+                }
+                if depth is not None:
+                    out_props["depth"] = depth
+                for extra in ("river_name", "river_number", "source"):
+                    if props.get(extra):
+                        out_props[extra] = props[extra]
+                if dataset_id:
+                    out_props["dataset_id"] = dataset_id
+
+                if not first:
+                    f.write(",\n")
+                json.dump(
+                    {"type": "Feature", "properties": out_props, "geometry": geom},
+                    f, ensure_ascii=False, separators=(",", ":"),
+                )
+                first = False
+                out_count += 1
+                rank_counts[rank] = rank_counts.get(rank, 0) + 1
+
+            f.write("\n]}\n")
+
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        print(f"[ERROR] 出力書き込み中にエラーが発生しました: {exc}", file=sys.stderr)
+        return 1
 
     if unknown_rank_count:
         print(
@@ -195,31 +582,22 @@ def normalize(input_path: Path, output_path: Path, dataset_id: str) -> int:
             file=sys.stderr,
         )
 
-    if not features_out:
+    if out_count == 0:
+        tmp_path.unlink(missing_ok=True)
         print(
-            f"[ERROR] 出力フィーチャが 0 件です。\n"
+            f"[ERROR] 出力フィーチャが 0 件です。入力データを確認してください。\n"
             f"  入力: {total_in}  ジオメトリなし: {skipped_no_geom}  非対応ジオメトリ: {skipped_bad_geom}",
             file=sys.stderr,
         )
         return 1
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as f:
-        json.dump(
-            {"type": "FeatureCollection", "name": "tokyo_flood_max", "features": features_out},
-            f, ensure_ascii=False, separators=(",", ":"),
-        )
-        f.write("\n")
+    # atomic rename（書き込み途中で失敗しても既存ファイルを壊さない）
+    tmp_path.replace(output_path)
 
     size_mb = output_path.stat().st_size / 1024 / 1024
     print(f"完了: {output_path}")
-    print(f"  入力: {total_in}  出力: {len(features_out)}  スキップ: {skipped_no_geom + skipped_bad_geom}")
+    print(f"  入力: {total_in:,}  出力: {out_count:,}  スキップ: {skipped_no_geom + skipped_bad_geom}")
     print(f"  ファイルサイズ: {size_mb:.1f} MB")
-
-    rank_counts: dict[int, int] = {}
-    for feat in features_out:
-        r = feat["properties"]["flood_rank"]
-        rank_counts[r] = rank_counts.get(r, 0) + 1
     print("  ランク別件数:")
     for r in sorted(rank_counts):
         label = RANK_TABLE.get(r, ("?",))[0]
@@ -231,10 +609,22 @@ def normalize(input_path: Path, output_path: Path, dataset_id: str) -> int:
 # ── エントリポイント ──────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="洪水浸水想定区域データ正規化")
-    parser.add_argument("--input",      required=True,  help="入力ファイルパス (.geojson / .json / .zip)")
-    parser.add_argument("--output",     required=True,  help="出力 GeoJSON パス")
-    parser.add_argument("--dataset-id", default="",     help="データセット ID")
+    parser = argparse.ArgumentParser(
+        description="洪水浸水想定区域データ正規化 (A31a / A31b GML, GeoJSON)",
+        epilog=(
+            "複数 ZIP をひとつにまとめる場合:\n"
+            "  zip bundle.zip 荒川.zip 江戸川.zip 多摩川.zip\n"
+            "  python normalize_river_flood.py --input bundle.zip --output out.geojson"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="入力パス（.geojson / .json / .gml / .xml / .zip / ディレクトリ）",
+    )
+    parser.add_argument("--output",     required=True, help="出力 GeoJSON パス")
+    parser.add_argument("--dataset-id", default="",    help="データセット ID")
     return parser.parse_args()
 
 
@@ -250,7 +640,7 @@ def main() -> int:
 
     if not input_path.exists():
         print(
-            f"[ERROR] 入力ファイルが見つかりません: {input_path}\n"
+            f"[ERROR] 入力が見つかりません: {input_path}\n"
             f"  data_lake/raw/tokyo/flood/ にデータを配置してください。",
             file=sys.stderr,
         )

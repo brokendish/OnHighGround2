@@ -254,6 +254,16 @@ table.dataset-table {
   display: none; align-items: center; gap: 8px;
 }
 .upload-selected.visible { display: flex; }
+.upload-file-list {
+  margin-top: 6px; display: none; flex-direction: column; gap: 3px;
+}
+.upload-file-list.visible { display: flex; }
+.upload-file-list-item {
+  font-size: 11px; color: #475569; padding: 2px 4px;
+  display: flex; justify-content: space-between; gap: 8px;
+}
+.upload-file-list-item .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-file-list-item .fsize { flex-shrink: 0; color: #94a3b8; }
 
 /* 投入方式タブ */
 .input-tabs { display: flex; gap: 0; border-bottom: 1px solid #e2e8f0; margin-bottom: 16px; }

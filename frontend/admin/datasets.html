@@ -167,12 +167,13 @@
           <div class="label">クリックまたはドラッグ&ドロップ</div>
           <div class="sub" id="um-size-limit">最大ファイルサイズ: —</div>
         </div>
-        <input type="file" id="upload-input" onchange="handleFileSelect(this)">
+        <input type="file" id="upload-input" multiple onchange="handleFileSelect(this)">
         <div class="upload-selected" id="upload-selected">
           <span>✅</span>
           <span id="upload-file-name"></span>
           <span id="upload-file-size" style="margin-left:auto;color:#64748b;font-size:11px"></span>
         </div>
+        <div class="upload-file-list" id="upload-file-list"></div>
       </div>
 
       <!-- tab: fetch_url -->

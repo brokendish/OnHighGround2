@@ -16,9 +16,11 @@ GET  /api/admin/jobs/{job_id}/log                  ジョブログ末尾
 """
 from __future__ import annotations
 
+import io
 import logging
 import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -158,6 +160,7 @@ def _build_summary(dataset_id: str) -> Optional[DatasetSummary]:
         validation_status=state.validation_status,
         deploy_status=state.deploy_status,
         osrm_rebuild_status=state.osrm_rebuild_status,
+        tile_build_status=state.tile_build_status,
         is_deployable=state.is_deployable,
         updated_at=state.updated_at,
         deployed_at=state.deployed_at,
@@ -219,7 +222,13 @@ async def get_dataset(dataset_id: str):
 # ── POST /datasets/{dataset_id}/upload ────────────────────────────────────────
 
 @router.post("/{dataset_id}/upload", response_model=JobAccepted)
-async def upload_dataset(dataset_id: str, file: UploadFile = File(...)):
+async def upload_dataset(dataset_id: str, files: List[UploadFile] = File(...)):
+    """
+    ファイルアップロード。単一ファイルでも複数ファイルでも受け付ける。
+
+    複数ファイルの場合は bundle.zip に自動梱包して正規化スクリプトへ渡す。
+    normalize_river_flood.py はこの ZIP を再帰展開してマージする。
+    """
     ds_svc = get_definition_service()
     ss = get_state_service()
     jm = get_job_manager()
@@ -235,35 +244,59 @@ async def upload_dataset(dataset_id: str, file: UploadFile = File(...)):
         return _error_response("INVALID_INPUT_MODE",
                                 detail="このデータセットはブラウザアップロード非対応です。URL取得を使用してください。")
 
-    # 拡張子チェック
-    file_ext = Path(file.filename or "").suffix.lower()
-    if defn.accepted_extensions and file_ext not in defn.accepted_extensions:
-        return _error_response("UPLOAD_EXTENSION_NOT_ALLOWED",
-                                detail=f"allowed: {defn.accepted_extensions}")
+    if not files:
+        return _error_response("UPLOAD_NO_FILE", detail="ファイルが選択されていません")
+
+    # 全ファイルの内容を読み込み（拡張子チェック・サイズ集計も同時に行う）
+    contents: List[tuple[str, bytes]] = []
+    total_bytes = 0
+    for f in files:
+        ext = Path(f.filename or "").suffix.lower()
+        if defn.accepted_extensions and ext not in defn.accepted_extensions:
+            return _error_response(
+                "UPLOAD_EXTENSION_NOT_ALLOWED",
+                detail=f"ファイル '{f.filename}' の形式は非対応です。allowed: {defn.accepted_extensions}",
+            )
+        data = await f.read()
+        total_bytes += len(data)
+        contents.append((f.filename or f"file{len(contents)}{ext}", data))
+
+    actual_mb = total_bytes / (1024 * 1024)
+    if actual_mb > defn.max_browser_upload_mb:
+        return _error_response(
+            "UPLOAD_FILE_TOO_LARGE",
+            detail=f"limit={defn.max_browser_upload_mb}MB actual={actual_mb:.1f}MB",
+        )
 
     # ジョブ二重実行防止
     if guard := _check_running_job(dataset_id):
         return guard
 
-    # ファイルを一時保存してサイズチェック
-    with tempfile.NamedTemporaryFile(
-        delete=False,
-        suffix=file_ext,
-        prefix=f"{dataset_id}_",
-    ) as tmp:
-        tmp_path = Path(tmp.name)
-        content = await file.read()
-        tmp.write(content)
-
-    actual_mb = len(content) / (1024 * 1024)
-    if actual_mb > defn.max_browser_upload_mb:
-        tmp_path.unlink(missing_ok=True)
-        return _error_response("UPLOAD_FILE_TOO_LARGE",
-                                detail=f"limit={defn.max_browser_upload_mb}MB actual={actual_mb:.1f}MB")
-
-    # ファイル名を元のファイル名に変更
-    final_tmp = tmp_path.parent / (file.filename or tmp_path.name)
-    tmp_path.rename(final_tmp)
+    # 単一ファイル: そのまま保存
+    # 複数ファイル: bundle.zip に梱包（normalize スクリプトが ZIP 内を全件展開・マージ）
+    if len(contents) == 1:
+        filename, data = contents[0]
+        ext = Path(filename).suffix.lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext, prefix=f"{dataset_id}_") as tmp:
+            tmp.write(data)
+            final_tmp = Path(tmp.name)
+        final_tmp = final_tmp.parent / filename
+        Path(tmp.name).rename(final_tmp)
+    else:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for filename, data in contents:
+                zf.writestr(filename, data)
+        bundle_bytes = buf.getvalue()
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".zip", prefix=f"{dataset_id}_bundle_"
+        ) as tmp:
+            tmp.write(bundle_bytes)
+            final_tmp = Path(tmp.name)
+        logger.info(
+            "multi-file upload bundled: %d files → %s (%.1f MB)",
+            len(contents), final_tmp.name, len(bundle_bytes) / 1024 / 1024,
+        )
 
     state = ss.init_from_definition(defn)
     job = jm.create(dataset_id, JobType.ingest_upload)
@@ -272,7 +305,9 @@ async def upload_dataset(dataset_id: str, file: UploadFile = File(...)):
 
     jm.submit(job, pipeline_service.run_ingest_upload(job, defn, state, jm, ss, final_tmp))
 
-    return JobAccepted(job_id=job.job_id, message="ファイルを受け付けました。処理を開始します。")
+    n = len(contents)
+    msg = "ファイルを受け付けました。処理を開始します。" if n == 1 else f"{n} ファイルを受け付けました。bundle.zip として処理を開始します。"
+    return JobAccepted(job_id=job.job_id, message=msg)
 
 
 # ── POST /datasets/{dataset_id}/fetch-url ────────────────────────────────────
