@@ -228,3 +228,52 @@ class TestNormalizeProperties:
         """_extract_rank: 未知値は 0 を返す"""
         assert nrf._extract_rank({"flood_rank": 99}) == 0
         assert nrf._extract_rank({}) == 0
+
+
+class TestNonMaxscaleFileFilter:
+    """_NON_MAXSCALE_FILE パターンのテスト
+
+    ディレクトリ名が文字化けしても、ファイル名（ASCII）で正しくスキップ判定できること。
+    """
+
+    def test_a31a_10_skipped(self):
+        """A31a-10- ファイルはスキップ対象"""
+        assert nrf._NON_MAXSCALE_FILE.search("A31a-10-24_13_1300020001_10.xml")
+
+    def test_a31a_30_skipped(self):
+        assert nrf._NON_MAXSCALE_FILE.search("A31a-30-24_13_1300020001_10.xml")
+
+    def test_a31a_41_skipped(self):
+        assert nrf._NON_MAXSCALE_FILE.search("A31a-41-24_13_1300020001_10.xml")
+
+    def test_a31a_42_skipped(self):
+        assert nrf._NON_MAXSCALE_FILE.search("A31a-42-24_13_1300020001_10.xml")
+
+    def test_a31b_10_skipped(self):
+        """A31b-10- も同様にスキップ対象"""
+        assert nrf._NON_MAXSCALE_FILE.search("A31b-10-24_13_1300020001_10.xml")
+
+    def test_a31a_20_not_skipped(self):
+        """A31a-20- は処理対象（MaximumScale あり）"""
+        assert not nrf._NON_MAXSCALE_FILE.search("A31a-20-24_13_1300020001_10.xml")
+
+    def test_a31b_20_not_skipped(self):
+        assert not nrf._NON_MAXSCALE_FILE.search("A31b-20-24_13_1300020001_10.xml")
+
+    def test_garbled_dir_with_a31a_20_not_skipped(self):
+        """文字化けしたディレクトリ名の中でも A31a-20- ファイルはスキップされない"""
+        # 文字化けしたパス例: A31a-24_13_10_GML/20_îvëµïKû═/A31a-20-24_13_...xml
+        garbled_path = "A31a-24_13_10_GML/20_\x91\x6D\x92\xE8/A31a-20-24_13_1300020001_10.xml"
+        basename = garbled_path.replace("\\", "/").rsplit("/", 1)[-1]
+        assert not nrf._NON_MAXSCALE_FILE.search(basename)
+
+    def test_garbled_dir_with_a31a_10_skipped(self):
+        """文字化けしたディレクトリ名でも A31a-10- ファイルはスキップされる"""
+        garbled_path = "A31a-24_13_10_GML/10_\x91\x6D\x92\xE8/A31a-10-24_13_1300020001_10.xml"
+        basename = garbled_path.replace("\\", "/").rsplit("/", 1)[-1]
+        assert nrf._NON_MAXSCALE_FILE.search(basename)
+
+    def test_non_a31_file_not_skipped(self):
+        """A31a/A31b パターンに合致しないファイルはスキップされない"""
+        assert not nrf._NON_MAXSCALE_FILE.search("flood_data.xml")
+        assert not nrf._NON_MAXSCALE_FILE.search("KS-META-A31a-24_13_10.xml")

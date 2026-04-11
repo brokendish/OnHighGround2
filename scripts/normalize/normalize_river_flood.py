@@ -41,9 +41,18 @@ import zipfile
 from pathlib import Path
 from typing import Generator, Iterator, Optional
 
-# 国土数値情報 A31a/A31b ZIP 内の非 MaximumScale ディレクトリ（スキーマ不一致）
-# 20_想定最大規模 以外のディレクトリはサイレントスキップする
-_NON_MAXSCALE_DIR = re.compile(r"(?:^|[/\\])(?:10|30|41|42)_")
+# 国土数値情報 A31a/A31b の非 MaximumScale ファイルを識別するパターン
+#
+# ZIP 内のディレクトリ名は日本語 Windows で作成された場合に Shift-JIS → CP437 変換で
+# 文字化けする。特に Shift-JIS の第2バイトが 0x5C (バックスラッシュ) になる文字が含まれる
+# と、パス区切り文字と誤認されて正規表現が誤マッチする。
+#
+# 一方、ファイル名（A31a-20-24_13_...xml 等）は常に ASCII のためエンコーディングの影響を
+# 受けない。カテゴリコード（-10- / -20- / -30- / -41- / -42-）でスキーマを判定する。
+#
+# 処理対象: A31a-20- / A31b-20-（20_想定最大規模 → MaximumScale 要素あり）
+# スキップ:  A31a-10- / A31a-30- / A31a-41- / A31a-42- （別スキーマ、MaximumScale なし）
+_NON_MAXSCALE_FILE = re.compile(r"A31[ab]-(?:10|30|41|42)-", re.IGNORECASE)
 
 # ── ランクルックアップ ─────────────────────────────────────────────────────
 
@@ -431,9 +440,11 @@ def _iter_zip(zf: zipfile.ZipFile, zip_label: str) -> Iterator[dict]:
         yield from features
 
     for name in gml_names:
-        # 10_計画規模 / 30_セグメント / 41_ / 42_ は MaximumScale を持たない別スキーマ
-        # WARN を出さずサイレントスキップ
-        if _NON_MAXSCALE_DIR.search(name):
+        # ファイル名（常に ASCII）のカテゴリコードで判定する。
+        # ディレクトリ名は Shift-JIS 文字化けの影響を受けるため使用しない。
+        # A31a-10- / A31a-30- / A31a-41- / A31a-42- は MaximumScale を持たない別スキーマ
+        basename = name.replace("\\", "/").rsplit("/", 1)[-1]
+        if _NON_MAXSCALE_FILE.search(basename):
             continue
         label = f"{zip_label}::{name}"
         raw = zf.read(name)
