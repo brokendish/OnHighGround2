@@ -49,8 +49,12 @@ async def _run_subprocess(
     job: Job,
     jm: JobManager,
     cwd: Optional[Path] = None,
+    timeout: Optional[int] = None,
 ) -> int:
-    """サブプロセスを実行し、stdout/stderr をジョブログへ書き出す。戻り値は returncode。"""
+    """サブプロセスを実行し、stdout/stderr をジョブログへ書き出す。戻り値は returncode。
+
+    timeout: 秒数。超過した場合はプロセスを強制終了して returncode=124 を返す。
+    """
     jm.log(job, f"$ {' '.join(str(a) for a in args)}")
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -64,7 +68,20 @@ async def _run_subprocess(
             async for line in proc.stdout:
                 jm.log(job, line.decode("utf-8", errors="replace").rstrip())
 
-        await asyncio.gather(_reader(), proc.wait())
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(_reader(), proc.wait()),
+                timeout=float(timeout) if timeout else None,
+            )
+        except asyncio.TimeoutError:
+            jm.log(job, f"[ERROR] タイムアウト ({timeout}秒) でプロセスを強制終了します")
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            await proc.wait()
+            return 124
+
         return proc.returncode
     except FileNotFoundError as exc:
         jm.log(job, f"ERROR: Command not found: {exc}")
@@ -354,13 +371,15 @@ async def _do_normalize(
     else:
         output_path = (_PROJECT_ROOT / defn.raw_storage_path).resolve() / f"{defn.dataset_id.lower()}_normalized.geojson"
 
-    cmd = ["python3", str(script_path), "--input", input_path, "--output", str(output_path)]
+    # -u: Python stdout/stderr をアンバッファードにしてリアルタイムログを実現する
+    cmd = ["python3", "-u", str(script_path), "--input", input_path, "--output", str(output_path)]
     if defn.transformer_name in {
         "normalize_shelter", "normalize_tsunami",
         "normalize_storm_surge", "normalize_river_flood", "normalize_inland_flood",
     }:
         cmd.extend(["--dataset-id", defn.dataset_id])
-    ret = await _run_subprocess(cmd, job, jm)
+    # 大規模データセット（洪水など）は処理に時間がかかるため 30 分のタイムアウトを設ける
+    ret = await _run_subprocess(cmd, job, jm, timeout=1800)
 
     if ret != 0:
         _fail(job, jm, "NORMALIZE_FAILED",
@@ -417,7 +436,7 @@ async def _do_validate(
     if defn.layer_type in {"tsunami", "storm_surge", "flood", "inland_flood"}:
         cmd.extend(["--allowed-geometry-types", "Polygon,MultiPolygon", "--require-bbox"])
 
-    ret = await _run_subprocess(cmd, job, jm)
+    ret = await _run_subprocess(cmd, job, jm, timeout=600)
 
     if ret != 0:
         _fail(job, jm, "VALIDATION_FAILED",
