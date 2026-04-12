@@ -12,6 +12,7 @@
  *   新しいカラー定数を追加するときは必ずこのブロック内に追記すること。
  *     FLOOD_RANK_COLORS / FLOOD_UNKNOWN_COLOR / getFloodRankColor / FLOOD_BORDER
  *     STORM_SURGE_RANK_COLORS / STORM_SURGE_UNKNOWN_COLOR / STORM_SURGE_BORDER
+ *     INLAND_FLOOD_BORDER
  */
 
 // ── VECTOR_TILE_SOURCES 依存定数（宣言順制約: このブロックを下へ移動しないこと）─
@@ -25,6 +26,9 @@ const STORM_SURGE_RANK_COLORS = {
 };
 const STORM_SURGE_UNKNOWN_COLOR = '#e1f5fe';
 const STORM_SURGE_BORDER = { color: '#01579b', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
+// INLAND_FLOOD_BORDER: VECTOR_TILE_SOURCES の borderStyle から直接参照するため
+// ここに置く必要がある（TDZ 回避）。スタイル関数は下部に定義。
+const INLAND_FLOOD_BORDER = { color: '#0277bd', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
 const HAZARD_REGION_ORDER = ['tokyo', 'kanagawa', 'chiba'];
 const HAZARD_CATEGORY_CONFIG = {
     tsunami: {
@@ -226,6 +230,7 @@ const HAZARD_LAYERS = {
         datasetState: 'ready',
         availabilityState: 'uninitialized',
         type: 'inland_flood',
+        preferApi: true,
     },
     landslide_tokyo: {
         name: "土砂災害警戒区域（東京都）",
@@ -266,7 +271,8 @@ const VECTOR_TILE_SOURCES = {
             sourceLayer: 'flood',
             colorFn: (props) => getFloodRankColor(props['flood_rank']),
             borderStyle: FLOOD_BORDER,
-            maxNativeZoom: 14
+            maxNativeZoom: 14,
+            useDatasetIdAsTilesetId: true
         }
     ],
     inland_flood_tokyo: [
@@ -562,12 +568,7 @@ function getDepthColor(depthMeters) {
 
 // 内水氾濫スタイル（深度ベース青系グラデーション）
 // level: safe → caution → danger → critical
-const INLAND_FLOOD_BORDER = {
-    color: '#0277bd',
-    weight: 0.4,
-    opacity: 0.35,
-    dashArray: '4,4'
-};
+// INLAND_FLOOD_BORDER は VECTOR_TILE_SOURCES より前（ファイル冒頭）に定義済み。
 
 function getInlandFloodDepthColor(depthM) {
     if (depthM >= 3.0) return '#b71c1c';   // critical — 濃赤（3m以上）
@@ -872,9 +873,9 @@ async function _initializeHazardTogglesImpl() {
             if (shouldUseVectorTiles(layerKey, hazard)) {
                 const firstTileset = VECTOR_TILE_SOURCES[layerKey][0];
 
-                // active mapping から tileset ID を解決（metaUrl がある場合）
+                // dataset_id と Martin source 名が一致するレイヤーだけ上書きを許可する。
                 let activeTilesetId = firstTileset.tilesetId;
-                if (hazard.metaUrl) {
+                if (hazard.metaUrl && firstTileset.useDatasetIdAsTilesetId) {
                     try {
                         const metaResp = await apiFetch(hazard.metaUrl, { cache: 'no-cache' });
                         if (metaResp.ok) {

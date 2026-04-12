@@ -84,6 +84,14 @@ function syncHazardLayerPanelState() {
     });
 }
 
+function dispatchMirroredCheckboxChange(sourceEl, newVal) {
+    if (!sourceEl) {
+        return;
+    }
+    sourceEl.checked = newVal;
+    sourceEl.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 // ── 初期化エントリポイント ─────────────────────────────────────────────────
 function initMapOverlayUI() {
     buildLayerPanel();
@@ -400,18 +408,11 @@ function buildLayerPanel() {
             if (sourceEl) {
                 cb.checked = sourceEl.checked;
                 cb.disabled = sourceEl.disabled;
-                // overlay → レイヤー表示切替を直接実行 + サイドバーと同期
+                // overlay 側もサイドバー側の canonical な change ハンドラを通す
+                // ことで、実レイヤー切替・ステータス更新・エラー処理を一本化する。
                 cb.addEventListener('change', () => {
                     if (cb.disabled) return;
-                    const newVal = cb.checked;
-                    sourceEl.checked = newVal;
-                    if (typeof setHazardLayerVisibility === 'function') {
-                        setHazardLayerVisibility(item.layerKey, newVal).catch(err => {
-                            console.error('[overlay] レイヤー切替エラー:', err);
-                            cb.checked = !newVal;
-                            sourceEl.checked = !newVal;
-                        });
-                    }
+                    dispatchMirroredCheckboxChange(sourceEl, cb.checked);
                 });
                 // サイドバー側が変わったときはオーバーレイにも反映
                 sourceEl.addEventListener('change', () => {
@@ -475,15 +476,8 @@ function buildLayerPanel() {
             if (sourceEl) {
                 cb.checked = sourceEl.checked;
                 cb.addEventListener('change', () => {
-                    const newVal = cb.checked;
-                    sourceEl.checked = newVal;
-                    if (typeof setBoundaryLayerVisibility === 'function') {
-                        setBoundaryLayerVisibility(item.layerKey, newVal).catch(err => {
-                            console.error('[overlay] 行政界切替エラー:', err);
-                            cb.checked = !newVal;
-                            sourceEl.checked = !newVal;
-                        });
-                    }
+                    if (cb.disabled) return;
+                    dispatchMirroredCheckboxChange(sourceEl, cb.checked);
                 });
                 sourceEl.addEventListener('change', () => {
                     cb.checked = sourceEl.checked;
