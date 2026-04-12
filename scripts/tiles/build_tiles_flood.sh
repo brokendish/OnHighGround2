@@ -58,15 +58,14 @@ echo "[INFO] tile build 開始"
 echo "       入力: $INPUT (${INPUT_SIZE_MB} MB)"
 echo "       出力: $OUTPUT"
 echo "       レイヤー名: $LAYER_NAME"
-echo "       ズーム: 5-16"
+echo "       ズーム: 5-14"
 
 tippecanoe \
     -o "$TMP_OUTPUT" \
     -l "$LAYER_NAME" \
     --minimum-zoom=5 \
-    --maximum-zoom=16 \
+    --maximum-zoom=14 \
     --drop-densest-as-needed \
-    --detect-shared-borders \
     --force \
     "$INPUT"
 

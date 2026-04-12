@@ -127,7 +127,8 @@
     "runtime_path": "data_runtime/backend/hazard/inland_flood",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_inland_flood",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "requires_tile_build": true
   },
   {
     "dataset_id": "TOKYO-SHELTER-001",

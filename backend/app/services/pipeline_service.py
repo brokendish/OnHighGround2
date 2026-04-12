@@ -685,6 +685,14 @@ async def _do_tile_build(
     tile_dir.mkdir(parents=True, exist_ok=True)
     tile_path = tile_dir / f"{tile_stem}.mbtiles"
 
+    # すでに最新の mbtiles が存在する場合はスキップ（ホスト上で手動生成した場合も含む）
+    if tile_path.exists() and tile_path.stat().st_mtime >= Path(src_geojson).stat().st_mtime:
+        jm.log(job, f"tile build スキップ — 既存 mbtiles が入力より新しいため再利用します: {tile_path}")
+        state.tile_build_status = TileBuildStatus.success
+        state.current_tile_path = str(tile_path)
+        ss.save(state)
+        return
+
     build_script = _SCRIPTS_DIR / "tiles" / "build_tiles_flood.sh"
     if not build_script.exists():
         jm.log(job, f"WARN: tile build スクリプトが見つかりません: {build_script}")
@@ -695,6 +703,7 @@ async def _do_tile_build(
     ret = await _run_subprocess(
         ["bash", str(build_script), src_geojson, str(tile_path), defn.layer_type],
         job, jm,
+        timeout=3600,
     )
 
     if ret != 0:

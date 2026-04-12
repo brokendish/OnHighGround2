@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     libgdal-dev \
     libgeos-dev \
     libproj-dev \
+    tippecanoe \
     && rm -rf /var/lib/apt/lists/*
 
 # Pythonパッケージの依存関係をコピー

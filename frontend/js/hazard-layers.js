@@ -228,7 +228,6 @@ const HAZARD_LAYERS = {
         datasetState: 'ready',
         availabilityState: 'uninitialized',
         type: 'inland_flood',
-        preferApi: true
     },
     landslide_tokyo: {
         name: "土砂災害警戒区域（東京都）",
@@ -269,7 +268,16 @@ const VECTOR_TILE_SOURCES = {
             sourceLayer: 'flood',
             colorFn: (props) => getFloodRankColor(props['flood_rank']),
             borderStyle: FLOOD_BORDER,
-            maxNativeZoom: 16
+            maxNativeZoom: 14
+        }
+    ],
+    inland_flood_tokyo: [
+        {
+            tilesetId: 'tokyo_urban_001',
+            sourceLayer: 'inland_flood',
+            colorFn: (props) => getInlandFloodDepthColor(props['depth_min_m'] ?? props['depth'] ?? 0),
+            borderStyle: INLAND_FLOOD_BORDER,
+            maxNativeZoom: 14
         }
     ],
     storm_surge_tokyo: [

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
-import json
 import shutil
 import sys
 from pathlib import Path
+
+import ijson
+from decimal import Decimal
 
 
 VALID_GEOMETRY_TYPES = {
@@ -17,104 +19,124 @@ VALID_GEOMETRY_TYPES = {
 }
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate basic GeoJSON geometry structure.")
-    parser.add_argument("--input", required=True, help="Input GeoJSON path.")
-    parser.add_argument(
-        "--output",
-        help="Optional validated output path. If provided, the validated input is copied there.",
-    )
-    parser.add_argument(
-        "--allowed-geometry-types",
-        help="Comma-separated geometry types allowed for every feature.",
-    )
-    parser.add_argument(
-        "--require-bbox",
-        action="store_true",
-        help="Require every feature geometry to produce a valid bbox.",
-    )
-    return parser.parse_args()
-
-
 def _iter_points(coords):
+    """座標ネスト構造を再帰的に展開して (x, y) を yield。ijson は Decimal を返すため対応済み"""
     if isinstance(coords, (list, tuple)):
-        if len(coords) >= 2 and all(isinstance(v, (int, float)) for v in coords[:2]):
+        if len(coords) >= 2 and isinstance(coords[0], (int, float, Decimal)):
             yield float(coords[0]), float(coords[1])
             return
         for item in coords:
             yield from _iter_points(item)
 
 
-def _compute_bbox(geometry):
-    coords = geometry.get("coordinates")
-    points = list(_iter_points(coords))
-    if not points:
-        return None
-    xs = [p[0] for p in points]
-    ys = [p[1] for p in points]
-    return [min(xs), min(ys), max(xs), max(ys)]
+def validate_stream(input_path: Path, output_path, allowed_types, require_bbox: bool) -> int:
+    feature_count = 0
+    error_count = 0
+
+    minx = float("inf")
+    miny = float("inf")
+    maxx = float("-inf")
+    maxy = float("-inf")
+
+    with input_path.open("rb") as f:
+        features = ijson.items(f, "features.item")
+
+        for index, feature in enumerate(features):
+            feature_count += 1
+
+            geometry = feature.get("geometry")
+            if not isinstance(geometry, dict):
+                print(f"Feature {index} is missing geometry.", file=sys.stderr)
+                error_count += 1
+                continue
+
+            geometry_type = geometry.get("type")
+            coordinates = geometry.get("coordinates")
+
+            if geometry_type not in VALID_GEOMETRY_TYPES:
+                print(f"Feature {index} has invalid geometry type: {geometry_type}", file=sys.stderr)
+                error_count += 1
+                continue
+
+            if allowed_types and geometry_type not in allowed_types:
+                print(
+                    f"Feature {index} has disallowed geometry type: {geometry_type} "
+                    f"(allowed={sorted(allowed_types)})",
+                    file=sys.stderr,
+                )
+                error_count += 1
+                continue
+
+            if geometry_type != "GeometryCollection" and coordinates is None:
+                print(f"Feature {index} has no coordinates.", file=sys.stderr)
+                error_count += 1
+                continue
+
+            if coordinates is not None:
+                feature_has_coords = False
+                for x, y in _iter_points(coordinates):
+                    feature_has_coords = True
+                    if x < minx:
+                        minx = x
+                    if y < miny:
+                        miny = y
+                    if x > maxx:
+                        maxx = x
+                    if y > maxy:
+                        maxy = y
+
+                if require_bbox and not feature_has_coords:
+                    print(f"Feature {index} has invalid bbox.", file=sys.stderr)
+                    error_count += 1
+                    continue
+
+            if feature_count % 10000 == 0:
+                print(f"[validate] processed: {feature_count}", flush=True)
+
+    if feature_count == 0:
+        print("GeoJSON must contain at least one feature.", file=sys.stderr)
+        return 1
+
+    if error_count > 0:
+        print(f"[ERROR] invalid features detected: {error_count}", file=sys.stderr)
+        return 1
+
+    bbox_str = f"({minx},{miny},{maxx},{maxy})" if minx != float("inf") else "n/a"
+    print(f"[validate] total: {feature_count}, bbox={bbox_str}", flush=True)
+
+    if output_path:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(input_path, out)
+        print(f"validate success: {out}")
+    else:
+        print(f"Geometry validation passed: {input_path}")
+
+    return 0
 
 
 def main() -> int:
-    args = parse_args()
-    allowed_types = None
-    if args.allowed_geometry_types:
-        allowed_types = {t.strip() for t in args.allowed_geometry_types.split(",") if t.strip()}
+    parser = argparse.ArgumentParser(description="Validate basic GeoJSON geometry structure (streaming).")
+    parser.add_argument("--input", required=True, help="Input GeoJSON path.")
+    parser.add_argument("--output", help="Optional validated output path.")
+    parser.add_argument("--allowed-geometry-types", help="Comma-separated geometry types allowed.")
+    parser.add_argument("--require-bbox", action="store_true", help="Require valid bbox per feature.")
+    args = parser.parse_args()
+
     input_path = Path(args.input)
     if not input_path.exists():
         print(f"Input not found: {input_path}", file=sys.stderr)
         return 1
 
+    allowed_types = None
+    if args.allowed_geometry_types:
+        allowed_types = {t.strip() for t in args.allowed_geometry_types.split(",") if t.strip()}
+
     try:
-        with input_path.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        print(f"Invalid JSON in input file: {exc}", file=sys.stderr)
+        return validate_stream(input_path, args.output, allowed_types, args.require_bbox)
+    except Exception as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
         return 1
-
-    if data.get("type") != "FeatureCollection":
-        print("GeoJSON root type must be FeatureCollection.", file=sys.stderr)
-        return 1
-
-    features = data.get("features")
-    if not isinstance(features, list) or not features:
-        print("GeoJSON must contain at least one feature.", file=sys.stderr)
-        return 1
-
-    for index, feature in enumerate(features):
-        geometry = feature.get("geometry")
-        if not isinstance(geometry, dict):
-            print(f"Feature {index} is missing geometry.", file=sys.stderr)
-            return 1
-        geometry_type = geometry.get("type")
-        coordinates = geometry.get("coordinates")
-        if geometry_type not in VALID_GEOMETRY_TYPES:
-            print(f"Feature {index} has invalid geometry type: {geometry_type}", file=sys.stderr)
-            return 1
-        if allowed_types and geometry_type not in allowed_types:
-            print(
-                f"Feature {index} has disallowed geometry type: {geometry_type} "
-                f"(allowed={sorted(allowed_types)})",
-                file=sys.stderr,
-            )
-            return 1
-        if geometry_type != "GeometryCollection" and coordinates is None:
-            print(f"Feature {index} has no coordinates.", file=sys.stderr)
-            return 1
-        if args.require_bbox:
-            bbox = _compute_bbox(geometry)
-            if bbox is None:
-                print(f"Feature {index} has invalid bbox.", file=sys.stderr)
-                return 1
-
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(input_path, output_path)
-        print(f"Geometry validation passed and copied to {output_path}")
-    else:
-        print(f"Geometry validation passed: {input_path}")
-    return 0
 
 
 if __name__ == "__main__":
