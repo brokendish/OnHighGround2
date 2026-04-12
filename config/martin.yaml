@@ -38,7 +38,6 @@ mbtiles:
   paths:
     # ── 東京 ────────────────────────────────────────────────────────────────
     - /tiles/tokyo/flood
-    - /tiles/tokyo/inland_flood
     - /tiles/tokyo/tsunami
     - /tiles/tokyo/storm_surge
     # ── 将来: 神奈川（コメントアウト解除 + deploy_to_runtime.sh --region kanagawa 後に有効化）
