@@ -180,7 +180,6 @@ const HAZARD_LAYERS = {
         region: 'tokyo',
         regionLabel: '東京都',
         apiUrl: '/api/hazards/storm_surge/tokyo',
-        metaUrl: '/api/hazards/storm_surge/tokyo/meta',
         path: `${LAYER_BASE_PATH}/tokyo_storm_surge.geojson`,
         checkboxId: "showStormSurgeTokyo",
         layer: null,
@@ -191,7 +190,6 @@ const HAZARD_LAYERS = {
         datasetState: 'ready',
         availabilityState: 'uninitialized',
         type: 'storm_surge',
-        preferApi: true
     },
     storm_surge_kanagawa: {
         name: "高潮浸水想定（神奈川県）",

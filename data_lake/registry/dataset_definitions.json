@@ -101,7 +101,8 @@
     "runtime_path": "data_runtime/backend/hazard/storm_surge",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_storm_surge",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "requires_tile_build": true
   },
   {
     "dataset_id": "TOKYO-URBAN-001",
