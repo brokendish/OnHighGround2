@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -29,24 +30,152 @@ _LOG_TAIL_LINES = 200
 
 # ── ブート情報収集 ────────────────────────────────────────────────────────────
 
-def _get_container_id() -> Optional[str]:
-    """Docker コンテナ ID を /proc/self/cgroup から取得する。非 Docker 環境では None。"""
+def _read_hot_reload_config() -> tuple:
+    """
+    api.reload 値を app.properties から読む。
+    job_manager.py は main.py より先に import されるため API_RELOAD を参照できない。
+
+    検索順序:
+      1. APP_PROPERTIES_FILE 環境変数（明示指定）
+      2. /app/app.properties（Docker コンテナ内の一般的なマウントパス）
+      3. _PROJECT_ROOT / "backend" / "app.properties"（ローカル開発）
+
+    Returns:
+      (hot_reload_enabled: Optional[bool], actual_config_path: Optional[str])
+      読み取り失敗時は (None, None)
+    """
+    candidates: list = []
+    env_path = os.environ.get("APP_PROPERTIES_FILE")
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.append(Path("/app/app.properties"))
+    candidates.append(_PROJECT_ROOT / "backend" / "app.properties")
+
+    for config_path in candidates:
+        if not config_path.exists():
+            continue
+        try:
+            for line in config_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                if key.strip() == "api.reload":
+                    return val.strip().lower() in ("true", "1", "yes"), str(config_path)
+        except Exception:
+            continue
+
+    return None, None
+
+
+def _get_container_id_from_cgroup() -> Optional[str]:
+    """
+    Docker コンテナ ID を複数の方法で取得する（高速・同期）。
+
+    試行順序:
+      1. /proc/self/cgroup (cgroup v1: "12:memory:/docker/<64hex>")
+      2. /proc/self/cgroup (cgroup v2: "0::/system.slice/docker-<64hex>.scope")
+      3. /etc/hostname (Docker Compose はデフォルトでコンテナ short ID をホスト名にする)
+      4. $HOSTNAME 環境変数（同上）
+
+    非 Docker 環境では None を返す。startup 時のみ呼ぶ。
+    """
+    def _is_container_id(s: str) -> bool:
+        s = s.strip()
+        return 12 <= len(s) <= 64 and all(c in "0123456789abcdef" for c in s)
+
+    # --- 方法1・2: /proc/self/cgroup ---
     try:
         cgroup = Path("/proc/self/cgroup").read_text(encoding="utf-8")
         for line in cgroup.splitlines():
-            # 形式: "12:memory:/docker/<id>" or "0::/system.slice/docker-<id>.scope"
             parts = line.split("/")
             for part in reversed(parts):
                 part = part.strip()
+                # cgroup v1: 64文字の hex ID
                 if len(part) == 64 and all(c in "0123456789abcdef" for c in part):
-                    return part[:12]  # 短縮 ID（12文字）
-                # systemd cgroup v2: "docker-<id>.scope"
+                    return part[:12]
+                # cgroup v2 systemd: "docker-<64hex>.scope"
                 if part.startswith("docker-") and part.endswith(".scope"):
                     cid = part[len("docker-"):-len(".scope")]
-                    return cid[:12]
+                    if _is_container_id(cid):
+                        return cid[:12]
     except Exception:
         pass
+
+    # --- 方法3: /etc/hostname ---
+    # Docker Compose はデフォルトでコンテナ short ID (12 hex) をホスト名にセットする
+    try:
+        hostname = Path("/etc/hostname").read_text(encoding="utf-8").strip()
+        if len(hostname) == 12 and all(c in "0123456789abcdef" for c in hostname):
+            return hostname
+    except Exception:
+        pass
+
+    # --- 方法4: $HOSTNAME 環境変数 ---
+    hostname = os.environ.get("HOSTNAME", "").strip()
+    if len(hostname) == 12 and all(c in "0123456789abcdef" for c in hostname):
+        return hostname
+
     return None
+
+
+def _fetch_docker_inspect(container_id: str) -> dict:
+    """
+    docker inspect <container_id> を実行して詳細情報を返す。
+    取得失敗（CLI 未導入・タイムアウト等）時は空 dict を返す。
+    cleanup_stale_running() 実行時のみ呼ぶこと。
+
+    返却フィールド（取得できたものだけ含まれる）:
+      container_started_at    : コンテナ起動時刻 (ISO 8601)
+      container_restart_count : RestartCount (int)
+      container_oom_killed    : OOMKilled フラグ (bool)
+    """
+    try:
+        proc = subprocess.run(
+            ["docker", "inspect", container_id],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode == 0:
+            info = json.loads(proc.stdout)
+            if info:
+                item = info[0]
+                state = item.get("State", {})
+                result: dict = {}
+                if "StartedAt" in state:
+                    result["container_started_at"] = state["StartedAt"]
+                if "RestartCount" in item:
+                    result["container_restart_count"] = item["RestartCount"]
+                if "OOMKilled" in state:
+                    result["container_oom_killed"] = state["OOMKilled"]
+                return result
+    except Exception:
+        pass
+    return {}
+
+
+def _enrich_boot_state_with_docker_inspect() -> None:
+    """
+    _BOOT_STATE に docker inspect の結果を補完し boot_state.json を更新する。
+    cleanup_stale_running() の先頭で 1 回だけ呼ぶ（冪等 — 既取得なら何もしない）。
+    """
+    container_id = _BOOT_STATE.get("container_id")
+    if not container_id or "container_restart_count" in _BOOT_STATE:
+        return  # 非 Docker 環境、または既に取得済み
+
+    inspect_result = _fetch_docker_inspect(container_id)
+    if not inspect_result:
+        return
+
+    _BOOT_STATE.update(inspect_result)
+    try:
+        _BOOT_STATE_PATH.write_text(
+            json.dumps(_BOOT_STATE, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("Failed to update boot_state.json with docker inspect: %s", exc)
 
 
 def _load_or_create_boot_state() -> dict:
@@ -70,12 +199,18 @@ def _load_or_create_boot_state() -> dict:
         except Exception:
             pass
 
+    hot_reload_enabled, actual_config_path = _read_hot_reload_config()
+
     current: dict = {
         "boot_id": str(uuid.uuid4()),
         "pid": os.getpid(),
         "started_at": datetime.utcnow().isoformat(),
-        "container_id": _get_container_id(),
         "prev_boot_id": prev_boot_id,
+        "container_id": _get_container_id_from_cgroup(),
+        "hot_reload_enabled": hot_reload_enabled,
+        "actual_config_path": actual_config_path,
+        # container_started_at / container_restart_count / container_oom_killed は
+        # cleanup_stale_running() 実行時に _enrich_boot_state_with_docker_inspect() で補完する
     }
     try:
         _BOOT_STATE_PATH.write_text(
@@ -306,32 +441,51 @@ class JobManager:
             logger.warning("Failed to append to log %s: %s", log_path, exc)
 
     @staticmethod
-    def _diagnose_restart(job_boot_id: Optional[str]) -> dict:
+    def _diagnose_restart(
+        job_boot_id: Optional[str],
+        job_started_at: Optional[str] = None,
+    ) -> dict:
         """
         ジョブの boot_id と現在の boot_id を比較し、中断原因を推定する。
 
+        引数:
+          job_boot_id   : ジョブ JSON に記録された boot_id
+          job_started_at: ジョブの started_at (ISO 8601)。diag に含める参考情報。
+
         返却:
-          cause        : "different_boot" | "no_boot_id" | "same_boot_crash"
-          possible     : ユーザ向けの可能性列挙リスト
-          diag         : ログ向け詳細情報 dict
+          cause    : "different_boot" | "no_boot_id" | "same_boot_crash"
+          possible : ユーザ向けの可能性列挙リスト
+          diag     : ログ向け詳細情報 dict
         """
         current = _BOOT_STATE
-        now_boot  = current["boot_id"]
-        prev_boot = current.get("prev_boot_id")
+        now_boot     = current["boot_id"]
+        prev_boot    = current.get("prev_boot_id")
         container_id = current.get("container_id")
 
+        hot_reload_enabled = current.get("hot_reload_enabled")
+        # hot_reload_possible: reload=true なら data_lake 書き換えで再起動しうる
+        hot_reload_possible = bool(hot_reload_enabled) if hot_reload_enabled is not None else None
+
         diag: dict = {
-            "current_boot_id":    now_boot,
-            "previous_boot_id":   prev_boot,
-            "current_pid":        current.get("pid"),
-            "current_started_at": current.get("started_at"),
-            "container_id":       container_id,
-            "job_boot_id":        job_boot_id,
+            "current_boot_id":            now_boot,
+            "previous_boot_id":           prev_boot,
+            "current_pid":                current.get("pid"),
+            "current_started_at":         current.get("started_at"),
+            "container_id":               container_id,
+            "container_started_at":       current.get("container_started_at"),
+            "container_restart_count":    current.get("container_restart_count"),
+            "container_oom_killed":       current.get("container_oom_killed"),
+            "hot_reload_enabled":         hot_reload_enabled,
+            "hot_reload_possible":        hot_reload_possible,
+            "actual_config_path":         current.get("actual_config_path"),
+            "job_boot_id":                job_boot_id,
+            "job_started_at":             job_started_at,
         }
 
         if job_boot_id is None:
             # 旧フォーマット（boot_id 未記録）の場合
             cause = "no_boot_id"
+            detected_by = "missing_boot_id"
             possible = [
                 "process_restarted",
                 "container_restarted",
@@ -340,16 +494,27 @@ class JobManager:
         elif job_boot_id != now_boot:
             # boot_id が違う → 別プロセス起動をまたいでいることが確実
             cause = "different_boot"
-            if container_id:
+            detected_by = "boot_id_mismatch"
+            if container_id and current.get("container_restart_count") is not None:
+                # docker inspect で RestartCount が取れた → コンテナ再起動が有力
                 possible = ["container_restarted", "process_restarted"]
+            elif container_id:
+                # コンテナ内だが inspect 失敗（CLI 未公開等）
+                possible = ["container_restarted", "process_restarted", "unknown_external_restart"]
             else:
+                # 非 Docker 環境
                 possible = ["process_restarted", "unknown_external_restart"]
+            # hot reload が有効なら data_lake 書き換えトリガーの可能性を追加
+            if hot_reload_possible:
+                possible = ["hot_reload_triggered"] + possible
         else:
             # 同一 boot_id だが running のまま残っている（asyncio タスク例外など）
             cause = "same_boot_crash"
+            detected_by = "same_boot_stale_status"
             possible = ["asyncio_task_exception", "process_signal"]
 
-        return {"cause": cause, "possible": possible, "diag": diag}
+        diag["detected_by"] = detected_by
+        return {"cause": cause, "detected_by": detected_by, "possible": possible, "diag": diag}
 
     def cleanup_stale_running(self) -> None:
         """起動時に queued/running のまま残ったジョブを failed にリセットする。
@@ -362,6 +527,9 @@ class JobManager:
         """
         from app.services.dataset_state_service import get_state_service
         from app.services.dataset_definition_service import get_definition_service
+
+        # stale job 診断に備え docker inspect 情報を補完（初回のみ実行・冪等）
+        _enrich_boot_state_with_docker_inspect()
 
         ss = get_state_service()
         ds = get_definition_service()
@@ -377,10 +545,14 @@ class JobManager:
                 log_path = data.get("log_path")
 
                 # ── 原因診断 ─────────────────────────────────────────────────
-                result   = self._diagnose_restart(data.get("boot_id"))
-                cause    = result["cause"]
-                possible = result["possible"]
-                diag     = result["diag"]
+                result   = self._diagnose_restart(
+                    data.get("boot_id"),
+                    job_started_at=data.get("started_at"),
+                )
+                cause       = result["cause"]
+                detected_by = result["detected_by"]
+                possible    = result["possible"]
+                diag        = result["diag"]
 
                 # cause 別の user_message
                 if cause == "different_boot":
@@ -416,7 +588,7 @@ class JobManager:
                 # ── ジョブログへ診断情報を追記 ────────────────────────────────
                 self._append_log(log_path, (
                     f"[SYSTEM] プロセス起動変化を検出。ジョブを failed に移行します。"
-                    f" cause={cause}  possible={possible}"
+                    f" cause={cause}  detected_by={detected_by}  possible={possible}"
                 ))
                 for k, v in diag.items():
                     self._append_log(log_path, f"[SYSTEM]   {k}: {v}")

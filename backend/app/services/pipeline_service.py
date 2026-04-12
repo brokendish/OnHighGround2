@@ -393,6 +393,7 @@ async def _do_normalize(
 
     state.normalize_status = NormalizeStatus.success
     state.current_normalized_path = str(output_path)
+    state.last_successful_normalized_path = str(output_path)
     ss.save(state)
     _append_history(ss, defn.dataset_id, OperationType.normalize, job,
                     artifact_path=str(output_path))

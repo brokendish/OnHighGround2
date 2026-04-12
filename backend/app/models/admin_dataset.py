@@ -178,6 +178,9 @@ class DatasetState(BaseModel):
 
     current_tile_path: Optional[str] = None
 
+    # 最後に normalize が成功したときのパス（中断後も消えない）
+    last_successful_normalized_path: Optional[str] = None
+
     storage_status: StorageStatus = StorageStatus.none
     normalize_status: NormalizeStatus = NormalizeStatus.not_started
     validation_status: ValidationStatus = ValidationStatus.not_started

@@ -179,6 +179,30 @@ async def _startup():
     """起動時: queued/running のまま残った古いジョブを failed にリセットする。"""
     get_job_manager().cleanup_stale_running()
 
+
+@app.on_event("shutdown")
+async def _shutdown():
+    """シャットダウン時のログ。ExitCode:0 の原因追跡用。"""
+    import signal as _signal
+    import sys as _sys
+
+    # 現在処理中のシグナルを best-effort で取得（Python 3.8+ では signal.SIGTERM 等を参照できる）
+    frame = _sys._getframe(1) if hasattr(_sys, "_getframe") else None
+    frame_info = f"{frame.f_code.co_filename}:{frame.f_lineno}" if frame else "unknown"
+
+    logger.warning(
+        "backend shutdown initiated"
+        " — this log appears on normal SIGTERM/SIGINT as well as unexpected exits."
+        " If a job was running, check boot_state.json for restart details."
+        " caller_frame=%s",
+        frame_info,
+    )
+    logger.warning(
+        "shutdown: pid=%d  python=%s",
+        os.getpid(),
+        _sys.version.split()[0],
+    )
+
 # 標高サービスの初期化
 # [Phase 1] data_runtime/backend/elevation/ を優先参照。
 # data_runtime にデータが無い場合は data_lake/validated/ → legacy へフォールバック。
@@ -424,7 +448,7 @@ try:
     API_PORT = int(APP_CONFIG.get("api.port", "8000"))
 except ValueError:
     API_PORT = 8000
-API_RELOAD = parse_bool(APP_CONFIG.get("api.reload"), True)
+API_RELOAD = parse_bool(APP_CONFIG.get("api.reload"), False)
 API_LOG_LEVEL = APP_CONFIG.get("api.log_level", "info").lower()
 
 
@@ -1473,12 +1497,45 @@ async def get_emergency_shelters(
 
 if __name__ == "__main__":
     import uvicorn
-    
-    # 開発サーバーの起動
-    uvicorn.run(
-        "main:app",
+
+    logger.info(
+        "uvicorn config: host=%s port=%s reload=%s log_level=%s",
+        API_HOST, API_PORT, API_RELOAD, API_LOG_LEVEL,
+    )
+    if API_RELOAD:
+        logger.warning(
+            "api.reload=true: uvicorn が data_lake/ 内のファイル書き換えで再起動する場合があります。"
+            " admin ingest/normalize/deploy を実行する環境では api.reload=false を推奨します。"
+        )
+
+    uvicorn_kwargs: dict = dict(
         host=API_HOST,
         port=API_PORT,
         reload=API_RELOAD,
-        log_level=API_LOG_LEVEL
+        log_level=API_LOG_LEVEL,
     )
+
+    if API_RELOAD:
+        # reload=true の場合、監視対象をアプリソースのみに限定する。
+        # data_lake/, data_runtime/ の書き換えによる意図しない再起動を防ぐ。
+        _backend_dir = Path(__file__).resolve().parent
+        uvicorn_kwargs["reload_dirs"] = [str(_backend_dir / "app")]
+        uvicorn_kwargs["reload_excludes"] = [
+            "**/data_lake/**",
+            "**/data_runtime/**",
+            "**/*.json",
+            "**/*.log",
+            "**/*.geojson",
+            "**/*.geojsonl",
+            "**/*.tmp.*",
+            "**/*.mbtiles",
+            "**/*.tif",
+            "**/*.pbf",
+        ]
+        logger.info(
+            "reload_dirs=%s  reload_excludes=%s",
+            uvicorn_kwargs["reload_dirs"],
+            uvicorn_kwargs["reload_excludes"],
+        )
+
+    uvicorn.run("main:app", **uvicorn_kwargs)
