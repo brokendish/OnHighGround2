@@ -72,6 +72,7 @@ data_lake/logs/
 
 # ---- Admin runtime state (machine-specific, auto-generated on startup) ----
 data_lake/admin/boot_state.json
+data_lake/admin/active_mappings.json
 data_lake/admin/state/*.json
 data_lake/admin/history/*.jsonl
 data_lake/admin/jobs/*.json
