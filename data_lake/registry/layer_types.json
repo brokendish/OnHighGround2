@@ -1,11 +1,19 @@
 [
   {
-    "layer_type": "shelter",
-    "display_name": "避難場所",
-    "description": "指定緊急避難場所・指定避難所。APIで提供し、ルート計算の目的地候補に使用する。",
+    "layer_type": "evacuation_shelter",
+    "display_name": "指定避難所",
+    "description": "避難生活を送るための指定避難所（学校・公民館等）。APIで提供し、ルート計算の目的地候補に使用する。",
     "delivery_mode": "api",
     "icon": "shelter",
     "sort_order": 1
+  },
+  {
+    "layer_type": "emergency_shelter",
+    "display_name": "指定緊急避難場所",
+    "description": "災害発生時に直ちに身を守るための指定緊急避難場所（公園・広場等）。APIで提供し、ルート計算の目的地候補に使用する。",
+    "delivery_mode": "api",
+    "icon": "shelter",
+    "sort_order": 2
   },
   {
     "layer_type": "tsunami",
@@ -13,7 +21,7 @@
     "description": "津波浸水想定区域。ベクタータイルで地図表示し、危険判定に使用する。",
     "delivery_mode": "tile",
     "icon": "wave",
-    "sort_order": 2
+    "sort_order": 3
   },
   {
     "layer_type": "flood",
@@ -21,7 +29,7 @@
     "description": "河川氾濫による洪水浸水想定区域。ベクタータイルで地図表示し、危険判定に使用する。",
     "delivery_mode": "tile",
     "icon": "flood",
-    "sort_order": 3
+    "sort_order": 4
   },
   {
     "layer_type": "storm_surge",
@@ -29,7 +37,7 @@
     "description": "台風等による高潮浸水想定区域。ベクタータイルで地図表示し、危険判定に使用する。",
     "delivery_mode": "tile",
     "icon": "surge",
-    "sort_order": 4
+    "sort_order": 5
   },
   {
     "layer_type": "inland_flood",
@@ -37,7 +45,7 @@
     "description": "排水能力超過による内水氾濫リスク区域。ベクタータイルで地図表示する。",
     "delivery_mode": "tile",
     "icon": "rain",
-    "sort_order": 5
+    "sort_order": 6
   },
   {
     "layer_type": "landslide",
@@ -45,7 +53,7 @@
     "description": "土砂崩れ・地滑り等の土砂災害警戒区域。ベクタータイルで地図表示する。",
     "delivery_mode": "tile",
     "icon": "landslide",
-    "sort_order": 6
+    "sort_order": 7
   },
   {
     "layer_type": "admin_boundary",
@@ -53,6 +61,6 @@
     "description": "市区町村境界データ。地区別ハザード集計・フィルタリングに使用する。",
     "delivery_mode": "geojson",
     "icon": "boundary",
-    "sort_order": 7
+    "sort_order": 8
   }
 ]

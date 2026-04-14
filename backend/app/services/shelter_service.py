@@ -92,7 +92,9 @@ def load_emergency_shelters_from_csv(
                 continue
 
             designation = (row.get("designation") or "指定緊急避難場所").strip()
-            if designation and designation not in ("指定緊急避難場所", "緊急避難場所"):
+            if designation and designation not in (
+                "指定緊急避難場所", "緊急避難場所", "指定避難所", "避難所"
+            ):
                 continue
 
             key = (name, round(lat, 7), round(lon, 7), designation)
@@ -104,8 +106,10 @@ def load_emergency_shelters_from_csv(
                 en_key for jp_col, en_key in HAZARD_COLUMN_MAP.items()
                 if str(row.get(jp_col, "")).strip() == "1"
             ]
-            has_hazard_cols = any(col in row for col in HAZARD_COLUMN_MAP)
-            category = "emergency_evacuation_site" if has_hazard_cols else "evacuation_site"
+            if designation in ("指定避難所", "避難所"):
+                category = "evacuation_shelter"
+            else:
+                category = "emergency_evacuation_site"
 
             src = (
                 str(csv_path.relative_to(_PROJECT_ROOT))
@@ -172,7 +176,9 @@ def load_emergency_shelters_from_geojson(
             or "指定緊急避難場所"
         ).strip()
 
-        if designation and designation not in ("指定緊急避難場所", "緊急避難場所"):
+        if designation and designation not in (
+            "指定緊急避難場所", "緊急避難場所", "指定避難所", "避難所"
+        ):
             continue
 
         key = (name, round(lat, 7), round(lon, 7), designation)
@@ -184,8 +190,10 @@ def load_emergency_shelters_from_geojson(
             en_key for jp_col, en_key in HAZARD_COLUMN_MAP.items()
             if str(properties.get(jp_col, "")).strip() == "1"
         ]
-        has_hazard_cols = any(col in properties for col in HAZARD_COLUMN_MAP)
-        category = "emergency_evacuation_site" if has_hazard_cols else "evacuation_site"
+        if designation in ("指定避難所", "避難所"):
+            category = "evacuation_shelter"
+        else:
+            category = "emergency_evacuation_site"
 
         src = (
             str(geojson_path.relative_to(_PROJECT_ROOT))
@@ -303,70 +311,77 @@ class ShelterRegistry:
         ds_svc = get_definition_service()
         ss_svc = get_state_service()
 
-        # layer_type=shelter の active mapping を地域ごとに収集
-        active_shelter_map: Dict[str, str] = {
-            m["region"]: m["dataset_id"]
-            for m in ams.list_all()
-            if m["layer_type"] == "shelter"
-        }
+        # layer_type が shelter 系の active mapping を地域×データセットIDで収集
+        # 1地域につき複数データセット（指定緊急避難場所＋指定避難所）を同時にロードできるよう
+        # Dict[str, List[str]] で保持する
+        _SHELTER_LAYER_TYPES = {"shelter", "evacuation_shelter", "emergency_shelter"}
+        active_shelter_map: Dict[str, List[str]] = {}
+        for m in ams.list_all():
+            if m["layer_type"] in _SHELTER_LAYER_TYPES:
+                active_shelter_map.setdefault(m["region"], []).append(m["dataset_id"])
 
         paths: List[Path] = []
 
         if active_shelter_map:
             for region in sorted(active_shelter_map):
-                dataset_id = active_shelter_map[region]
-                defn = ds_svc.get(dataset_id)
-                if defn is None:
-                    logger.warning(
-                        "ShelterRegistry: active dataset '%s' not found in registry, skipping",
-                        dataset_id,
-                    )
-                    continue
-
-                state = ss_svc.init_from_definition(defn)
-
-                # state.current_runtime_path: deploy が完了した際に書き込まれる具体パス
-                if state.current_runtime_path:
-                    p = Path(state.current_runtime_path)
-                    if p.exists() and p.suffix not in self._SKIP_SUFFIXES:
-                        logger.info(
-                            "ShelterRegistry: [%s] %s -> %s (active mapping)",
-                            region, dataset_id, p,
-                        )
-                        paths.append(p)
-                        continue
-                    else:
+                for dataset_id in active_shelter_map[region]:
+                    defn = ds_svc.get(dataset_id)
+                    if defn is None:
                         logger.warning(
-                            "ShelterRegistry: runtime path not found for %s: %s",
-                            dataset_id, p,
+                            "ShelterRegistry: active dataset '%s' not found in registry, skipping",
+                            dataset_id,
                         )
+                        continue
 
-                # current_runtime_path が未設定 or 消えている場合は defn.runtime_path を試みる
-                fallback_p = (_PROJECT_ROOT / defn.runtime_path).resolve()
-                if fallback_p.exists():
-                    logger.warning(
-                        "ShelterRegistry: [%s] using defn runtime_path as fallback: %s",
-                        region, fallback_p,
-                    )
-                    paths.append(fallback_p)
+                    state = ss_svc.init_from_definition(defn)
+
+                    # state.current_runtime_path: deploy が完了した際に書き込まれる具体パス
+                    if state.current_runtime_path:
+                        p = Path(state.current_runtime_path)
+                        if p.exists() and p.suffix not in self._SKIP_SUFFIXES:
+                            logger.info(
+                                "ShelterRegistry: [%s] %s -> %s (active mapping)",
+                                region, dataset_id, p,
+                            )
+                            paths.append(p)
+                            continue
+                        else:
+                            logger.warning(
+                                "ShelterRegistry: runtime path not found for %s: %s",
+                                dataset_id, p,
+                            )
+
+                    # current_runtime_path が未設定 or 消えている場合は defn.runtime_path を試みる
+                    fallback_p = (_PROJECT_ROOT / defn.runtime_path).resolve()
+                    if fallback_p.exists():
+                        logger.warning(
+                            "ShelterRegistry: [%s] using defn runtime_path as fallback: %s",
+                            region, fallback_p,
+                        )
+                        paths.append(fallback_p)
 
         if paths:
             return paths
 
         # active mapping なし or すべて解決失敗 → 全 runtime dir からロード（後方互換）
-        runtime_dir = _PROJECT_ROOT / "data_runtime" / "backend" / "shelters"
-        if runtime_dir.exists():
-            logger.info(
-                "ShelterRegistry: no active mappings resolved — loading all from %s",
-                runtime_dir,
-            )
-            return [runtime_dir]
+        for runtime_subdir in ("shelters", "emergency_shelters"):
+            runtime_dir = _PROJECT_ROOT / "data_runtime" / "backend" / runtime_subdir
+            if runtime_dir.exists():
+                logger.info(
+                    "ShelterRegistry: no active mappings resolved — loading all from %s",
+                    runtime_dir,
+                )
+                paths.append(runtime_dir)
+        if paths:
+            return paths
 
         # さらに data_lake validated へフォールバック
-        for candidate in _PROJECT_ROOT.glob("data_lake/validated/*/shelter"):
-            if candidate.is_dir():
-                logger.warning("ShelterRegistry: fallback to data_lake: %s", candidate)
-                paths.append(candidate)
+        for pattern in ("data_lake/validated/*/shelters", "data_lake/validated/*/shelter",
+                        "data_lake/validated/*/emergency_shelters"):
+            for candidate in _PROJECT_ROOT.glob(pattern):
+                if candidate.is_dir():
+                    logger.warning("ShelterRegistry: fallback to data_lake: %s", candidate)
+                    paths.append(candidate)
 
         if paths:
             return paths

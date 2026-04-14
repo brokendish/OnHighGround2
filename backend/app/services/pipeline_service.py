@@ -378,6 +378,16 @@ async def _do_normalize(
         "normalize_storm_surge", "normalize_river_flood", "normalize_inland_flood",
     }:
         cmd.extend(["--dataset-id", defn.dataset_id])
+    # 避難場所データは layer_type に応じた designation を付与する
+    if defn.transformer_name == "normalize_shelter":
+        _DESIGNATION_MAP = {
+            "evacuation_shelter": "指定避難所",
+            "emergency_shelter":  "指定緊急避難場所",
+            "shelter":            "指定緊急避難場所",
+        }
+        designation = _DESIGNATION_MAP.get(defn.layer_type or "")
+        if designation:
+            cmd.extend(["--designation", designation])
     # 大規模データセット（洪水など）は処理に時間がかかるため 30 分のタイムアウトを設ける
     ret = await _run_subprocess(cmd, job, jm, timeout=1800)
 
@@ -631,7 +641,7 @@ async def run_deploy(
                     artifact_path=str(runtime_dir))
 
     # shelter データを更新した場合は ShelterRegistry のキャッシュを即時クリアする
-    if defn.layer_type == "shelter":
+    if defn.layer_type in ("shelter", "evacuation_shelter", "emergency_shelter"):
         from app.services.shelter_service import get_shelter_registry
         get_shelter_registry().invalidate()
         jm.log(job, "ShelterRegistry cache invalidated")
@@ -806,7 +816,7 @@ async def run_rollback(
                     artifact_path=str(runtime_dir))
 
     # shelter データをロールバックした場合は ShelterRegistry のキャッシュを即時クリアする
-    if defn.layer_type == "shelter":
+    if defn.layer_type in ("shelter", "evacuation_shelter", "emergency_shelter"):
         from app.services.shelter_service import get_shelter_registry
         get_shelter_registry().invalidate()
         jm.log(job, "ShelterRegistry cache invalidated")

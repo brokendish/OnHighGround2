@@ -350,9 +350,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Normalize shelter data (GeoJSON / GML / ZIP) for any region."
     )
-    parser.add_argument("--input",      required=True, help="Input file (.geojson/.json/.gml/.xml/.zip)")
-    parser.add_argument("--output",     required=True, help="Output normalized GeoJSON path")
-    parser.add_argument("--dataset-id", default=None,  help="Dataset ID (e.g. KANAGAWA-SHELTER-001)")
+    parser.add_argument("--input",       required=True, help="Input file (.geojson/.json/.gml/.xml/.zip)")
+    parser.add_argument("--output",      required=True, help="Output normalized GeoJSON path")
+    parser.add_argument("--dataset-id",  default=None,  help="Dataset ID (e.g. KANAGAWA-SHELTER-001)")
+    parser.add_argument("--designation", default=None,
+                        help='designation 値を全フィーチャーに強制セット（例: "指定緊急避難場所", "指定避難所"）')
     return parser.parse_args()
 
 
@@ -382,6 +384,8 @@ def main() -> int:
 
     print(f"Input:   {input_path} ({input_path.suffix})")
     print(f"Dataset: {source_dataset}  region={region}  region_code={region_code}")
+    if args.designation:
+        print(f"Designation: {args.designation} (forced)")
 
     try:
         features = load_input(input_path, source_dataset, region_code)
@@ -396,6 +400,13 @@ def main() -> int:
         print("[ERROR] フィーチャーが 0 件です。入力フォーマットまたはパスを確認してください。",
               file=sys.stderr)
         return 1
+
+    # --designation が指定された場合は全フィーチャーに強制上書き
+    if args.designation:
+        for feat in features:
+            props = feat.get("properties")
+            if props is not None:
+                props["designation"] = args.designation
 
     normalized = {
         "type": "FeatureCollection",
