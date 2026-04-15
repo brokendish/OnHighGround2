@@ -2,10 +2,12 @@
 # build_tiles_host.sh — ホスト Mac で Vector Tile を生成するスクリプト
 #
 # 使い方:
-#   ./scripts/build_tiles_host.sh              # 全レイヤーをビルド
-#   ./scripts/build_tiles_host.sh flood        # flood のみ
-#   ./scripts/build_tiles_host.sh inland_flood # inland_flood のみ
-#   ./scripts/build_tiles_host.sh storm_surge  # storm_surge のみ
+#   ./scripts/build_tiles_host.sh                         # 全リージョン・全レイヤー
+#   ./scripts/build_tiles_host.sh --region kanagawa       # kanagawa 全レイヤー
+#   ./scripts/build_tiles_host.sh --region tokyo flood    # tokyo flood のみ
+#   ./scripts/build_tiles_host.sh flood                   # (後方互換) tokyo flood
+#   ./scripts/build_tiles_host.sh inland_flood            # (後方互換) tokyo inland_flood
+#   ./scripts/build_tiles_host.sh storm_surge             # (後方互換) tokyo storm_surge
 #
 # 背景:
 #   tippecanoe はメモリを大量消費するため backend コンテナ内では OOM が発生する。
@@ -17,12 +19,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-# ── 定数 ───────────────────────────────────────────────────────────────────
-VALIDATED_BASE="${PROJECT_ROOT}/data_lake/validated/tokyo"
-TILES_BASE="${PROJECT_ROOT}/data_runtime/frontend/tiles/tokyo"
-MIN_ZOOM=5
-MAX_ZOOM=14
 
 # ── ユーティリティ ─────────────────────────────────────────────────────────
 log()  { echo "[$(date -u '+%H:%M:%S')] $*"; }
@@ -41,6 +37,8 @@ build_layer() {
     local input="$2"         # 入力 GeoJSON パス
     local output_dir="$3"    # 出力ディレクトリ
     local output_stem="$4"   # 出力ファイル名（stem）
+    local min_zoom="${5:-${MIN_ZOOM}}"
+    local max_zoom="${6:-${MAX_ZOOM}}"
 
     if [[ ! -f "$input" ]]; then
         warn "${layer_name}: 入力ファイルが見つかりません: ${input} → スキップ"
@@ -53,13 +51,13 @@ build_layer() {
 
     local size_mb
     size_mb=$(du -m "$input" | cut -f1)
-    log "${layer_name}: ビルド開始 (入力 ${size_mb}MB → zoom ${MIN_ZOOM}-${MAX_ZOOM})"
+    log "${layer_name}: ビルド開始 (入力 ${size_mb}MB → zoom ${min_zoom}-${max_zoom})"
 
     tippecanoe \
         -o "$tmp" \
         -l "$layer_name" \
-        --minimum-zoom="${MIN_ZOOM}" \
-        --maximum-zoom="${MAX_ZOOM}" \
+        --minimum-zoom="${min_zoom}" \
+        --maximum-zoom="${max_zoom}" \
         --drop-densest-as-needed \
         --force \
         "$input"
@@ -71,51 +69,107 @@ build_layer() {
     log "${layer_name}: 完了 → ${output} (${out_mb}MB)"
 }
 
-# ── レイヤー定義 ────────────────────────────────────────────────────────────
-build_flood() {
+# ── Tokyo レイヤー定義 ───────────────────────────────────────────────────────
+MIN_ZOOM=5
+MAX_ZOOM=14
+
+build_tokyo_flood() {
     build_layer \
         "flood" \
-        "${VALIDATED_BASE}/flood/tokyo-river-001.geojson" \
-        "${TILES_BASE}/flood" \
+        "${PROJECT_ROOT}/data_lake/validated/tokyo/flood/tokyo-river-001.geojson" \
+        "${PROJECT_ROOT}/data_runtime/frontend/tiles/tokyo/flood" \
         "tokyo_river_001"
 }
 
-build_inland_flood() {
+build_tokyo_inland_flood() {
     build_layer \
         "inland_flood" \
-        "${VALIDATED_BASE}/inland_flood/tokyo-urban-001.geojson" \
-        "${TILES_BASE}/inland_flood" \
+        "${PROJECT_ROOT}/data_lake/validated/tokyo/inland_flood/tokyo-urban-001.geojson" \
+        "${PROJECT_ROOT}/data_runtime/frontend/tiles/tokyo/inland_flood" \
         "tokyo_urban_001"
 }
 
-build_storm_surge() {
+build_tokyo_storm_surge() {
     # storm_surge は既存ファイルが zoom 5-16 で完成済みのためスキップ
     log "storm_surge: 既存 tokyo_storm_surge.mbtiles を使用（再ビルド不要）"
 }
 
+# ── Kanagawa レイヤー定義 ───────────────────────────────────────────────────
+build_kanagawa_flood() {
+    build_layer \
+        "flood" \
+        "${PROJECT_ROOT}/data_lake/normalized/kanagawa/flood/kanagawa_flood_max.geojson" \
+        "${PROJECT_ROOT}/data_runtime/frontend/tiles/kanagawa/flood" \
+        "kanagawa_flood_max"
+}
+
+build_kanagawa_inland_flood() {
+    build_layer \
+        "inland_flood" \
+        "${PROJECT_ROOT}/data_lake/normalized/kanagawa/inland_flood/kanagawa-urban-001.geojson" \
+        "${PROJECT_ROOT}/data_runtime/frontend/tiles/kanagawa/inland_flood" \
+        "kanagawa_urban_001"
+}
+
+build_kanagawa_storm_surge() {
+    build_layer \
+        "storm_surge" \
+        "${PROJECT_ROOT}/data_lake/normalized/kanagawa/storm_surge/kanagawa_storm_surge.geojson" \
+        "${PROJECT_ROOT}/data_runtime/frontend/tiles/kanagawa/storm_surge" \
+        "kanagawa_storm_surge" \
+        5 16
+}
+
 # ── メイン ─────────────────────────────────────────────────────────────────
 main() {
-    local target="${1:-all}"
+    # 引数パース: --region REGION [target]
+    local region="tokyo"
+    local positional=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --region) region="$2"; shift 2 ;;
+            *) positional+=("$1"); shift ;;
+        esac
+    done
+
+    local target="${positional[0]:-all}"
 
     check_tippecanoe
 
-    case "$target" in
-        all)
-            build_flood
-            build_inland_flood
-            build_storm_surge
+    case "${region}" in
+        tokyo)
+            case "$target" in
+                all)
+                    build_tokyo_flood
+                    build_tokyo_inland_flood
+                    build_tokyo_storm_surge
+                    ;;
+                flood)        build_tokyo_flood ;;
+                inland_flood) build_tokyo_inland_flood ;;
+                storm_surge)  build_tokyo_storm_surge ;;
+                *)
+                    die "不明なターゲット: ${target}\n  使い方: $0 [--region REGION] [all|flood|inland_flood|storm_surge]"
+                    ;;
+            esac
             ;;
-        flood)
-            build_flood
-            ;;
-        inland_flood)
-            build_inland_flood
-            ;;
-        storm_surge)
-            build_storm_surge
+        kanagawa)
+            case "$target" in
+                all)
+                    build_kanagawa_flood
+                    build_kanagawa_inland_flood
+                    build_kanagawa_storm_surge
+                    ;;
+                flood)        build_kanagawa_flood ;;
+                inland_flood) build_kanagawa_inland_flood ;;
+                storm_surge)  build_kanagawa_storm_surge ;;
+                *)
+                    die "不明なターゲット: ${target}\n  使い方: $0 --region kanagawa [all|flood|inland_flood|storm_surge]"
+                    ;;
+            esac
             ;;
         *)
-            die "不明なターゲット: ${target}\n  使い方: $0 [all|flood|inland_flood|storm_surge]"
+            die "不明なリージョン: ${region}\n  対応リージョン: tokyo, kanagawa"
             ;;
     esac
 

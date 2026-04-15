@@ -154,66 +154,85 @@ deploy_file \
     "backend"
 
 # ─── backend: hazard / tsunami ────────────────────────────────────────────────
+# 標準名 tsunami_{target}.geojson を優先検索。
+# 見つからない場合は {target}-tsunami-*.geojson など別名ファイルを探して同名でデプロイ。
+# これにより kanagawa-tsunami-001.geojson → tsunami_kanagawa.geojson のリネームに対応。
 log_info "--- tsunami ---"
 for target in tokyo kanagawa chiba; do
     filename="tsunami_${target}.geojson"
-    # validated を優先、なければ normalized
+    # 1. validated 標準名
     if [[ -f "${VALIDATED}/tsunami/${filename}" ]]; then
         deploy_file \
             "${VALIDATED}/tsunami/${filename}" \
             "${RUNTIME_BACKEND}/hazard/tsunami/${filename}" \
             "backend"
-    else
+    # 2. normalized 標準名
+    elif [[ -f "${NORMALIZED}/tsunami/${filename}" ]]; then
         deploy_file \
             "${NORMALIZED}/tsunami/${filename}" \
             "${RUNTIME_BACKEND}/hazard/tsunami/${filename}" \
             "backend"
+    else
+        # 3. 別名フォールバック: {target}-tsunami-*.geojson または {target}_tsunami_*.geojson
+        _tsrc=""
+        _tsrc_v="$(find "${VALIDATED}/tsunami" -maxdepth 1 \( -name "${target}-tsunami-*.geojson" -o -name "${target}_tsunami_*.geojson" \) 2>/dev/null | sort | head -1)"
+        if [[ -n "${_tsrc_v}" ]]; then
+            _tsrc="${_tsrc_v}"
+        else
+            _tsrc="$(find "${NORMALIZED}/tsunami" -maxdepth 1 \( -name "${target}-tsunami-*.geojson" -o -name "${target}_tsunami_*.geojson" \) 2>/dev/null | sort | head -1)"
+        fi
+        if [[ -n "${_tsrc}" ]]; then
+            deploy_file "${_tsrc}" "${RUNTIME_BACKEND}/hazard/tsunami/${filename}" "backend"
+        else
+            log_warn "tsunami ${target}: ファイルが見つかりません (skip)"
+        fi
     fi
 done
 
 # ─── backend: hazard / inland_flood ──────────────────────────────────────────
-# normalized/ を正規参照先とする。未配置の場合は legacy sample にフォールバック。
+# region サブディレクトリ（hazard/inland_flood/{region}/）にデプロイする。
+# これにより複数リージョンが共存でき、クリア操作が同一リージョン内に限定される。
 # 正規化: python scripts/normalize/normalize_inland_flood.py
 log_info "--- inland_flood ---"
 if [[ -d "${NORMALIZED}/inland_flood" ]] && compgen -G "${NORMALIZED}/inland_flood/*.geojson" > /dev/null 2>&1; then
-    # デプロイ前に既存 GeoJSON を削除（旧ファイル名が残ってアルファベット順で誤選択されるのを防ぐ）
-    if ! "${DRY_RUN}" && [[ -d "${RUNTIME_BACKEND}/hazard/inland_flood" ]]; then
-        find "${RUNTIME_BACKEND}/hazard/inland_flood" -maxdepth 1 -name "*.geojson" -delete
-        log_info "Cleared stale GeoJSON from ${RUNTIME_BACKEND}/hazard/inland_flood"
+    # デプロイ前に同一リージョンのサブディレクトリのみクリア（他リージョンには影響しない）
+    if ! "${DRY_RUN}" && [[ -d "${RUNTIME_BACKEND}/hazard/inland_flood/${REGION}" ]]; then
+        find "${RUNTIME_BACKEND}/hazard/inland_flood/${REGION}" -maxdepth 1 -name "*.geojson" -delete
+        log_info "Cleared stale GeoJSON from ${RUNTIME_BACKEND}/hazard/inland_flood/${REGION}"
     fi
     deploy_dir \
         "${NORMALIZED}/inland_flood" \
-        "${RUNTIME_BACKEND}/hazard/inland_flood" \
+        "${RUNTIME_BACKEND}/hazard/inland_flood/${REGION}" \
         "*.geojson" \
         "backend"
 else
     log_warn "inland_flood normalized data not found — deploying legacy sample"
     deploy_file \
         "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
-        "${RUNTIME_BACKEND}/hazard/inland_flood/inland_flood_sample.geojson" \
+        "${RUNTIME_BACKEND}/hazard/inland_flood/${REGION}/inland_flood_sample.geojson" \
         "backend"
 fi
 
 # ─── backend: hazard / landslide ─────────────────────────────────────────────
-# normalized/ を正規参照先とする。未配置の場合は legacy sample にフォールバック。
+# region サブディレクトリ（hazard/landslide/{region}/）にデプロイする。
 # 正規化: python scripts/normalize/normalize_landslide.py
-# データ: 国土数値情報 A33（土砂災害警戒区域）→ data_lake/raw/tokyo/landslide/
+# データ: 国土数値情報 A33（土砂災害警戒区域）→ data_lake/raw/{region}/landslide/
 log_info "--- landslide ---"
 if [[ -d "${NORMALIZED}/landslide" ]] && compgen -G "${NORMALIZED}/landslide/*.geojson" > /dev/null 2>&1; then
-    if ! "${DRY_RUN}" && [[ -d "${RUNTIME_BACKEND}/hazard/landslide" ]]; then
-        find "${RUNTIME_BACKEND}/hazard/landslide" -maxdepth 1 -name "*.geojson" -delete
-        log_info "Cleared stale GeoJSON from ${RUNTIME_BACKEND}/hazard/landslide"
+    if ! "${DRY_RUN}" && [[ -d "${RUNTIME_BACKEND}/hazard/landslide/${REGION}" ]]; then
+        find "${RUNTIME_BACKEND}/hazard/landslide/${REGION}" -maxdepth 1 -name "*.geojson" -delete
+        log_info "Cleared stale GeoJSON from ${RUNTIME_BACKEND}/hazard/landslide/${REGION}"
     fi
     deploy_dir \
         "${NORMALIZED}/landslide" \
-        "${RUNTIME_BACKEND}/hazard/landslide" \
+        "${RUNTIME_BACKEND}/hazard/landslide/${REGION}" \
         "*.geojson" \
         "backend"
 else
     log_warn "landslide normalized data not found — deploying legacy sample"
     deploy_file \
         "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
-        "${RUNTIME_BACKEND}/hazard/landslide/landslide_sample.geojson" \
+        "${RUNTIME_BACKEND}/hazard/landslide/${REGION}/landslide_sample.geojson" \
         "backend"
 fi
 
@@ -240,10 +259,19 @@ else
         "frontend_layers"
 
     # tsunami: region ファイルのみ（kanagawa/chiba はサイズ大のため GeoJSON fallback は region のみ）
-    deploy_file \
-        "${NORMALIZED}/tsunami/tsunami_${REGION}.geojson" \
-        "${RUNTIME_FRONTEND_LAYERS}/tsunami_${REGION}.geojson" \
-        "frontend_layers"
+    # 標準名 tsunami_{REGION}.geojson を優先し、なければ別名ファイルを探す
+    _tsunami_fe_src=""
+    if [[ -f "${NORMALIZED}/tsunami/tsunami_${REGION}.geojson" ]]; then
+        _tsunami_fe_src="${NORMALIZED}/tsunami/tsunami_${REGION}.geojson"
+    else
+        _tsunami_fe_found="$(find "${NORMALIZED}/tsunami" -maxdepth 1 \( -name "${REGION}-tsunami-*.geojson" -o -name "${REGION}_tsunami_*.geojson" \) 2>/dev/null | sort | head -1)"
+        [[ -n "${_tsunami_fe_found}" ]] && _tsunami_fe_src="${_tsunami_fe_found}"
+    fi
+    if [[ -n "${_tsunami_fe_src}" ]]; then
+        deploy_file "${_tsunami_fe_src}" "${RUNTIME_FRONTEND_LAYERS}/tsunami_${REGION}.geojson" "frontend_layers"
+    else
+        log_warn "tsunami frontend fallback for ${REGION}: ファイルが見つかりません (skip)"
+    fi
 
     # flood fallback: normalized の軽量 GeoJSON が存在する場合のみ
     if [[ -f "${NORMALIZED}/flood/${REGION}_flood_max.geojson" ]]; then

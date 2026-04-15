@@ -425,7 +425,8 @@ if INLAND_FLOOD_ENABLED:
     _inland_flood_runtime_dir = BASE_DIR.parent / "data_runtime" / "backend" / "hazard" / "inland_flood"
     _inland_flood_geojson_files: list[Path] = []
     if _inland_flood_runtime_dir.is_dir():
-        _inland_flood_geojson_files = sorted(_inland_flood_runtime_dir.glob("*.geojson"))
+        # rglob でサブディレクトリ（{region}/）内のファイルも含めてスキャン
+        _inland_flood_geojson_files = sorted(_inland_flood_runtime_dir.rglob("*.geojson"))
 
     if _inland_flood_geojson_files:
         for _f in _inland_flood_geojson_files:
@@ -461,7 +462,8 @@ if LANDSLIDE_ENABLED:
     _landslide_runtime_dir = BASE_DIR.parent / "data_runtime" / "backend" / "hazard" / "landslide"
     _landslide_geojson_files: list[Path] = []
     if _landslide_runtime_dir.is_dir():
-        _landslide_geojson_files = sorted(_landslide_runtime_dir.glob("*.geojson"))
+        # rglob でサブディレクトリ（{region}/）内のファイルも含めてスキャン
+        _landslide_geojson_files = sorted(_landslide_runtime_dir.rglob("*.geojson"))
 
     if _landslide_geojson_files:
         for _f in _landslide_geojson_files:
