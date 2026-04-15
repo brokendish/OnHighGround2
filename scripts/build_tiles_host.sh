@@ -90,8 +90,13 @@ build_tokyo_inland_flood() {
 }
 
 build_tokyo_storm_surge() {
-    # storm_surge は既存ファイルが zoom 5-16 で完成済みのためスキップ
-    log "storm_surge: 既存 tokyo_storm_surge.mbtiles を使用（再ビルド不要）"
+    # sourceLayer 命名ルール統一: -l storm_surge（セマンティック名）で再ビルド
+    build_layer \
+        "storm_surge" \
+        "${PROJECT_ROOT}/data_lake/normalized/tokyo/storm_surge/tokyo_storm_surge.geojson" \
+        "${PROJECT_ROOT}/data_runtime/frontend/tiles/tokyo/storm_surge" \
+        "tokyo_storm_surge" \
+        5 16
 }
 
 # ── Kanagawa レイヤー定義 ───────────────────────────────────────────────────
