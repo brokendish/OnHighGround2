@@ -10,42 +10,64 @@ from app.services.hazard_dataset_service import HazardDatasetService
 router = APIRouter(prefix="/api/hazards", tags=["hazards"])
 hazard_dataset_service = HazardDatasetService()
 
-# ── inland_flood 直接配信 ─────────────────────────────────────────────────
+# ── inland_flood / landslide 直接配信 ────────────────────────────────────────
 # registry を経由せず data_runtime → data_lake の優先順でファイルを探す。
 # registry が整備されたら HazardDatasetService に移行してよい。
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent  # backend/
 
-# ── 検索ディレクトリ定義 ──────────────────────────────────────────────────────
-# normalized/ を正規参照先とし、legacy sample はフォールバック。
-_INLAND_FLOOD_SEARCH_DIRS = [
-    _BACKEND_DIR.parent / "data_runtime" / "backend" / "hazard" / "inland_flood",
-    _BACKEND_DIR.parent / "data_lake" / "normalized" / "tokyo" / "inland_flood",
-    _BACKEND_DIR.parent / "data" / "hazard",
-]
-_LANDSLIDE_SEARCH_DIRS = [
-    _BACKEND_DIR.parent / "data_runtime" / "backend" / "hazard" / "landslide",
-    _BACKEND_DIR.parent / "data_lake" / "normalized" / "tokyo" / "landslide",
-    _BACKEND_DIR.parent / "data" / "hazard",
-]
 
+def _find_hazard_file_for_region(hazard_type: str, region: str) -> Optional[Path]:
+    """region / hazard_type に対応する GeoJSON ファイルを優先順で検索して返す。
 
-def _find_hazard_file(search_dirs: list[Path], name_hint: str) -> Optional[Path]:
-    """search_dirs を順に検索し、最初に見つかった *.geojson を返す。
-    name_hint はログ用（実際の検索には使わない）。
+    探索順序:
+      1. data_runtime/backend/hazard/{type}/{region}/  ← per-region runtime (将来構成)
+      2. data_runtime/backend/hazard/{type}/           ← flat runtime: {region}_*.geojson
+         (tokyo のみ: prefix なしの単一ファイルも許容)
+      3. data_lake/normalized/{region}/{type}/
+      4. data/hazard/                                  ← legacy (tokyo のみ)
     """
-    for dir_path in search_dirs:
-        if dir_path.is_dir():
-            for f in sorted(dir_path.glob("*.geojson")):
+    root = _BACKEND_DIR.parent
+
+    # 1. per-region runtime subdir
+    per_region_runtime = root / "data_runtime" / "backend" / "hazard" / hazard_type / region
+    if per_region_runtime.is_dir():
+        for f in sorted(per_region_runtime.glob("*.geojson")):
+            return f
+
+    # 2. flat runtime dir — region-prefixed files を優先
+    flat_runtime = root / "data_runtime" / "backend" / "hazard" / hazard_type
+    if flat_runtime.is_dir():
+        prefixed = sorted(flat_runtime.glob(f"{region}_*.geojson"))
+        if prefixed:
+            return prefixed[0]
+        # backward compat: tokyo の場合は prefix なし単一ファイルも許容
+        if region == "tokyo":
+            any_files = sorted(flat_runtime.glob("*.geojson"))
+            if any_files:
+                return any_files[0]
+
+    # 3. data_lake normalized
+    normalized = root / "data_lake" / "normalized" / region / hazard_type
+    if normalized.is_dir():
+        for f in sorted(normalized.glob("*.geojson")):
+            return f
+
+    # 4. legacy fallback (tokyo のみ)
+    if region == "tokyo":
+        legacy = root / "data" / "hazard"
+        if legacy.is_dir():
+            for f in sorted(legacy.glob("*.geojson")):
                 return f
+
     return None
 
 
-@router.get("/inland_flood/tokyo")
-async def get_inland_flood_tokyo():
+@router.get("/inland_flood/{region}")
+async def get_inland_flood(region: str):
     """内水氾濫 GeoJSON を返す（data_runtime → data_lake の優先順）。"""
-    path = _find_hazard_file(_INLAND_FLOOD_SEARCH_DIRS, "inland_flood")
+    path = _find_hazard_file_for_region("inland_flood", region)
     if path is None:
-        raise HTTPException(status_code=404, detail="inland_flood データが見つかりません")
+        raise HTTPException(status_code=404, detail=f"inland_flood データが見つかりません: region={region}")
     try:
         with path.open("r", encoding="utf-8") as f:
             return json.load(f)
@@ -53,12 +75,12 @@ async def get_inland_flood_tokyo():
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/landslide/tokyo")
-async def get_landslide_tokyo():
+@router.get("/landslide/{region}")
+async def get_landslide(region: str):
     """土砂災害警戒区域 GeoJSON を返す（data_runtime → data_lake の優先順）。"""
-    path = _find_hazard_file(_LANDSLIDE_SEARCH_DIRS, "landslide")
+    path = _find_hazard_file_for_region("landslide", region)
     if path is None:
-        raise HTTPException(status_code=404, detail="landslide データが見つかりません")
+        raise HTTPException(status_code=404, detail=f"landslide データが見つかりません: region={region}")
     try:
         with path.open("r", encoding="utf-8") as f:
             return json.load(f)

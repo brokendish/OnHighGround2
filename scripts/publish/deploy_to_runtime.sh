@@ -138,16 +138,19 @@ deploy_file \
 
 # ─── backend: hazard / flood ──────────────────────────────────────────────────
 log_info "--- flood ---"
+# GeoJSONL 判定ファイル（region_flood_check.geojsonl）。
+# ファイル名は region に依存するため、変数で組み立てる。
 deploy_file \
-    "${NORMALIZED}/flood/tokyo_flood_check.geojsonl" \
-    "${RUNTIME_BACKEND}/hazard/flood/tokyo_flood_check.geojsonl" \
+    "${NORMALIZED}/flood/${REGION}_flood_check.geojsonl" \
+    "${RUNTIME_BACKEND}/hazard/flood/${REGION}_flood_check.geojsonl" \
     "backend"
 
 # ─── backend: hazard / storm_surge ───────────────────────────────────────────
 log_info "--- storm_surge ---"
+# 高潮ファイル名は region に依存する（例: tokyo_storm_surge.geojson）。
 deploy_file \
-    "${NORMALIZED}/storm_surge/tokyo_storm_surge.geojson" \
-    "${RUNTIME_BACKEND}/hazard/storm_surge/tokyo_storm_surge.geojson" \
+    "${NORMALIZED}/storm_surge/${REGION}_storm_surge.geojson" \
+    "${RUNTIME_BACKEND}/hazard/storm_surge/${REGION}_storm_surge.geojson" \
     "backend"
 
 # ─── backend: hazard / tsunami ────────────────────────────────────────────────
@@ -230,44 +233,45 @@ else
     log_info "--- frontend layers ---"
     mkdir -p "${RUNTIME_FRONTEND_LAYERS}"
 
+    # storm_surge GeoJSON fallback（region 対応）
     deploy_file \
-        "${NORMALIZED}/storm_surge/tokyo_storm_surge.geojson" \
-        "${RUNTIME_FRONTEND_LAYERS}/tokyo_storm_surge.geojson" \
+        "${NORMALIZED}/storm_surge/${REGION}_storm_surge.geojson" \
+        "${RUNTIME_FRONTEND_LAYERS}/${REGION}_storm_surge.geojson" \
         "frontend_layers"
 
-    # tsunami: tokyo のみ（kanagawa/chiba はサイズ大のため除外）
+    # tsunami: region ファイルのみ（kanagawa/chiba はサイズ大のため GeoJSON fallback は region のみ）
     deploy_file \
-        "${NORMALIZED}/tsunami/tsunami_tokyo.geojson" \
-        "${RUNTIME_FRONTEND_LAYERS}/tsunami_tokyo.geojson" \
+        "${NORMALIZED}/tsunami/tsunami_${REGION}.geojson" \
+        "${RUNTIME_FRONTEND_LAYERS}/tsunami_${REGION}.geojson" \
         "frontend_layers"
 
     # flood fallback: normalized の軽量 GeoJSON が存在する場合のみ
-    if [[ -f "${NORMALIZED}/flood/tokyo_flood_max.geojson" ]]; then
+    if [[ -f "${NORMALIZED}/flood/${REGION}_flood_max.geojson" ]]; then
         deploy_file \
-            "${NORMALIZED}/flood/tokyo_flood_max.geojson" \
-            "${RUNTIME_FRONTEND_LAYERS}/tokyo_flood_max.geojson" \
+            "${NORMALIZED}/flood/${REGION}_flood_max.geojson" \
+            "${RUNTIME_FRONTEND_LAYERS}/${REGION}_flood_max.geojson" \
             "frontend_layers"
     fi
 
-    # inland_flood: normalized を優先、未配置なら legacy sample
+    # inland_flood: normalized を優先、未配置なら legacy sample（tokyo のみ）
     if [[ -d "${NORMALIZED}/inland_flood" ]] && compgen -G "${NORMALIZED}/inland_flood/*.geojson" > /dev/null 2>&1; then
-        # 複数ファイルがある場合は最初のものを inland_flood_tokyo.geojson として配備
+        # 最初のファイルを inland_flood_{REGION}.geojson として配備
         _if_src="$(find "${NORMALIZED}/inland_flood" -maxdepth 1 -name "*.geojson" | sort | head -1)"
-        deploy_file "${_if_src}" "${RUNTIME_FRONTEND_LAYERS}/inland_flood_tokyo.geojson" "frontend_layers"
-    else
+        deploy_file "${_if_src}" "${RUNTIME_FRONTEND_LAYERS}/inland_flood_${REGION}.geojson" "frontend_layers"
+    elif [[ "${REGION}" == "tokyo" ]]; then
         deploy_file \
             "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
-            "${RUNTIME_FRONTEND_LAYERS}/inland_flood_tokyo.geojson" \
+            "${RUNTIME_FRONTEND_LAYERS}/inland_flood_${REGION}.geojson" \
             "frontend_layers"
     fi
-    # landslide: normalized を優先、未配置なら legacy sample
+    # landslide: normalized を優先、未配置なら legacy sample（tokyo のみ）
     if [[ -d "${NORMALIZED}/landslide" ]] && compgen -G "${NORMALIZED}/landslide/*.geojson" > /dev/null 2>&1; then
         _ls_src="$(find "${NORMALIZED}/landslide" -maxdepth 1 -name "*.geojson" | sort | head -1)"
-        deploy_file "${_ls_src}" "${RUNTIME_FRONTEND_LAYERS}/landslide_tokyo.geojson" "frontend_layers"
-    else
+        deploy_file "${_ls_src}" "${RUNTIME_FRONTEND_LAYERS}/landslide_${REGION}.geojson" "frontend_layers"
+    elif [[ "${REGION}" == "tokyo" ]]; then
         deploy_file \
             "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
-            "${RUNTIME_FRONTEND_LAYERS}/landslide_tokyo.geojson" \
+            "${RUNTIME_FRONTEND_LAYERS}/landslide_${REGION}.geojson" \
             "frontend_layers"
     fi
 

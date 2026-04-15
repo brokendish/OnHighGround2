@@ -40,7 +40,11 @@ mbtiles:
     - /tiles/tokyo/flood
     - /tiles/tokyo/tsunami
     - /tiles/tokyo/storm_surge
-    # ── 将来: 神奈川（コメントアウト解除 + deploy_to_runtime.sh --region kanagawa 後に有効化）
-    # - /tiles/kanagawa/flood
-    # - /tiles/kanagawa/tsunami
-    # - /tiles/kanagawa/storm_surge
+    - /tiles/tokyo/urban_flood
+    # ── 神奈川 ──────────────────────────────────────────────────────────────
+    # deploy_to_runtime.sh --region kanagawa 実行後にタイルが配備される。
+    # ディレクトリが存在しない場合は Martin が起動時に警告を出すが動作継続する。
+    - /tiles/kanagawa/flood
+    - /tiles/kanagawa/tsunami
+    - /tiles/kanagawa/storm_surge
+    - /tiles/kanagawa/urban_flood

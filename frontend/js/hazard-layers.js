@@ -174,8 +174,8 @@ const HAZARD_LAYERS = {
         visible: false,
         rawData: null,
         lastError: null,
-        datasetState: 'comingSoon',
-        availabilityState: 'coming-soon',
+        datasetState: 'ready',
+        availabilityState: 'uninitialized',
         type: 'flood'
     },
     storm_surge_tokyo: {
@@ -209,8 +209,8 @@ const HAZARD_LAYERS = {
         visible: false,
         rawData: null,
         lastError: null,
-        datasetState: 'comingSoon',
-        availabilityState: 'coming-soon',
+        datasetState: 'ready',
+        availabilityState: 'uninitialized',
         type: 'storm_surge'
     },
     inland_flood_tokyo: {
@@ -232,6 +232,25 @@ const HAZARD_LAYERS = {
         type: 'inland_flood',
         preferApi: true,
     },
+    inland_flood_kanagawa: {
+        name: "内水氾濫（神奈川県）",
+        menuLabel: '神奈川県',
+        region: 'kanagawa',
+        regionLabel: '神奈川県',
+        apiUrl: '/api/hazards/inland_flood/kanagawa',
+        metaUrl: '/api/hazards/inland_flood/kanagawa/meta',
+        path: `${LAYER_BASE_PATH}/inland_flood_kanagawa.geojson`,
+        checkboxId: "showInlandFloodKanagawa",
+        layer: null,
+        loaded: false,
+        visible: false,
+        rawData: null,
+        lastError: null,
+        datasetState: 'ready',
+        availabilityState: 'uninitialized',
+        type: 'inland_flood',
+        preferApi: true,
+    },
     landslide_tokyo: {
         name: "土砂災害警戒区域（東京都）",
         menuLabel: '東京都',
@@ -240,6 +259,23 @@ const HAZARD_LAYERS = {
         apiUrl: '/api/hazards/landslide/tokyo',
         path: `${LAYER_BASE_PATH}/landslide_tokyo.geojson`,
         checkboxId: "showLandslideTokyo",
+        layer: null,
+        loaded: false,
+        visible: false,
+        rawData: null,
+        lastError: null,
+        datasetState: 'ready',
+        availabilityState: 'uninitialized',
+        type: 'landslide'
+    },
+    landslide_kanagawa: {
+        name: "土砂災害警戒区域（神奈川県）",
+        menuLabel: '神奈川県',
+        region: 'kanagawa',
+        regionLabel: '神奈川県',
+        apiUrl: '/api/hazards/landslide/kanagawa',
+        path: `${LAYER_BASE_PATH}/landslide_kanagawa.geojson`,
+        checkboxId: "showLandslideKanagawa",
         layer: null,
         loaded: false,
         visible: false,
@@ -275,9 +311,28 @@ const VECTOR_TILE_SOURCES = {
             useDatasetIdAsTilesetId: true
         }
     ],
+    flood_kanagawa_max: [
+        {
+            tilesetId: 'kanagawa_river_001',
+            sourceLayer: 'flood',
+            colorFn: (props) => getFloodRankColor(props['flood_rank']),
+            borderStyle: FLOOD_BORDER,
+            maxNativeZoom: 14,
+            useDatasetIdAsTilesetId: true
+        }
+    ],
     inland_flood_tokyo: [
         {
             tilesetId: 'tokyo_urban_001',
+            sourceLayer: 'inland_flood',
+            colorFn: (props) => getInlandFloodDepthColor(props['depth_min_m'] ?? props['depth'] ?? 0),
+            borderStyle: INLAND_FLOOD_BORDER,
+            maxNativeZoom: 14
+        }
+    ],
+    inland_flood_kanagawa: [
+        {
+            tilesetId: 'kanagawa_urban_001',
             sourceLayer: 'inland_flood',
             colorFn: (props) => getInlandFloodDepthColor(props['depth_min_m'] ?? props['depth'] ?? 0),
             borderStyle: INLAND_FLOOD_BORDER,
@@ -288,6 +343,15 @@ const VECTOR_TILE_SOURCES = {
         {
             tilesetId: 'tokyo_storm_surge',
             sourceLayer: 'tokyo_storm_surge',
+            colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
+            borderStyle: STORM_SURGE_BORDER,
+            maxNativeZoom: 16
+        }
+    ],
+    storm_surge_kanagawa: [
+        {
+            tilesetId: 'kanagawa_storm_surge',
+            sourceLayer: 'kanagawa_storm_surge',
             colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
             borderStyle: STORM_SURGE_BORDER,
             maxNativeZoom: 16

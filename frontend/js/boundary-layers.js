@@ -51,20 +51,30 @@ const BOUNDARY_LAYERS = {
         _loadingPromise: null,   // 進行中の fetch Promise をメモ化
         _desiredVisible: false,  // load 完了時点での "意図" を追跡
     },
-    // 将来追加例:
-    // kanagawa: {
-    //     id: 'KANAGAWA-BOUNDARY-001',
-    //     key: 'kanagawa',
-    //     region: 'kanto',
-    //     name: '行政界（神奈川県）',
-    //     category: 'administrative',
-    //     sourceType: 'geojson',
-    //     url: '/layers/administrative/kanagawa_boundary.geojson',
-    //     style: { color: '#5c6bc0', weight: 1.5, opacity: 0.9, fillColor: '#3949ab', fillOpacity: 0.06, dashArray: null },
-    //     checkboxId: 'showBoundaryKanagawa',
-    //     visible: false, loaded: false, layer: null, rawData: null,
-    //     _loadingPromise: null, _desiredVisible: false,
-    // },
+    kanagawa: {
+        id: 'KANAGAWA-BOUNDARY-001',
+        key: 'kanagawa',
+        region: 'kanto',
+        name: '行政界（神奈川県）',
+        category: 'administrative',
+        sourceType: 'geojson',
+        url: '/layers/administrative/kanagawa_boundary.geojson',
+        style: {
+            color: '#26a69a',
+            weight: 1.5,
+            opacity: 0.9,
+            fillColor: '#00897b',
+            fillOpacity: 0.06,
+            dashArray: null,
+        },
+        checkboxId: 'showBoundaryKanagawa',
+        visible: false,
+        loaded: false,
+        layer: null,
+        rawData: null,
+        _loadingPromise: null,
+        _desiredVisible: false,
+    },
 };
 
 // ── レイヤー読み込み ──────────────────────────────────────────────────────

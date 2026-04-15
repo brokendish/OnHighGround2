@@ -305,38 +305,62 @@ hazard_service = HazardService(
 
 FLOOD_ENABLED = parse_bool(APP_CONFIG.get("hazard.flood.enabled", "false"), False)
 if FLOOD_ENABLED:
-    # [Phase 1] data_runtime/backend/hazard/flood/ を優先。
-    # 未整備の場合は data_lake/normalized/ へフォールバック。
-    _flood_check_path_value = APP_CONFIG.get(
-        "hazard.flood.check_path",
-        "../data_runtime/backend/hazard/flood/tokyo_flood_check.geojsonl",
-    )
-    _flood_check_path = resolve_existing_path(
-        _flood_check_path_value,
-        legacy_candidates=[
-            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "flood" / "tokyo_flood_check.geojsonl",
-        ],
-        label="Flood",
-    )
-    hazard_service.load_geojsonl("flood", _flood_check_path, bbox_only=True)
+    # [Phase 2] data_runtime/backend/hazard/flood/ 内の全 *.geojsonl を順次ロード。
+    # 複数地域ファイル（tokyo_flood_check.geojsonl / kanagawa_flood_check.geojsonl 等）を
+    # 自動認識する。ファイルが存在しない場合は data_lake/normalized/ へフォールバック。
+    _flood_runtime_dir = BASE_DIR.parent / "data_runtime" / "backend" / "hazard" / "flood"
+    _flood_geojsonl_files: list[Path] = []
+    if _flood_runtime_dir.is_dir():
+        _flood_geojsonl_files = sorted(_flood_runtime_dir.glob("*.geojsonl"))
+
+    if _flood_geojsonl_files:
+        for _f in _flood_geojsonl_files:
+            logger.info("Flood check loaded from runtime: %s", _f)
+            hazard_service.load_geojsonl("flood", _f, bbox_only=True)
+    else:
+        # フォールバック: 設定ファイル指定の単一パス（backward compat）
+        _flood_check_path_value = APP_CONFIG.get(
+            "hazard.flood.check_path",
+            "../data_runtime/backend/hazard/flood/tokyo_flood_check.geojsonl",
+        )
+        _flood_check_path = resolve_existing_path(
+            _flood_check_path_value,
+            legacy_candidates=[
+                BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "flood" / "tokyo_flood_check.geojsonl",
+            ],
+            label="Flood",
+        )
+        hazard_service.load_geojsonl("flood", _flood_check_path, bbox_only=True)
 else:
     logger.info("洪水ハザード判定は無効（hazard.flood.enabled=false）")
 
-# storm_surge: 高潮浸水想定区域（東京都）
-# [Phase 1] data_runtime/backend/hazard/storm_surge/ を優先。
-# 未整備の場合は data_lake/normalized/ へフォールバック。
-_storm_surge_path_value = APP_CONFIG.get(
-    "hazard.storm_surge.path",
-    "../data_runtime/backend/hazard/storm_surge/tokyo_storm_surge.geojson",
-)
-_storm_surge_path = resolve_existing_path(
-    _storm_surge_path_value,
-    legacy_candidates=[
-        BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "storm_surge" / "tokyo_storm_surge.geojson",
-    ],
-    label="StormSurge",
-)
-hazard_service.load("storm_surge", _storm_surge_path)
+# storm_surge: 高潮浸水想定区域
+# [Phase 2] data_runtime/backend/hazard/storm_surge/ 内の全 *.geojson を順次ロード。
+# 複数地域ファイル（tokyo_storm_surge.geojson / kanagawa_storm_surge.geojson 等）を自動認識。
+# ファイルが存在しない場合は data_lake/normalized/ へフォールバック（東京のみ）。
+_storm_surge_runtime_dir = BASE_DIR.parent / "data_runtime" / "backend" / "hazard" / "storm_surge"
+_storm_surge_geojson_files: list[Path] = []
+if _storm_surge_runtime_dir.is_dir():
+    _storm_surge_geojson_files = sorted(_storm_surge_runtime_dir.glob("*.geojson"))
+
+if _storm_surge_geojson_files:
+    for _f in _storm_surge_geojson_files:
+        logger.info("StormSurge loaded from runtime: %s", _f)
+        hazard_service.load("storm_surge", _f)
+else:
+    # フォールバック: 設定ファイル指定の単一パス（backward compat）
+    _storm_surge_path_value = APP_CONFIG.get(
+        "hazard.storm_surge.path",
+        "../data_runtime/backend/hazard/storm_surge/tokyo_storm_surge.geojson",
+    )
+    _storm_surge_path = resolve_existing_path(
+        _storm_surge_path_value,
+        legacy_candidates=[
+            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "storm_surge" / "tokyo_storm_surge.geojson",
+        ],
+        label="StormSurge",
+    )
+    hazard_service.load("storm_surge", _storm_surge_path)
 
 # tsunami: targets 設定に従ってファイルを個別ロード
 # デフォルト: tokyo のみ（東京版 v1 標準モード）
@@ -393,52 +417,74 @@ if _missing:
 else:
     logger.info("Tsunami coverage OK: all configured targets loaded: %s", _tsunami_targets)
 
-# inland_flood: 内水氾濫想定（サンプルデータ）
-# [Phase 4] data_runtime/backend/hazard/inland_flood/ を優先。
-# 未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
+# inland_flood: 内水氾濫想定
+# [Phase 4] data_runtime/backend/hazard/inland_flood/ 内の全 *.geojson を順次ロード。
+# 複数地域ファイルを自動認識。未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
 INLAND_FLOOD_ENABLED = parse_bool(APP_CONFIG.get("hazard.inland_flood.enabled", "true"), True)
 if INLAND_FLOOD_ENABLED:
-    _inland_flood_path_value = APP_CONFIG.get(
-        "hazard.inland_flood.path",
-        "../data_runtime/backend/hazard/inland_flood/inland_flood_sample.geojson",
-    )
-    _inland_flood_path = resolve_existing_path(
-        _inland_flood_path_value,
-        legacy_candidates=[
-            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "inland_flood" / "inland_flood_sample.geojson",
-            BASE_DIR.parent / "data" / "hazard" / "inland_flood_sample.geojson",
-        ],
-        label="InlandFlood",
-    )
-    if _inland_flood_path.exists():
-        hazard_service.load("inland_flood", _inland_flood_path)
+    _inland_flood_runtime_dir = BASE_DIR.parent / "data_runtime" / "backend" / "hazard" / "inland_flood"
+    _inland_flood_geojson_files: list[Path] = []
+    if _inland_flood_runtime_dir.is_dir():
+        _inland_flood_geojson_files = sorted(_inland_flood_runtime_dir.glob("*.geojson"))
+
+    if _inland_flood_geojson_files:
+        for _f in _inland_flood_geojson_files:
+            logger.info("InlandFlood loaded from runtime: %s", _f)
+            hazard_service.load("inland_flood", _f)
     else:
-        logger.info("内水氾濫サンプルデータが見つかりません（スキップ）: %s", _inland_flood_path)
+        # フォールバック: 設定ファイル指定の単一パス（backward compat）
+        _inland_flood_path_value = APP_CONFIG.get(
+            "hazard.inland_flood.path",
+            "../data_runtime/backend/hazard/inland_flood/inland_flood_sample.geojson",
+        )
+        _inland_flood_path = resolve_existing_path(
+            _inland_flood_path_value,
+            legacy_candidates=[
+                BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "inland_flood" / "inland_flood_sample.geojson",
+                BASE_DIR.parent / "data" / "hazard" / "inland_flood_sample.geojson",
+            ],
+            label="InlandFlood",
+        )
+        if _inland_flood_path.exists():
+            hazard_service.load("inland_flood", _inland_flood_path)
+        else:
+            logger.info("内水氾濫データが見つかりません（スキップ）: %s", _inland_flood_path)
 else:
     logger.info("内水氾濫ハザード判定は無効（hazard.inland_flood.enabled=false）")
 
 # landslide: 土砂災害警戒区域
-# [Phase 5] data_runtime/backend/hazard/landslide/ を優先。
-# 未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
+# [Phase 5] data_runtime/backend/hazard/landslide/ 内の全 *.geojson を順次ロード。
+# 複数地域ファイルを自動認識。未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
 # 正規化: python scripts/normalize/normalize_landslide.py
 LANDSLIDE_ENABLED = parse_bool(APP_CONFIG.get("hazard.landslide.enabled", "true"), True)
 if LANDSLIDE_ENABLED:
-    _landslide_path_value = APP_CONFIG.get(
-        "hazard.landslide.path",
-        "../data_runtime/backend/hazard/landslide/tokyo_landslide_A33.geojson",
-    )
-    _landslide_path = resolve_existing_path(
-        _landslide_path_value,
-        legacy_candidates=[
-            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "landslide" / "tokyo_landslide_A33.geojson",
-            BASE_DIR.parent / "data" / "hazard" / "landslide_sample.geojson",
-        ],
-        label="Landslide",
-    )
-    if _landslide_path.exists():
-        hazard_service.load("landslide", _landslide_path)
+    _landslide_runtime_dir = BASE_DIR.parent / "data_runtime" / "backend" / "hazard" / "landslide"
+    _landslide_geojson_files: list[Path] = []
+    if _landslide_runtime_dir.is_dir():
+        _landslide_geojson_files = sorted(_landslide_runtime_dir.glob("*.geojson"))
+
+    if _landslide_geojson_files:
+        for _f in _landslide_geojson_files:
+            logger.info("Landslide loaded from runtime: %s", _f)
+            hazard_service.load("landslide", _f)
     else:
-        logger.info("土砂災害サンプルデータが見つかりません（スキップ）: %s", _landslide_path)
+        # フォールバック: 設定ファイル指定の単一パス（backward compat）
+        _landslide_path_value = APP_CONFIG.get(
+            "hazard.landslide.path",
+            "../data_runtime/backend/hazard/landslide/tokyo_landslide_A33.geojson",
+        )
+        _landslide_path = resolve_existing_path(
+            _landslide_path_value,
+            legacy_candidates=[
+                BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "landslide" / "tokyo_landslide_A33.geojson",
+                BASE_DIR.parent / "data" / "hazard" / "landslide_sample.geojson",
+            ],
+            label="Landslide",
+        )
+        if _landslide_path.exists():
+            hazard_service.load("landslide", _landslide_path)
+        else:
+            logger.info("土砂災害データが見つかりません（スキップ）: %s", _landslide_path)
 else:
     logger.info("土砂災害ハザード判定は無効（hazard.landslide.enabled=false）")
 

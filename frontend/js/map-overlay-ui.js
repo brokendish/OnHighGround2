@@ -23,9 +23,9 @@ const administrativeLayerMenu = [
         key: 'administrative',
         label: '行政界',
         items: [
-            { checkboxId: 'showBoundaryTokyo', layerKey: 'tokyo', label: '東京都', enabled: true },
-            // 将来追加: { checkboxId: 'showBoundaryKanagawa', layerKey: 'kanagawa', label: '神奈川県', enabled: false },
-            // 将来追加: { checkboxId: 'showBoundaryChiba',    layerKey: 'chiba',    label: '千葉県',   enabled: false },
+            { checkboxId: 'showBoundaryTokyo',    layerKey: 'tokyo',    label: '東京都',   enabled: true },
+            { checkboxId: 'showBoundaryKanagawa', layerKey: 'kanagawa', label: '神奈川県', enabled: true },
+            // 将来追加: { checkboxId: 'showBoundaryChiba', layerKey: 'chiba', label: '千葉県', enabled: false },
         ],
         legend: [],
     },
