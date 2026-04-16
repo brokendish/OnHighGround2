@@ -35,7 +35,9 @@ async function apiFetch(path, options = {}) {
             const contentType = (response.headers.get('content-type') || '').toLowerCase();
 
             // API でない HTML レスポンス（index.html 等）をつかんだ場合は次候補へ
-            if (!contentType.includes('application/json')) {
+            // application/geo+json も GeoJSON エンドポイントで使われるため許可する
+            const isApiResponse = contentType.includes('application/json') || contentType.includes('application/geo+json');
+            if (!isApiResponse) {
                 logApiFetch('warn', `[apiFetch] rejected candidate: ${baseUrl}${normalizedPath} (content-type: ${contentType || 'unknown'})`);
                 lastError = new Error(
                     `API候補 ${baseUrl} がJSONを返しませんでした (content-type: ${contentType || 'unknown'})`
