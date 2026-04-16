@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,18 @@ logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _SCRIPTS_DIR = _PROJECT_ROOT / "scripts"
+_OSRM_REQUIRED_SUFFIXES = (
+    ".osrm",
+    ".osrm.partition",
+    ".osrm.mldgr",
+    ".osrm.cells",
+    ".osrm.fileIndex",
+    ".osrm.ramIndex",
+)
+_OSRM_CONTAINER_NAMES = {
+    "driving": "evacuation-navi-osrm-driving",
+    "walking": "evacuation-navi-osrm-walking",
+}
 
 
 # ── 共通ユーティリティ ─────────────────────────────────────────────────────────
@@ -93,6 +106,101 @@ async def _run_subprocess(
 
 def _ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_project_path(path_str: str) -> Path:
+    path = Path(path_str)
+    if path.is_absolute():
+        return path
+    return (_PROJECT_ROOT / path).resolve()
+
+
+def _find_first_geojson(paths: list[Path]) -> Optional[Path]:
+    for base in paths:
+        if base.is_file() and base.suffix.lower() == ".geojson":
+            return base
+        if base.is_dir():
+            candidates = sorted(p for p in base.rglob("*.geojson") if p.is_file())
+            if candidates:
+                return candidates[0]
+    return None
+
+
+def _resolve_walking_boundary_paths() -> list[Path]:
+    tokyo_boundary = _find_first_geojson([
+        _resolve_project_path("data_runtime/frontend/layers/tokyo/boundary"),
+        _resolve_project_path("data_lake/validated/tokyo/boundary"),
+        _resolve_project_path("data_lake/normalized/tokyo/boundary"),
+    ])
+    kanagawa_boundary = _find_first_geojson([
+        _resolve_project_path("data_runtime/frontend/layers/kanagawa/boundary"),
+        _resolve_project_path("data_lake/validated/kanagawa/boundary"),
+        _resolve_project_path("data_lake/normalized/kanagawa/boundary"),
+    ])
+
+    missing = []
+    if tokyo_boundary is None:
+        missing.append("東京都境界")
+    if kanagawa_boundary is None:
+        missing.append("神奈川県境界")
+    if missing:
+        joined = " / ".join(missing)
+        raise FileNotFoundError(
+            f"{joined} の GeoJSON が見つかりません。管理画面で行政区域データ（東京都・神奈川県）を先に取り込み、反映してください。"
+        )
+
+    return [tokyo_boundary, kanagawa_boundary]
+
+
+async def _build_walking_extract(
+    source_pbf: Path,
+    output_pbf: Path,
+    job: Job,
+    jm: JobManager,
+) -> bool:
+    boundary_paths = _resolve_walking_boundary_paths()
+    build_script = _SCRIPTS_DIR / "extract" / "build_walking_extract.py"
+    if not build_script.exists():
+        raise FileNotFoundError(f"walking extract build script not found: {build_script}")
+
+    output_dir = output_pbf.parent
+    _ensure_dir(output_dir)
+
+    cmd = [
+        "python3",
+        "-u",
+        str(build_script),
+        "--source",
+        str(source_pbf),
+        "--output-dir",
+        str(output_dir),
+        "--output-stem",
+        output_pbf.stem.replace(".osm", ""),
+        "--force",
+    ]
+    for boundary_path in boundary_paths:
+        cmd.extend(["--boundary", str(boundary_path)])
+
+    jm.log(job, f"Building walking extract from {source_pbf}")
+    ret = await _run_subprocess(cmd, job, jm, timeout=3600)
+    return ret == 0 and output_pbf.exists()
+
+
+async def _wait_for_osrm_artifacts(
+    mode_dir: Path,
+    stem: str,
+    job: Job,
+    jm: JobManager,
+    timeout_seconds: int = 1800,
+) -> bool:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while asyncio.get_running_loop().time() < deadline:
+        if all((mode_dir / f"{stem}{suffix}").exists() for suffix in _OSRM_REQUIRED_SUFFIXES):
+            jm.log(job, f"OSRM artifacts ready: {mode_dir / (stem + '.osrm')}")
+            return True
+        await asyncio.sleep(5)
+    jm.log(job, f"Timed out waiting for OSRM artifacts in {mode_dir}")
+    return False
 
 
 def _fail(
@@ -483,12 +591,20 @@ async def run_deploy(
 
     runtime_dir = (_PROJECT_ROOT / defn.runtime_path).resolve()
 
-    # コピー元決定: validated > normalized > raw
-    src_path_str = (
-        state.current_validated_path
-        or state.current_normalized_path
-        or state.current_raw_path
-    )
+    # OSM は raw を優先し、最新取得データから runtime 用成果物を作る。
+    if defn.category == "osm":
+        src_path_str = (
+            state.current_raw_path
+            or state.current_runtime_path
+            or state.current_validated_path
+        )
+    else:
+        # コピー元決定: validated > normalized > raw
+        src_path_str = (
+            state.current_validated_path
+            or state.current_normalized_path
+            or state.current_raw_path
+        )
     if not src_path_str:
         state.deploy_status = DeployStatus.failed
         ss.save(state)
@@ -522,11 +638,14 @@ async def run_deploy(
                   "先にデータを取り込んでください。")
             return
 
-        dest_file = runtime_dir / src_file.name
+        if defn.category == "osm" and defn.osrm_stem:
+            dest_file = runtime_dir / f"{defn.osrm_stem}.osm.pbf"
+        else:
+            dest_file = runtime_dir / src_file.name
 
         # ── バックアップ（ファイル単位）──────────────────────────────────
         jm.update(job, step=JobStep.backup, progress_message="現在のファイルをバックアップ中...")
-        backup_file = runtime_dir / f"{src_file.stem}.backup{src_file.suffix}"
+        backup_file = runtime_dir / f"{dest_file.stem}.backup{dest_file.suffix}"
         try:
             runtime_dir.mkdir(parents=True, exist_ok=True)
             if dest_file.exists():
@@ -548,7 +667,15 @@ async def run_deploy(
         # ── ファイルコピー ──────────────────────────────────────────────
         jm.update(job, step=JobStep.deploy, progress_message="実行環境へ反映中...")
         try:
-            shutil.copy2(src_file, dest_file)
+            if defn.category == "osm" and defn.routing_profile == "walking":
+                with tempfile.TemporaryDirectory(prefix="ohg-walking-extract-") as tmpdir:
+                    tmp_output = Path(tmpdir) / dest_file.name
+                    ok = await _build_walking_extract(src_file, tmp_output, job, jm)
+                    if not ok:
+                        raise RuntimeError("walking extract build failed")
+                    shutil.copy2(tmp_output, dest_file)
+            else:
+                shutil.copy2(src_file, dest_file)
             jm.log(job, f"Deployed file: {dest_file}")
         except Exception as exc:
             state.deploy_status = DeployStatus.failed
@@ -559,6 +686,8 @@ async def run_deploy(
             return
 
         state.deploy_status = DeployStatus.deployed
+        if defn.category == "osm":
+            state.current_validated_path = str(dest_file)
         state.current_runtime_path = str(dest_file)
         state.deployed_at = datetime.utcnow()
         state.is_deployable = False
@@ -838,11 +967,8 @@ async def run_osrm_rebuild(
 ) -> None:
     """
     OSRM再構築を実行する。
-    OSMデータが data_lake/validated/tokyo/osm/{mode}/ にある前提で、
-    Docker Composeを使ってOSRMコンテナを再起動する。
-
-    再起動後、コンテナのエントリポイントが既存の.osrmファイルを削除して再構築する。
-    ※ .osrmファイルを事前に削除してから再起動する方式。
+    runtime 配置済みの PBF を使って OSRM コンテナを再起動し、
+    必要な .osrm 成果物が揃うまで待機する。
     """
     jm.update(job, status=JobStatus.running, step=JobStep.osrm_extract,
                progress_message="OSRMルートエンジンの再構築を開始しています...")
@@ -851,73 +977,87 @@ async def run_osrm_rebuild(
     state.osrm_rebuild_status = OsrmRebuildStatus.running
     ss.save(state)
 
-    osm_base_dir = _PROJECT_ROOT / "data_lake" / "validated" / "tokyo" / "osm"
-
-    # routing_profile が設定されていればそのプロファイルのみ対象、未設定なら両方（後方互換）
     routing_profile = defn.routing_profile  # "driving" / "walking" / None
     if routing_profile == "driving":
         target_modes = ["driving"]
-        docker_services = ["osrm-driving"]
     elif routing_profile == "walking":
         target_modes = ["walking"]
-        docker_services = ["osrm-walking"]
     else:
         target_modes = ["driving", "walking"]
-        docker_services = ["osrm-driving", "osrm-walking"]
 
     jm.log(job, f"routing_profile={routing_profile!r} → modes={target_modes}")
 
-    # PBFファイルを配置するディレクトリを決定
-    # osrm_dir が定義されていればそこ、なければ osm_base_dir/{mode} を使う
     pbf_src = state.current_runtime_path
     if not pbf_src:
-        pbf_src = state.current_raw_path
+        pbf_src = state.current_validated_path
     if not pbf_src:
-        pbf_src = str(_PROJECT_ROOT / "data_lake" / "raw" / "tokyo" / "osm" / "kanto-260214.osm.pbf")
+        pbf_src = state.current_raw_path
 
     pbf_path = Path(pbf_src)
-    if not pbf_path.exists():
+    if not pbf_src or not pbf_path.exists():
         _fail(job, jm, "OSRM_REBUILD_FAILED",
               "OSM道路データが見つかりませんでした。",
-              "先にOSMデータを取り込んでください。")
+              "先に道路データを取り込み、管理画面で反映してください。")
         state.osrm_rebuild_status = OsrmRebuildStatus.failed
         ss.save(state)
         return
 
     jm.log(job, f"OSM PBF source: {pbf_path}")
 
-    # 対象プロファイルのディレクトリに PBF を配置し、既存インデックスをクリア
+    mode_dirs: dict[str, Path] = {}
     for mode in target_modes:
-        if defn.osrm_dir and routing_profile:
+        if mode == routing_profile and defn.osrm_dir:
             mode_dir = (_PROJECT_ROOT / defn.osrm_dir).resolve()
+        elif mode == "driving":
+            mode_dir = _resolve_project_path("data_lake/validated/tokyo/osm/driving")
         else:
-            mode_dir = osm_base_dir / mode
+            mode_dir = _resolve_project_path("data_lake/validated/tokyo/osm/walking/tokyo-kanagawa")
         mode_dir.mkdir(parents=True, exist_ok=True)
-        dest_pbf = mode_dir / pbf_path.name
+        mode_dirs[mode] = mode_dir
+        stem = defn.osrm_stem if mode == routing_profile and defn.osrm_stem else (
+            "kanto-260214" if mode == "driving" else "tokyo-kanagawa-260214"
+        )
+        dest_pbf = mode_dir / f"{stem}.osm.pbf"
         if not dest_pbf.exists() or dest_pbf.stat().st_size != pbf_path.stat().st_size:
             jm.log(job, f"Copying PBF to {dest_pbf}...")
             shutil.copy2(pbf_path, dest_pbf)
 
-        # 既存 .osrm ファイルを削除してコンテナ再起動時に再構築させる
         for osrm_file in mode_dir.glob("*.osrm*"):
             osrm_file.unlink(missing_ok=True)
         jm.log(job, f"Cleared OSRM index files in {mode_dir}")
 
-    # docker compose restart でコンテナ再起動（OSRMが自動再構築）
     jm.update(job, step=JobStep.osrm_extract,
                progress_message="ルートエンジンを再起動中（この処理は数分かかります）...")
 
     ret = await _run_subprocess(
-        ["docker", "compose", "restart"] + docker_services,
+        ["docker", "restart"] + [_OSRM_CONTAINER_NAMES[mode] for mode in target_modes],
         job, jm, cwd=_PROJECT_ROOT,
     )
 
     if ret != 0:
-        # docker composeが使えない環境ではスキップして手動案内
-        jm.log(job, "WARNING: docker compose restart failed or unavailable. Manual restart may be required.")
-        jm.log(job, "OSMデータは配置済みです。OSRMコンテナを手動で再起動してください。")
-        jm.update(job, step=JobStep.osrm_customize,
-                   progress_message="データ配置完了。コンテナ再起動が必要です。")
+        _fail(job, jm, "OSRM_REBUILD_FAILED",
+              "OSRM コンテナの再起動に失敗しました。",
+              "backend コンテナから Docker を実行できる設定か確認してください。",
+              exit_code=ret)
+        state.osrm_rebuild_status = OsrmRebuildStatus.failed
+        ss.save(state)
+        return
+
+    for mode in target_modes:
+        stem = defn.osrm_stem if mode == routing_profile and defn.osrm_stem else (
+            "kanto-260214" if mode == "driving" else "tokyo-kanagawa-260214"
+        )
+        jm.update(job,
+                  step=JobStep.osrm_customize,
+                  progress_message=f"{mode} 用 OSRM 成果物の生成完了を待機中...")
+        ready = await _wait_for_osrm_artifacts(mode_dirs[mode], stem, job, jm)
+        if not ready:
+            _fail(job, jm, "OSRM_REBUILD_FAILED",
+                  "OSRM 成果物の生成が時間内に完了しませんでした。",
+                  "OSRM コンテナのログを確認してください。")
+            state.osrm_rebuild_status = OsrmRebuildStatus.failed
+            ss.save(state)
+            return
 
     state.osrm_rebuild_status = OsrmRebuildStatus.success
     state.last_job_id = job.job_id

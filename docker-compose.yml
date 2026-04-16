@@ -10,9 +10,9 @@ services:
     command: >
       sh -c "
       mkdir -p /data_lake/validated/tokyo/osm/driving &&
+      test -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf &&
       if [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.partition ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.mldgr ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.cells ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.fileIndex ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.ramIndex ]; then
         rm -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm* &&
-        cp /data_lake/raw/tokyo/osm/kanto-260214.osm.pbf /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf &&
         osrm-extract -p /opt/car.lua /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf &&
         osrm-partition /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm &&
         osrm-customize /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm;
@@ -67,6 +67,8 @@ services:
       - ./backend:/app
       # scripts をバックエンドから実行可能にする（normalize/validate パイプライン用）
       - ./scripts:/scripts:ro
+      # 管理画面から OSRM コンテナを再起動するために Docker ソケットを共有
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DEM_FILE_PATH=/data_runtime/backend/elevation/elevation.tif
       - API_HOST=0.0.0.0

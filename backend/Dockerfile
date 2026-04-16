@@ -8,10 +8,13 @@ WORKDIR /app
 # libproj-dev: pyproj のソースビルドに必要 (RSA 計算で使用)
 RUN apt-get update && apt-get install -y \
     build-essential \
+    curl \
+    docker.io \
     gdal-bin \
     libgdal-dev \
     libgeos-dev \
     libproj-dev \
+    osmium-tool \
     tippecanoe \
     && rm -rf /var/lib/apt/lists/*
 
