@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
 from app.services.hazard_dataset_service import HazardDatasetService
 
@@ -69,28 +70,24 @@ def _find_hazard_file_for_region(hazard_type: str, region: str) -> Optional[Path
 
 @router.get("/inland_flood/{region}")
 async def get_inland_flood(region: str):
-    """内水氾濫 GeoJSON を返す（data_runtime → data_lake の優先順）。"""
+    """内水氾濫 GeoJSON を返す（data_runtime → data_lake の優先順）。
+    FileResponse でストリーミング配信するため json.load() によるメモリ全展開は行わない。
+    """
     path = _find_hazard_file_for_region("inland_flood", region)
     if path is None:
         raise HTTPException(status_code=404, detail=f"inland_flood データが見つかりません: region={region}")
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return FileResponse(path, media_type="application/geo+json")
 
 
 @router.get("/landslide/{region}")
 async def get_landslide(region: str):
-    """土砂災害警戒区域 GeoJSON を返す（data_runtime → data_lake の優先順）。"""
+    """土砂災害警戒区域 GeoJSON を返す（data_runtime → data_lake の優先順）。
+    FileResponse でストリーミング配信するため json.load() によるメモリ全展開は行わない。
+    """
     path = _find_hazard_file_for_region("landslide", region)
     if path is None:
         raise HTTPException(status_code=404, detail=f"landslide データが見つかりません: region={region}")
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return FileResponse(path, media_type="application/geo+json")
 
 
 @router.get("/active")
