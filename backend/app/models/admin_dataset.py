@@ -158,6 +158,14 @@ class DatasetDefinition(BaseModel):
     # True の場合、validated GeoJSON から tippecanoe でタイル生成する
     requires_tile_build: bool = False
 
+    # OSRM routing profile 情報（requires_osrm_rebuild=True の dataset のみ）
+    # routing_profile: "driving" or "walking"
+    # osrm_stem: OSRM インデックスファイルのベース名（例: "kanto-260214"）
+    # osrm_dir: OSRM 成果物ディレクトリ（プロジェクトルート相対）
+    routing_profile: Optional[str] = None
+    osrm_stem: Optional[str] = None
+    osrm_dir: Optional[str] = None
+
     @property
     def browser_upload_enabled(self) -> bool:
         return self.max_browser_upload_mb > 0

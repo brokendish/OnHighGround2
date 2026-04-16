@@ -853,7 +853,22 @@ async def run_osrm_rebuild(
 
     osm_base_dir = _PROJECT_ROOT / "data_lake" / "validated" / "tokyo" / "osm"
 
-    # PBFファイルを driving/walking それぞれにコピー
+    # routing_profile が設定されていればそのプロファイルのみ対象、未設定なら両方（後方互換）
+    routing_profile = defn.routing_profile  # "driving" / "walking" / None
+    if routing_profile == "driving":
+        target_modes = ["driving"]
+        docker_services = ["osrm-driving"]
+    elif routing_profile == "walking":
+        target_modes = ["walking"]
+        docker_services = ["osrm-walking"]
+    else:
+        target_modes = ["driving", "walking"]
+        docker_services = ["osrm-driving", "osrm-walking"]
+
+    jm.log(job, f"routing_profile={routing_profile!r} → modes={target_modes}")
+
+    # PBFファイルを配置するディレクトリを決定
+    # osrm_dir が定義されていればそこ、なければ osm_base_dir/{mode} を使う
     pbf_src = state.current_runtime_path
     if not pbf_src:
         pbf_src = state.current_raw_path
@@ -871,9 +886,12 @@ async def run_osrm_rebuild(
 
     jm.log(job, f"OSM PBF source: {pbf_path}")
 
-    # driving / walking 両方に配置
-    for mode in ["driving", "walking"]:
-        mode_dir = osm_base_dir / mode
+    # 対象プロファイルのディレクトリに PBF を配置し、既存インデックスをクリア
+    for mode in target_modes:
+        if defn.osrm_dir and routing_profile:
+            mode_dir = (_PROJECT_ROOT / defn.osrm_dir).resolve()
+        else:
+            mode_dir = osm_base_dir / mode
         mode_dir.mkdir(parents=True, exist_ok=True)
         dest_pbf = mode_dir / pbf_path.name
         if not dest_pbf.exists() or dest_pbf.stat().st_size != pbf_path.stat().st_size:
@@ -890,7 +908,7 @@ async def run_osrm_rebuild(
                progress_message="ルートエンジンを再起動中（この処理は数分かかります）...")
 
     ret = await _run_subprocess(
-        ["docker", "compose", "restart", "osrm-driving", "osrm-walking"],
+        ["docker", "compose", "restart"] + docker_services,
         job, jm, cwd=_PROJECT_ROOT,
     )
 

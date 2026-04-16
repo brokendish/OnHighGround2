@@ -249,6 +249,12 @@ function renderDetail(detail) {
   document.getElementById("detail-info").innerHTML = [
     detailRow("データセットID", `<span style="font-family:monospace;color:#6366f1">${defn.dataset_id}</span>`),
     detailRow("地域", regionLabel(defn.region)),
+    defn.routing_profile
+      ? detailRow("ルーティングプロファイル", `<span style="font-family:monospace">${defn.routing_profile}</span>`)
+      : "",
+    defn.osrm_stem
+      ? detailRow("OSRMビルドベース名", `<span style="font-family:monospace;font-size:11px">${defn.osrm_stem}</span>`)
+      : "",
     detailRow("説明", escHtml(defn.description)),
     detailRow("影響範囲", escHtml(defn.impact_scope)),
     detailRow("整形処理", defn.requires_normalize ? "あり" : "不要"),
@@ -794,7 +800,11 @@ function formatDate(iso) {
 }
 
 function regionLabel(r) {
-  const map = { tokyo: "東京都", kanagawa: "神奈川県" };
+  const map = {
+    tokyo: "東京都",
+    kanagawa: "神奈川県",
+    kanto: "関東広域",
+  };
   return map[r] || r;
 }
 

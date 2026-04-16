@@ -30,6 +30,19 @@ _ADMIN_STATE_DIR = _PROJECT_ROOT / "data_lake" / "admin" / "state"
 _ADMIN_HISTORY_DIR = _PROJECT_ROOT / "data_lake" / "admin" / "history"
 
 _MAX_HISTORY_LINES = 200
+_OSRM_REQUIRED_SUFFIXES = (
+    ".osrm",
+    ".osrm.partition",
+    ".osrm.mldgr",
+    ".osrm.cells",
+    ".osrm.fileIndex",
+    ".osrm.ramIndex",
+)
+# 後方互換用のデフォルト OSRM パス（routing_profile 未設定の dataset 向け）
+_OSRM_DRIVING_DIR = _PROJECT_ROOT / "data_lake" / "validated" / "tokyo" / "osm" / "driving"
+_OSRM_WALKING_DIR = _PROJECT_ROOT / "data_lake" / "validated" / "tokyo" / "osm" / "walking" / "tokyo-kanagawa"
+_OSRM_DRIVING_STEM = "kanto-260214"
+_OSRM_WALKING_STEM = "tokyo-kanagawa-260214"
 
 
 class DatasetStateService:
@@ -84,6 +97,28 @@ class DatasetStateService:
     def _default_state(self, dataset_id: str) -> DatasetState:
         return DatasetState(dataset_id=dataset_id)
 
+    def _osrm_dataset_is_ready(self, mode_dir: Path, stem: str) -> bool:
+        return all((mode_dir / f"{stem}{suffix}").exists() for suffix in _OSRM_REQUIRED_SUFFIXES)
+
+    def _check_osrm_ready(self, defn: DatasetDefinition) -> bool:
+        """
+        dataset 定義の routing_profile と osrm_dir / osrm_stem を使い、
+        そのプロファイル専用の成果物が揃っているか確認する。
+
+        routing_profile が設定されている場合はそのプロファイルのみを確認する。
+        未設定（後方互換）の場合は driving + walking 両方を確認する。
+        """
+        if defn.routing_profile and defn.osrm_dir and defn.osrm_stem:
+            # プロファイル別チェック（新方式）
+            osrm_dir = _PROJECT_ROOT / defn.osrm_dir
+            return self._osrm_dataset_is_ready(osrm_dir, defn.osrm_stem)
+        else:
+            # 後方互換: driving + walking の両方が揃っていれば ready（旧 TOKYO-ROAD-001 向け）
+            return (
+                self._osrm_dataset_is_ready(_OSRM_DRIVING_DIR, _OSRM_DRIVING_STEM)
+                and self._osrm_dataset_is_ready(_OSRM_WALKING_DIR, _OSRM_WALKING_STEM)
+            )
+
     def init_from_definition(self, defn: DatasetDefinition) -> DatasetState:
         """
         定義に基づいて現在状態を返す。
@@ -115,7 +150,7 @@ class DatasetStateService:
         data_lake のディレクトリ構造から状態を推定する。
 
         優先順位: validated > normalized > raw
-        OSRM は .osrm ファイルの有無で判定する。
+        OSRM は MLD 実行に必要な主要ファイル群の有無で判定する。
         """
         state = DatasetState(dataset_id=defn.dataset_id)
 
@@ -198,13 +233,12 @@ class DatasetStateService:
                 state.normalize_status = NormalizeStatus.not_started
             state.updated_at = datetime.utcfromtimestamp(raw_file.stat().st_mtime)
 
-        # OSRM: .osrm ファイルが存在すれば構築済みとみなす
+        # OSRM: プロファイル別に成果物の有無を確認して構築済み判定する
         if defn.requires_osrm_rebuild:
-            osrm_driving = _PROJECT_ROOT / "data_lake" / "validated" / "tokyo" / "osm" / "driving"
-            if (osrm_driving / "kanto-260214.osrm").exists():
-                state.osrm_rebuild_status = OsrmRebuildStatus.success
-            else:
-                state.osrm_rebuild_status = OsrmRebuildStatus.not_started
+            osrm_ready = self._check_osrm_ready(defn)
+            state.osrm_rebuild_status = (
+                OsrmRebuildStatus.success if osrm_ready else OsrmRebuildStatus.not_started
+            )
 
         return state
 
