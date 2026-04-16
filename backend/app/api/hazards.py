@@ -40,11 +40,6 @@ def _find_hazard_file_for_region(hazard_type: str, region: str) -> Optional[Path
         if prefixed:
             # 最大サイズ（実データ）を優先して返す
             return max(prefixed, key=lambda p: p.stat().st_size)
-        # backward compat: tokyo の場合は prefix なし単一ファイルも許容
-        if region == "tokyo":
-            any_files = sorted(flat_runtime.glob("*.geojson"))
-            if any_files:
-                return any_files[0]
 
     # 2. per-region runtime subdir (将来構成・fallback)
     per_region_runtime = root / "data_runtime" / "backend" / "hazard" / hazard_type / region
