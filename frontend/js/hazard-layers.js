@@ -281,8 +281,8 @@ const HAZARD_LAYERS = {
         visible: false,
         rawData: null,
         lastError: null,
-        datasetState: 'comingSoon',  // A33 データ未取得のため準備中
-        availabilityState: 'coming-soon',
+        datasetState: 'ready',
+        availabilityState: 'uninitialized',
         type: 'landslide'
     }
 };

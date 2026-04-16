@@ -20,31 +20,36 @@ def _find_hazard_file_for_region(hazard_type: str, region: str) -> Optional[Path
     """region / hazard_type に対応する GeoJSON ファイルを優先順で検索して返す。
 
     探索順序:
-      1. data_runtime/backend/hazard/{type}/{region}/  ← per-region runtime (将来構成)
-      2. data_runtime/backend/hazard/{type}/           ← flat runtime: {region}_*.geojson
+      1. data_runtime/backend/hazard/{type}/           ← flat runtime: {region}_*.geojson / {region}-*.geojson
          (tokyo のみ: prefix なしの単一ファイルも許容)
+      2. data_runtime/backend/hazard/{type}/{region}/  ← per-region runtime subdir (将来構成・fallback)
       3. data_lake/normalized/{region}/{type}/
       4. data/hazard/                                  ← legacy (tokyo のみ)
     """
     root = _BACKEND_DIR.parent
 
-    # 1. per-region runtime subdir
-    per_region_runtime = root / "data_runtime" / "backend" / "hazard" / hazard_type / region
-    if per_region_runtime.is_dir():
-        for f in sorted(per_region_runtime.glob("*.geojson")):
-            return f
-
-    # 2. flat runtime dir — region-prefixed files を優先
+    # 1. flat runtime dir — region-prefixed files を優先
+    #    アンダースコア ({region}_*.geojson) とハイフン ({region}-*.geojson) 両方を探索する
     flat_runtime = root / "data_runtime" / "backend" / "hazard" / hazard_type
     if flat_runtime.is_dir():
-        prefixed = sorted(flat_runtime.glob(f"{region}_*.geojson"))
+        prefixed = sorted(
+            list(flat_runtime.glob(f"{region}_*.geojson"))
+            + list(flat_runtime.glob(f"{region}-*.geojson"))
+        )
         if prefixed:
-            return prefixed[0]
+            # 最大サイズ（実データ）を優先して返す
+            return max(prefixed, key=lambda p: p.stat().st_size)
         # backward compat: tokyo の場合は prefix なし単一ファイルも許容
         if region == "tokyo":
             any_files = sorted(flat_runtime.glob("*.geojson"))
             if any_files:
                 return any_files[0]
+
+    # 2. per-region runtime subdir (将来構成・fallback)
+    per_region_runtime = root / "data_runtime" / "backend" / "hazard" / hazard_type / region
+    if per_region_runtime.is_dir():
+        for f in sorted(per_region_runtime.glob("*.geojson")):
+            return f
 
     # 3. data_lake normalized
     normalized = root / "data_lake" / "normalized" / region / hazard_type
