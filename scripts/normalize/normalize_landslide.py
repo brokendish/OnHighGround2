@@ -9,25 +9,22 @@
   - ディレクトリ — 上記を含むディレクトリ（再帰）
 
 GML 構造（A33-24 形式）:
-  GML トポロジーモデルを使用。
-  Feature → ksj:bounds.xlink:href → gml:Surface
-  gml:Surface → gml:Ring.curveMember.xlink:href → gml:Curve
-  gml:Curve → gml:posList（lat lon 順、GeoJSON では lon lat に反転）
+  ksj:Dataset
+    gml:Curve(×N)   ← 座標列（posList）を保持
+    gml:Surface(×N) ← Curve を xlink:href で参照
+    ksj:SedimentRelatedDisasterWarningAreasPolygon(×N)
+                    ← Surface を xlink:href で参照 + 属性(cop/coz/prc/znm)
+
+メモリ対策:
+  ET.iterparse を使い要素ごとにストリーム処理する。
+  処理済み要素は root から除去・clear() してメモリを解放。
+  Curve 座標はフラットタプルで保持しリスト-of-リストより約 8 倍省メモリ。
 
 属性名（A33-24 新形式）:
-  ksj:cop → 現象種別コード → landslide_type
-  ksj:coz → 区域区分コード → zone_type
-  ksj:prc → 都道府県コード → pref_code
-  ksj:znm → 区域名 → zone_name
-
-zone_type:
-  1 → warning (severity: danger)     ← 土砂災害警戒区域
-  2 → special_warning (severity: critical) ← 特別警戒区域
-
-landslide_type:
-  1 → steep_slope  (急傾斜地の崩壊)
-  2 → debris_flow  (土石流)
-  3 → landslide    (地すべり)
+  ksj:cop → 現象種別コード  1=急傾斜, 2=土石流, 3=地すべり
+  ksj:coz → 区域区分コード  1=警戒, 2=特別警戒
+  ksj:prc → 都道府県コード
+  ksj:znm → 区域名
 
 使い方:
   python scripts/normalize/normalize_landslide.py \\
@@ -43,15 +40,13 @@ import zipfile
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 # ── 正規化マップ ──────────────────────────────────────────────────────────────
 
 _ZONE_TYPE_MAP: dict = {
-    # A33-24 新形式 (cop / coz の値)
-    "1": "warning",   "1": "warning",
-    "2": "special_warning",
-    # 旧 A33_002 形式
-    1: "warning",  2: "special_warning",
+    "1": "warning",        1: "warning",
+    "2": "special_warning", 2: "special_warning",
     "土砂災害警戒区域": "warning",   "警戒区域": "warning",
     "土砂災害特別警戒区域": "special_warning", "特別警戒区域": "special_warning",
 }
@@ -60,187 +55,210 @@ _ZONE_TYPE_TO_SEVERITY: dict = {
     "special_warning": "critical",
 }
 _LANDSLIDE_TYPE_MAP: dict = {
-    # A33-24 新形式
     "1": "steep_slope",  1: "steep_slope",
     "2": "debris_flow",  2: "debris_flow",
     "3": "landslide",    3: "landslide",
-    # テキスト形式（旧）
     "急傾斜地の崩壊": "steep_slope", "急傾斜地崩壊": "steep_slope",
     "土石流": "debris_flow",
     "地すべり": "landslide",
 }
 
 
-# ── GML パーサー（A33-24 トポロジーモデル対応） ──────────────────────────────
+# ── 座標ユーティリティ ────────────────────────────────────────────────────────
 
-def _poslist_to_coords(text: str) -> list:
+def _poslist_to_flat(text: str) -> tuple:
     """
-    GML posList（lat lon 順）を GeoJSON 座標リスト（lon lat 順）に変換。
+    GML posList（lat lon 順）をフラットタプル（lon lat 順）に変換。
+    tuple で保持することでリスト-of-リストより約 8 倍省メモリ。
+    (lon1, lat1, lon2, lat2, ...)
     """
     vals = text.split()
-    coords = []
+    result = []
     for i in range(0, len(vals) - 1, 2):
         try:
             lat = float(vals[i])
             lon = float(vals[i + 1])
-            coords.append([lon, lat])
+            result.append(lon)
+            result.append(lat)
         except ValueError:
             continue
-    return coords
+    return tuple(result)
 
 
-def _parse_gml(content: bytes, filename: str) -> list:
+def _flat_to_ring(flat: tuple) -> list:
+    """フラットタプル → [[lon,lat],...] (GeoJSON ring 形式)"""
+    return [[flat[i], flat[i + 1]] for i in range(0, len(flat), 2)]
+
+
+# ── Surface ヘルパー ──────────────────────────────────────────────────────────
+
+def _surface_elem_to_geom(surf_elem, gml_ns: str, xlink_ns: str,
+                           curves: Dict[str, tuple]) -> Optional[dict]:
     """
-    A33 GML バイト列を解析し GeoJSON feature リストを返す。
+    gml:Surface 要素から GeoJSON Polygon を生成する。
+    Curve はフラットタプル辞書から解決する。
+    """
+    def ring_from_ring_elem(ring_elem) -> list:
+        all_flat: list = []
+        for cm in ring_elem.findall(f"{{{gml_ns}}}curveMember"):
+            href = cm.attrib.get(f"{{{xlink_ns}}}href", "").lstrip("#")
+            flat = curves.get(href)
+            if flat is None:
+                continue
+            # 前の終点と重複する場合は先頭を除く
+            if all_flat and len(flat) >= 2:
+                if all_flat[-2] == flat[0] and all_flat[-1] == flat[1]:
+                    flat = flat[2:]
+            all_flat.extend(flat)
+        if len(all_flat) < 6:  # 最低 3 点
+            return []
+        ring = _flat_to_ring(tuple(all_flat))
+        # GeoJSON リングは閉じている必要がある
+        if ring[0] != ring[-1]:
+            ring.append(ring[0])
+        return ring
 
-    A33-24 GML はトポロジーモデルを使う。
-      Feature.bounds xlink:href → Surface
-      Surface.(exterior|interior).Ring.curveMember xlink:href → Curve
-      Curve.posList → 座標列
+    exterior = surf_elem.find(f".//{{{gml_ns}}}exterior")
+    if exterior is None:
+        return None
+    ext_ring_elem = exterior.find(f"{{{gml_ns}}}Ring")
+    if ext_ring_elem is None:
+        return None
+    ext_ring = ring_from_ring_elem(ext_ring_elem)
+    if not ext_ring:
+        return None
 
-    処理順:
-      1. 全 Curve を id → 座標リストの dict に収集
-      2. 全 Surface を id → GeoJSON geometry の dict に構築
-      3. 全 Feature を走査して geometry を解決
+    rings = [ext_ring]
+    for interior in surf_elem.findall(f".//{{{gml_ns}}}interior"):
+        int_ring_elem = interior.find(f"{{{gml_ns}}}Ring")
+        if int_ring_elem is not None:
+            int_ring = ring_from_ring_elem(int_ring_elem)
+            if int_ring:
+                rings.append(int_ring)
+
+    return {"type": "Polygon", "coordinates": rings}
+
+
+# ── GML ストリーミングパーサー ────────────────────────────────────────────────
+
+def _parse_gml_streaming(xml_stream, filename: str) -> list:
+    """
+    iterparse によるストリーミング GML 解析。
+
+    処理フロー（A33-24 ドキュメント順に対応）:
+      1. gml:Curve       → 座標をフラットタプルで curves dict に蓄積、即 clear
+      2. gml:Surface     → Curve を解決して geom を surfaces dict に蓄積、即 clear
+      3. ksj:Sediment... → Surface を解決して feature を生成、surfaces.pop で解放
+
+    root.remove(elem) + elem.clear() により処理済み要素をメモリから解放する。
     """
     try:
-        root = ET.fromstring(content)
+        context = ET.iterparse(xml_stream, events=("start", "end"))
+        event, root = next(context)   # <ksj:Dataset> start イベント
     except ET.ParseError as exc:
         raise ValueError(f"{filename}: XML パースエラー ({exc})")
+    except StopIteration:
+        raise ValueError(f"{filename}: 空の XML")
 
-    # 名前空間 URI を root タグから検出
-    import re
-    ns_match = re.match(r"\{(.+?)\}", root.tag)
-    ksj_ns = ns_match.group(1) if ns_match else ""
+    # 名前空間を root タグから検出
+    ksj_ns = root.tag.split("}")[0][1:] if "}" in root.tag else ""
     if not ksj_ns:
-        raise ValueError(f"{filename}: GML 名前空間を検出できませんでした (root={root.tag!r})")
-
-    # GML 名前空間は属性や子要素から推定する
-    gml_ns = "http://schemas.opengis.net/gml/3.2.1"
-    xlink_ns = "http://www.w3.org/1999/xlink"
-
-    # 代替 GML 名前空間をフォールバックとして試みる
-    GML_NS_CANDIDATES = [
-        "http://schemas.opengis.net/gml/3.2.1",
-        "http://www.opengis.net/gml/3.2",
-        "http://www.opengis.net/gml",
-    ]
-
+        raise ValueError(f"{filename}: ksj 名前空間を検出できませんでした (root={root.tag!r})")
     print(f"[gml] {filename}: ksj_ns={ksj_ns!r}", file=sys.stderr)
 
-    # ── Step1: Curve を収集 ─────────────────────────────────────────────────
-    curves: dict[str, list] = {}  # curve_id → [[lon, lat], ...]
-    for ns in GML_NS_CANDIDATES:
-        for curve in root.iter(f"{{{ns}}}Curve"):
-            cid = curve.attrib.get(f"{{{ns}}}id") or curve.attrib.get("id")
-            if not cid:
-                continue
-            pl = curve.find(f".//{{{ns}}}posList")
-            if pl is not None and pl.text:
-                coords = _poslist_to_coords(pl.text)
-                if coords:
-                    curves[cid] = coords
-        if curves:
-            gml_ns = ns
-            break
+    xlink_ns = "http://www.w3.org/1999/xlink"
+    gml_ns = ""   # 最初の gml 要素で自動検出
 
-    print(f"[gml] Curve 数: {len(curves)}", file=sys.stderr)
+    # curves:   curve_id → flat tuple (lon1,lat1,lon2,lat2,...)
+    # surfaces: surface_id → GeoJSON geometry dict
+    curves:   Dict[str, tuple] = {}
+    surfaces: Dict[str, dict]  = {}
+    features: List[dict] = []
 
-    def _ring_coords_from_ring_elem(ring_elem) -> list:
-        """gml:Ring 要素から座標リストを返す（各 curveMember を結合）。"""
-        all_coords: list = []
-        for cm in ring_elem.findall(f"{{{gml_ns}}}curveMember"):
-            href = cm.attrib.get(f"{{{xlink_ns}}}href", "")
-            cid = href.lstrip("#")
-            coords = curves.get(cid, [])
-            if all_coords and coords:
-                # 前の座標列の末尾と重複する場合は除去
-                if all_coords[-1] == coords[0]:
-                    coords = coords[1:]
-            all_coords.extend(coords)
-        # GeoJSON リングは閉じている必要がある
-        if all_coords and all_coords[0] != all_coords[-1]:
-            all_coords.append(all_coords[0])
-        return all_coords
+    curve_count = surface_count = feat_count = 0
 
-    # ── Step2: Surface を収集 ──────────────────────────────────────────────
-    surfaces: dict[str, dict] = {}  # surface_id → GeoJSON geometry
-
-    for surf in root.iter(f"{{{gml_ns}}}Surface"):
-        sid = surf.attrib.get(f"{{{gml_ns}}}id") or surf.attrib.get("id")
-        if not sid:
+    for event, elem in context:
+        if event != "end":
             continue
 
-        exterior_elem = surf.find(f".//{{{gml_ns}}}exterior")
-        if exterior_elem is None:
-            continue
-        ext_ring = exterior_elem.find(f"{{{gml_ns}}}Ring")
-        if ext_ring is None:
-            continue
+        tag   = elem.tag
+        local = tag.split("}")[1] if "}" in tag else tag
 
-        ext_coords = _ring_coords_from_ring_elem(ext_ring)
-        if len(ext_coords) < 3:
-            continue
+        # GML 名前空間を最初の GML 要素から自動検出
+        if not gml_ns and "}" in tag:
+            ns = tag.split("}")[0][1:]
+            if "opengis.net/gml" in ns or "schemas.opengis.net/gml" in ns:
+                gml_ns = ns
+                print(f"[gml] gml_ns={gml_ns!r}", file=sys.stderr)
 
-        rings = [ext_coords]
+        # ── Curve 処理 ────────────────────────────────────────────────────
+        if local == "Curve" and gml_ns:
+            cid = elem.attrib.get(f"{{{gml_ns}}}id") or elem.attrib.get("id", "")
+            if cid:
+                pl = elem.find(f".//{{{gml_ns}}}posList")
+                if pl is not None and pl.text:
+                    flat = _poslist_to_flat(pl.text)
+                    if flat:
+                        curves[cid] = flat
+                        curve_count += 1
+            try:
+                root.remove(elem)
+            except ValueError:
+                pass
+            elem.clear()
 
-        # interior rings（穴）
-        for interior_elem in surf.findall(f".//{{{gml_ns}}}interior"):
-            int_ring = interior_elem.find(f"{{{gml_ns}}}Ring")
-            if int_ring is not None:
-                int_coords = _ring_coords_from_ring_elem(int_ring)
-                if len(int_coords) >= 3:
-                    rings.append(int_coords)
+        # ── Surface 処理 ─────────────────────────────────────────────────
+        elif local == "Surface" and gml_ns:
+            sid = elem.attrib.get(f"{{{gml_ns}}}id") or elem.attrib.get("id", "")
+            if sid:
+                geom = _surface_elem_to_geom(elem, gml_ns, xlink_ns, curves)
+                if geom:
+                    surfaces[sid] = geom
+                    surface_count += 1
+            try:
+                root.remove(elem)
+            except ValueError:
+                pass
+            elem.clear()
 
-        surfaces[sid] = {"type": "Polygon", "coordinates": rings}
+        # ── Feature 処理 ─────────────────────────────────────────────────
+        elif "SedimentRelatedDisasterWarningAreasPolygon" in local:
+            bounds = elem.find(f"{{{ksj_ns}}}bounds")
+            if bounds is not None:
+                href = bounds.attrib.get(f"{{{xlink_ns}}}href", "").lstrip("#")
+                # pop で参照解除 → Surface dict のメモリを逐次解放
+                geom = surfaces.pop(href, None)
+                if geom:
+                    def _txt(key: str) -> str:
+                        e = elem.find(f"{{{ksj_ns}}}{key}")
+                        return (e.text or "").strip() if e is not None else ""
+                    features.append({
+                        "type": "Feature",
+                        "properties": {
+                            "A33_001": _txt("cop"),
+                            "A33_002": _txt("coz"),
+                            "A33_003": _txt("prc"),
+                            "A33_006": _txt("znm"),
+                        },
+                        "geometry": geom,
+                    })
+                    feat_count += 1
+            try:
+                root.remove(elem)
+            except ValueError:
+                pass
+            elem.clear()
 
-    print(f"[gml] Surface 数: {len(surfaces)}", file=sys.stderr)
-
-    # ── Step3: Feature を走査して GeoJSON feature を生成 ─────────────────
-    # A33-24 の feature 要素名は SedimentRelatedDisasterWarningAreasPolygon
-    # ただし将来バージョン変化に備え ksj:bounds を持つ要素を全て対象とする
-    FEATURE_TYPE = f"{{{ksj_ns}}}SedimentRelatedDisasterWarningAreasPolygon"
-    BOUNDS_KEY   = f"{{{ksj_ns}}}bounds"
-
-    features_out: list = []
-    skipped = 0
-
-    for feat in root.iter(FEATURE_TYPE):
-        bounds = feat.find(BOUNDS_KEY)
-        if bounds is None:
-            skipped += 1
-            continue
-        href = bounds.attrib.get(f"{{{xlink_ns}}}href", "")
-        sid = href.lstrip("#")
-        geom = surfaces.get(sid)
-        if geom is None:
-            skipped += 1
-            continue
-
-        # 属性取得（A33-24 新形式: cop/coz/prc/znm）
-        def txt(key: str) -> str:
-            elem = feat.find(f"{{{ksj_ns}}}{key}")
-            return (elem.text or "").strip() if elem is not None else ""
-
-        features_out.append({
-            "type": "Feature",
-            "properties": {
-                # 生属性をそのまま保持（normalize() でマッピング済みに変換）
-                "A33_001": txt("cop"),   # 現象種別コード
-                "A33_002": txt("coz"),   # 区域区分コード
-                "A33_003": txt("prc"),   # 都道府県コード
-                "A33_006": txt("znm"),   # 区域名
-            },
-            "geometry": geom,
-        })
-
-    print(f"[gml] Feature 生成: {len(features_out)}, skipped={skipped}", file=sys.stderr)
-    return features_out
+    print(
+        f"[gml] Curve={curve_count}, Surface={surface_count}, Feature={feat_count}",
+        file=sys.stderr,
+    )
+    return features
 
 
 # ── 入力ローダー ──────────────────────────────────────────────────────────────
 
-def _load_geojson_bytes(data: bytes, filename: str) -> list:
+def _load_geojson_stream(data: bytes, filename: str) -> list:
     try:
         obj = json.loads(data)
     except json.JSONDecodeError as exc:
@@ -255,28 +273,63 @@ def _load_input(input_path: Path, tmp_dir: Path) -> list:
     suffix = input_path.suffix.lower()
 
     if suffix == ".zip":
-        extract_dir = tmp_dir / "extracted"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            with zipfile.ZipFile(input_path) as zf:
-                # __MACOSX などのメタデータを除いて展開
-                for member in zf.namelist():
-                    if not member.startswith("__MACOSX"):
-                        zf.extract(member, extract_dir)
-        except zipfile.BadZipFile as exc:
-            raise ValueError(f"ZIP を開けませんでした: {input_path.name} ({exc})")
-        print(f"[info] ZIP 展開: {input_path.name}", file=sys.stderr)
-        return _load_from_directory(extract_dir, tmp_dir)
+        return _load_from_zip(input_path, tmp_dir)
 
     if suffix in (".geojson", ".json"):
         print(f"[info] GeoJSON: {input_path.name}", file=sys.stderr)
-        return _load_geojson_bytes(input_path.read_bytes(), input_path.name)
+        return _load_geojson_stream(input_path.read_bytes(), input_path.name)
 
     if suffix in (".gml", ".xml"):
         print(f"[info] GML: {input_path.name}", file=sys.stderr)
-        return _parse_gml(input_path.read_bytes(), input_path.name)
+        with input_path.open("rb") as f:
+            return _parse_gml_streaming(f, input_path.name)
 
     raise ValueError(f"未対応の入力形式: {input_path.suffix} ({input_path.name})")
+
+
+def _load_from_zip(zip_path: Path, tmp_dir: Path) -> list:
+    """ZIP をストリーム展開し、GML/GeoJSON を解析する。"""
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            names = [n for n in zf.namelist()
+                     if not n.startswith("__MACOSX") and not n.endswith("/")]
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"ZIP を開けませんでした: {zip_path.name} ({exc})")
+
+    # ファイル種別で優先順位
+    gml_entries  = [n for n in names if n.lower().endswith((".xml", ".gml"))
+                    and "META" not in n.upper() and "KS-META" not in n]
+    json_entries = [n for n in names if n.lower().endswith((".geojson", ".json"))]
+
+    print(f"[info] ZIP={zip_path.name}: gml={gml_entries}, json={json_entries}",
+          file=sys.stderr)
+
+    if not gml_entries and not json_entries:
+        all_names = [n for n in names if not n.endswith("/")]
+        raise ValueError(
+            f"ZIP 内に対応ファイルが見つかりません: {zip_path.name}\n"
+            f"含まれるファイル: {all_names[:15]}"
+        )
+
+    features: list = []
+
+    # GeoJSON を優先（GML より高速・低メモリ）
+    if json_entries:
+        with zipfile.ZipFile(zip_path) as zf:
+            for entry in json_entries:
+                print(f"[info] JSON in ZIP: {entry}", file=sys.stderr)
+                data = zf.read(entry)
+                features.extend(_load_geojson_stream(data, entry))
+        return features
+
+    # GML をストリームで直接パース（ファイルに展開せず ZIP から直接読む）
+    with zipfile.ZipFile(zip_path) as zf:
+        for entry in gml_entries:
+            print(f"[info] GML in ZIP: {entry}", file=sys.stderr)
+            with zf.open(entry) as gml_stream:
+                features.extend(_parse_gml_streaming(gml_stream, entry))
+
+    return features
 
 
 def _load_from_directory(dir_path: Path, tmp_dir: Path) -> list:
@@ -285,8 +338,10 @@ def _load_from_directory(dir_path: Path, tmp_dir: Path) -> list:
         if p.is_file() and not p.name.startswith(".")
     ]
     geojson_files = [p for p in all_files if p.suffix.lower() in (".geojson", ".json")]
-    gml_files     = [p for p in all_files if p.suffix.lower() in (".gml", ".xml")
-                     and "META" not in p.name.upper()]
+    gml_files = [
+        p for p in all_files
+        if p.suffix.lower() in (".gml", ".xml") and "META" not in p.name.upper()
+    ]
 
     if not geojson_files and not gml_files:
         raise ValueError(
@@ -325,7 +380,6 @@ def normalize(raw_features: list, output_path: Path) -> int:
     for feat in raw_features:
         props = feat.get("properties") or {}
         geom  = feat.get("geometry")
-
         if not geom:
             skipped += 1
             continue
