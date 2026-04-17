@@ -44,7 +44,7 @@ mbtiles:
     # ── 神奈川 ──────────────────────────────────────────────────────────────
     # deploy_to_runtime.sh --region kanagawa 実行後にタイルが配備される。
     # ディレクトリが存在しない場合は Martin が起動時に警告を出すが動作継続する。
-    - /tiles/kanagawa/flood
-    - /tiles/kanagawa/storm_surge
-    - /tiles/kanagawa/inland_flood
+    # - /tiles/kanagawa/flood        # kanagawa tiles not yet generated - re-enable after build_tiles
+    # - /tiles/kanagawa/storm_surge  # kanagawa tiles not yet generated - re-enable after build_tiles
+    # - /tiles/kanagawa/inland_flood # kanagawa tiles not yet generated - re-enable after build_tiles
     # kanagawa/tsunami: MBTiles 未生成のため省略（生成後に追加する）

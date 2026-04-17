@@ -346,7 +346,7 @@ if _storm_surge_runtime_dir.is_dir():
 if _storm_surge_geojson_files:
     for _f in _storm_surge_geojson_files:
         logger.info("StormSurge loaded from runtime: %s", _f)
-        hazard_service.load("storm_surge", _f)
+        hazard_service.load("storm_surge", _f, bbox_only=True)
 else:
     # フォールバック: 設定ファイル指定の単一パス（backward compat）
     _storm_surge_path_value = APP_CONFIG.get(
@@ -360,7 +360,7 @@ else:
         ],
         label="StormSurge",
     )
-    hazard_service.load("storm_surge", _storm_surge_path)
+    hazard_service.load("storm_surge", _storm_surge_path, bbox_only=True)
 
 # tsunami: targets 設定に従ってファイルを個別ロード
 # デフォルト: tokyo のみ（東京版 v1 標準モード）
@@ -391,13 +391,13 @@ for _target in _tsunami_targets:
     _normalized_path = _tsunami_dir / _filename
     if _runtime_path.exists():
         logger.info("Tsunami loaded from runtime: %s", _runtime_path)
-        hazard_service.load("tsunami", _runtime_path)
+        hazard_service.load("tsunami", _runtime_path, bbox_only=True)
     elif _validated_path.exists():
         logger.warning("Tsunami fallback to data_lake: %s", _validated_path)
-        hazard_service.load("tsunami", _validated_path)
+        hazard_service.load("tsunami", _validated_path, bbox_only=True)
     elif _normalized_path.exists():
         logger.warning("Tsunami fallback to data_lake: %s", _normalized_path)
-        hazard_service.load("tsunami", _normalized_path)
+        hazard_service.load("tsunami", _normalized_path, bbox_only=True)
     else:
         logger.warning(
             "Tsunami file not found for target '%s': checked runtime=%s, validated=%s, normalized=%s — skipped",
@@ -468,7 +468,7 @@ if LANDSLIDE_ENABLED:
     if _landslide_geojson_files:
         for _f in _landslide_geojson_files:
             logger.info("Landslide loaded from runtime: %s", _f)
-            hazard_service.load("landslide", _f)
+            hazard_service.load("landslide", _f, bbox_only=True)
     else:
         # フォールバック: 設定ファイル指定の単一パス（backward compat）
         _landslide_path_value = APP_CONFIG.get(
@@ -484,7 +484,7 @@ if LANDSLIDE_ENABLED:
             label="Landslide",
         )
         if _landslide_path.exists():
-            hazard_service.load("landslide", _landslide_path)
+            hazard_service.load("landslide", _landslide_path, bbox_only=True)
         else:
             logger.info("土砂災害データが見つかりません（スキップ）: %s", _landslide_path)
 else:

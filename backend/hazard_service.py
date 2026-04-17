@@ -185,7 +185,7 @@ class HazardService:
     # データ読み込み
     # ------------------------------------------------------------------
 
-    def load(self, hazard_type: str, geojson_path: Path) -> None:
+    def load(self, hazard_type: str, geojson_path: Path, bbox_only: bool = False) -> None:
         """
         指定ハザードタイプの GeoJSON ポリゴンを読み込む（累積式）。
 
@@ -197,6 +197,9 @@ class HazardService:
         Args:
             hazard_type: ハザードタイプ識別子 ("flood", "tsunami" など)
             geojson_path: GeoJSON ファイルのパス
+            bbox_only:    True の場合 coords を省略してメモリを削減する。
+                          tsunami の場合は重心 (centroid) を事前計算して保持する。
+                          storm_surge など centroid 不要なタイプは bbox のみ保持。
         """
         if not geojson_path.exists():
             logger.warning(
@@ -205,7 +208,8 @@ class HazardService:
             return
 
         logger.info(
-            "Loading hazard polygons: type=%s path=%s", hazard_type, geojson_path
+            "Loading hazard polygons: type=%s path=%s bbox_only=%s",
+            hazard_type, geojson_path, bbox_only,
         )
         new_polygons: List[dict] = []
 
@@ -234,7 +238,18 @@ class HazardService:
                     lons = [c[0] for c in ring]
                     lats = [c[1] for c in ring]
                     bbox = (min(lats), min(lons), max(lats), max(lons))  # (s, w, n, e)
-                    new_polygons.append({"bbox": bbox, "coords": ring, "properties": props})
+                    if bbox_only:
+                        if hazard_type == "tsunami":
+                            # TTI 計算用に重心を事前計算して保持（coords は捨てる）
+                            centroid = _centroid_of_ring(ring)
+                            new_polygons.append({"bbox": bbox, "centroid": centroid})
+                        elif hazard_type == "landslide":
+                            # check_landslide_detail が zone_type を参照するため properties を保持
+                            new_polygons.append({"bbox": bbox, "properties": props})
+                        else:
+                            new_polygons.append({"bbox": bbox})
+                    else:
+                        new_polygons.append({"bbox": bbox, "coords": ring, "properties": props})
 
             # 累積: 同じハザードタイプへの複数ファイルロードをサポート
             existing = self._polygons.get(hazard_type, [])
@@ -561,9 +576,10 @@ class HazardService:
             s, w, n, e = poly["bbox"]
             if not (s <= lat <= n and w <= lon <= e):
                 continue
-            coords = poly.get("coords", [])
-            if not coords or not _point_in_polygon(lat, lon, coords):
+            coords = poly.get("coords")
+            if coords is not None and not _point_in_polygon(lat, lon, coords):
                 continue
+            # coords is None = bbox_only モード: bbox ヒット = inside とみなす
             props = poly.get("properties", {})
             zone_type = str(props.get("zone_type") or props.get("区分") or "")
             if "特別" in zone_type or zone_type == "special":
@@ -651,9 +667,18 @@ class HazardService:
             s, w, n, e = poly["bbox"]
             if not (s <= lat <= n and w <= lon <= e):
                 continue
-            if _point_in_polygon(lat, lon, poly["coords"]):
-                centroid_lat, centroid_lon = _centroid_of_ring(poly["coords"])
-                return _haversine_m(lat, lon, centroid_lat, centroid_lon)
+            coords = poly.get("coords")
+            if coords is not None:
+                # フル coords モード: 厳密な点内外判定 + 重心計算
+                if _point_in_polygon(lat, lon, coords):
+                    centroid_lat, centroid_lon = _centroid_of_ring(coords)
+                    return _haversine_m(lat, lon, centroid_lat, centroid_lon)
+            else:
+                # bbox_only モード: bbox ヒット = inside とみなし、事前計算済み重心を使用
+                centroid = poly.get("centroid")
+                if centroid is not None:
+                    centroid_lat, centroid_lon = centroid
+                    return _haversine_m(lat, lon, centroid_lat, centroid_lon)
         return None
 
     def check_hazards(self, lat: float, lon: float) -> Dict:

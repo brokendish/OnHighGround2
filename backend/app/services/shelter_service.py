@@ -401,5 +401,5 @@ def get_shelter_registry() -> ShelterRegistry:
     """ShelterRegistry のシングルトンを返す。"""
     global _registry_instance
     if _registry_instance is None:
-        _registry_instance = ShelterRegistry(ttl_seconds=30)
+        _registry_instance = ShelterRegistry(ttl_seconds=3600)
     return _registry_instance
