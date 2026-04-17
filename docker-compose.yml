@@ -32,8 +32,16 @@ services:
       - ./data_lake:/data_lake
     command: >
       sh -c "
-      test -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm &&
-      osrm-routed --algorithm mld --threads 2 --port 5001 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm
+      PBF=/data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
+      OSRM=/data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm &&
+      test -f \$PBF &&
+      if [ ! -f \$OSRM ]; then
+        echo 'OSRM index not found — building from PBF...' &&
+        osrm-extract --threads 2 -p /opt/foot.lua \$PBF &&
+        osrm-partition --threads 2 \$OSRM &&
+        osrm-customize --threads 2 \$OSRM;
+      fi &&
+      osrm-routed --algorithm mld --threads 2 --port 5001 \$OSRM
       "
     restart: unless-stopped
 
