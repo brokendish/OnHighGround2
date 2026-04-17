@@ -191,7 +191,7 @@ async def _wait_for_osrm_artifacts(
     stem: str,
     job: Job,
     jm: JobManager,
-    timeout_seconds: int = 1800,
+    timeout_seconds: int = 7200,
 ) -> bool:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while asyncio.get_running_loop().time() < deadline:
