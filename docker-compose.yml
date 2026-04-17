@@ -32,15 +32,8 @@ services:
       - ./data_lake:/data_lake
     command: >
       sh -c "
-      mkdir -p /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa &&
-      test -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
-      if [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm ] || [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm.partition ] || [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm.mldgr ] || [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm.cells ] || [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm.fileIndex ] || [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm.ramIndex ]; then
-       rm -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm* &&
-       osrm-extract --threads 2 -p /opt/foot.lua /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
-       osrm-partition --threads 2 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm &&
-       osrm-customize --threads 2 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm;
-      fi &&
-       osrm-routed --algorithm mld --threads 2 --port 5001 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm
+      test -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm &&
+      osrm-routed --algorithm mld --threads 2 --port 5001 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm
       "
     restart: unless-stopped
 
