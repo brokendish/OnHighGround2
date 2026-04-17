@@ -680,6 +680,7 @@ async def run_deploy(
         except Exception as exc:
             state.deploy_status = DeployStatus.failed
             ss.save(state)
+            jm.log(job, f"DEPLOY error: {type(exc).__name__}: {exc}")
             _fail(job, jm, "DEPLOY_FAILED",
                   "実行環境への反映に失敗しました。",
                   "ディスク容量または権限を確認してください。バックアップからロールバックできます。")
@@ -754,6 +755,7 @@ async def run_deploy(
         except Exception as exc:
             state.deploy_status = DeployStatus.failed
             ss.save(state)
+            jm.log(job, f"DEPLOY error: {type(exc).__name__}: {exc}")
             _fail(job, jm, "DEPLOY_FAILED",
                   "実行環境への反映に失敗しました。",
                   "ディスク容量または権限を確認してください。バックアップからロールバックできます。")
