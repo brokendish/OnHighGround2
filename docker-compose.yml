@@ -32,16 +32,14 @@ services:
       - ./data_lake:/data_lake
     command: >
       sh -c "
-      PBF=/data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
-      OSRM=/data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm &&
-      test -f \$PBF &&
-      if [ ! -f \$OSRM ]; then
+      test -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
+      if [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm ]; then
         echo 'OSRM index not found — building from PBF...' &&
-        osrm-extract --threads 2 -p /opt/foot.lua \$PBF &&
-        osrm-partition --threads 2 \$OSRM &&
-        osrm-customize --threads 2 \$OSRM;
+        osrm-extract --threads 2 -p /opt/foot.lua /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
+        osrm-partition --threads 2 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm &&
+        osrm-customize --threads 2 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm;
       fi &&
-      osrm-routed --algorithm mld --threads 2 --port 5001 \$OSRM
+      osrm-routed --algorithm mld --threads 2 --port 5001 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm
       "
     restart: unless-stopped
 
