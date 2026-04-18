@@ -22,6 +22,8 @@ import math
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 HazardResult = Literal["inside", "outside", "unknown"]
@@ -180,6 +182,16 @@ class HazardService:
             if flood_proximity_buffer_deg is not None
             else self.DEFAULT_FLOOD_PROXIMITY_BUFFER_DEG,
         )
+        # ── numpy bbox 配列 (bbox_only モード用): shape (N, 4) float32, 列 = [s, w, n, e] ──
+        # Python dict リストの代替。is_loaded / polygon_count / check_point が参照する。
+        self._flood_bboxes_np: Optional[np.ndarray] = None
+        self._tsunami_bboxes_np: Optional[np.ndarray] = None
+        self._storm_surge_bboxes_np: Optional[np.ndarray] = None
+        self._landslide_bboxes_np: Optional[np.ndarray] = None
+        # tsunami: bbox 配列と index で対応する重心リスト (centroid_lat, centroid_lon)
+        self._tsunami_centroids: List[Tuple[float, float]] = []
+        # landslide: bbox 配列と index で対応する properties リスト
+        self._landslide_props: List[dict] = []
 
     # ------------------------------------------------------------------
     # データ読み込み
@@ -212,6 +224,13 @@ class HazardService:
             hazard_type, geojson_path, bbox_only,
         )
         new_polygons: List[dict] = []
+        # numpy bbox_only 用の行バッファ（各ハザードタイプ別）
+        new_flood_rows: List[Tuple] = []
+        new_tsunami_rows: List[Tuple] = []
+        new_tsunami_centroids: List[Tuple[float, float]] = []
+        new_surge_rows: List[Tuple] = []
+        new_landslide_rows: List[Tuple] = []
+        new_landslide_props: List[dict] = []
 
         try:
             with geojson_path.open("r", encoding="utf-8") as f:
@@ -239,17 +258,36 @@ class HazardService:
                     lats = [c[1] for c in ring]
                     bbox = (min(lats), min(lons), max(lats), max(lons))  # (s, w, n, e)
                     if bbox_only:
-                        if hazard_type == "tsunami":
-                            # TTI 計算用に重心を事前計算して保持（coords は捨てる）
-                            centroid = _centroid_of_ring(ring)
-                            new_polygons.append({"bbox": bbox, "centroid": centroid})
+                        if hazard_type == "flood":
+                            new_flood_rows.append(bbox)
+                        elif hazard_type == "tsunami":
+                            new_tsunami_rows.append(bbox)
+                            new_tsunami_centroids.append(_centroid_of_ring(ring))
+                        elif hazard_type == "storm_surge":
+                            new_surge_rows.append(bbox)
                         elif hazard_type == "landslide":
-                            # check_landslide_detail が zone_type を参照するため properties を保持
-                            new_polygons.append({"bbox": bbox, "properties": props})
+                            new_landslide_rows.append(bbox)
+                            new_landslide_props.append(props)
                         else:
                             new_polygons.append({"bbox": bbox})
                     else:
                         new_polygons.append({"bbox": bbox, "coords": ring, "properties": props})
+
+            # numpy 累積ヘルパー
+            def _concat_np(existing: Optional[np.ndarray], rows: List[Tuple]) -> np.ndarray:
+                new_arr = np.array(rows, dtype=np.float32)
+                return new_arr if existing is None else np.concatenate([existing, new_arr], axis=0)
+
+            if hazard_type == "flood" and bbox_only and new_flood_rows:
+                self._flood_bboxes_np = _concat_np(self._flood_bboxes_np, new_flood_rows)
+            if hazard_type == "tsunami" and bbox_only and new_tsunami_rows:
+                self._tsunami_bboxes_np = _concat_np(self._tsunami_bboxes_np, new_tsunami_rows)
+                self._tsunami_centroids.extend(new_tsunami_centroids)
+            if hazard_type == "storm_surge" and bbox_only and new_surge_rows:
+                self._storm_surge_bboxes_np = _concat_np(self._storm_surge_bboxes_np, new_surge_rows)
+            if hazard_type == "landslide" and bbox_only and new_landslide_rows:
+                self._landslide_bboxes_np = _concat_np(self._landslide_bboxes_np, new_landslide_rows)
+                self._landslide_props.extend(new_landslide_props)
 
             # 累積: 同じハザードタイプへの複数ファイルロードをサポート
             existing = self._polygons.get(hazard_type, [])
@@ -261,10 +299,19 @@ class HazardService:
             existing_sources.append(geojson_path.stem)
             self._sources[hazard_type] = existing_sources
 
+            _numpy_counts = {
+                "flood": len(new_flood_rows),
+                "tsunami": len(new_tsunami_rows),
+                "storm_surge": len(new_surge_rows),
+                "landslide": len(new_landslide_rows),
+            }
+            _loaded_count = _numpy_counts.get(hazard_type, len(new_polygons)) if bbox_only else len(new_polygons)
             logger.info(
                 "Loaded %d polygons from '%s' (total for '%s': %d)",
-                len(new_polygons), geojson_path.name, hazard_type,
-                len(self._polygons[hazard_type]),
+                _loaded_count,
+                geojson_path.name,
+                hazard_type,
+                self.polygon_count(hazard_type),
             )
 
         except Exception as e:
@@ -306,6 +353,12 @@ class HazardService:
             "Loading hazard polygons (streaming): type=%s path=%s", hazard_type, geojsonl_path
         )
         new_polygons: List[dict] = []
+        new_flood_rows: List[Tuple] = []
+        new_tsunami_rows: List[Tuple] = []
+        new_tsunami_centroids: List[Tuple[float, float]] = []
+        new_surge_rows: List[Tuple] = []
+        new_landslide_rows: List[Tuple] = []
+        new_landslide_props: List[dict] = []
         skipped = 0
 
         try:
@@ -330,6 +383,7 @@ class HazardService:
 
                     geom = feature.get("geometry") or {}
                     geom_type = geom.get("type")
+                    props = feature.get("properties") or {}
                     outer_rings: List[List] = []
 
                     if geom_type == "Polygon":
@@ -348,9 +402,35 @@ class HazardService:
                         lats = [c[1] for c in ring]
                         bbox = (min(lats), min(lons), max(lats), max(lons))
                         if bbox_only:
-                            new_polygons.append({"bbox": bbox})
+                            if hazard_type == "flood":
+                                new_flood_rows.append(bbox)
+                            elif hazard_type == "tsunami":
+                                new_tsunami_rows.append(bbox)
+                                new_tsunami_centroids.append(_centroid_of_ring(ring))
+                            elif hazard_type == "storm_surge":
+                                new_surge_rows.append(bbox)
+                            elif hazard_type == "landslide":
+                                new_landslide_rows.append(bbox)
+                                new_landslide_props.append(props)
+                            else:
+                                new_polygons.append({"bbox": bbox})
                         else:
                             new_polygons.append({"bbox": bbox, "coords": ring})
+
+            def _concat_np(existing: Optional[np.ndarray], rows: List[Tuple]) -> np.ndarray:
+                new_arr = np.array(rows, dtype=np.float32)
+                return new_arr if existing is None else np.concatenate([existing, new_arr], axis=0)
+
+            if hazard_type == "flood" and bbox_only and new_flood_rows:
+                self._flood_bboxes_np = _concat_np(self._flood_bboxes_np, new_flood_rows)
+            if hazard_type == "tsunami" and bbox_only and new_tsunami_rows:
+                self._tsunami_bboxes_np = _concat_np(self._tsunami_bboxes_np, new_tsunami_rows)
+                self._tsunami_centroids.extend(new_tsunami_centroids)
+            if hazard_type == "storm_surge" and bbox_only and new_surge_rows:
+                self._storm_surge_bboxes_np = _concat_np(self._storm_surge_bboxes_np, new_surge_rows)
+            if hazard_type == "landslide" and bbox_only and new_landslide_rows:
+                self._landslide_bboxes_np = _concat_np(self._landslide_bboxes_np, new_landslide_rows)
+                self._landslide_props.extend(new_landslide_props)
 
             existing = self._polygons.get(hazard_type, [])
             existing.extend(new_polygons)
@@ -360,10 +440,20 @@ class HazardService:
             existing_sources.append(geojsonl_path.stem)
             self._sources[hazard_type] = existing_sources
 
+            _numpy_counts = {
+                "flood": len(new_flood_rows),
+                "tsunami": len(new_tsunami_rows),
+                "storm_surge": len(new_surge_rows),
+                "landslide": len(new_landslide_rows),
+            }
+            _loaded_count = _numpy_counts.get(hazard_type, len(new_polygons)) if bbox_only else len(new_polygons)
             logger.info(
                 "Loaded %d polygons from '%s' (skipped: %d, total for '%s': %d)",
-                len(new_polygons), geojsonl_path.name, skipped,
-                hazard_type, len(self._polygons[hazard_type]),
+                _loaded_count,
+                geojsonl_path.name,
+                skipped,
+                hazard_type,
+                self.polygon_count(hazard_type),
             )
 
         except Exception as e:
@@ -413,13 +503,35 @@ class HazardService:
     # 判定メソッド
     # ------------------------------------------------------------------
 
+    # numpy 配列が存在し空でないか確認するヘルパー
+    @staticmethod
+    def _np_loaded(arr: Optional[np.ndarray]) -> bool:
+        return arr is not None and len(arr) > 0
+
     def is_loaded(self, hazard_type: str) -> bool:
         """指定ハザードタイプのデータが読み込まれているか"""
+        _np_map = {
+            "flood": self._flood_bboxes_np,
+            "tsunami": self._tsunami_bboxes_np,
+            "storm_surge": self._storm_surge_bboxes_np,
+            "landslide": self._landslide_bboxes_np,
+        }
+        if hazard_type in _np_map:
+            return self._np_loaded(_np_map[hazard_type])
         return bool(self._polygons.get(hazard_type))
 
     def loaded_hazard_types(self) -> List[str]:
         """ロード済みのハザードタイプ一覧"""
-        return [k for k, v in self._polygons.items() if v]
+        types = [k for k, v in self._polygons.items() if v]
+        for ht, arr in [
+            ("flood", self._flood_bboxes_np),
+            ("tsunami", self._tsunami_bboxes_np),
+            ("storm_surge", self._storm_surge_bboxes_np),
+            ("landslide", self._landslide_bboxes_np),
+        ]:
+            if self._np_loaded(arr) and ht not in types:
+                types.append(ht)
+        return types
 
     def get_polygon_store(self) -> Dict[str, List[dict]]:
         """内部ポリゴンストア全体を返す（RSA 計算などで使用）。"""
@@ -459,6 +571,15 @@ class HazardService:
 
     def polygon_count(self, hazard_type: str) -> int:
         """指定ハザードタイプのポリゴン数"""
+        _np_map = {
+            "flood": self._flood_bboxes_np,
+            "tsunami": self._tsunami_bboxes_np,
+            "storm_surge": self._storm_surge_bboxes_np,
+            "landslide": self._landslide_bboxes_np,
+        }
+        arr = _np_map.get(hazard_type)
+        if arr is not None:
+            return len(arr)
         return len(self._polygons.get(hazard_type, []))
 
     def check_point(self, lat: float, lon: float, hazard_type: str) -> bool:
@@ -476,34 +597,53 @@ class HazardService:
         Returns:
             True = 危険エリア内 / False = 範囲外 or データ未ロード
         """
+        lat_f = np.float32(lat)
+        lon_f = np.float32(lon)
+
+        def _bbox_hit(arr: np.ndarray) -> bool:
+            """(N,4) float32 配列 [s,w,n,e] に対して点が1件以上ヒットするか返す。"""
+            return bool(np.any(
+                (arr[:, 0] <= lat_f) & (lat_f <= arr[:, 2])
+                & (arr[:, 1] <= lon_f) & (lon_f <= arr[:, 3])
+            ))
+
+        # --- flood: numpy ベクトル演算（近傍バッファあり）---
+        if hazard_type == "flood" and self._flood_bboxes_np is not None:
+            arr = self._flood_bboxes_np
+            if _bbox_hit(arr):
+                return True
+            buf = np.float32(self._flood_proximity_buffer_deg)
+            if buf > 0 and bool(np.any(
+                (arr[:, 0] - buf <= lat_f) & (lat_f <= arr[:, 2] + buf)
+                & (arr[:, 1] - buf <= lon_f) & (lon_f <= arr[:, 3] + buf)
+            )):
+                return True
+            return False
+
+        # --- tsunami: numpy ベクトル演算 ---
+        if hazard_type == "tsunami" and self._tsunami_bboxes_np is not None:
+            return _bbox_hit(self._tsunami_bboxes_np)
+
+        # --- storm_surge: numpy ベクトル演算 ---
+        if hazard_type == "storm_surge" and self._storm_surge_bboxes_np is not None:
+            return _bbox_hit(self._storm_surge_bboxes_np)
+
+        # --- landslide: numpy ベクトル演算 ---
+        if hazard_type == "landslide" and self._landslide_bboxes_np is not None:
+            return _bbox_hit(self._landslide_bboxes_np)
+
         polygons = self._polygons.get(hazard_type, [])
 
-        # --- 1次判定: 厳密なポリゴン内外判定 ---
+        # --- フル coords モード: bbox 事前フィルタ + Ray casting ---
         for poly in polygons:
             s, w, n, e = poly["bbox"]
             if not (s <= lat <= n and w <= lon <= e):
                 continue
             coords = poly.get("coords")
             if coords is None:
-                # bbox_only モード（洪水グリッドなど矩形ポリゴン）: bbox 一致 = inside
                 return True
             if _point_in_polygon(lat, lon, coords):
                 return True
-
-        # --- 2次判定（flood のみ）: 近傍バッファ判定 ---
-        # 洪水浸水想定データは約50m格子単位のポリゴンで構成されており、
-        # 隣接格子間に小さなギャップが生じる。ベクタータイル表示では隣接
-        # ポリゴンを結合して描画するため、格子間でも視覚的に浸水域に見える。
-        # ギャップを埋めるため、bbox を FLOOD_PROXIMITY_BUFFER_DEG だけ
-        # 拡張してバッファ判定を行う（1次判定でヒットしなかった場合のみ）。
-        if hazard_type == "flood":
-            buf = self._flood_proximity_buffer_deg
-            if buf > 0:
-                for poly in polygons:
-                    s, w, n, e = poly["bbox"]
-                    if s - buf <= lat <= n + buf and w - buf <= lon <= e + buf:
-                        # 点は bbox バッファ内（厳密な polygon 外）→ 近傍と判定
-                        return True
 
         return False
 
@@ -571,6 +711,25 @@ class HazardService:
             return {"status": "unknown"}
 
         best: Optional[Dict] = None
+
+        # numpy モード: bbox ヒット全件を props リストで評価
+        if self._landslide_bboxes_np is not None:
+            arr = self._landslide_bboxes_np
+            lat_f, lon_f = np.float32(lat), np.float32(lon)
+            hit_mask = (
+                (arr[:, 0] <= lat_f) & (lat_f <= arr[:, 2])
+                & (arr[:, 1] <= lon_f) & (lon_f <= arr[:, 3])
+            )
+            for i in np.where(hit_mask)[0]:
+                props = self._landslide_props[int(i)]
+                zone_type = str(props.get("zone_type") or props.get("区分") or "")
+                if "特別" in zone_type or zone_type == "special":
+                    return {"status": "inside", "level": "critical", "zone_type": "special"}
+                if best is None:
+                    best = {"status": "inside", "level": "danger", "zone_type": "warning"}
+            return best if best is not None else {"status": "outside"}
+
+        # フル coords モード（bbox_only=False でロードした場合のフォールバック）
         polygons = self._polygons.get("landslide", [])
         for poly in polygons:
             s, w, n, e = poly["bbox"]
@@ -579,13 +738,10 @@ class HazardService:
             coords = poly.get("coords")
             if coords is not None and not _point_in_polygon(lat, lon, coords):
                 continue
-            # coords is None = bbox_only モード: bbox ヒット = inside とみなす
             props = poly.get("properties", {})
             zone_type = str(props.get("zone_type") or props.get("区分") or "")
             if "特別" in zone_type or zone_type == "special":
-                # critical が確定したら即返す（これ以上高い危険度はない）
                 return {"status": "inside", "level": "critical", "zone_type": "special"}
-            # danger 候補として記録（より高い危険度の polygon が後で見つかる可能性あり）
             if best is None:
                 best = {"status": "inside", "level": "danger", "zone_type": "warning"}
 
@@ -662,6 +818,21 @@ class HazardService:
         Returns:
             float: 重心までの距離（m）。現在地がポリゴン外 / データ未ロードの場合は None。
         """
+        # numpy モード: bbox ヒットした最初のポリゴンの重心距離を返す
+        if self._tsunami_bboxes_np is not None:
+            arr = self._tsunami_bboxes_np
+            lat_f, lon_f = np.float32(lat), np.float32(lon)
+            hit_mask = (
+                (arr[:, 0] <= lat_f) & (lat_f <= arr[:, 2])
+                & (arr[:, 1] <= lon_f) & (lon_f <= arr[:, 3])
+            )
+            indices = np.where(hit_mask)[0]
+            if len(indices) > 0:
+                centroid_lat, centroid_lon = self._tsunami_centroids[int(indices[0])]
+                return _haversine_m(lat, lon, centroid_lat, centroid_lon)
+            return None
+
+        # フル coords モード（bbox_only=False でロードした場合のフォールバック）
         polygons = self._polygons.get("tsunami", [])
         for poly in polygons:
             s, w, n, e = poly["bbox"]
@@ -669,12 +840,10 @@ class HazardService:
                 continue
             coords = poly.get("coords")
             if coords is not None:
-                # フル coords モード: 厳密な点内外判定 + 重心計算
                 if _point_in_polygon(lat, lon, coords):
                     centroid_lat, centroid_lon = _centroid_of_ring(coords)
                     return _haversine_m(lat, lon, centroid_lat, centroid_lon)
             else:
-                # bbox_only モード: bbox ヒット = inside とみなし、事前計算済み重心を使用
                 centroid = poly.get("centroid")
                 if centroid is not None:
                     centroid_lat, centroid_lon = centroid
@@ -696,8 +865,8 @@ class HazardService:
             }
         """
         hazards: List[str] = []
-        for hazard_type, polygons in self._polygons.items():
-            if polygons and self.check_point(lat, lon, hazard_type):
+        for hazard_type in self.loaded_hazard_types():
+            if self.check_point(lat, lon, hazard_type):
                 hazards.append(hazard_type)
 
         return {
