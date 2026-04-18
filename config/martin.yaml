@@ -46,5 +46,5 @@ mbtiles:
     # ディレクトリが存在しない場合は Martin が起動時に警告を出すが動作継続する。
     - /tiles/kanagawa/flood
     - /tiles/kanagawa/storm_surge
-    # - /tiles/kanagawa/inland_flood # kanagawa tiles not yet generated - re-enable after build_tiles
+    - /tiles/kanagawa/inland_flood
     # kanagawa/tsunami: MBTiles 未生成のため省略（生成後に追加する）
