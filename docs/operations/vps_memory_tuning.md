@@ -1,57 +1,56 @@
-# VPS Memory Tuning — Backend
+# VPS メモリチューニング — バックエンド
 
-## Background
+## 背景
 
-The backend was consuming **~4.7 GiB** of RAM on a 1.9 GiB VPS, causing OOM kills
-and container instability. This document records what was causing the bloat,
-what was changed, and how to reconfigure if memory constraints change.
+バックエンドが 1.9 GiB の VPS で **約 4.7 GiB** のメモリを消費し、
+OOM キルとコンテナ不安定を引き起こしていた。
+このドキュメントは原因・対処内容・再設定方法を記録する。
 
 ---
 
-## Root Causes
+## 根本原因
 
-### 1. HazardService: full coordinate arrays in memory
+### 1. HazardService：座標配列をフルでメモリに展開
 
-`hazard_service.py` loaded all GeoJSON polygons as full coordinate rings.
-Python's in-memory representation of parsed JSON is 3–8× the raw file size,
-so a 100 MB GeoJSON file could consume ~500 MB of heap.
+`hazard_service.py` がすべての GeoJSON ポリゴンを座標リングごと読み込んでいた。
+Python の JSON パース結果はファイルサイズの 3〜8 倍のヒープを消費するため、
+100 MB の GeoJSON が最大 500 MB のヒープを占有する。
 
-Affected datasets and their approximate raw sizes:
+影響を受けたデータセットと概算ファイルサイズ：
 
-| Layer | Files | Raw size |
+| レイヤー | ファイル数 | 生ファイルサイズ |
 |---|---|---|
-| tsunami (tokyo + kanagawa) | 2 | ~90 MB |
-| storm_surge (tokyo + kanagawa) | 2 | ~120 MB |
-| landslide (tokyo + kanagawa) | 2 | ~200 MB |
+| tsunami（東京 + 神奈川） | 2 | 約 90 MB |
+| storm_surge（東京 + 神奈川） | 2 | 約 120 MB |
+| landslide（東京 + 神奈川） | 2 | 約 200 MB |
 
-### 2. ShelterRegistry TTL = 30s
+### 2. ShelterRegistry TTL = 30 秒
 
-`shelter_service.py` was set to `ttl_seconds=30`, which matched the Docker
-healthcheck interval. The result was a continuous reload loop where the entire
-shelter dataset was re-read from disk every 30 seconds.
+`shelter_service.py` の `ttl_seconds=30` が Docker ヘルスチェックの間隔と一致していた。
+結果として、30 秒ごとに避難所データセット全体をディスクから再読み込みし続けるループが発生していた。
 
-### 3. Chiba tsunami dataset loaded by default
+### 3. 千葉津波データがデフォルトで読み込まれていた
 
-The chiba tsunami GeoJSON (~139 MB) was included in the default load targets.
-On a memory-constrained VPS it is unnecessary as coverage does not reach chiba.
+千葉の津波 GeoJSON（約 139 MB）がデフォルトの読み込み対象に含まれていた。
+メモリ制約のある VPS では、千葉までカバーする必要がないため不要。
 
 ---
 
-## Fixes Applied
+## 適用した修正
 
-### bbox_only mode in HazardService (`backend/hazard_service.py`)
+### HazardService の bbox_only モード（`backend/hazard_service.py`）
 
-`HazardService.load()` accepts `bbox_only=True`. In this mode, instead of
-storing full polygon coordinates, only the minimum bounding box (bbox) is kept:
+`HazardService.load()` に `bbox_only=True` オプションを追加した。
+このモードでは、ポリゴン座標全体ではなく最小外接矩形（bbox）のみを保持する：
 
-| Layer | What is stored in bbox_only mode |
+| レイヤー | bbox_only モードで保存される情報 |
 |---|---|
-| tsunami | `{bbox, centroid}` — centroid is precomputed for distance queries |
-| storm_surge | `{bbox}` — only used for containment check |
-| landslide | `{bbox, properties}` — properties needed for detail display |
-| flood | `{bbox, coords}` — full coords retained (flood still uses polygon intersection) |
+| tsunami | `{bbox, centroid}` — 距離クエリ用にセントロイドを事前計算 |
+| storm_surge | `{bbox}` — 包含チェックのみに使用 |
+| landslide | `{bbox, properties}` — 詳細表示にプロパティが必要 |
+| flood | `{bbox, coords}` — ポリゴン交差判定のため座標を保持 |
 
-Calls in `backend/main.py` at startup:
+`backend/main.py` での起動時の呼び出し：
 
 ```python
 # storm_surge
@@ -64,59 +63,59 @@ hazard_service.load("tsunami", path, bbox_only=True)
 hazard_service.load("landslide", path, bbox_only=True)
 ```
 
-**Trade-off**: point-in-polygon accuracy is reduced to bbox hit for storm_surge
-and landslide. For tsunami, centroid distance is preserved. This is acceptable
-for the primary use case (evacuation routing), but should be revisited if
-precision hazard analysis is needed.
+**トレードオフ**：storm_surge と landslide は点内包判定の精度が bbox 判定に落ちる。
+tsunami はセントロイド距離が保持される。
+避難ルーティングという主要ユースケースでは許容範囲だが、
+精度の高いハザード分析が必要になった場合は再検討すること。
 
-### ShelterRegistry TTL (`backend/app/services/shelter_service.py`)
+### ShelterRegistry TTL（`backend/app/services/shelter_service.py`）
 
 ```python
-# Before (caused constant reload every 30s)
+# 修正前（30 秒ごとに常時リロードが発生していた）
 _registry_instance = ShelterRegistry(ttl_seconds=30)
 
-# After
+# 修正後
 _registry_instance = ShelterRegistry(ttl_seconds=3600)
 ```
 
-To force a reload (e.g. after deploying new shelter data):
+強制リロードが必要な場合（例：新しい避難所データをデプロイした後）：
 
 ```bash
 docker compose restart backend
 ```
 
-### Chiba tsunami excluded (`backend/app.properties`)
+### 千葉津波の除外（`backend/app.properties`）
 
 ```properties
-# chiba excluded on VPS (139 MB, ~1 GB in-memory; coverage not needed)
+# chiba は VPS では除外（139 MB、メモリ上では約 1 GB；カバレッジ不要）
 hazard.tsunami.targets=tokyo,kanagawa
 ```
 
-To re-enable chiba (if moving to a higher-memory host):
+千葉を再び有効にする場合（より高メモリのホストに移行する場合）：
 
 ```properties
 hazard.tsunami.targets=tokyo,kanagawa,chiba
 ```
 
-**Note**: Disabling chiba means users in the chiba coastal area will not receive
-a tsunami warning. Do not re-enable without ensuring the VPS has enough RAM,
-and do not disable without noting this in release notes.
+**注意**：千葉を無効にすると、千葉沿岸エリアのユーザーに津波警告が届かなくなる。
+十分な RAM を確認した上で再有効化すること。
+また無効化する場合はリリースノートに必ず記載すること。
 
 ---
 
-## Result
+## 結果
 
-| Before | After |
+| 修正前 | 修正後 |
 |---|---|
-| ~4.7 GiB | ~2.5 GiB |
+| 約 4.7 GiB | 約 2.5 GiB |
 
-Tested on a 1.9 GiB VPS (ConoHa VPS 2 GB plan). Stable with ~400 MB headroom
-for OS and other services.
+1.9 GiB VPS（ConoHa VPS 2 GB プラン）で検証済み。
+OS およびその他サービス向けに約 400 MB のヘッドルームを確保した状態で安定稼働。
 
 ---
 
-## Future Work
+## 今後の課題
 
-- Streaming GeoJSON parser (GeoJSONL / ijson) to avoid peak load at startup
-- Tile-server delivery (Martin) for hazard layers instead of in-memory polygons
-- Per-region feature flags so individual datasets can be excluded without code changes
+- ストリーミング GeoJSON パーサー（GeoJSONL / ijson）による起動時ピーク負荷の回避
+- ハザードレイヤーをインメモリポリゴンではなく Martin タイルサーバー配信に移行
+- コード変更なしに個別データセットを除外できる、リージョン単位のフィーチャーフラグ

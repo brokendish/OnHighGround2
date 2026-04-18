@@ -1,32 +1,32 @@
-# nginx Proxy Patterns
+# nginx プロキシパターン
 
-## Overview
+## 概要
 
-The `frontend` container (nginx:alpine) acts as a reverse proxy for all services.
-This document records the proxy patterns in use and the reasoning behind them,
-including pitfalls encountered during VPS deployment.
+`frontend` コンテナ（nginx:alpine）はすべてのサービスへのリバースプロキシとして機能する。
+このドキュメントは使用しているプロキシパターンとその設計理由、
+および VPS デプロイ時に遭遇した落とし穴を記録する。
 
 ---
 
-## Service Routing Map
+## サービスルーティング一覧
 
-| Path prefix | Upstream | Notes |
+| パスプレフィックス | アップストリーム | 備考 |
 |---|---|---|
-| `/api/` | `backend:8000` | FastAPI, static hostname |
-| `/osrm/walking/` | `osrm-walking:5001` | OSRM walking engine |
-| `/tiles/` | `martin:3000` | Martin vector tile server |
-| `/layers/` | nginx static files | GeoJSON served directly |
-| `/hazard/` | nginx static files | Deprecated, kept for compat |
-| `/admin/` | nginx static files | Admin UI |
+| `/api/` | `backend:8000` | FastAPI、静的ホスト名 |
+| `/osrm/walking/` | `osrm-walking:5001` | OSRM 徒歩ルーティングエンジン |
+| `/tiles/` | `martin:3000` | Martin ベクタータイルサーバー |
+| `/layers/` | nginx 静的ファイル | GeoJSON を直接配信 |
+| `/hazard/` | nginx 静的ファイル | 廃止予定、後方互換のために保持 |
+| `/admin/` | nginx 静的ファイル | 管理画面 UI |
 
 ---
 
-## Critical Pattern: Prefix Stripping with proxy_pass
+## 重要パターン：proxy_pass によるプレフィックス除去
 
-### Rule
+### ルール
 
-When the upstream expects a path **without** the nginx location prefix, use a
-**literal hostname** in `proxy_pass` with a **trailing slash**:
+アップストリームが nginx の location プレフィックスを**含まない**パスを期待する場合は、
+`proxy_pass` に**リテラルホスト名**＋**末尾スラッシュ**を使う：
 
 ```nginx
 location /osrm/walking/ {
@@ -34,55 +34,55 @@ location /osrm/walking/ {
 }
 ```
 
-nginx replaces the matched prefix (`/osrm/walking/`) with the proxy_pass URI (`/`).
+nginx はマッチしたプレフィックス（`/osrm/walking/`）を proxy_pass の URI（`/`）で置き換える。
 
-Result: `/osrm/walking/route/v1/...` → upstream receives `/route/v1/...`
+結果：`/osrm/walking/route/v1/...` → アップストリームは `/route/v1/...` を受け取る
 
-### What NOT to do
+### やってはいけないこと
 
-**Variable in proxy_pass host breaks prefix stripping:**
+**proxy_pass のホスト部分に変数を使うとプレフィックスが除去されない：**
 
 ```nginx
-# WRONG — nginx does NOT strip /osrm/walking/ when a variable is used
+# NG — 変数を使うと nginx は /osrm/walking/ を除去しない
 set $osrm_walking osrm-walking;
 proxy_pass http://$osrm_walking:5001/;
-# upstream receives /osrm/walking/route/v1/... instead of /route/v1/...
+# アップストリームは /route/v1/... ではなく /osrm/walking/route/v1/... を受け取る
 ```
 
-**rewrite + variable proxy_pass is also unreliable:**
+**rewrite + 変数 proxy_pass の組み合わせも不安定：**
 
 ```nginx
-# WRONG — when proxy_pass uses a variable, rewrite results may not apply
+# NG — proxy_pass に変数を使うと rewrite の結果が反映されないことがある
 rewrite ^/osrm/walking/(.*) /$1 break;
 proxy_pass http://$osrm_walking:5001;
 ```
 
-Both patterns produce `InvalidUrl` errors at the upstream (OSRM returns HTTP 400
-with `"URL string malformed close to position 1: \"/\""` when it receives a path
-it doesn't recognise).
+どちらのパターンも `InvalidUrl` エラーを引き起こす
+（OSRM が認識できないパスを受け取ると HTTP 400 で
+`"URL string malformed close to position 1: \"/\""` を返す）。
 
-### When the variable pattern is needed
+### 変数パターンが必要な場合
 
-The variable pattern with `resolver 127.0.0.11` is used when the upstream may
-not exist when nginx starts, to avoid nginx failing to resolve the hostname at
-startup. In that case, prefix stripping must be done differently:
+`resolver 127.0.0.11` と組み合わせた変数パターンは、nginx 起動時に
+アップストリームが存在しない場合のホスト名解決失敗を回避するために使う。
+その場合、プレフィックス除去は別の方法で対応が必要：
 
 ```nginx
-# Pattern for optional/late-starting upstreams (with correct prefix stripping)
+# オプション/遅延起動アップストリーム向けパターン（正しいプレフィックス除去付き）
 location /osrm/walking/ {
     resolver 127.0.0.11 valid=30s ipv6=off;
     set $upstream "http://osrm-walking:5001";
-    # Compute stripped path into a variable, then include it in proxy_pass
-    # (advanced — only needed if osrm-walking may be absent at nginx start)
+    # 除去後のパスを変数に格納してから proxy_pass に渡す
+    # （高度な設定 — osrm-walking が nginx 起動時に不在の可能性がある場合のみ必要）
 }
 ```
 
-For this project, `osrm-walking` is listed in `depends_on` of the `frontend`
-service, so the literal hostname pattern is safe.
+本プロジェクトでは `osrm-walking` が `frontend` サービスの `depends_on` に列挙されているため、
+リテラルホスト名パターンで問題ない。
 
 ---
 
-## OSRM Walking Proxy
+## OSRM 徒歩プロキシ設定
 
 ```nginx
 location /osrm/walking/ {
@@ -94,32 +94,31 @@ location /osrm/walking/ {
 }
 ```
 
-The frontend JavaScript sends requests to `/osrm/walking/route/v1/{profile}/...`.
-OSRM expects `/route/v1/{profile}/...`. The trailing slash in `proxy_pass`
-performs the substitution automatically.
+フロントエンドの JavaScript は `/osrm/walking/route/v1/{profile}/...` にリクエストを送る。
+OSRM は `/route/v1/{profile}/...` を期待する。
+`proxy_pass` の末尾スラッシュが自動的に置換を行う。
 
-The `profile` string in the URL (`walking`, `foot`, etc.) is not validated by
-OSRM at the API level — the routing profile is determined at index build time
-(`osrm-extract -p /opt/foot.lua`).
+URL 中の `profile` 文字列（`walking`、`foot` など）は OSRM の API レベルでは検証されない。
+ルーティングプロファイルはインデックスビルド時（`osrm-extract -p /opt/foot.lua`）に決定される。
 
 ---
 
-## osrm-driving: Optional Profile
+## osrm-driving：オプションプロファイル
 
-`osrm-driving` is declared with `profiles: ["driving"]` in `docker-compose.yml`.
-It does not start by default. The corresponding nginx location block is
-commented out (see `nginx.conf`).
+`osrm-driving` は `docker-compose.yml` で `profiles: ["driving"]` として宣言されており、
+デフォルトでは起動しない。対応する nginx の location ブロックはコメントアウト済み
+（`nginx.conf` 参照）。
 
-To enable driving routing:
+車ルーティングを有効にする場合：
 
 ```bash
 docker compose --profile driving up -d osrm-driving
 ```
 
-Then restore the nginx location block and reload:
+次に nginx の location ブロックを復活させてリロード：
 
 ```bash
-# In nginx.conf, uncomment:
+# nginx.conf のコメントを外す：
 # location /osrm/driving/ {
 #     proxy_pass http://osrm-driving:5000/;
 #     ...
