@@ -341,7 +341,7 @@ const VECTOR_TILE_SOURCES = {
     ],
     storm_surge_tokyo: [
         {
-            tilesetId: 'tokyo_storm_surge',
+            tilesetId: 'tokyo_surge_001',
             sourceLayer: 'storm_surge',
             colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
             borderStyle: STORM_SURGE_BORDER,
@@ -350,7 +350,7 @@ const VECTOR_TILE_SOURCES = {
     ],
     storm_surge_kanagawa: [
         {
-            tilesetId: 'kanagawa_storm_surge',
+            tilesetId: 'kanagawa_surge_001',
             sourceLayer: 'storm_surge',
             colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
             borderStyle: STORM_SURGE_BORDER,
