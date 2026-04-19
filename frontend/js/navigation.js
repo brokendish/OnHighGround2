@@ -1415,8 +1415,7 @@ function startNavigation() {
     if (typeof voiceNav !== 'undefined') {
         voiceNav.announce({ id: 'nav-start', text: '案内を開始します', category: 'start', priority: 'high' });
     }
-    // ナビ開始時に情報タブを表示（ルート案内が見えるよう）
-    if (typeof switchMbcTab === 'function') switchMbcTab('info');
+    // タブ自動遷移は行わない（ユーザーが手動で情報タブに切り替える）
 }
 
 // ── ナビ停止 ──────────────────────────────────────────────────────────────

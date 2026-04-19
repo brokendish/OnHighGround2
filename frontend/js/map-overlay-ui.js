@@ -128,17 +128,14 @@ function bindDetailToggle() {
 // map.js の updateCurrentLocation 完了後に呼ばれる。
 // 現在地取得済み → STEP 1 完了表示 + STEP 2 を有効化。
 function markStep1Done() {
-    const step1  = document.getElementById('mbc-step1');
-    const step2  = document.getElementById('mbc-step2');
-    const badge1 = step1 ? step1.querySelector('.mbc-step-badge') : null;
-    const btn2   = document.getElementById('search-overlay-btn');
+    const step1 = document.getElementById('mbc-step1');
+    const step2 = document.getElementById('mbc-step2');
+    const btn2  = document.getElementById('search-overlay-btn');
 
     if (step1) {
         step1.classList.remove('mbc-step--active');
         step1.classList.add('mbc-step--done');
     }
-    if (badge1) badge1.textContent = '✓';
-
     if (step2) {
         step2.classList.remove('mbc-step--pending');
         step2.classList.add('mbc-step--active');
