@@ -173,6 +173,8 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
 
     map.setView([lat, lon], 15);
     document.getElementById('searchDestinations').disabled = false;
+    // STEP 1 完了 → STEP 2 をアクティブ化（map-overlay-ui.js）
+    if (typeof markStep1Done === 'function') markStep1Done();
 
     // ハザード判定を取得して即時表示
     try {

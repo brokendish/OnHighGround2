@@ -2011,6 +2011,89 @@
         .mbc-hazard-danger { font-weight: 700; color: #c62828; }
         #mbc-offset-status { font-size: 0.78em; color: #e65100; margin-left: 4px; }
         #mbc-offset-status:empty { display: none; }
+        /* ── ステップ形式の操作フロー ─────────────────────────── */
+        .mbc-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .mbc-step {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+        .mbc-step-badge {
+            flex-shrink: 0;
+            width: 44px;
+            text-align: center;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            background: rgba(0,0,0,0.06);
+            color: #aaa;
+            border-radius: 6px;
+            padding: 3px 4px;
+            line-height: 1.4;
+            transition: background 0.2s, color 0.2s, font-size 0.15s;
+        }
+        .mbc-step--active .mbc-step-badge {
+            background: #e3f0ff;
+            color: #1565c0;
+        }
+        .mbc-step--done .mbc-step-badge {
+            background: #e8f5e9;
+            color: #2e7d32;
+            font-size: 14px; /* ✓ マークを大きく */
+        }
+        .mbc-step--pending {
+            opacity: 0.38;
+        }
+        /* disabled 状態の btn は親の opacity で視覚制御するため独自 opacity を reset */
+        .mbc-step--pending .mbc-btn:disabled {
+            opacity: 1;
+        }
+        .mbc-btn--step {
+            flex: 1;
+            min-height: 34px;
+        }
+
+        /* ── 詳細設定トグル ─────────────────────────────────── */
+        .mbc-sliders-section {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .mbc-detail-toggle {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: none;
+            border: none;
+            font-size: 11px;
+            color: #999;
+            cursor: pointer;
+            padding: 1px 0;
+            font-family: inherit;
+            text-align: left;
+        }
+        .mbc-detail-toggle:hover { color: #555; }
+        .mbc-detail-chevron {
+            display: inline-block;
+            transition: transform 0.2s ease;
+            font-size: 9px;
+        }
+        .mbc-detail-toggle.open .mbc-detail-chevron {
+            transform: rotate(180deg);
+        }
+        #mbc-sliders-body {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.25s ease;
+        }
+        #mbc-sliders-body.open {
+            max-height: 130px;
+        }
+
         .mbc-sliders-row {
             display: flex;
             flex-direction: column;
@@ -2492,15 +2575,24 @@
                     </div>
                     <!-- 操作タブ -->
                     <div id="mbc-tab-panel-action">
-                    <div id="mbc-row-normal" class="mbc-action-row">
-                        <button id="locate-overlay-btn" class="mbc-btn mbc-btn--primary">
-                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
-                            現在地
-                        </button>
-                        <button id="search-overlay-btn" class="mbc-btn mbc-btn--primary">
-                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-                            避難先検索
-                        </button>
+                    <!-- STEP 1 / STEP 2 フロー -->
+                    <div id="mbc-row-normal" class="mbc-steps">
+                        <!-- STEP 1: 現在地取得 -->
+                        <div class="mbc-step mbc-step--active" id="mbc-step1">
+                            <span class="mbc-step-badge">STEP 1</span>
+                            <button id="locate-overlay-btn" class="mbc-btn mbc-btn--step mbc-btn--primary">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+                                現在地を取得
+                            </button>
+                        </div>
+                        <!-- STEP 2: 避難先検索（現在地取得後にアクティブ） -->
+                        <div class="mbc-step mbc-step--pending" id="mbc-step2">
+                            <span class="mbc-step-badge">STEP 2</span>
+                            <button id="search-overlay-btn" class="mbc-btn mbc-btn--step mbc-btn--primary" disabled>
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                                避難先を検索
+                            </button>
+                        </div>
                     </div>
                     <div id="mbc-row-dist" class="mbc-info-line" style="display:none;">
                         <span class="mbc-dist-label">目的地まで</span>
@@ -2521,22 +2613,30 @@
                             <span id="nav-block-ahead-btn-text">この先を避けて再ルート(試験中)</span>
                         </button>
                     </div>
-                    <div id="mbc-row-sliders" class="mbc-sliders-row">
-                        <div class="mbc-slider-group">
-                            <div class="mbc-slider-label">
-                                最大距離 <span id="distance-value-overlay">2000m</span>
+                    <!-- 詳細設定（navigation.js が #mbc-row-sliders で show/hide） -->
+                    <div id="mbc-row-sliders" class="mbc-sliders-section">
+                        <button type="button" class="mbc-detail-toggle" id="mbc-detail-toggle">
+                            詳細設定 <span class="mbc-detail-chevron">▾</span>
+                        </button>
+                        <div id="mbc-sliders-body">
+                            <div class="mbc-sliders-row">
+                                <div class="mbc-slider-group">
+                                    <div class="mbc-slider-label">
+                                        最大距離 <span id="distance-value-overlay">2000m</span>
+                                    </div>
+                                    <input type="range" id="distance-slider-overlay"
+                                           min="100" max="10000" step="100" value="2000"
+                                           aria-label="最大移動距離">
+                                </div>
+                                <div class="mbc-slider-group">
+                                    <div class="mbc-slider-label">
+                                        高低差 <span id="elevation-value-overlay">10m</span>
+                                    </div>
+                                    <input type="range" id="elevation-slider-overlay"
+                                           min="1" max="100" step="1" value="10"
+                                           aria-label="必要高低差">
+                                </div>
                             </div>
-                            <input type="range" id="distance-slider-overlay"
-                                   min="100" max="10000" step="100" value="2000"
-                                   aria-label="最大移動距離">
-                        </div>
-                        <div class="mbc-slider-group">
-                            <div class="mbc-slider-label">
-                                高低差 <span id="elevation-value-overlay">10m</span>
-                            </div>
-                            <input type="range" id="elevation-slider-overlay"
-                                   min="1" max="100" step="1" value="10"
-                                   aria-label="必要高低差">
                         </div>
                     </div>
                     </div><!-- /#mbc-tab-panel-action -->
