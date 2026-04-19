@@ -1418,6 +1418,12 @@ function startNavigation() {
         _onNavPositionError,
         { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
     );
+    // 常時追跡も高精度モードに切り替え
+    if (typeof _gpsWatchId !== 'undefined' && _gpsWatchId !== null) {
+        navigator.geolocation.clearWatch(_gpsWatchId);
+        _gpsWatchId = null;
+    }
+    if (typeof _startLocationWatch === 'function') _startLocationWatch(true);
     setNavMode('navigation_active');
 
     // watchPosition の初回更新を待たず、開始直後に残距離を即表示する
@@ -1442,6 +1448,12 @@ function stopNavigation() {
         navigator.geolocation.clearWatch(navWatchId);
         navWatchId = null;
     }
+    // 常時追跡を低精度モードに戻す
+    if (typeof _gpsWatchId !== 'undefined' && _gpsWatchId !== null) {
+        navigator.geolocation.clearWatch(_gpsWatchId);
+        _gpsWatchId = null;
+    }
+    if (typeof _startLocationWatch === 'function') _startLocationWatch(false);
     navOffRouteCount         = 0;
     navRerouteInProgress     = false;
     navAutoRerouteInProgress = false;

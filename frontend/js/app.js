@@ -202,13 +202,21 @@ initializeHazardToggles();
 // 初回フィックスは地図を自動センタリング。以降はマーカー＋ハンドルバーのみ更新。
 let _gpsWatchId = null;
 let _isFirstLocationFix = true;
+let _gpsHighAccuracy = false; // 現在の精度モード（ナビ中は true）
 
-function _startLocationWatch() {
+function _startLocationWatch(highAccuracy = false) {
     if (!navigator.geolocation) {
         console.warn('[GPS] Geolocation not supported');
         return;
     }
     if (_gpsWatchId !== null) return; // 二重登録防止
+
+    _gpsHighAccuracy = highAccuracy;
+    console.info('[GPS] high accuracy:', highAccuracy);
+
+    const options = highAccuracy
+        ? { enableHighAccuracy: true,  timeout: 10000, maximumAge: 0 }
+        : { enableHighAccuracy: false, timeout: 10000, maximumAge: 15000 };
 
     _gpsWatchId = navigator.geolocation.watchPosition(
         async (position) => {
@@ -233,7 +241,7 @@ function _startLocationWatch() {
         (error) => {
             console.warn('[GPS] 位置情報取得失敗:', error.message);
         },
-        { enableHighAccuracy: false, timeout: 10000, maximumAge: 15000 }
+        options
     );
 }
 
@@ -248,7 +256,7 @@ document.addEventListener('visibilitychange', () => {
             console.log('[GPS] 画面非表示 → 追跡停止');
         }
     } else {
-        _startLocationWatch();
+        _startLocationWatch(_gpsHighAccuracy); // 復帰時は停止前と同じ精度モードで再開
         console.log('[GPS] 画面復帰 → 追跡再開');
     }
 });
