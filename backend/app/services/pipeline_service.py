@@ -827,12 +827,32 @@ async def _do_tile_build(
     tile_path = tile_dir / f"{tile_stem}.mbtiles"
 
     # すでに最新の mbtiles が存在する場合はスキップ（ホスト上で手動生成した場合も含む）
+    # ただし build スクリプトが要求する maxzoom と MBTiles 内の maxzoom が一致しない場合は再ビルドする。
+    # （スクリプトの zoom 設定変更が GeoJSON 変更なしに行われた場合の対策）
+    _EXPECTED_MAXZOOM = 16  # build_tiles_flood.sh の --maximum-zoom と合わせること
+
+    def _mbtiles_maxzoom(path: Path) -> int | None:
+        """SQLite で MBTiles の maxzoom を読む。失敗時は None を返す。"""
+        try:
+            import sqlite3 as _sqlite3
+            with _sqlite3.connect(str(path)) as con:
+                row = con.execute(
+                    "SELECT value FROM metadata WHERE name='maxzoom'"
+                ).fetchone()
+                return int(row[0]) if row else None
+        except Exception:
+            return None
+
     if tile_path.exists() and tile_path.stat().st_mtime >= Path(src_geojson).stat().st_mtime:
-        jm.log(job, f"tile build スキップ — 既存 mbtiles が入力より新しいため再利用します: {tile_path}")
-        state.tile_build_status = TileBuildStatus.success
-        state.current_tile_path = str(tile_path)
-        ss.save(state)
-        return
+        current_maxzoom = _mbtiles_maxzoom(tile_path)
+        if current_maxzoom is not None and current_maxzoom < _EXPECTED_MAXZOOM:
+            jm.log(job, f"tile build 強制実行 — maxzoom 不一致 ({current_maxzoom} < {_EXPECTED_MAXZOOM}): {tile_path}")
+        else:
+            jm.log(job, f"tile build スキップ — 既存 mbtiles が最新かつ maxzoom={current_maxzoom} (期待値={_EXPECTED_MAXZOOM}): {tile_path}")
+            state.tile_build_status = TileBuildStatus.success
+            state.current_tile_path = str(tile_path)
+            ss.save(state)
+            return
 
     build_script = _SCRIPTS_DIR / "tiles" / "build_tiles_flood.sh"
     if not build_script.exists():
