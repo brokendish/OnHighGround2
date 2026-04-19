@@ -10,7 +10,7 @@
 #   LAYER_NAME      : タイル内レイヤー名（例: flood）
 #
 # 設計方針:
-#   - ズーム 5-16: 広域概観から街区レベルまでカバー
+#   - ズーム 5-16: 広域概観から建物レベルまでカバー
 #   - drop-densest-as-needed: 低ズームでの過密を自動間引き（メモリ安全）
 #   - detect-shared-borders: 隣接ポリゴン境界の重複頂点を共有（ファイルサイズ削減）
 #   - 一時ファイルへ書き出し後に移動（書き込み中断しても既存ファイルを壊さない）
@@ -58,13 +58,13 @@ echo "[INFO] tile build 開始"
 echo "       入力: $INPUT (${INPUT_SIZE_MB} MB)"
 echo "       出力: $OUTPUT"
 echo "       レイヤー名: $LAYER_NAME"
-echo "       ズーム: 5-14"
+echo "       ズーム: 5-16"
 
 tippecanoe \
     -o "$TMP_OUTPUT" \
     -l "$LAYER_NAME" \
     --minimum-zoom=5 \
-    --maximum-zoom=14 \
+    --maximum-zoom=16 \
     --drop-densest-as-needed \
     --force \
     "$INPUT"
