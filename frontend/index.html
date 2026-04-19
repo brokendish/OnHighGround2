@@ -1490,21 +1490,23 @@
             top: calc(var(--ui-safe-top) + 80px);
         }
 
-        /* ── 左上ブランドバッジ ──────────────────────────────── */
+        /* ── 左上ブランドバッジ（アイコンのみ） ─────────────── */
         #map-brand-badge {
             position: absolute;
             top: var(--ui-safe-top);
             left: 10px;
             display: flex;
             align-items: center;
-            gap: 7px;
             background: rgba(255, 255, 255, 0.55);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
-            border-radius: 20px;
-            padding: 5px 12px 5px 6px;
+            border-radius: 14px;
+            padding: 5px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-            pointer-events: none;
+            pointer-events: auto;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
         }
         .map-brand-icon {
             width: 40px;
@@ -1512,23 +1514,29 @@
             object-fit: contain;
             border-radius: 8px;
             flex-shrink: 0;
+            display: block;
         }
-        .map-brand-text {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
+        /* ブランドツールチップ */
+        #map-brand-tooltip {
+            position: absolute;
+            top: calc(100% + 7px);
+            left: 0;
+            background: rgba(0, 0, 0, 0.72);
+            color: #fff;
+            font-size: 11px;
+            line-height: 1.45;
+            padding: 5px 12px;
+            border-radius: 10px;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(-4px);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 10;
         }
-        .map-brand-name {
-            font-size: 14px;
-            font-weight: 700;
-            color: #333;
-            letter-spacing: 0.3px;
-            line-height: 1.2;
-        }
-        .map-brand-sub {
-            font-size: 10px;
-            color: #666;
-            line-height: 1.3;
+        #map-brand-badge.tooltip-visible #map-brand-tooltip {
+            opacity: 1;
+            transform: translateY(0);
         }
 
         /* ── 右上コントロール群 ──────────────────────────────── */
@@ -1595,30 +1603,43 @@
             box-shadow: 0 4px 16px rgba(21, 101, 192, 0.18);
         }
 
-        /* ── 音声・振動ボタンのOFF状態 ──────────────────────── */
-        /* position: relative は ::after の起点として必要 */
-        #voice-nav-toggle-btn,
-        #haptics-toggle-btn {
-            position: relative;
+        /* ── 情報タブ内: 音声・振動設定ボタン ──────────────── */
+        .mbc-settings-row {
+            display: flex;
+            gap: 6px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(0,0,0,0.08);
+            margin-top: 4px;
         }
-        #voice-nav-toggle-btn:not(.map-overlay-btn--active),
-        #haptics-toggle-btn:not(.map-overlay-btn--active) {
-            color: #999;
-            opacity: 0.65;
+        .mbc-settings-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 6px 4px;
+            background: rgba(0,0,0,0.05);
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 7px;
+            font-size: 11px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            color: #555;
+            transition: background 0.15s, color 0.15s;
         }
-        /* アイコン上に赤い斜線を重ねてOFFを明示 */
-        #voice-nav-toggle-btn:not(.map-overlay-btn--active)::after,
-        #haptics-toggle-btn:not(.map-overlay-btn--active)::after {
-            content: '';
-            position: absolute;
-            top: 14px;
-            left: 50%;
-            transform: translateX(-50%) rotate(-45deg);
-            width: 2px;
-            height: 22px;
-            background: #e53935;
-            border-radius: 1px;
-            pointer-events: none;
+        .mbc-settings-btn.map-overlay-btn--active {
+            background: #e3f0ff;
+            color: #1565c0;
+            border-color: rgba(21,101,192,0.2);
+        }
+        .mbc-settings-btn:not(.map-overlay-btn--active) {
+            opacity: 0.55;
+        }
+        .mbc-settings-btn svg {
+            width: 13px;
+            height: 13px;
+            flex-shrink: 0;
         }
 
         /* 展開パネル（レイヤー・凡例共通） */
@@ -1852,6 +1873,12 @@
         #map-bottom-controls.mbc-collapsed .mbc-handle-chevron {
             transform: rotate(180deg);
         }
+        /* collapsed 時: body との間の gap を消してハンドルのみの高さに詰める */
+        #map-bottom-controls.mbc-collapsed {
+            gap: 0;
+            padding-top: 5px;
+            padding-bottom: 5px;
+        }
 
         /* ── 情報タブ ───────────────────────────── */
         #mbc-tabs {
@@ -2017,6 +2044,45 @@
             margin: 0;
             /* スライダのドラッグを地図パンと競合させない */
             touch-action: pan-x;
+        }
+
+        /* ── ハンドル内ハザード情報（コンパクト） ───────────── */
+        /* display は JS が inline style で制御するため CSS 側は flex を定義 */
+        #mbc-row-hazard {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            font-size: 11px;
+            color: #555;
+            padding: 0;
+            flex-wrap: nowrap;
+        }
+        /* ハンドル内ではラベル文字・セパレータを非表示、値だけ残す */
+        #mbc-row-hazard .mbc-dist-label {
+            display: none;
+        }
+
+        /* ── 現在地バナー（一時フェード表示） ───────────────── */
+        #location-banner {
+            position: absolute;
+            top: calc(var(--ui-safe-top) + 58px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.68);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 6px 18px;
+            border-radius: 20px;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 950;
+        }
+        #location-banner.visible {
+            opacity: 1;
         }
 
         /* ── レスポンシブ ────────────────────────────────────── */
@@ -2312,13 +2378,10 @@
             <!-- ══ 地図オーバーレイUI ══════════════════════════════ -->
             <div id="map-ui-overlay">
 
-                <!-- 左上: ブランドバッジ -->
+                <!-- 左上: ブランドバッジ（アイコンのみ・タップでツールチップ） -->
                 <div id="map-brand-badge">
                     <img src="./icon.png" alt="OnHighGround" class="map-brand-icon">
-                    <div class="map-brand-text">
-                        <span class="map-brand-name">OnHighGround</span>
-                        <span class="map-brand-sub">津波・高潮・洪水から身を守る避難経路案内</span>
-                    </div>
+                    <div id="map-brand-tooltip">津波・高潮・洪水から身を守る避難経路案内</div>
                 </div>
 
                 <!-- 右上: レイヤー / クリア / 凡例 -->
@@ -2396,33 +2459,6 @@
                         </div>
                     </div>
 
-                    <!-- 音声案内 ON/OFF -->
-                    <button id="voice-nav-toggle-btn" class="map-overlay-btn map-overlay-btn--active"
-                            title="音声案内のON/OFF"
-                            onclick="voiceNav.setEnabled(!voiceNav.enabled)">
-                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-                        </svg>
-                        <span>音声</span>
-                    </button>
-
-                    <!-- 振動通知 ON/OFF -->
-                    <button id="haptics-toggle-btn" class="map-overlay-btn map-overlay-btn--active"
-                            title="振動通知のON/OFF"
-                            onclick="voiceNav.haptics.setEnabled(!voiceNav.haptics.enabled); this.classList.toggle('map-overlay-btn--active', voiceNav.haptics.enabled)">
-                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M0 15h2V9H0v6zm3 2h2V7H3v10zm19-8v6h2V9h-2zm-3 8h2V7h-2v10zM16.5 3h-9C6.67 3 6 3.67 6 4.5v15c0 .83.67 1.5 1.5 1.5h9c.83 0 1.5-.67 1.5-1.5v-15c0-.83-.67-1.5-1.5-1.5zM16 19H8V5h8v14z"/>
-                        </svg>
-                        <span>振動</span>
-                    </button>
-
-                    <!-- 行政界 ON/OFF -->
-                    <button id="boundary-toggle-btn" class="map-overlay-btn" title="行政界の表示/非表示">
-                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/>
-                        </svg>
-                        <span>行政界</span>
-                    </button>
 
                 </div><!-- /#map-top-right-controls -->
 
@@ -2431,6 +2467,12 @@
                     <!-- 折りたたみハンドル -->
                     <div id="map-bottom-handle">
                         <div class="mbc-handle-bar"></div>
+                        <!-- ハザード・標高コンパクト表示（現在地取得後に表示） -->
+                        <div id="mbc-row-hazard" class="mbc-info-line" style="display:none;">
+                            <span id="mbc-current-hazard">—</span>
+                            <span class="mbc-dist-sep">·</span>
+                            <span id="mbc-current-elev">—</span>
+                        </div>
                         <svg class="mbc-handle-chevron" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
                         </svg>
@@ -2464,13 +2506,6 @@
                         <span class="mbc-dist-label">目的地まで</span>
                         <span id="mbc-remain-dist">—</span>
                         <span id="mbc-offset-status"></span>
-                    </div>
-                    <div id="mbc-row-hazard" class="mbc-info-line" style="display:none;">
-                        <span class="mbc-dist-label">現在地ハザード情報</span>
-                        <span id="mbc-current-hazard">確認中...</span>
-                        <span class="mbc-dist-sep">|</span>
-                        <span class="mbc-dist-label">現在地標高</span>
-                        <span id="mbc-current-elev">—</span>
                     </div>
                     <div id="mbc-row-nav" class="mbc-action-row" style="display:none;">
                         <button id="nav-start-overlay-btn" class="mbc-btn mbc-btn--nav-start" disabled onclick="startNavigation()">
@@ -2524,12 +2559,29 @@
                             <div id="shelter-card-comment" style="display:none;"></div>
                         </div>
                         <div class="route-guidance" id="shelter-card-route-guidance"></div>
+                        <!-- 音声・振動設定 -->
+                        <div class="mbc-settings-row">
+                            <button id="voice-nav-toggle-btn" class="mbc-settings-btn map-overlay-btn--active"
+                                    title="音声案内のON/OFF"
+                                    onclick="voiceNav.setEnabled(!voiceNav.enabled)">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+                                音声案内
+                            </button>
+                            <button id="haptics-toggle-btn" class="mbc-settings-btn map-overlay-btn--active"
+                                    title="振動通知のON/OFF"
+                                    onclick="voiceNav.haptics.setEnabled(!voiceNav.haptics.enabled); this.classList.toggle('map-overlay-btn--active', voiceNav.haptics.enabled)">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 15h2V9H0v6zm3 2h2V7H3v10zm19-8v6h2V9h-2zm-3 8h2V7h-2v10zM16.5 3h-9C6.67 3 6 3.67 6 4.5v15c0 .83.67 1.5 1.5 1.5h9c.83 0 1.5-.67 1.5-1.5v-15c0-.83-.67-1.5-1.5-1.5zM16 19H8V5h8v14z"/></svg>
+                                振動通知
+                            </button>
+                        </div>
                     </div><!-- /#mbc-tab-panel-info -->
                     </div><!-- /#map-bottom-body -->
                 </div><!-- /#map-bottom-controls -->
 
             </div><!-- /#map-ui-overlay -->
 
+            <!-- 現在地情報バナー（3秒フェードアウト） -->
+            <div id="location-banner"></div>
             <!-- 地図オーバーレイ トースト（検索結果なし等） -->
             <div id="map-toast"></div>
             <!-- ナビ警告バナー -->

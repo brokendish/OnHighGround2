@@ -105,20 +105,66 @@ function initMapOverlayUI() {
     bindClearButton();
     bindShelterButton();
     bindBottomPanelToggle();
+    bindBrandBadgeTooltip();
     bindOutsideClick();
     syncSlidersFromInputs();
     preventMapPanOnOverlay();
 }
 
-// ── 下部パネル折りたたみ ──────────────────────────────────────────────────
+// ── ブランドバッジ ツールチップ ───────────────────────────────────────────
+function bindBrandBadgeTooltip() {
+    const badge = document.getElementById('map-brand-badge');
+    if (!badge) return;
+
+    let hideTimer = null;
+
+    const show = () => {
+        clearTimeout(hideTimer);
+        badge.classList.add('tooltip-visible');
+        hideTimer = setTimeout(() => badge.classList.remove('tooltip-visible'), 3000);
+    };
+
+    badge.addEventListener('click', show);
+    badge.addEventListener('touchstart', show, { passive: true });
+}
+
+// ── 下部パネル折りたたみ + スワイプジェスチャー ──────────────────────────
 function bindBottomPanelToggle() {
     const handle   = document.getElementById('map-bottom-handle');
     const controls = document.getElementById('map-bottom-controls');
     if (!handle || !controls) return;
 
+    // クリック（デスクトップ / 短タップ）
     handle.addEventListener('click', () => {
         controls.classList.toggle('mbc-collapsed');
     });
+
+    // スワイプジェスチャー（上 = 展開、下 = 折りたたみ）
+    const SWIPE_THRESHOLD = 50; // px
+    let touchStartY = null;
+
+    handle.addEventListener('touchstart', (e) => {
+        touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    handle.addEventListener('touchmove', (e) => {
+        e.stopPropagation();
+    }, { passive: true });
+
+    handle.addEventListener('touchend', (e) => {
+        if (touchStartY === null) return;
+        const dy = touchStartY - e.changedTouches[0].clientY;
+        if (Math.abs(dy) >= SWIPE_THRESHOLD) {
+            if (dy > 0) {
+                // 上スワイプ → 展開
+                controls.classList.remove('mbc-collapsed');
+            } else {
+                // 下スワイプ → 折りたたみ
+                controls.classList.add('mbc-collapsed');
+            }
+        }
+        touchStartY = null;
+    }, { passive: true });
 }
 
 // ── Leaflet へのイベント伝播を防止 ────────────────────────────────────────

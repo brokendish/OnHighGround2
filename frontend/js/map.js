@@ -153,11 +153,10 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
     // 直前の heading があれば即時反映
     if (_currentHeading !== null) updateUserMarkerHeading(_currentHeading);
 
-    currentMarker.bindPopup(`
-        <strong>${sourceLabel}</strong><br>
-        標高: ${data.elevation.toFixed(1)} m<br>
-        位置精度: ${Number.isFinite(accuracyMeters) ? `約 ${Math.round(accuracyMeters)} m` : '不明'}
-    `, { className: 'current-loc-popup' }).openPopup();
+    // Leaflet popup の代わりに上部バナーで一時表示
+    _showLocationBanner(
+        `標高 ${data.elevation.toFixed(1)} m ｜ 精度 ${Number.isFinite(accuracyMeters) ? `約 ${Math.round(accuracyMeters)} m` : '不明'}`
+    );
 
     if (Number.isFinite(accuracyMeters) && accuracyMeters > 0) {
         currentAccuracyCircle = L.circle([lat, lon], {
@@ -190,4 +189,19 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
         // ハザード判定失敗は非致命的 — サイレントに無視
         console.warn('ハザード判定取得エラー:', e);
     }
+}
+
+// ── 現在地情報バナー（3秒でフェードアウト） ──────────────────────────────
+let _locationBannerTimer = null;
+function _showLocationBanner(text) {
+    const el = document.getElementById('location-banner');
+    if (!el) return;
+
+    clearTimeout(_locationBannerTimer);
+    el.textContent = text;
+    el.classList.add('visible');
+
+    _locationBannerTimer = setTimeout(() => {
+        el.classList.remove('visible');
+    }, 3000);
 }
