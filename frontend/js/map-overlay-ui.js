@@ -11,7 +11,6 @@
 const mapUiState = {
     layerPanelOpen: false,
     legendPanelOpen: false,
-    shelterPanelOpen: false,
 };
 
 // ── 行政界レイヤーメニュー定義 ────────────────────────────────────────────
@@ -96,14 +95,14 @@ function dispatchMirroredCheckboxChange(sourceEl, newVal) {
 function initMapOverlayUI() {
     buildLayerPanel();
     buildLegendPanel();
-    bindLocateButton();
+    bindLocateMapButton();
     bindSearchButton();
     bindDistanceSlider();
     bindElevationSlider();
     bindLayerPanelToggle();
     bindLegendPanelToggle();
     bindClearButton();
-    bindShelterButton();
+    initShelterControls();
     bindBottomPanelToggle();
     bindBrandBadgeTooltip();
     bindDetailToggle();
@@ -222,10 +221,15 @@ function preventMapPanOnOverlay() {
     });
 }
 
-// ── 現在地取得ボタン ──────────────────────────────────────────────────────
-function bindLocateButton() {
-    document.getElementById('locate-overlay-btn').addEventListener('click', () => {
-        document.getElementById('getCurrentLocation').click();
+// ── 現在地ボタン（右上）: 地図を現在地にセンタリング ────────────────────────
+function bindLocateMapButton() {
+    const btn = document.getElementById('locate-map-btn');
+    if (!btn) return;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (typeof currentLocation !== 'undefined' && currentLocation) {
+            map.setView([currentLocation.lat, currentLocation.lon], 15, { animate: true });
+        }
     });
 }
 
@@ -301,23 +305,12 @@ function _syncRegionBinding(regionKey, panelId, sideId) {
     }
 }
 
-// ── 避難場所ボタン：パネル開閉 + チェックボックス制御 ────────────────────
-function bindShelterButton() {
-    const btn     = document.getElementById('shelter-toggle-btn');
-    const panel   = document.getElementById('shelter-panel');
-    // パネル内チェックボックス（右上パネル）
+// ── 避難場所チェックボックス初期化（レイヤーパネルに統合済み） ─────────────
+function initShelterControls() {
     const panelEl1 = document.getElementById('shelterPanel_evacuation');
     const panelEl2 = document.getElementById('shelterPanel_emergency');
-    // サイドバー側チェックボックス（既存）
     const sideEl1  = document.getElementById('showEmergencyShelters');
     const sideEl2  = document.getElementById('showEmergencyEvacuationSites');
-    if (!btn || !panel) return;
-
-    // ボタンのアクティブ状態：どちらかのカテゴリが ON なら active
-    const _syncBtnActive = () => {
-        const anyOn = (sideEl1 && sideEl1.checked) || (sideEl2 && sideEl2.checked);
-        btn.classList.toggle('map-overlay-btn--active', anyOn || mapUiState.shelterPanelOpen);
-    };
 
     // パネル内 ↔ サイドバー側を双方向同期
     const _syncToSide = (panelEl, sideEl) => {
@@ -328,7 +321,6 @@ function bindShelterButton() {
         });
         sideEl.addEventListener('change', () => {
             panelEl.checked = sideEl.checked;
-            _syncBtnActive();
         });
     };
     _syncToSide(panelEl1, sideEl1);
@@ -338,52 +330,20 @@ function bindShelterButton() {
     _buildAndBindRegionToggles();
 
     // 広域ブラウズレイヤートグル：パネル ↔ サイドバー双方向同期
-    const _syncBrowse = (panelId, sideId) => {
-        const panelEl = document.getElementById(panelId);
-        const sideEl  = document.getElementById(sideId);
-        const _update = (checked) => {
-            if (typeof setShelterBrowseLayerVisible === 'function') setShelterBrowseLayerVisible(checked);
-            _syncBtnActive();
-        };
-        if (panelEl) {
-            panelEl.addEventListener('change', () => {
-                if (sideEl) sideEl.checked = panelEl.checked;
-                _update(panelEl.checked);
-            });
-        }
-        if (sideEl) {
-            sideEl.addEventListener('change', () => {
-                if (panelEl) panelEl.checked = sideEl.checked;
-                _update(sideEl.checked);
-            });
-        }
-    };
-    _syncBrowse('shelterPanel_browse', 'showShelterBrowse');
-
-    // ボタンクリック：パネル開閉（他パネルは閉じる）
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        mapUiState.shelterPanelOpen = !mapUiState.shelterPanelOpen;
-        panel.style.display = mapUiState.shelterPanelOpen ? 'block' : 'none';
-        _syncBtnActive();
-
-        // 他パネルを閉じる
-        if (mapUiState.shelterPanelOpen) {
-            if (mapUiState.layerPanelOpen) {
-                mapUiState.layerPanelOpen = false;
-                document.getElementById('layer-panel').style.display = 'none';
-                document.getElementById('layer-toggle-btn').classList.remove('map-overlay-btn--active');
-            }
-            if (mapUiState.legendPanelOpen) {
-                mapUiState.legendPanelOpen = false;
-                document.getElementById('legend-panel').style.display = 'none';
-                document.getElementById('legend-toggle-btn').classList.remove('map-overlay-btn--active');
-            }
-        }
-    });
-
-    // 初期状態を反映
-    _syncBtnActive();
+    const panelBrowse = document.getElementById('shelterPanel_browse');
+    const sideBrowse  = document.getElementById('showShelterBrowse');
+    if (panelBrowse) {
+        panelBrowse.addEventListener('change', () => {
+            if (sideBrowse) sideBrowse.checked = panelBrowse.checked;
+            if (typeof setShelterBrowseLayerVisible === 'function') setShelterBrowseLayerVisible(panelBrowse.checked);
+        });
+    }
+    if (sideBrowse) {
+        sideBrowse.addEventListener('change', () => {
+            if (panelBrowse) panelBrowse.checked = sideBrowse.checked;
+            if (typeof setShelterBrowseLayerVisible === 'function') setShelterBrowseLayerVisible(sideBrowse.checked);
+        });
+    }
 }
 
 // ── 距離スライダ ──────────────────────────────────────────────────────────
@@ -572,6 +532,76 @@ function buildLayerPanel() {
         container.appendChild(catEl);
     });
 
+    // ── 避難場所セクション（元・右上パネルから移管） ──────────────────────
+    const shelterSep = document.createElement('hr');
+    shelterSep.style.cssText = 'margin:6px 0; border:none; border-top:1px solid rgba(0,0,0,0.12);';
+    container.appendChild(shelterSep);
+
+    const shelterHeader = document.createElement('div');
+    shelterHeader.className = 'mou-panel-section-label';
+    shelterHeader.textContent = '避難場所';
+    shelterHeader.style.fontWeight = '700';
+    container.appendChild(shelterHeader);
+
+    const routingLabel = document.createElement('div');
+    routingLabel.className = 'mou-panel-section-label';
+    routingLabel.textContent = '避難候補（近傍ルーティング）';
+    container.appendChild(routingLabel);
+
+    [
+        { id: 'shelterPanel_evacuation', color: '#2e7d32', label: '指定避難所',     checked: true },
+        { id: 'shelterPanel_emergency',  color: '#c62828', label: '指定緊急避難場所', checked: true },
+    ].forEach(item => {
+        const lbl = document.createElement('label');
+        lbl.className = 'shelter-panel-item';
+        const cb  = document.createElement('input');
+        cb.type = 'checkbox'; cb.id = item.id; cb.checked = item.checked;
+        const dot = document.createElement('span');
+        dot.className = 'shelter-panel-dot';
+        dot.style.background = item.color;
+        lbl.appendChild(cb); lbl.appendChild(dot);
+        lbl.appendChild(document.createTextNode(' ' + item.label));
+        container.appendChild(lbl);
+    });
+
+    const regionSep = document.createElement('hr');
+    regionSep.style.cssText = 'margin:6px 0; border:none; border-top:1px solid rgba(0,0,0,0.12);';
+    container.appendChild(regionSep);
+
+    const regionLabel = document.createElement('div');
+    regionLabel.className = 'mou-panel-section-label';
+    regionLabel.textContent = '都道府県';
+    container.appendChild(regionLabel);
+
+    const regionList = document.createElement('div');
+    regionList.id = 'shelterPanel_regionList';
+    container.appendChild(regionList);
+
+    const browseSep = document.createElement('hr');
+    browseSep.style.cssText = 'margin:6px 0; border:none; border-top:1px solid rgba(0,0,0,0.12);';
+    container.appendChild(browseSep);
+
+    const browseLabel = document.createElement('div');
+    browseLabel.className = 'mou-panel-section-label';
+    browseLabel.textContent = '広域ブラウズ（zoom≥11）';
+    container.appendChild(browseLabel);
+
+    const browseLbl = document.createElement('label');
+    browseLbl.className = 'shelter-panel-item';
+    const browseCb = document.createElement('input');
+    browseCb.type = 'checkbox'; browseCb.id = 'shelterPanel_browse'; browseCb.checked = true;
+    const browseDot = document.createElement('span');
+    browseDot.className = 'shelter-panel-dot';
+    browseDot.style.cssText = 'background:#5c6bc0;border:1px solid rgba(0,0,0,0.15);';
+    browseLbl.appendChild(browseCb); browseLbl.appendChild(browseDot);
+    browseLbl.appendChild(document.createTextNode(' 全地域を一覧表示'));
+    container.appendChild(browseLbl);
+
+    const browseStatus = document.createElement('div');
+    browseStatus.id = 'shelterBrowseStatus';
+    browseStatus.className = 'shelter-browse-status';
+    container.appendChild(browseStatus);
+
     panel.appendChild(container);
     syncHazardLayerPanelState();
 }
@@ -600,16 +630,12 @@ function bindLayerPanelToggle() {
         panel.style.display = mapUiState.layerPanelOpen ? 'block' : 'none';
         btn.classList.toggle('map-overlay-btn--active', mapUiState.layerPanelOpen);
 
-        // 凡例・避難場所パネルを閉じる
+        // 凡例パネルを閉じる
         if (mapUiState.layerPanelOpen) {
             if (mapUiState.legendPanelOpen) {
                 mapUiState.legendPanelOpen = false;
                 legendPanel.style.display = 'none';
                 legendBtn.classList.remove('map-overlay-btn--active');
-            }
-            if (mapUiState.shelterPanelOpen) {
-                mapUiState.shelterPanelOpen = false;
-                document.getElementById('shelter-panel').style.display = 'none';
             }
         }
     });
@@ -628,16 +654,12 @@ function bindLegendPanelToggle() {
         panel.style.display = mapUiState.legendPanelOpen ? 'block' : 'none';
         btn.classList.toggle('map-overlay-btn--active', mapUiState.legendPanelOpen);
 
-        // レイヤー・避難場所パネルを閉じる
+        // レイヤーパネルを閉じる
         if (mapUiState.legendPanelOpen) {
             if (mapUiState.layerPanelOpen) {
                 mapUiState.layerPanelOpen = false;
                 layerPanel.style.display = 'none';
                 layerBtn.classList.remove('map-overlay-btn--active');
-            }
-            if (mapUiState.shelterPanelOpen) {
-                mapUiState.shelterPanelOpen = false;
-                document.getElementById('shelter-panel').style.display = 'none';
             }
         }
     });
@@ -658,14 +680,6 @@ function bindOutsideClick() {
             mapUiState.legendPanelOpen = false;
             document.getElementById('legend-panel').style.display = 'none';
             document.getElementById('legend-toggle-btn').classList.remove('map-overlay-btn--active');
-        }
-        if (mapUiState.shelterPanelOpen) {
-            mapUiState.shelterPanelOpen = false;
-            document.getElementById('shelter-panel').style.display = 'none';
-            const sideEl1 = document.getElementById('showEmergencyShelters');
-            const sideEl2 = document.getElementById('showEmergencyEvacuationSites');
-            const anyOn = (sideEl1 && sideEl1.checked) || (sideEl2 && sideEl2.checked);
-            document.getElementById('shelter-toggle-btn').classList.toggle('map-overlay-btn--active', anyOn);
         }
     });
 }

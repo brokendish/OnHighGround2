@@ -177,49 +177,11 @@ map.on('click', async (event) => {
 
 // ── ボタンのイベント ──────────────────────────────────────────────────────
 
-document.getElementById('getCurrentLocation').addEventListener('click', async () => {
-    const btn = document.getElementById('getCurrentLocation');
-    btn.disabled = true;
-    btn.textContent = '位置情報を取得中...';
-
-    if (!navigator.geolocation) {
-        alert('お使いのブラウザは位置情報に対応していません。手動選択モードをONにして地図から現在地を選択してください。');
-        btn.disabled = false;
-        btn.textContent = '現在地を取得';
-        return;
+// 「現在地を取得」ボタン（サイドバー）→ 地図を現在地にセンタリング
+document.getElementById('getCurrentLocation').addEventListener('click', () => {
+    if (currentLocation) {
+        map.setView([currentLocation.lat, currentLocation.lon], 15, { animate: true });
     }
-
-    navigator.geolocation.getCurrentPosition(
-        async (position) => {
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-            const accuracyMeters = Number(position.coords.accuracy);
-
-            try {
-                await updateCurrentLocation(lat, lon, '現在地', accuracyMeters);
-                if (typeof fetchCurrentLocInfo === 'function') {
-                    fetchCurrentLocInfo(lat, lon, currentLocation && currentLocation.elevation);
-                }
-            } catch (error) {
-                console.error('標高取得エラー:', error);
-                alert(`標高データの取得に失敗しました: ${error.message}`);
-            }
-
-            btn.disabled = false;
-            btn.textContent = '現在地を取得';
-        },
-        (error) => {
-            console.error('位置情報取得エラー:', error);
-            alert('位置情報の取得に失敗しました。設定を確認するか、手動選択モードをONにして地図から現在地を選択してください。');
-            btn.disabled = false;
-            btn.textContent = '現在地を取得';
-        },
-        {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
-        }
-    );
 });
 
 document.getElementById('searchDestinations').addEventListener('click', async () => {
@@ -235,24 +197,41 @@ document.getElementById('clearMap').addEventListener('click', () => {
 scheduleEmergencyShelterRefresh();
 initializeHazardToggles();
 
-// ── 起動時の自動現在地取得 ────────────────────────────────────────────────
-if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
+// ── 常時 GPS 追跡（watchPosition） ────────────────────────────────────────
+// アプリ起動時から継続的に位置を追跡する。
+// 初回フィックスは地図を自動センタリング。以降はマーカー＋ハンドルバーのみ更新。
+let _gpsWatchId = null;
+let _isFirstLocationFix = true;
+
+(function _startLocationWatch() {
+    if (!navigator.geolocation) {
+        console.warn('[GPS] Geolocation not supported');
+        return;
+    }
+
+    _gpsWatchId = navigator.geolocation.watchPosition(
         async (position) => {
+            // 手動選択モード中は自動更新しない
+            if (isManualLocationMode) return;
+
+            const lat      = position.coords.latitude;
+            const lon      = position.coords.longitude;
+            const accuracy = Number(position.coords.accuracy);
+            const recenter = _isFirstLocationFix;
+            _isFirstLocationFix = false;
+
             try {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
-                await updateCurrentLocation(lat, lon, '現在地', Number(position.coords.accuracy));
+                await updateCurrentLocation(lat, lon, '現在地', accuracy, recenter);
                 if (typeof fetchCurrentLocInfo === 'function') {
-                    fetchCurrentLocInfo(lat, lon, currentLocation && currentLocation.elevation);
+                    fetchCurrentLocInfo(lat, lon, currentLocation && currentLocation.elevation, accuracy);
                 }
             } catch (e) {
-                console.warn('起動時の現在地取得エラー:', e);
+                console.warn('[GPS] 位置更新エラー:', e);
             }
         },
         (error) => {
-            console.warn('起動時の位置情報取得失敗:', error.message);
+            console.warn('[GPS] 位置情報取得失敗:', error.message);
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     );
-}
+}());

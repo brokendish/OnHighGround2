@@ -56,9 +56,9 @@ let _currentHeading = null; // コンパス or GPS heading（北を0°として�
 function _makeCurrentLocationIcon() {
     return L.divIcon({
         className: 'user-arrow-marker',
-        html: '<div class="arrow"></div>',
-        iconSize: [32, 32],
-        iconAnchor: [16, 16]
+        html: '<div class="pulse-ring"></div><div class="arrow"></div>',
+        iconSize: [48, 48],
+        iconAnchor: [24, 24]
     });
 }
 
@@ -115,7 +115,7 @@ function initOrientation() {
 
 // ── 現在地更新 ────────────────────────────────────────────────────────────
 
-async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accuracyMeters = null) {
+async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accuracyMeters = null, recenter = true) {
     currentLocation = { lat, lon, accuracyMeters, elevation: null };
 
     const response = await apiFetch(
@@ -171,7 +171,7 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
         currentAccuracyCircle = null;
     }
 
-    map.setView([lat, lon], 15);
+    if (recenter) map.setView([lat, lon], 15);
     document.getElementById('searchDestinations').disabled = false;
     // STEP 1 完了 → STEP 2 をアクティブ化（map-overlay-ui.js）
     if (typeof markStep1Done === 'function') markStep1Done();

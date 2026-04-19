@@ -1201,22 +1201,40 @@ async function _fetchElevation(lat, lon) {
     }
 }
 
-// ── 現在地情報（ハザード+標高）を下部バーに表示 ──────────────────────────────
-// browse モードの locate ボタン押下後や route_preview 移行時に呼ぶ。
-function fetchCurrentLocInfo(lat, lon, elevation) {
+// ── GPS 精度ラベル変換 ────────────────────────────────────────────────────
+function _fmtAccuracy(meters) {
+    if (!Number.isFinite(meters) || meters <= 0) return null;
+    const quality = meters < 10 ? '優良' : meters < 30 ? '良好' : meters < 100 ? '普通' : '低い';
+    return `約${Math.round(meters)}m（${quality}）`;
+}
+
+// ── 現在地情報（ハザード+標高+精度）を下部バーに表示 ─────────────────────────
+// watchPosition コールバック・route_preview 移行時に呼ぶ。
+function fetchCurrentLocInfo(lat, lon, elevation, accuracyMeters) {
     const rowHazard = document.getElementById('mbc-row-hazard');
     if (rowHazard) rowHazard.style.display = '';
 
+    // 標高表示
     const elevEl = document.getElementById('mbc-current-elev');
     if (elevEl) {
         if (elevation != null) {
-            elevEl.textContent = `${Number(elevation).toFixed(0)}m`;
+            elevEl.textContent = `標高 ${Number(elevation).toFixed(0)}m`;
         } else {
             elevEl.textContent = '—';
             _fetchElevation(lat, lon).then(elev => {
-                if (elev !== null && elevEl) elevEl.textContent = `${elev.toFixed(0)}m`;
+                if (elev !== null && elevEl) elevEl.textContent = `標高 ${elev.toFixed(0)}m`;
             });
         }
+    }
+
+    // 精度表示
+    const accEl = document.getElementById('mbc-current-accuracy');
+    if (accEl) {
+        const accLabel = _fmtAccuracy(accuracyMeters);
+        accEl.textContent = accLabel ? `精度：${accLabel}` : '';
+        accEl.style.display = accLabel ? '' : 'none';
+        const sepEl = document.getElementById('mbc-accuracy-sep');
+        if (sepEl) sepEl.style.display = accLabel ? '' : 'none';
     }
 
     const hazardEl = document.getElementById('mbc-current-hazard');
@@ -1240,7 +1258,7 @@ function _updateHazardRow(isDanger, assessment) {
     const el = document.getElementById('mbc-current-hazard');
     if (!el) return;
     if (!isDanger) {
-        el.innerHTML = '<span class="mbc-hazard-safe">✅ 安全</span>';
+        el.innerHTML = '<span class="mbc-hazard-safe">✅ 安全（全ハザード外）</span>';
         return;
     }
     const dangerLabels = [];
@@ -1254,7 +1272,7 @@ function _updateHazardRow(isDanger, assessment) {
         }
     }
     const labelText = dangerLabels.length > 0 ? dangerLabels.join(' / ') : '危険区域内';
-    el.innerHTML = `<span class="mbc-hazard-danger">⚠️ ${labelText}</span>`;
+    el.innerHTML = `<span class="mbc-hazard-danger">⚠️ ${labelText}リスクあり</span>`;
 }
 
 // ── 距離フォーマット（ナビ用） ────────────────────────────────────────────
@@ -1596,7 +1614,7 @@ function _onNavPosition(position) {
             if (elev === null) return;
             navCurrentElevation = elev;
             const el = document.getElementById('mbc-current-elev');
-            if (el) el.textContent = `${elev.toFixed(0)}m`;
+            if (el) el.textContent = `標高 ${elev.toFixed(0)}m`;
         });
     }
 

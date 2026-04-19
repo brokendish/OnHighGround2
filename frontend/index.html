@@ -1168,6 +1168,23 @@
             justify-content: center;
             background: transparent !important;
             border: none !important;
+            position: relative;
+        }
+        .user-arrow-marker .pulse-ring {
+            position: absolute;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(33, 150, 243, 0.35);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.8);
+            animation: pulse-ring 1.8s ease-out infinite;
+            pointer-events: none;
+        }
+        @keyframes pulse-ring {
+            0%   { transform: translate(-50%, -50%) scale(0.8); opacity: 0.7; }
+            100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
         }
         .user-arrow-marker .arrow {
             width: 32px;
@@ -1177,6 +1194,8 @@
             transform-origin: 50% 50%;
             transition: transform 0.15s linear;
             filter: drop-shadow(0 3px 5px rgba(0,0,0,.45));
+            position: relative;
+            z-index: 1;
         }
 
         /* ナビ警告バナー（地図上部に重なる） */
@@ -1997,10 +2016,13 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 6px;
-            font-size: 12px;
-            padding: 1px 0;
+            flex-wrap: nowrap;
+            gap: 4px;
+            font-size: clamp(10px, 2.8vw, 12px);
+            padding: 1px 4px;
             color: #333;
+            white-space: nowrap;
+            overflow: hidden;
         }
         .mbc-dist-label  { color: #888; font-size: 11px; }
         .mbc-dist-sep    { color: #ccc; }
@@ -2467,56 +2489,20 @@
                     <div id="map-brand-tooltip">津波・高潮・洪水から身を守る避難経路案内</div>
                 </div>
 
-                <!-- 右上: レイヤー / クリア / 凡例 -->
+                <!-- 右上: レイヤー / クリア / 凡例 / 現在地 -->
                 <div id="map-top-right-controls">
 
-                    <!-- レイヤー選択 -->
+                    <!-- レイヤー選択（避難場所を含む） -->
                     <div class="mou-btn-wrap">
-                        <button id="layer-toggle-btn" class="map-overlay-btn" title="ハザードレイヤー選択">
+                        <button id="layer-toggle-btn" class="map-overlay-btn" title="レイヤー選択">
                             <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zm.01-2.49l7.36-5.73L21 8.93l-9-7-9 7 1.63 1.26 7.37 5.85z"/>
                             </svg>
                             <span>レイヤー</span>
                         </button>
                         <div id="layer-panel" class="mou-panel" style="display:none;">
-                            <div class="mou-panel-title">ハザードレイヤー</div>
-                            <!-- JS で buildLayerPanel() により生成 -->
-                        </div>
-                    </div>
-
-                    <!-- 避難場所パネル -->
-                    <div class="mou-btn-wrap">
-                        <button id="shelter-toggle-btn" class="map-overlay-btn map-overlay-btn--active" title="避難場所の表示設定">
-                            <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
-                            </svg>
-                            <span>避難場所</span>
-                        </button>
-                        <div id="shelter-panel" class="mou-panel" style="display:none;">
-                            <div class="mou-panel-title">避難場所の表示</div>
-                            <div class="mou-panel-section-label">避難候補（近傍ルーティング）</div>
-                            <label class="shelter-panel-item">
-                                <input type="checkbox" id="shelterPanel_evacuation" checked>
-                                <span class="shelter-panel-dot" style="background:#2e7d32;"></span>
-                                指定避難所
-                            </label>
-                            <label class="shelter-panel-item">
-                                <input type="checkbox" id="shelterPanel_emergency" checked>
-                                <span class="shelter-panel-dot" style="background:#c62828;"></span>
-                                指定緊急避難場所
-                            </label>
-                            <div class="mou-panel-separator"></div>
-                            <div class="mou-panel-section-label">都道府県</div>
-                            <!-- 都道府県チェックボックスは map-overlay-ui.js が SHELTER_REGION_CONFIGS から動的生成 -->
-                            <div id="shelterPanel_regionList"></div>
-                            <div class="mou-panel-separator"></div>
-                            <div class="mou-panel-section-label">広域ブラウズ（zoom≥11）</div>
-                            <label class="shelter-panel-item">
-                                <input type="checkbox" id="shelterPanel_browse" checked>
-                                <span class="shelter-panel-dot" style="background:#5c6bc0;border:1px solid rgba(0,0,0,0.15);"></span>
-                                全地域を一覧表示
-                            </label>
-                            <div id="shelterBrowseStatus" class="shelter-browse-status"></div>
+                            <div class="mou-panel-title">レイヤー設定</div>
+                            <!-- JS で buildLayerPanel() により生成（ハザード・行政界・避難場所） -->
                         </div>
                     </div>
 
@@ -2542,6 +2528,13 @@
                         </div>
                     </div>
 
+                    <!-- 現在地（センタリング） -->
+                    <button id="locate-map-btn" class="map-overlay-btn" title="現在地に移動">
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
+                        </svg>
+                        <span>現在地</span>
+                    </button>
 
                 </div><!-- /#map-top-right-controls -->
 
@@ -2550,11 +2543,13 @@
                     <!-- 折りたたみハンドル -->
                     <div id="map-bottom-handle">
                         <div class="mbc-handle-bar"></div>
-                        <!-- ハザード・標高コンパクト表示（現在地取得後に表示） -->
+                        <!-- ハザード・標高・精度コンパクト表示（現在地取得後に表示） -->
                         <div id="mbc-row-hazard" class="mbc-info-line" style="display:none;">
                             <span id="mbc-current-hazard">—</span>
                             <span class="mbc-dist-sep">·</span>
                             <span id="mbc-current-elev">—</span>
+                            <span class="mbc-dist-sep" id="mbc-accuracy-sep" style="display:none;">·</span>
+                            <span id="mbc-current-accuracy" style="display:none; color:#888;"></span>
                         </div>
                         <svg class="mbc-handle-chevron" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
@@ -2575,16 +2570,8 @@
                     </div>
                     <!-- 操作タブ -->
                     <div id="mbc-tab-panel-action">
-                    <!-- STEP 1 / STEP 2 フロー -->
+                    <!-- 避難先を検索（GPS自動取得後にアクティブ） -->
                     <div id="mbc-row-normal" class="mbc-steps">
-                        <!-- STEP 1: 現在地取得 -->
-                        <div class="mbc-step mbc-step--active" id="mbc-step1">
-                            <button id="locate-overlay-btn" class="mbc-btn mbc-btn--step mbc-btn--primary">
-                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
-                                現在地を取得
-                            </button>
-                        </div>
-                        <!-- STEP 2: 避難先検索（現在地取得後にアクティブ） -->
                         <div class="mbc-step mbc-step--pending" id="mbc-step2">
                             <button id="search-overlay-btn" class="mbc-btn mbc-btn--step mbc-btn--primary" disabled>
                                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
