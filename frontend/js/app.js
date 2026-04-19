@@ -203,11 +203,12 @@ initializeHazardToggles();
 let _gpsWatchId = null;
 let _isFirstLocationFix = true;
 
-(function _startLocationWatch() {
+function _startLocationWatch() {
     if (!navigator.geolocation) {
         console.warn('[GPS] Geolocation not supported');
         return;
     }
+    if (_gpsWatchId !== null) return; // 二重登録防止
 
     _gpsWatchId = navigator.geolocation.watchPosition(
         async (position) => {
@@ -232,6 +233,22 @@ let _isFirstLocationFix = true;
         (error) => {
             console.warn('[GPS] 位置情報取得失敗:', error.message);
         },
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 15000 }
     );
-}());
+}
+
+_startLocationWatch();
+
+// ── 画面非表示時に GPS 追跡を停止して電池消費を抑える ────────────────────
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (_gpsWatchId !== null) {
+            navigator.geolocation.clearWatch(_gpsWatchId);
+            _gpsWatchId = null;
+            console.log('[GPS] 画面非表示 → 追跡停止');
+        }
+    } else {
+        _startLocationWatch();
+        console.log('[GPS] 画面復帰 → 追跡再開');
+    }
+});
