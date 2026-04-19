@@ -810,8 +810,8 @@ function showSelectedEmergencyShelter(site) {
 }
 
 function _showFloatCardCentered() {
-    // フロートカードを廃止し、下部パネルの情報タブに表示を切り替える
-    if (typeof switchMbcTab === 'function') switchMbcTab('info');
+    // タブ自動遷移は行わない。情報タブのコンテンツは更新されるが
+    // タブ切り替えはユーザーの手動操作のみ。
 }
 
 // ── 実ルート値フォーマット（カード表示用）───────────────────────────────────
@@ -938,7 +938,7 @@ function showUserDestInFloatCard() {
 function hideSelectedEmergencyShelter() {
     clearSelectedEmergencyShelterRouteGuidance();
     document.getElementById('selectedShelterInfo').style.display = 'none';
-    if (typeof switchMbcTab === 'function') switchMbcTab('action');
+    // タブ自動遷移は行わない
     selectedEmergencyShelterSite   = null;
     selectedEmergencyShelterMarker = null;
 }
