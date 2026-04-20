@@ -1437,7 +1437,8 @@ function startNavigation() {
 
     _showNavBanner('🧭 ナビを開始しました。現在地を追跡中です。', 'info', 3000);
     if (typeof voiceNav !== 'undefined') {
-        voiceNav.announce({ id: 'nav-start', text: '案内を開始します', category: 'start', priority: 'high' });
+        voiceNav.unlockSpeech(); // iOS Safari 音声ロック解除（ユーザー操作タイミング）
+        voiceNav.announce({ id: 'nav-start', text: '避難経路の案内を開始します', category: 'start', priority: 'high' });
     }
     // タブ自動遷移は行わない（ユーザーが手動で情報タブに切り替える）
 }

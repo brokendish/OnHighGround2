@@ -40,22 +40,63 @@ const voiceNav = (() => {
         lastVibratedAt:  0,
     };
 
+    // ── 日本語音声選択 ───────────────────────────────────────────────────────
+    let _selectedVoice = null;
+
+    function _selectJapaneseVoice() {
+        if (!window.speechSynthesis) return null;
+        const voices = window.speechSynthesis.getVoices();
+        if (!voices || voices.length === 0) return null;
+
+        // 優先順位: iOS Kyoko/O-ren → Google 日本語 → Haruka → ja-JP の最初
+        const preferred = ['Kyoko', 'O-ren', 'Haruka', 'Google 日本語', 'Google Japanese'];
+        for (const name of preferred) {
+            const v = voices.find(v => v.name.includes(name));
+            if (v) {
+                _selectedVoice = v;
+                console.info('[Voice] selected:', v.name);
+                return v;
+            }
+        }
+        // フォールバック: lang が ja-JP の最初の音声
+        const fallback = voices.find(v => v.lang === 'ja-JP') || null;
+        _selectedVoice = fallback;
+        console.info('[Voice] selected (fallback):', fallback?.name ?? 'none');
+        return fallback;
+    }
+
+    // getVoices() は非同期で返ることがあるため voiceschanged でも初期化
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = () => { _selectJapaneseVoice(); };
+        _selectJapaneseVoice(); // 同期で返る環境（Chrome等）向けに即実行
+    }
+
+    // ── iOS Safari 音声ロック解除 ────────────────────────────────────────────
+    // iOS では speechSynthesis.speak() がユーザー操作なしにブロックされる。
+    // ナビ開始ボタン押下（ユーザー操作）のタイミングで呼ぶことで解除する。
+    function _unlockSpeechSynthesis() {
+        if (!window.speechSynthesis) return;
+        const utter = new SpeechSynthesisUtterance('');
+        utter.volume = 0;
+        window.speechSynthesis.speak(utter);
+    }
+
     // ── routing.js の翻訳語 → 音声向け自然文 ────────────────────────────────
     const VOICE_TEXT_MAP = {
-        '右折':                  '右に曲がってください',
-        '左折':                  '左に曲がってください',
-        '直進':                  'まっすぐ進んでください',
-        'やや右へ':              'やや右へ進んでください',
-        'やや左へ':              'やや左へ進んでください',
-        '右側を進む':            '右側を進んでください',
-        '左側を進む':            '左側を進んでください',
-        '鋭く右折':              '鋭く右に曲がってください',
-        '鋭く左折':              '鋭く左に曲がってください',
-        'Uターン':               '引き返してください',
-        '合流':                  '合流してください',
-        '目的地に到着しました':  '目的地に到着しました',
-        '目的地は右側です':      '目的地は右側です',
-        '目的地は左側です':      '目的地は左側です',
+        '右折':                  '右に曲がります',
+        '左折':                  '左に曲がります',
+        '直進':                  'まっすぐ進みます',
+        'やや右へ':              'やや右へ進みます',
+        'やや左へ':              'やや左へ進みます',
+        '右側を進む':            '右側を進みます',
+        '左側を進む':            '左側を進みます',
+        '鋭く右折':              '鋭く右に曲がります',
+        '鋭く左折':              '鋭く左に曲がります',
+        'Uターン':               '少し戻って方向を変えます',
+        '合流':                  '合流します',
+        '目的地に到着しました':  '避難所に到着しました。お疲れ様でした',
+        '目的地は右側です':      '避難所は右側です',
+        '目的地は左側です':      '避難所は左側です',
     };
 
     // ── 直進系ステップ（発話スキップ対象）────────────────────────────────────
@@ -75,6 +116,20 @@ const voiceNav = (() => {
         if (STRAIGHT_STEPS.has(rawText)) return true;
         if (/を進む$/.test(rawText) && !/(右|左|折)/.test(rawText)) return true;
         return false;
+    }
+
+    // ── 距離プレフィックス生成 ───────────────────────────────────────────────
+    // distanceM が null/undefined なら空文字を返す
+    function _formatDistancePrefix(distanceM) {
+        if (distanceM == null || !Number.isFinite(distanceM)) return '';
+        const m = distanceM;
+        if (m < 50)          return 'まもなく';
+        if (m < 100)         return '約50m先を';
+        if (m < 200)         return '約100m先を';
+        if (m < 400)         return '約200m先を';
+        // 400m以上は100m単位で丸め
+        const rounded = Math.round(m / 100) * 100;
+        return `約${rounded}m先を`;
     }
 
     // ── 重複発話チェック ─────────────────────────────────────────────────────
@@ -97,6 +152,7 @@ const voiceNav = (() => {
         utter.rate   = 1.05;
         utter.pitch  = 1.0;
         utter.volume = 1.0;
+        if (_selectedVoice) utter.voice = _selectedVoice;
         window.speechSynthesis.speak(utter);
     }
 
@@ -162,6 +218,9 @@ const voiceNav = (() => {
         get enabled()  { return state.enabled; },
         get config()   { return CONFIG; },
 
+        // iOS Safari 音声ロック解除（ナビ開始ボタン押下時に呼ぶ）
+        unlockSpeech() { _unlockSpeechSynthesis(); },
+
         // 汎用アナウンス（ナビ開始・逸脱・到着など）
         announce(message) {
             if (!message || !message.text) return;
@@ -178,13 +237,21 @@ const voiceNav = (() => {
         },
 
         // ステップ変化時（routing.js から呼ぶ）
-        announceStep(rawText, stepId) {
+        // distanceM: 現在地から次のステップまでの距離（メートル）、省略可
+        announceStep(rawText, stepId, distanceM = null) {
             if (!rawText) return;
             if (_isStraight(rawText)) return;
             const voiceText = _toVoiceText(rawText);
+            const prefix    = _formatDistancePrefix(distanceM);
+            // 「まもなく」プレフィックスの場合は語尾を接続（「まもなく右に曲がります」）
+            const spokenText = prefix === 'まもなく'
+                ? `まもなく${voiceText}`
+                : prefix
+                    ? `${prefix}${voiceText}`
+                    : voiceText;
             this.announce({
                 id:          `step-${stepId}`,
-                text:        voiceText,
+                text:        spokenText,
                 displayText: rawText,
                 category:    'maneuver',
                 priority:    'normal',
@@ -200,7 +267,7 @@ const voiceNav = (() => {
             if (isDestination) {
                 this.announce({
                     id:          `pre-${stepId}`,
-                    text:        'まもなく目的地です',
+                    text:        'まもなく避難所に到着します',
                     displayText: 'まもなく目的地です',
                     category:    'maneuver',
                     priority:    'normal',

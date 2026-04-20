@@ -689,11 +689,11 @@ function _highlightNavStepInPanel(panelEl, lat, lon) {
     items.forEach(el => el.classList.remove('nav-step-current'));
     closestItem.classList.add('nav-step-current');
     closestItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    // ステップ変化時に音声・テキスト案内
+    // ステップ変化時に音声・テキスト案内（minDist を距離として渡す）
     if (typeof voiceNav !== 'undefined') {
         const rawText = closestItem.textContent.split('（')[0].trim();
         const stepId  = (closestItem.dataset.stepLat || '') + ',' + (closestItem.dataset.stepLon || '');
-        voiceNav.announceStep(rawText, stepId);
+        voiceNav.announceStep(rawText, stepId, Number.isFinite(minDist) ? minDist : null);
     }
 }
 
