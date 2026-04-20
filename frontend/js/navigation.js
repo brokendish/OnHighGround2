@@ -5664,6 +5664,7 @@ function _findDeviationAnchor(altCoords, originalCoords, searchWindowM = 250) {
     return anchor;
 }
 
+/* REMOVED: この先を避けて再ルート ボタン廃止により無効化
 // 「この先を避けて再ルート」— 前方ブロック区間を避ける代替ルートを選択
 async function blockAheadAndReroute() {
     const rerouteStartedAt = _perfNowMs();
@@ -7010,6 +7011,7 @@ async function blockAheadAndReroute() {
     _blockAheadPerfMetrics = null;
 }
 
+*/
 // ── 到達処理 ─────────────────────────────────────────────────────────────
 function _onNavArrival() {
     stopNavigation();
@@ -7108,16 +7110,6 @@ function _updateNavUI() {
     // 再ルート処理中フラグ（前方回避も含む） — 以降の全ボタン制御で参照するため先に宣言
     const anyRerouting = navRerouteInProgress || navAutoRerouteInProgress || navBlockAheadInProgress;
 
-    // 前方回避ボタン（navigation_active / navigation_warning のみ表示）
-    const blockAheadBtn    = el('nav-block-ahead-btn');
-    const blockAheadTextEl = el('nav-block-ahead-btn-text');
-    if (blockAheadBtn) {
-        blockAheadBtn.style.display = (mode === 'navigation_active' || mode === 'navigation_warning') ? '' : 'none';
-        blockAheadBtn.disabled = anyRerouting;
-    }
-    if (blockAheadTextEl) {
-        blockAheadTextEl.textContent = navBlockAheadInProgress ? '回避中...' : 'この先を避けて再ルート(試験中)';
-    }
 
     // 自動再ルートON/OFFボタン
     if (el('navFollowBtn')) {
