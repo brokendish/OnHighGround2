@@ -942,7 +942,8 @@ function showSelectedEmergencyShelter(site) {
 }
 
 function _showFloatCardCentered() {
-    if (typeof switchMbcTab === 'function') switchMbcTab('info');
+    // タブ自動遷移は行わない。ナビ開始ボタンへのアクセスを妨げないよう
+    // 操作タブはユーザーの手動操作でのみ切り替える。
 }
 
 // ── 実ルート値フォーマット（カード表示用）───────────────────────────────────
