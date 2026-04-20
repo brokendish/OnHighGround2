@@ -852,8 +852,7 @@ function showSelectedEmergencyShelter(site) {
 }
 
 function _showFloatCardCentered() {
-    // タブ自動遷移は行わない。情報タブのコンテンツは更新されるが
-    // タブ切り替えはユーザーの手動操作のみ。
+    if (typeof switchMbcTab === 'function') switchMbcTab('info');
 }
 
 // ── 実ルート値フォーマット（カード表示用）───────────────────────────────────
