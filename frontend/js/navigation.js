@@ -13,7 +13,7 @@ const NAV_OFF_ROUTE_M      = 20;    // 逸脱表示しきい値（メートル�
 const NAV_REROUTE_THRESHOLD_M  = 30; // 再ルートしきい値（メートル）
 const NAV_MAX_GPS_ACCURACY_M   = 30; // これ以上の誤差なら逸脱判定を保留
 const NAV_CONSECUTIVE      = 3;     // 連続 N 回外れたら warning
-const NAV_ARRIVAL_M        = 10;    // 到達判定しきい値（メートル）
+const NAV_ARRIVAL_M        = 25;    // 到達判定しきい値（メートル）
 const NAV_MIN_DELTA_M      = 8;     // 移動量がこれ以下なら更新スキップ
 const NAV_LOW_ACCURACY_M   = 50;    // GPS 精度がこれ以上なら精度警告
 const NAV_REROUTE_COOLDOWN = 10000; // 再ルート連打防止（ms）
@@ -1600,7 +1600,9 @@ function _onNavPosition(position) {
     }
 
     // 接近通知: 次の曲がり角まで 40m 以内で予告（voiceNav があれば）
-    if (typeof voiceNav !== 'undefined' && navigationMode === 'navigation_active') {
+    // navigation_warning（逸脱中）でも目的地接近は案内する
+    if (typeof voiceNav !== 'undefined' &&
+        (navigationMode === 'navigation_active' || navigationMode === 'navigation_warning')) {
         const stepEl = document.querySelector('li.nav-step-current[data-step-lat]');
         if (stepEl) {
             const sLat   = parseFloat(stepEl.dataset.stepLat);
@@ -1611,6 +1613,17 @@ function _onNavPosition(position) {
                 const rawText = stepEl.textContent.split('（')[0].trim();
                 voiceNav.announceApproach(rawText, stepId);
             }
+        }
+    }
+
+    // 到達判定（GPS精度チェックより前に実施）
+    // GPS精度が悪い場合は accuracy 値を半径として使い、確実に到達を検知する
+    if (navDestination) {
+        const arrDist = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
+        const effectiveRadius = Math.max(NAV_ARRIVAL_M, accuracy * 0.8);
+        if (arrDist <= effectiveRadius) {
+            _onNavArrival();
+            return;
         }
     }
 
@@ -1637,19 +1650,10 @@ function _onNavPosition(position) {
         _checkCurrentHazard(lat, lon);
     }
 
-    // GPS 精度警告（逸脱・到達判定はスキップ）
+    // GPS 精度警告（逸脱判定はスキップ）
     if (accuracy > NAV_LOW_ACCURACY_M) {
         _showNavBanner('⚠ 位置情報の精度が低下しています（±' + Math.round(accuracy) + 'm）', 'warning');
         return;
-    }
-
-    // 到達判定
-    if (navDestination) {
-        const arrDist = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
-        if (arrDist <= NAV_ARRIVAL_M) {
-            _onNavArrival();
-            return;
-        }
     }
 
     // 逸脱判定（再ルート処理中・GPS精度不良はスキップ）
