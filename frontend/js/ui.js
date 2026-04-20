@@ -803,9 +803,51 @@ function showSelectedEmergencyShelter(site) {
         addrEl.style.display = 'none';
     }
     document.getElementById('shelter-card-transport').textContent = transportLabel;
-    document.getElementById('shelter-card-distance').textContent = '計算中...';
-    document.getElementById('shelter-card-duration').textContent = '計算中...';
-    document.getElementById('shelter-card-dest-info').style.display = 'none'; // 避難所では非表示
+
+    // 直線距離 → 暫定徒歩時間（距離m ÷ 80 = 分）
+    let estimatedDist = null;
+    if (typeof currentLocation !== 'undefined' && currentLocation) {
+        const dlat = (site.lat - currentLocation.lat) * 111000;
+        const dlon = (site.lon - currentLocation.lon) * 111000 * Math.cos(site.lat * Math.PI / 180);
+        estimatedDist = Math.round(Math.sqrt(dlat * dlat + dlon * dlon));
+    }
+    if (estimatedDist !== null) {
+        document.getElementById('shelter-card-distance').textContent =
+            estimatedDist < 1000 ? `約 ${estimatedDist} m` : `約 ${(estimatedDist / 1000).toFixed(1)} km`;
+        const estMin = Math.max(1, Math.round(estimatedDist / 80));
+        document.getElementById('shelter-card-duration').textContent = `約 ${estMin} 分`;
+    } else {
+        document.getElementById('shelter-card-distance').textContent = '計算中...';
+        document.getElementById('shelter-card-duration').textContent = '計算中...';
+    }
+
+    // 対応ハザードアイコンをカードに表示
+    const hazardBlock = document.getElementById('shelter-card-hazard-block');
+    if (hazardBlock) {
+        const hazardTypes = Array.isArray(site.hazard_types) ? site.hazard_types : [];
+        const HAZARD_ICON = {
+            tsunami:     '🌊 津波',
+            flood:       '🌧 洪水',
+            storm_surge: '🌬 高潮',
+            earthquake:  '🏚 地震',
+            landslide:   '🏔 崖崩れ',
+            fire:        '🔥 大規模火事',
+            inland_flood:'💧 内水氾濫',
+            volcano:     '🌋 火山',
+        };
+        if (hazardTypes.length > 0) {
+            hazardBlock.innerHTML =
+                '<div id="shelter-hazard-label" style="font-size:10px;color:#888;margin-bottom:2px;">対応ハザード</div>' +
+                '<div>' +
+                hazardTypes.map(h =>
+                    `<span class="shelter-hazard-tag">${HAZARD_ICON[h] || h}</span>`
+                ).join('') +
+                '</div>';
+        } else {
+            hazardBlock.innerHTML = '<div style="font-size:11px;color:#aaa;">対応ハザード情報なし</div>';
+        }
+    }
+    document.getElementById('shelter-card-dest-info').style.display = 'block';
     _showFloatCardCentered();
 }
 

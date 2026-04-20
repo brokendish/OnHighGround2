@@ -154,16 +154,16 @@ async function refreshEmergencyShelters() {
     }
 }
 
-// ハザードキー → 日本語ラベル
+// ハザードキー → 絵文字＋日本語ラベル
 const _HAZARD_LABEL_JP = {
-    flood:       '洪水',
-    landslide:   '崖崩れ・土石流・地滑り',
-    storm_surge: '高潮',
-    earthquake:  '地震',
-    tsunami:     '津波',
-    fire:        '大規模火事',
-    inland_flood:'内水氾濫',
-    volcano:     '火山現象',
+    tsunami:     '🌊 津波',
+    flood:       '🌧 洪水',
+    storm_surge: '🌬 高潮',
+    earthquake:  '🏚 地震',
+    landslide:   '🏔 崖崩れ',
+    fire:        '🔥 大規模火事',
+    inland_flood:'💧 内水氾濫',
+    volcano:     '🌋 火山',
 };
 
 function _buildShelterPopupHtml(site) {
@@ -177,11 +177,15 @@ function _buildShelterPopupHtml(site) {
         ? `<div style="font-size:11px;color:#333;margin-bottom:6px;">📍 ${site.address}</div>`
         : '';
 
-    // 対応ハザード一覧
+    // 対応ハザード一覧（アイコンタグ）
     const hazardTypes = Array.isArray(site.hazard_types) ? site.hazard_types : [];
     const hazardHtml = hazardTypes.length > 0
-        ? `<div style="font-size:11px;color:#555;margin-bottom:6px;">
-               対応ハザード: ${hazardTypes.map(h => _HAZARD_LABEL_JP[h] || h).join(' / ')}
+        ? `<div style="margin-bottom:6px;line-height:1.8;">
+               ${hazardTypes.map(h =>
+                   `<span style="display:inline-block;padding:1px 7px;border-radius:999px;
+                                 font-size:11px;font-weight:600;background:#e3f2fd;color:#1565c0;
+                                 margin-right:3px;">${_HAZARD_LABEL_JP[h] || h}</span>`
+               ).join('')}
            </div>`
         : '';
 
