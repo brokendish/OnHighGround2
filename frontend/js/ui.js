@@ -250,7 +250,7 @@ function displayDestinations(dests, recommended) {
             // 左パネルを確実に表示してからカードを選択・スクロール
             const panel = document.getElementById('destinationsPanel');
             if (panel) panel.style.display = 'block';
-            showDestInFloatCard(dest);
+            showDestInFloatCard(dest, index);
             showRoute(dest, index, { ensureCardVisible: true });
         });
 
@@ -478,6 +478,92 @@ function buildHazardReasonBlock(assessment) {
     }
     // 全件 outside のみ → 安全
     return `<div class="hazard-reason-block"><span class="hazard-reason-item is-safe">${SAFE_HAZARD_TEXT}</span></div>`;
+}
+
+// ── 推奨理由セクション ────────────────────────────────────────────────────
+
+function _buildRecommendSection(dest, rank) {
+    const rows = [];
+
+    // 🛡 ハザード安全判定
+    if (dest.hazard_safe === true) {
+        // hazard_assessment から「どのハザードが外か」を列挙
+        const assessment = dest.hazard_assessment;
+        let outsideLabels = [];
+        if (assessment && typeof assessment === 'object') {
+            for (const [key, val] of Object.entries(assessment)) {
+                const status = typeof val === 'string' ? val : val?.status;
+                if (status === 'outside') outsideLabels.push(getHazardLabel(key));
+            }
+        }
+        const desc = outsideLabels.length > 0
+            ? outsideLabels.join('・') + 'のリスクエリア外です'
+            : '全ハザードエリア外です';
+        rows.push(`
+            <div class="recommend-row">
+                <span class="recommend-icon">🛡</span>
+                <div>
+                    <div class="recommend-title">全ハザードエリア外</div>
+                    <div class="recommend-desc">${dest.__escapeLabel ? dest.__escapeLabel + 'を含む全ハザードで' : ''}${desc}</div>
+                </div>
+            </div>`);
+    } else if (dest.hazard_safe === false) {
+        const assessment = dest.hazard_assessment;
+        let insideLabels = [];
+        if (assessment && typeof assessment === 'object') {
+            for (const [key, val] of Object.entries(assessment)) {
+                const status = typeof val === 'string' ? val : val?.status;
+                if (status === 'inside') insideLabels.push(getHazardLabel(key));
+            }
+        }
+        const desc = insideLabels.length > 0
+            ? insideLabels.join('・') + 'のリスクあり'
+            : 'ハザードエリア内の可能性あり';
+        rows.push(`
+            <div class="recommend-row">
+                <span class="recommend-icon">⚠️</span>
+                <div>
+                    <div class="recommend-title is-warning">ハザードエリアを含む可能性あり</div>
+                    <div class="recommend-desc">${desc}</div>
+                </div>
+            </div>`);
+    }
+
+    // 📈 高低差
+    const gain = dest.elevation_gain != null ? Number(dest.elevation_gain) : null;
+    const elev = dest.elevation     != null ? Number(dest.elevation)      : null;
+    if (gain !== null && elev !== null) {
+        const isPos     = gain >= 0;
+        const gainStr   = (isPos ? '+' : '') + gain.toFixed(1) + 'm';
+        const currentEl = elev - gain;
+        const dirLabel  = isPos ? '高い' : '低い';
+        rows.push(`
+            <div class="recommend-row">
+                <span class="recommend-icon">📈</span>
+                <div>
+                    <div class="recommend-title${isPos ? '' : ' is-negative'}">現在地より ${gainStr} ${dirLabel}</div>
+                    <div class="recommend-desc">標高 ${elev.toFixed(1)}m（現在地 ${currentEl.toFixed(1)}m）</div>
+                </div>
+            </div>`);
+    }
+
+    // 🚶 最寄りの安全な場所（rank === 0 のみ）
+    if (rank === 0) {
+        rows.push(`
+            <div class="recommend-row">
+                <span class="recommend-icon">🚶</span>
+                <div>
+                    <div class="recommend-title">最寄りの安全な場所</div>
+                    <div class="recommend-desc">検索範囲内で最も近い</div>
+                </div>
+            </div>`);
+    }
+
+    if (rows.length === 0) return '';
+    return `<div class="recommend-section">
+        <div class="recommend-header">── この避難所をすすめる理由 ──</div>
+        ${rows.join('')}
+    </div>`;
 }
 
 // ── 推奨避難先カード ──────────────────────────────────────────────────────
@@ -847,6 +933,10 @@ function showSelectedEmergencyShelter(site) {
             hazardBlock.innerHTML = '<div style="font-size:11px;color:#aaa;">対応ハザード情報なし</div>';
         }
     }
+    // elev-score は destination 候補で非表示にされることがあるためリセット
+    const elevScoreEl2 = document.getElementById('shelter-card-elev-score');
+    if (elevScoreEl2) elevScoreEl2.style.display = 'none';
+
     document.getElementById('shelter-card-dest-info').style.display = 'block';
     _showFloatCardCentered();
 }
@@ -888,13 +978,13 @@ function updateSelectedEmergencyShelterRouteInfo(distanceMeters, durationSeconds
 }
 
 // 番号付きピン（①②③）タップ時にフロートカードへ全情報を表示
-function showDestInFloatCard(dest) {
+function showDestInFloatCard(dest, rank = null) {
     try {
         const transportLabel = document.getElementById('transportMode').value === 'walking' ? '徒歩' : '車';
 
         document.getElementById('shelter-card-name').textContent = dest.name || '避難先候補';
 
-        // ハザードバッジ＋スコアを designation 欄に表示
+        // designation 欄：安全バッジ＋スコア
         const hazardBadge = dest.hazard_safe === true
             ? '<span class="hazard-safe-badge safe">✅ 危険区域外</span>'
             : dest.hazard_safe === false
@@ -910,15 +1000,15 @@ function showDestInFloatCard(dest) {
         document.getElementById('shelter-card-distance').textContent = '計算中...';
         document.getElementById('shelter-card-duration').textContent = '計算中...';
 
-        // ハザード詳細
+        // 推奨理由セクション＋ハザード詳細（従来の hazard-block を置き換え）
+        const recommendHtml = _buildRecommendSection(dest, rank);
+        const hazardDetailHtml = buildHazardReasonBlock(dest.hazard_assessment);
         document.getElementById('shelter-card-hazard-block').innerHTML =
-            buildHazardReasonBlock(dest.hazard_assessment);
+            recommendHtml + hazardDetailHtml;
 
-        // 標高情報
-        const elevGain = dest.elevation_gain != null ? Number(dest.elevation_gain).toFixed(1) : '—';
-        const elev     = dest.elevation     != null ? Number(dest.elevation).toFixed(1)      : '—';
-        document.getElementById('shelter-card-elev-score').textContent =
-            `⬆️ +${elevGain}m ｜ 標高 ${elev}m`;
+        // 標高行は推奨理由に統合したため非表示
+        const elevScoreEl = document.getElementById('shelter-card-elev-score');
+        if (elevScoreEl) elevScoreEl.style.display = 'none';
 
         // コメント
         const commentEl = document.getElementById('shelter-card-comment');
