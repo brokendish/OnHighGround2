@@ -1184,8 +1184,13 @@
         }
         @keyframes pulse-ring {
             0%   { transform: translate(-50%, -50%) scale(0.8); opacity: 0.7; }
-            100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+            100% { transform: translate(-50%, -50%) scale(2.0); opacity: 0; }
         }
+        /* GPS精度状態によるパルス色 */
+        .pulse-ring.accuracy-high   { border: 2px solid #2196F3; background: rgba(33, 150, 243, 0.35); }
+        .pulse-ring.accuracy-normal { border: 2px solid #FFFFFF; background: rgba(255, 255, 255, 0.30); }
+        .pulse-ring.accuracy-low    { border: 2px solid #FF9800; background: rgba(255, 152,   0, 0.30); }
+        .pulse-ring.accuracy-none   { border: 2px solid #9E9E9E; background: rgba(158, 158, 158, 0.30); }
         .user-arrow-marker .arrow {
             width: 32px;
             height: 32px;

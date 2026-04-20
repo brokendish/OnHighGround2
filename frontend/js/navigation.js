@@ -1807,7 +1807,10 @@ function _updateNavMarker(lat, lon, accuracy, heading) {
     if (currentAccuracyCircle){ map.removeLayer(currentAccuracyCircle); currentAccuracyCircle = null; }
 
     // 共通の矢印アイコン（map.js の _makeCurrentLocationIcon を使用）
-    currentMarker = L.marker([lat, lon], { icon: _makeCurrentLocationIcon() })
+    const _accClass = typeof _getAccuracyClass === 'function'
+        ? _getAccuracyClass(accuracy, typeof _gpsHighAccuracy !== 'undefined' ? _gpsHighAccuracy : true)
+        : 'accuracy-high';
+    currentMarker = L.marker([lat, lon], { icon: _makeCurrentLocationIcon(_accClass) })
         .bindPopup(`🧭 現在地（ナビ中）<br>精度: ±${Math.round(accuracy)}m`)
         .addTo(map);
 

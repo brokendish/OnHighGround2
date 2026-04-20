@@ -52,11 +52,19 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 let _currentHeading = null; // コンパス or GPS heading（北を0°として時計回り）
 
+/** GPS精度状態からパルスのCSSクラスを返す */
+function _getAccuracyClass(accuracyMeters, highAccuracy) {
+    if (!accuracyMeters) return 'accuracy-none';
+    if (highAccuracy)    return 'accuracy-high';
+    if (accuracyMeters > 100) return 'accuracy-low';
+    return 'accuracy-normal';
+}
+
 /** 現在の heading を使って divIcon を生成する */
-function _makeCurrentLocationIcon() {
+function _makeCurrentLocationIcon(accuracyClass = 'accuracy-none') {
     return L.divIcon({
         className: 'user-arrow-marker',
-        html: '<div class="pulse-ring"></div><div class="arrow"></div>',
+        html: `<div class="pulse-ring ${accuracyClass}"></div><div class="arrow"></div>`,
         iconSize: [48, 48],
         iconAnchor: [24, 24]
     });
@@ -148,7 +156,9 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
         map.removeLayer(currentAccuracyCircle);
     }
 
-    currentMarker = L.marker([lat, lon], { icon: _makeCurrentLocationIcon() }).addTo(map);
+    const _accClass = _getAccuracyClass(accuracyMeters,
+        typeof _gpsHighAccuracy !== 'undefined' ? _gpsHighAccuracy : false);
+    currentMarker = L.marker([lat, lon], { icon: _makeCurrentLocationIcon(_accClass) }).addTo(map);
 
     // 直前の heading があれば即時反映
     if (_currentHeading !== null) updateUserMarkerHeading(_currentHeading);
