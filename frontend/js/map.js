@@ -8,39 +8,160 @@
 // ── マップ初期化 ──────────────────────────────────────────────────────────
 const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初期位置
 
-// ── ダブルタップでズームイン（iOS Safari 用） ─────────────────────────────
+// ── ダブルタップ / ダブルタップ＋ドラッグズーム（Google Maps 風） ──────────
+// 短いダブルタップ → 1 段階ズームイン（既存動作）
+// 2 回目タップを HOLD_THRESHOLD_MS 以上保持してからドラッグ →
+//   下方向ドラッグで拡大 / 上方向ドラッグで縮小
 (function _setupDoubleTapZoom() {
-    let lastTapTime = 0;
-    let lastTapPos  = null;
+    // ── 定数（閾値はここだけで調整） ─────────────────────────────────────
+    const DOUBLE_TAP_MS     = 300;    // ダブルタップとみなす最大間隔 (ms)
+    const TAP_RADIUS_PX     = 30;     // 同一場所とみなす最大距離 (px)
+    const HOLD_THRESHOLD_MS = 200;    // ドラッグズーム起動までの保持時間 (ms)
+    const DRAG_SENSITIVITY  = 0.025;  // ズーム変化量 / px（下ドラッグ = 拡大）
+    const MOVE_CANCEL_PX    = 8;      // 保持中にこれ以上動いたらドラッグズーム中断 (px)
+
+    // ── 状態変数 ──────────────────────────────────────────────────────────
+    let firstTapTime    = 0;
+    let firstTapPos     = null;
+    let inSecondTap     = false;   // 2 回目タップ保持中
+    let secondTapPos    = null;    // 2 回目タップ位置（ズームの中心点）
+    let holdTimer       = null;
+    let dragZoomActive  = false;   // ドラッグズームモード中
+    let dragStartY      = 0;
+    let dragStartZoom   = 0;
+
     const mapEl = document.getElementById('map');
 
-    mapEl.addEventListener('touchend', function(e) {
-        // 複数指 or 指が残っている場合は無視
-        if (e.changedTouches.length !== 1 || e.touches.length > 0) return;
+    /** ドラッグズーム関連の全状態をリセットし、map ドラッグを復元する */
+    function _reset() {
+        clearTimeout(holdTimer);
+        holdTimer      = null;
+        inSecondTap    = false;
+        secondTapPos   = null;
+        dragZoomActive = false;
+        if (map.dragging && !map.dragging.enabled()) {
+            map.dragging.enable();
+        }
+    }
 
-        const touch = e.changedTouches[0];
+    // ── touchstart: 2 回目タップ検出とホールドタイマー起動 ──────────────
+    // オーバーレイ要素上の touchstart は stopPropagation() で遮断済みのため
+    // mapEl まで届かない。追加チェックは保険として残す。
+    mapEl.addEventListener('touchstart', function(e) {
+        // 複数指タッチ → ピンチ操作 → リセットして抜ける
+        if (e.touches.length !== 1) { _reset(); return; }
+
+        const touch = e.touches[0];
         const now   = Date.now();
         const pos   = { x: touch.clientX, y: touch.clientY };
 
-        if (lastTapPos && now - lastTapTime < 300) {
-            const dx = pos.x - lastTapPos.x;
-            const dy = pos.y - lastTapPos.y;
-            if (Math.sqrt(dx * dx + dy * dy) < 30) {
+        if (firstTapPos && now - firstTapTime < DOUBLE_TAP_MS) {
+            const dx = pos.x - firstTapPos.x;
+            const dy = pos.y - firstTapPos.y;
+            if (Math.sqrt(dx * dx + dy * dy) < TAP_RADIUS_PX) {
+                // 2 回目タップ確定
+                inSecondTap   = true;
+                secondTapPos  = pos;
+                dragStartY    = touch.clientY;
+                dragStartZoom = map.getZoom();
+
+                // ホールド中の地図パンを即時抑制
+                map.dragging.disable();
+
+                // HOLD_THRESHOLD_MS 後にドラッグズームモード開始
+                holdTimer = setTimeout(function() {
+                    dragZoomActive = true;
+                }, HOLD_THRESHOLD_MS);
+
+                // ブラウザのデフォルト動作（スクロール等）を抑制
                 e.preventDefault();
-                const rect = mapEl.getBoundingClientRect();
-                const containerPoint = L.point(
-                    touch.clientX - rect.left,
-                    touch.clientY - rect.top
-                );
-                map.setZoomAround(containerPoint, map.getZoom() + 1, { animate: true });
-                lastTapTime = 0;
-                lastTapPos  = null;
                 return;
             }
         }
-        lastTapTime = now;
-        lastTapPos  = pos;
+
+        // 2 回目タップでなかった場合は 1 回目タップの位置のみ更新
+        // （firstTapTime/firstTapPos は touchend 側で正式記録）
     }, { passive: false });
+
+    // ── touchmove: ドラッグズーム処理 / 保持中の誤移動キャンセル ────────
+    mapEl.addEventListener('touchmove', function(e) {
+        if (dragZoomActive) {
+            // ドラッグズームモード: 下方向ドラッグ = 拡大
+            if (e.touches.length !== 1) { _reset(); return; }
+            e.preventDefault();
+
+            const touch   = e.touches[0];
+            const deltaY  = touch.clientY - dragStartY;  // 下 = 正 = 拡大
+            const newZoom = dragStartZoom + deltaY * DRAG_SENSITIVITY;
+            const rect    = mapEl.getBoundingClientRect();
+            const pt      = L.point(
+                secondTapPos.x - rect.left,
+                secondTapPos.y - rect.top
+            );
+            map.setZoomAround(pt, newZoom, { animate: false });
+            return;
+        }
+
+        if (inSecondTap) {
+            // ホールドタイマー待機中に指が動きすぎた → ドラッグズームを中断
+            if (e.touches.length === 1) {
+                const dy = Math.abs(e.touches[0].clientY - dragStartY);
+                const dx = Math.abs(e.touches[0].clientX - secondTapPos.x);
+                if (dx > MOVE_CANCEL_PX || dy > MOVE_CANCEL_PX) {
+                    _reset();
+                    firstTapTime = 0;
+                    firstTapPos  = null;
+                }
+            }
+        }
+    }, { passive: false });
+
+    // ── touchend: ドラッグズーム終了 or 短いダブルタップ → 1 段階ズーム ─
+    mapEl.addEventListener('touchend', function(e) {
+        if (dragZoomActive) {
+            // ドラッグズーム終了 → リセットのみ（ズーム値はそのまま維持）
+            _reset();
+            e.preventDefault();
+            return;
+        }
+
+        if (inSecondTap) {
+            // ホールド前に離した → 通常ダブルタップ（1 段階ズームイン）
+            clearTimeout(holdTimer);
+            holdTimer   = null;
+            inSecondTap = false;
+
+            if (e.changedTouches.length === 1 && e.touches.length === 0) {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const rect  = mapEl.getBoundingClientRect();
+                const pt    = L.point(
+                    touch.clientX - rect.left,
+                    touch.clientY - rect.top
+                );
+                map.setZoomAround(pt, map.getZoom() + 1, { animate: true });
+            }
+            secondTapPos = null;
+            firstTapTime = 0;
+            firstTapPos  = null;
+            map.dragging.enable();
+            return;
+        }
+
+        // 通常タップ終了 → 1 回目タップとして記録
+        if (e.changedTouches.length !== 1 || e.touches.length > 0) return;
+
+        const touch  = e.changedTouches[0];
+        firstTapTime = Date.now();
+        firstTapPos  = { x: touch.clientX, y: touch.clientY };
+    }, { passive: false });
+
+    // ── touchcancel: 予期しない中断 → 全状態リセット ────────────────────
+    mapEl.addEventListener('touchcancel', function() {
+        _reset();
+        firstTapTime = 0;
+        firstTapPos  = null;
+    });
 })();
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
