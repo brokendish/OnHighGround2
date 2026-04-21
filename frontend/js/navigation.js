@@ -11,18 +11,19 @@
 // ── 定数 ──────────────────────────────────────────────────────────────────
 const NAV_OFF_ROUTE_M      = 20;    // 逸脱表示しきい値（メートル）
 const NAV_REROUTE_THRESHOLD_M  = 30; // 再ルートしきい値（メートル）
-const NAV_MAX_GPS_ACCURACY_M   = 30; // これ以上の誤差なら逸脱判定を保留
+const NAV_MAX_GPS_ACCURACY_M   = 50; // これ以上の誤差なら逸脱判定を保留
 const NAV_CONSECUTIVE      = 3;     // 連続 N 回外れたら warning
-const NAV_ARRIVAL_M        = 25;    // 到達判定しきい値（メートル）
+const NAV_ARRIVAL_M        = 40;    // 到達判定しきい値（メートル）
 const NAV_MIN_DELTA_M      = 8;     // 移動量がこれ以下なら更新スキップ
 const NAV_LOW_ACCURACY_M   = 50;    // GPS 精度がこれ以上なら精度警告
 const NAV_REROUTE_COOLDOWN = 10000; // 再ルート連打防止（ms）
 
 // ── オート再ルート定数 ─────────────────────────────────────────────────────
 const NAV_AUTO_REROUTE_COOLDOWN_MS = 20000; // クールダウン（ms）
-const NAV_AUTO_REROUTE_ACCURACY_M  = 30;    // 精度ガード（30m以内なら実行）
-const NAV_AUTO_REROUTE_MAX_COUNT   = 3;     // ウィンドウ内最大回数
-const NAV_AUTO_REROUTE_WINDOW_MS   = 120000;// 回数カウントウィンドウ（ms）
+const NAV_AUTO_REROUTE_ACCURACY_M  = 50;    // 精度ガード（50m以内なら実行）
+const NAV_AUTO_REROUTE_MAX_COUNT   = 5;     // ウィンドウ内最大回数
+const NAV_AUTO_REROUTE_WINDOW_MS   = 180000;// 回数カウントウィンドウ（ms）
+const NAV_AUTO_REROUTE_SUSPEND_RESET_MS = 180000; // suspension 自動リセット（3分）
 
 // ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
 const NAV_ELEV_UPDATE_M    = 10; // 標高再取得の移動距離しきい値（メートル）
@@ -1204,8 +1205,7 @@ async function _fetchElevation(lat, lon) {
 // ── GPS 精度ラベル変換 ────────────────────────────────────────────────────
 function _fmtAccuracy(meters) {
     if (!Number.isFinite(meters) || meters <= 0) return null;
-    const quality = meters < 10 ? '優良' : meters < 30 ? '良好' : meters < 100 ? '普通' : '低い';
-    return `約${Math.round(meters)}m（${quality}）`;
+    return `±${Math.round(meters)}m`;
 }
 
 // ── 現在地情報（ハザード+標高+精度）を下部バーに表示 ─────────────────────────
@@ -1227,14 +1227,11 @@ function fetchCurrentLocInfo(lat, lon, elevation, accuracyMeters) {
         }
     }
 
-    // 精度表示
+    // 精度表示（常時表示・display トグルなし）
     const accEl = document.getElementById('mbc-current-accuracy');
     if (accEl) {
         const accLabel = _fmtAccuracy(accuracyMeters);
-        accEl.textContent = accLabel ? `精度：${accLabel}` : '';
-        accEl.style.display = accLabel ? '' : 'none';
-        const sepEl = document.getElementById('mbc-accuracy-sep');
-        if (sepEl) sepEl.style.display = accLabel ? '' : 'none';
+        accEl.textContent = accLabel ? `精度${accLabel}` : '—';
     }
 
     const hazardEl = document.getElementById('mbc-current-hazard');
@@ -1591,6 +1588,13 @@ function _onNavPosition(position) {
 
     _updateNavMarker(lat, lon, accuracy, heading);
 
+    // 精度表示を常時更新（テキスト差し替えのみ・レイアウト変化なし）
+    const _accEl = document.getElementById('mbc-current-accuracy');
+    if (_accEl) {
+        const _accLabel = _fmtAccuracy(accuracy);
+        _accEl.textContent = _accLabel ? `精度${_accLabel}` : '—';
+    }
+
     if (navIsAutoFollow) {
         map.setView([lat, lon], map.getZoom());
     }
@@ -1735,6 +1739,17 @@ function _tryAutoReroute(accuracy) {
         console.warn('[Nav] auto-reroute suspended: too many retries');
         _showNavBanner('⚠ 自動再ルートを一時停止しました。手動で再ルートしてください。', 'danger');
         _updateNavUI();
+        // 3分後に自動リセット
+        setTimeout(() => {
+            if (navAutoRerouteSuspended) {
+                navAutoRerouteSuspended = false;
+                navAutoRerouteCount     = 0;
+                navAutoRerouteWindowStartedAt = 0;
+                console.log('[Nav] auto-reroute suspension reset');
+                _showNavBanner('🔄 自動再ルートを再開しました', 'info', 3000);
+                _updateNavUI();
+            }
+        }, NAV_AUTO_REROUTE_SUSPEND_RESET_MS);
         return;
     }
 

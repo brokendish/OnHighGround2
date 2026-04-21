@@ -2226,7 +2226,20 @@
             padding: 0;
             flex-wrap: nowrap;
         }
-        /* ハンドル内ではラベル文字・セパレータを非表示、値だけ残す */
+        /* 各セルは固定幅・テキスト中央揃え・レイアウトシフト防止 */
+        .mbc-status-cell {
+            display: inline-block;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .mbc-status-hazard { min-width: 80px; max-width: 160px; }
+        .mbc-status-elev   { min-width: 56px; }
+        .mbc-status-acc    { min-width: 72px; color: #888; }
+        /* セパレータは常時表示（visibility で制御） */
+        .mbc-status-sep { color: #ccc; }
+        /* ハンドル内ではラベル文字を非表示、値だけ残す */
         #mbc-row-hazard .mbc-dist-label {
             display: none;
         }
@@ -2608,11 +2621,11 @@
                         <div class="mbc-handle-bar"></div>
                         <!-- ハザード・標高・精度コンパクト表示（現在地取得後に表示） -->
                         <div id="mbc-row-hazard" class="mbc-info-line" style="display:none;">
-                            <span id="mbc-current-hazard">—</span>
-                            <span class="mbc-dist-sep">·</span>
-                            <span id="mbc-current-elev">—</span>
-                            <span class="mbc-dist-sep" id="mbc-accuracy-sep" style="display:none;">·</span>
-                            <span id="mbc-current-accuracy" style="display:none; color:#888;"></span>
+                            <span id="mbc-current-hazard" class="mbc-status-cell mbc-status-hazard">—</span>
+                            <span class="mbc-dist-sep mbc-status-sep">·</span>
+                            <span id="mbc-current-elev" class="mbc-status-cell mbc-status-elev">—</span>
+                            <span class="mbc-dist-sep mbc-status-sep">·</span>
+                            <span id="mbc-current-accuracy" class="mbc-status-cell mbc-status-acc">—</span>
                         </div>
                         <svg class="mbc-handle-chevron" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
