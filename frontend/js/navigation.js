@@ -26,8 +26,12 @@ const NAV_AUTO_REROUTE_WINDOW_MS   = 180000;// 回数カウントウィンドウ
 const NAV_AUTO_REROUTE_SUSPEND_RESET_MS = 180000; // suspension 自動リセット（3分）
 
 // ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
-const NAV_ELEV_UPDATE_M    = 10; // 標高再取得の移動距離しきい値（メートル）
-const NAV_HAZARD_UPDATE_M  = 10; // ハザード再取得の移動距離しきい値（メートル）
+const NAV_ELEV_UPDATE_M        = 10;   // 標高再取得の移動距離しきい値（メートル）
+const NAV_HAZARD_UPDATE_M      = 10;   // ハザード再取得の移動距離しきい値（メートル）
+const NAV_STATUS_BAR_THROTTLE  = 1000; // ステータスバー精度表示の更新間隔（ms）
+
+// ── ステータスバー更新スロットル ──────────────────────────────────────────
+let _statusBarLastUpdateAt = 0;
 
 // ── 前方ブロック再ルート定数 ──────────────────────────────────────────────
 const BLOCK_AHEAD_START_METERS  = 20;   // ブロック開始距離（現在地前方 m）
@@ -1235,7 +1239,10 @@ function fetchCurrentLocInfo(lat, lon, elevation, accuracyMeters) {
     }
 
     const hazardEl = document.getElementById('mbc-current-hazard');
-    if (hazardEl) hazardEl.textContent = '確認中...';
+    if (hazardEl) {
+        hazardEl.textContent = '確認中...';
+        hazardEl.className   = 'mbc-status-cell mbc-status-hazard';
+    }
     _checkCurrentHazard(lat, lon);
 }
 
@@ -1255,7 +1262,8 @@ function _updateHazardRow(isDanger, assessment) {
     const el = document.getElementById('mbc-current-hazard');
     if (!el) return;
     if (!isDanger) {
-        el.innerHTML = '<span class="mbc-hazard-safe">✅ 安全（全ハザード外）</span>';
+        el.textContent = '✅ 安全';
+        el.className = 'mbc-status-cell mbc-status-hazard mbc-hazard-safe';
         return;
     }
     const dangerLabels = [];
@@ -1268,8 +1276,9 @@ function _updateHazardRow(isDanger, assessment) {
             }
         }
     }
-    const labelText = dangerLabels.length > 0 ? dangerLabels.join(' / ') : '危険区域内';
-    el.innerHTML = `<span class="mbc-hazard-danger">⚠️ ${labelText}リスクあり</span>`;
+    const labelText = dangerLabels.length > 0 ? dangerLabels.join('/') : '危険';
+    el.textContent = `⚠ ${labelText}`;
+    el.className = 'mbc-status-cell mbc-status-hazard mbc-hazard-danger';
 }
 
 // ── 距離フォーマット（ナビ用） ────────────────────────────────────────────
@@ -1401,7 +1410,10 @@ function startNavigation() {
     navLastElevFetchPos   = null;
     navLastHazardFetchPos = null;
     const hazardEl = document.getElementById('mbc-current-hazard');
-    if (hazardEl) hazardEl.textContent = '確認中...';
+    if (hazardEl) {
+        hazardEl.textContent = '確認中...';
+        hazardEl.className   = 'mbc-status-cell mbc-status-hazard';
+    }
     if (currentLocation) {
         _fetchElevation(currentLocation.lat, currentLocation.lon).then(elev => {
             navStartElevation = elev;
@@ -1588,11 +1600,16 @@ function _onNavPosition(position) {
 
     _updateNavMarker(lat, lon, accuracy, heading);
 
-    // 精度表示を常時更新（テキスト差し替えのみ・レイアウト変化なし）
-    const _accEl = document.getElementById('mbc-current-accuracy');
-    if (_accEl) {
-        const _accLabel = _fmtAccuracy(accuracy);
-        _accEl.textContent = _accLabel ? `精度${_accLabel}` : '—';
+    // 精度表示（1秒スロットル・テキスト差し替えのみ）
+    const _nowAcc = Date.now();
+    if (_nowAcc - _statusBarLastUpdateAt >= NAV_STATUS_BAR_THROTTLE) {
+        _statusBarLastUpdateAt = _nowAcc;
+        const _accEl = document.getElementById('mbc-current-accuracy');
+        if (_accEl) {
+            const _accLabel = _fmtAccuracy(accuracy);
+            const _newText = _accLabel ? `精度${_accLabel}` : '—';
+            if (_accEl.textContent !== _newText) _accEl.textContent = _newText;
+        }
     }
 
     if (navIsAutoFollow) {
