@@ -1651,13 +1651,27 @@ function _onNavPosition(position) {
     }
 
     // 到達判定（GPS精度チェックより前に実施）
-    // GPS精度が悪い場合は accuracy 値を半径として使い、確実に到達を検知する
+    // 係数 1.5: GPS誤差＋OSRMスナップ誤差を合わせて吸収する
     if (navDestination) {
+        const effectiveRadius = Math.max(NAV_ARRIVAL_M, accuracy * 1.5);
+
+        // ① 目的地座標との距離チェック（navDestination は元の施設座標）
         const arrDist = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
-        const effectiveRadius = Math.max(NAV_ARRIVAL_M, accuracy * 0.8);
         if (arrDist <= effectiveRadius) {
             _onNavArrival();
             return;
+        }
+
+        // ② ルート最終ウェイポイントとの距離チェック
+        // OSRM がスナップした終端が目的地座標と離れている場合をカバー
+        if (navActiveRoute && Array.isArray(navActiveRoute.coordinates) &&
+                navActiveRoute.coordinates.length >= 1) {
+            const lastCoord = navActiveRoute.coordinates[navActiveRoute.coordinates.length - 1];
+            const lastDist  = _navHaversine(lat, lon, lastCoord.lat, lastCoord.lng);
+            if (lastDist <= effectiveRadius) {
+                _onNavArrival();
+                return;
+            }
         }
     }
 
