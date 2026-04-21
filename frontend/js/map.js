@@ -134,12 +134,18 @@ const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初
         }
 
         if (inSecondTap) {
-            // ホールド前に離した → Leaflet 標準ダブルタップズームに委譲
-            // Leaflet の touchend ハンドラが先行して dblclick を発行済みのため
-            // ここでは独自 setZoomAround を呼ばない（二重ズーム防止）
+            // ホールド前に離した → 独自で 1 段階ズームイン
+            // L.Map.Tap は click しか発行せず dblclick を発行しないため
+            // L.Map.DoubleClickZoom はタッチでは動作しない。独自実装が必要。
             if (e.changedTouches.length === 1 && e.touches.length === 0) {
-                // ブラウザ合成 dblclick だけ抑制（Leaflet の合成イベントは既に発行済み）
                 e.preventDefault();
+                const touch = e.changedTouches[0];
+                const rect  = mapEl.getBoundingClientRect();
+                const pt    = L.point(
+                    touch.clientX - rect.left,
+                    touch.clientY - rect.top
+                );
+                map.setZoomAround(pt, map.getZoom() + 1, { animate: true });
             }
             _reset();
             return;
