@@ -33,6 +33,10 @@ const NAV_STATUS_BAR_THROTTLE  = 1000; // ステータスバー精度表示の�
 // ── ステータスバー更新スロットル ──────────────────────────────────────────
 let _statusBarLastUpdateAt = 0;
 
+// ── 逸脱デバウンスタイマー ────────────────────────────────────────────────
+const NAV_OFF_ROUTE_DEBOUNCE_MS = 3000; // 3秒待って誤検知を防ぐ
+let _offRouteDebounceTimer = null;
+
 // ── 前方ブロック再ルート定数 ──────────────────────────────────────────────
 const BLOCK_AHEAD_START_METERS  = 20;   // ブロック開始距離（現在地前方 m）
 const BLOCK_AHEAD_END_METERS    = 180;  // ブロック終了距離（現在地前方 m）
@@ -1473,6 +1477,10 @@ function stopNavigation() {
     navCurrentElevation      = null;
     navLastElevFetchPos      = null;
     navLastHazardFetchPos    = null;
+    if (_offRouteDebounceTimer !== null) {
+        clearTimeout(_offRouteDebounceTimer);
+        _offRouteDebounceTimer = null;
+    }
     _clearBlockAheadLayer();
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     setNavMode('browse');
@@ -1541,6 +1549,10 @@ function rerouteToSameDestination() {
         onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
             navActiveRoute       = routes[selectedRouteIndex];
             navOffRouteCount     = 0;
+            if (_offRouteDebounceTimer !== null) {
+                clearTimeout(_offRouteDebounceTimer);
+                _offRouteDebounceTimer = null;
+            }
             navRerouteInProgress = false;
             // 地図上に新しいルートを描画
             if (typeof renderRouteCandidatesOnMap === 'function') {
@@ -1679,11 +1691,13 @@ function _onNavPosition(position) {
     }
 
     // 逸脱判定（再ルート処理中・GPS精度不良はスキップ）
+    // routeResult != null で undefined も弾く（undefined !== null は true になるバグ対策）
     if (navActiveRoute && !navRerouteInProgress && !navAutoRerouteInProgress
-            && routeResult !== null && accuracy <= NAV_MAX_GPS_ACCURACY_M) {
+            && routeResult != null && accuracy <= NAV_MAX_GPS_ACCURACY_M) {
         const offsetM = routeResult.routeOffsetMeters;
         if (offsetM >= NAV_OFF_ROUTE_M) {
             navOffRouteCount++;
+            // ① 連続 N 回カウント判定（即時 warning 遷移用）
             if (navOffRouteCount >= NAV_CONSECUTIVE) {
                 if (navigationMode === 'navigation_active') {
                     setNavMode('navigation_warning');
@@ -1692,14 +1706,27 @@ function _onNavPosition(position) {
                         voiceNav.announce({ id: 'nav-off-route', text: 'ルートから外れています', category: 'warning', priority: 'high' });
                     }
                 }
-                // 再ルートしきい値を超えている場合のみオート再ルートを試みる
-                if (offsetM >= NAV_REROUTE_THRESHOLD_M) {
-                    _tryAutoReroute(accuracy);
-                }
+            }
+            // ② デバウンス方式：3秒後もまだ逸脱していたら再ルートを実行
+            if (offsetM >= NAV_REROUTE_THRESHOLD_M && _offRouteDebounceTimer === null) {
+                const _capturedAccuracy = accuracy;
+                _offRouteDebounceTimer = setTimeout(() => {
+                    _offRouteDebounceTimer = null;
+                    // タイマー発火時点でまだ逸脱中かつ処理中でなければ実行
+                    if (navOffRouteCount >= NAV_CONSECUTIVE &&
+                            !navRerouteInProgress && !navAutoRerouteInProgress) {
+                        _tryAutoReroute(_capturedAccuracy);
+                    }
+                }, NAV_OFF_ROUTE_DEBOUNCE_MS);
             }
         } else {
+            // ルートに戻った → カウントとデバウンスタイマーをリセット
             if (navOffRouteCount > 0) {
                 navOffRouteCount = 0;
+                if (_offRouteDebounceTimer !== null) {
+                    clearTimeout(_offRouteDebounceTimer);
+                    _offRouteDebounceTimer = null;
+                }
                 if (offsetEl) offsetEl.textContent = '';
                 if (navigationMode === 'navigation_warning') {
                     setNavMode('navigation_active');
@@ -1788,6 +1815,10 @@ function _executeAutoReroute() {
         onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
             navActiveRoute           = routes[selectedRouteIndex];
             navOffRouteCount         = 0;
+            if (_offRouteDebounceTimer !== null) {
+                clearTimeout(_offRouteDebounceTimer);
+                _offRouteDebounceTimer = null;
+            }
             navAutoRerouteInProgress = false;
 
             if (typeof renderRouteCandidatesOnMap === 'function') {
