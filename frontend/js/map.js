@@ -21,26 +21,35 @@ const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初
     const MOVE_CANCEL_PX    = 8;      // 保持中にこれ以上動いたらドラッグズーム中断 (px)
 
     // ── 状態変数 ──────────────────────────────────────────────────────────
-    let firstTapTime    = 0;
-    let firstTapPos     = null;
-    let inSecondTap     = false;   // 2 回目タップ保持中
-    let secondTapPos    = null;    // 2 回目タップ位置（ズームの中心点）
-    let holdTimer       = null;
-    let dragZoomActive  = false;   // ドラッグズームモード中
-    let dragStartY      = 0;
-    let dragStartZoom   = 0;
+    let firstTapTime       = 0;
+    let firstTapPos        = null;
+    let inSecondTap        = false;   // 2 回目タップ保持中
+    let secondTapPos       = null;    // 2 回目タップ位置（ズームの中心点）
+    let holdTimer          = null;
+    let dragZoomActive     = false;   // ドラッグズームモード中
+    let dragStartY         = 0;
+    let dragStartZoom      = 0;
+    let draggingWasEnabled = null;    // disable 前の map.dragging 状態を保存
 
     const mapEl = document.getElementById('map');
 
-    /** ドラッグズーム関連の全状態をリセットし、map ドラッグを復元する */
+    /**
+     * 全状態をリセットし map.dragging を disable 前の状態に戻す。
+     * firstTapPos も含めて完全リセットするため、ピンチ後の誤検知を防ぐ。
+     */
     function _reset() {
         clearTimeout(holdTimer);
         holdTimer      = null;
         inSecondTap    = false;
         secondTapPos   = null;
         dragZoomActive = false;
-        if (map.dragging && !map.dragging.enabled()) {
-            map.dragging.enable();
+        firstTapTime   = 0;
+        firstTapPos    = null;
+        // 無条件 enable は避け、記録した元状態に戻す
+        if (draggingWasEnabled !== null && map.dragging) {
+            if (draggingWasEnabled) map.dragging.enable();
+            // draggingWasEnabled === false の場合は disable のまま維持
+            draggingWasEnabled = null;
         }
     }
 
@@ -65,8 +74,9 @@ const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初
                 dragStartY    = touch.clientY;
                 dragStartZoom = map.getZoom();
 
-                // ホールド中の地図パンを即時抑制
-                map.dragging.disable();
+                // disable 前の状態を記録してからパン抑制
+                draggingWasEnabled = map.dragging ? map.dragging.enabled() : null;
+                if (map.dragging) map.dragging.disable();
 
                 // HOLD_THRESHOLD_MS 後にドラッグズームモード開始
                 holdTimer = setTimeout(function() {
@@ -109,8 +119,6 @@ const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初
                 const dx = Math.abs(e.touches[0].clientX - secondTapPos.x);
                 if (dx > MOVE_CANCEL_PX || dy > MOVE_CANCEL_PX) {
                     _reset();
-                    firstTapTime = 0;
-                    firstTapPos  = null;
                 }
             }
         }
@@ -126,25 +134,14 @@ const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初
         }
 
         if (inSecondTap) {
-            // ホールド前に離した → 通常ダブルタップ（1 段階ズームイン）
-            clearTimeout(holdTimer);
-            holdTimer   = null;
-            inSecondTap = false;
-
+            // ホールド前に離した → Leaflet 標準ダブルタップズームに委譲
+            // Leaflet の touchend ハンドラが先行して dblclick を発行済みのため
+            // ここでは独自 setZoomAround を呼ばない（二重ズーム防止）
             if (e.changedTouches.length === 1 && e.touches.length === 0) {
+                // ブラウザ合成 dblclick だけ抑制（Leaflet の合成イベントは既に発行済み）
                 e.preventDefault();
-                const touch = e.changedTouches[0];
-                const rect  = mapEl.getBoundingClientRect();
-                const pt    = L.point(
-                    touch.clientX - rect.left,
-                    touch.clientY - rect.top
-                );
-                map.setZoomAround(pt, map.getZoom() + 1, { animate: true });
             }
-            secondTapPos = null;
-            firstTapTime = 0;
-            firstTapPos  = null;
-            map.dragging.enable();
+            _reset();
             return;
         }
 
@@ -157,10 +154,9 @@ const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初
     }, { passive: false });
 
     // ── touchcancel: 予期しない中断 → 全状態リセット ────────────────────
+    // _reset() が firstTapPos 含めて完全リセットするため個別クリア不要
     mapEl.addEventListener('touchcancel', function() {
         _reset();
-        firstTapTime = 0;
-        firstTapPos  = null;
     });
 })();
 
