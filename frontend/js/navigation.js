@@ -1604,7 +1604,35 @@ function rerouteWithNewSearch() {
 function _onNavPosition(position) {
     const { latitude: lat, longitude: lon, accuracy, heading } = position.coords;
 
-    // 微小移動は無視
+    // 到達判定（移動量チェック・精度チェックより前に必ず実施）
+    // 係数 1.5: GPS誤差＋OSRMスナップ誤差を合わせて吸収する
+    if (navDestination) {
+        const effectiveRadius = Math.max(NAV_ARRIVAL_M, accuracy * 1.5);
+        const arrDist = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
+        console.log(`[NAV] dist_to_dest=${arrDist.toFixed(1)}m, accuracy=${accuracy.toFixed(1)}m, radius=${effectiveRadius.toFixed(1)}m`);
+
+        // ① 目的地座標との距離チェック（navDestination は元の施設座標）
+        if (arrDist <= effectiveRadius) {
+            console.log('[NAV] ✅ ARRIVAL DETECTED (destination)');
+            _onNavArrival();
+            return;
+        }
+
+        // ② ルート最終ウェイポイントとの距離チェック
+        // OSRM がスナップした終端が目的地座標と離れている場合をカバー
+        if (navActiveRoute && Array.isArray(navActiveRoute.coordinates) &&
+                navActiveRoute.coordinates.length >= 1) {
+            const lastCoord = navActiveRoute.coordinates[navActiveRoute.coordinates.length - 1];
+            const lastDist  = _navHaversine(lat, lon, lastCoord.lat, lastCoord.lng);
+            if (lastDist <= effectiveRadius) {
+                console.log('[NAV] ✅ ARRIVAL DETECTED (route endpoint)');
+                _onNavArrival();
+                return;
+            }
+        }
+    }
+
+    // 微小移動は無視（到着判定の後でフィルタ）
     if (currentLocation) {
         const moved = _navHaversine(currentLocation.lat, currentLocation.lon, lat, lon);
         if (moved < NAV_MIN_DELTA_M) return;
@@ -1650,31 +1678,6 @@ function _onNavPosition(position) {
         }
     }
 
-    // 到達判定（GPS精度チェックより前に実施）
-    // 係数 1.5: GPS誤差＋OSRMスナップ誤差を合わせて吸収する
-    if (navDestination) {
-        const effectiveRadius = Math.max(NAV_ARRIVAL_M, accuracy * 1.5);
-
-        // ① 目的地座標との距離チェック（navDestination は元の施設座標）
-        const arrDist = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
-        if (arrDist <= effectiveRadius) {
-            _onNavArrival();
-            return;
-        }
-
-        // ② ルート最終ウェイポイントとの距離チェック
-        // OSRM がスナップした終端が目的地座標と離れている場合をカバー
-        if (navActiveRoute && Array.isArray(navActiveRoute.coordinates) &&
-                navActiveRoute.coordinates.length >= 1) {
-            const lastCoord = navActiveRoute.coordinates[navActiveRoute.coordinates.length - 1];
-            const lastDist  = _navHaversine(lat, lon, lastCoord.lat, lastCoord.lng);
-            if (lastDist <= effectiveRadius) {
-                _onNavArrival();
-                return;
-            }
-        }
-    }
-
     // 残距離・逸脱ステータス更新（共通関数）
     const routeResult = _updateRemainingDistanceDisplay(lat, lon, accuracy);
     const offsetEl    = document.getElementById('mbc-offset-status');
@@ -1698,17 +1701,17 @@ function _onNavPosition(position) {
         _checkCurrentHazard(lat, lon);
     }
 
-    // GPS 精度警告（逸脱判定はスキップ）
+    // GPS 精度警告（バナー表示のみ、逸脱判定はスキップしない）
     if (accuracy > NAV_LOW_ACCURACY_M) {
         _showNavBanner('⚠ 位置情報の精度が低下しています（±' + Math.round(accuracy) + 'm）', 'warning');
-        return;
     }
 
-    // 逸脱判定（再ルート処理中・GPS精度不良はスキップ）
+    // 逸脱判定（再ルート処理中はスキップ、精度条件は除去）
     // routeResult != null で undefined も弾く（undefined !== null は true になるバグ対策）
     if (navActiveRoute && !navRerouteInProgress && !navAutoRerouteInProgress
-            && routeResult != null && accuracy <= NAV_MAX_GPS_ACCURACY_M) {
+            && routeResult != null) {
         const offsetM = routeResult.routeOffsetMeters;
+        console.log(`[NAV] off_route=${offsetM.toFixed(1)}m, offRouteCount=${navOffRouteCount}, accuracy=${accuracy.toFixed(1)}m`);
         if (offsetM >= NAV_OFF_ROUTE_M) {
             navOffRouteCount++;
             // ① 連続 N 回カウント判定（即時 warning 遷移用）
@@ -1772,13 +1775,6 @@ function _tryAutoReroute(accuracy) {
     // クールダウン
     if (now - navLastAutoRerouteAt < NAV_AUTO_REROUTE_COOLDOWN_MS) {
         console.log('[Nav] auto-reroute skipped: cooldown');
-        return;
-    }
-
-    // 精度ガード
-    if (accuracy > NAV_AUTO_REROUTE_ACCURACY_M) {
-        console.log('[Nav] auto-reroute skipped: low accuracy', accuracy);
-        _showNavBanner(`⚠ 位置精度が低いため自動再ルートを保留しています（±${Math.round(accuracy)}m）`, 'warning');
         return;
     }
 
