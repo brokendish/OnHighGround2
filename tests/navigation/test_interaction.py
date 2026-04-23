@@ -9,8 +9,8 @@ Key question per (arrival_radius, reroute_threshold) cell:
   Does arrival fire before / after / instead of reroute?
 
 With the post-fix code, arrival is checked FIRST on every GPS update.
-Once the user is inside effective_radius of destination, arrival fires and
-the reroute check never runs.  The matrix confirms the actual boundary.
+Once the user satisfies the consecutive arrival rule, arrival fires and the
+reroute check never runs.  The matrix confirms the actual boundary.
 
 Classifications:
   'arrival_only'    — arrival fired; reroute never fired

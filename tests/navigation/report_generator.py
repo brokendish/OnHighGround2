@@ -16,7 +16,9 @@ from sweep_config import (
     CURRENT_CONSECUTIVE,
     CURRENT_DEBOUNCE_SEC,
     GPS_STEP_SEC,
-    ACCURACY_MULTIPLIER,
+    LOW_ACCURACY_ARRIVAL_RADIUS,
+    LOW_ACCURACY_ARRIVAL_CONSECUTIVE,
+    CURRENT_ARRIVAL_CONSECUTIVE,
 )
 
 
@@ -45,13 +47,19 @@ def _fmt(v, decimals=1):
 
 def _paradox_table(arrival_radius: float) -> str:
     rows = [
-        '| GPS accuracy (m) | effective radius (m) | radius source |',
-        '|---|---|---|',
+        '| GPS accuracy (m) | arrival radius (m) | required consecutive fixes | radius source |',
+        '|---|---|---|---|',
     ]
     for acc in [5, 10, 15, 20, 30, 50, 80, 100]:
-        eff = max(arrival_radius, acc * ACCURACY_MULTIPLIER)
-        src = f'arrival_radius={arrival_radius}m' if arrival_radius >= acc * ACCURACY_MULTIPLIER else f'accuracy×{ACCURACY_MULTIPLIER}'
-        rows.append(f'| {acc} | {eff:.0f} | {src} |')
+        if acc > 30:
+            radius = LOW_ACCURACY_ARRIVAL_RADIUS
+            required = LOW_ACCURACY_ARRIVAL_CONSECUTIVE
+            src = 'low-accuracy conservative mode'
+        else:
+            radius = arrival_radius
+            required = CURRENT_ARRIVAL_CONSECUTIVE
+            src = f'arrival_radius={arrival_radius}m'
+        rows.append(f'| {acc} | {radius:.0f} | {required} | {src} |')
     return '\n'.join(rows)
 
 
@@ -66,15 +74,14 @@ def generate_arrival_report(results: list) -> str:
     lines = [
         '# Arrival Detection Parameter Sweep',
         '',
-        '## GPS accuracy → effective radius (paradox table)',
+        '## GPS accuracy → arrival rule',
         '',
         f'Current `arrival_radius` = **{CURRENT_ARRIVAL_RADIUS} m**',
         '',
         _paradox_table(CURRENT_ARRIVAL_RADIUS),
         '',
-        '> **逆説:** GPS 精度が良いほど `accuracy × 1.5` が小さくなり、',
-        '> `arrival_radius` が支配的になる。精度が悪い（50m超）と',
-        '> 実効半径は 75m+ になり、むしろ検出しやすくなる。',
+        '> 低精度（accuracy > 30m）では半径を広げず、より小さい半径と',
+        '> 多めの連続成立回数で保守的に確定する。',
         '',
         '## Detection rate by scenario',
         '',

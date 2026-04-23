@@ -72,6 +72,8 @@ let navIsAutoFollow  = true;   // 地図自動追従フラグ
 let navActiveRoute          = null;  // 現在案内中のルートオブジェクト { coordinates: [{lat,lng}] }
 let navDestination          = null;  // 現在の目的地 { lat, lon }
 let navOriginalDestination  = null;  // 最初に選んだ目的地（再検索後も保持）
+let navArrivalConsecutiveCount = 0;  // 到着条件の連続成立カウント
+let navHasArrived          = false;  // 到着確定済みフラグ
 let navRerouteInProgress    = false; // 再ルート処理中フラグ
 let navLastRerouteAt        = 0;     // 最後に再ルートした時刻（ms）
 

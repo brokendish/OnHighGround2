@@ -143,26 +143,37 @@ class NavigationEngine:
     """
 
     # Default values — mirror navigation.js:12-37
-    _ARRIVAL_M_DEFAULT         = 40
-    _REROUTE_THRESHOLD_DEFAULT = 30
-    _OFF_ROUTE_M_DEFAULT       = 20
+    _ARRIVAL_M_DEFAULT         = 12
+    _ARRIVAL_CONSECUTIVE_DEFAULT = 2
+    _ARRIVAL_LOW_ACCURACY_M    = 30
+    _ARRIVAL_LOW_ACCURACY_RADIUS_M = 8
+    _ARRIVAL_LOW_ACCURACY_CONSECUTIVE = 3
+    _REROUTE_THRESHOLD_DEFAULT = 28
+    _OFF_ROUTE_M_DEFAULT       = 28
+    _OFF_ROUTE_NEAR_GOAL_M_DEFAULT = 18
+    _NEAR_GOAL_M_DEFAULT       = 50
     _CONSECUTIVE_DEFAULT       = 3
     _DEBOUNCE_SEC_DEFAULT      = 3.0
     _MIN_DELTA_M_DEFAULT       = 8
-    _ACCURACY_MULTIPLIER       = 1.5   # navigation.js:1610  accuracy * 1.5
 
     def __init__(
         self,
         arrival_radius: float    = _ARRIVAL_M_DEFAULT,
+        arrival_consecutive_required: int = _ARRIVAL_CONSECUTIVE_DEFAULT,
         reroute_threshold: float = _REROUTE_THRESHOLD_DEFAULT,
         off_route_m: float       = _OFF_ROUTE_M_DEFAULT,
+        near_goal_off_route_m: float = _OFF_ROUTE_NEAR_GOAL_M_DEFAULT,
+        near_goal_m: float       = _NEAR_GOAL_M_DEFAULT,
         consecutive_required: int = _CONSECUTIVE_DEFAULT,
         debounce_sec: float      = _DEBOUNCE_SEC_DEFAULT,
         min_delta_m: float       = _MIN_DELTA_M_DEFAULT,
     ):
         self.arrival_radius       = arrival_radius
+        self.arrival_consecutive_required = arrival_consecutive_required
         self.reroute_threshold    = reroute_threshold
         self.off_route_m          = off_route_m
+        self.near_goal_off_route_m = near_goal_off_route_m
+        self.near_goal_m          = near_goal_m
         self.consecutive_required = consecutive_required
         self.debounce_sec         = debounce_sec
         self.min_delta_m          = min_delta_m
@@ -173,6 +184,9 @@ class NavigationEngine:
         self._state: str = 'active'               # 'active' | 'warning' | 'finished'
         self._off_route_count: int = 0
         self._debounce_start_ts: Optional[float] = None
+        self._arrival_count: int = 0
+        self._has_arrived: bool = False
+        self._is_rerouting: bool = False
 
     def reset(self):
         """Reset mutable state; keeps parameter values."""
@@ -182,6 +196,9 @@ class NavigationEngine:
         self._state = 'active'
         self._off_route_count = 0
         self._debounce_start_ts = None
+        self._arrival_count = 0
+        self._has_arrived = False
+        self._is_rerouting = False
 
     def set_destination(self, lat: float, lon: float):
         self._destination = {'lat': lat, 'lon': lon}
@@ -200,39 +217,42 @@ class NavigationEngine:
             return []
 
         events = []
+        dist_to_goal = None
 
         # ── Arrival check (before min-delta filter) ───────────────────────
-        # JS: navigation.js:1607-1633
+        # JS: navigation.js:_onNavPosition
         if self._destination is not None:
-            effective_radius = max(
-                self.arrival_radius,
-                accuracy * self._ACCURACY_MULTIPLIER,
-            )
             arr_dist = haversine(
                 lat, lon,
                 self._destination['lat'], self._destination['lon'],
             )
-            if arr_dist <= effective_radius:
-                events.append(NavEvent('arrival', timestamp, {
-                    'dist_to_dest': arr_dist,
-                    'effective_radius': effective_radius,
-                    'trigger': 'destination',
-                }))
-                self._state = 'finished'
-                return events
+            dist_to_goal = arr_dist
 
-            # Route-endpoint fallback (JS: navigation.js:1621-1632)
             if self._route and len(self._route) >= 1:
                 last = self._route[-1]
                 last_dist = haversine(lat, lon, last['lat'], last['lng'])
-                if last_dist <= effective_radius:
-                    events.append(NavEvent('arrival', timestamp, {
-                        'dist_to_dest': last_dist,
-                        'effective_radius': effective_radius,
-                        'trigger': 'route_endpoint',
-                    }))
-                    self._state = 'finished'
-                    return events
+                dist_to_goal = min(dist_to_goal, last_dist)
+
+            if accuracy > self._ARRIVAL_LOW_ACCURACY_M:
+                arrival_radius = self._ARRIVAL_LOW_ACCURACY_RADIUS_M
+                arrival_required = self._ARRIVAL_LOW_ACCURACY_CONSECUTIVE
+            else:
+                arrival_radius = self.arrival_radius
+                arrival_required = self.arrival_consecutive_required
+
+            arrival_candidate = dist_to_goal <= arrival_radius
+            self._arrival_count = self._arrival_count + 1 if arrival_candidate else 0
+
+            if self._arrival_count >= arrival_required:
+                events.append(NavEvent('arrival', timestamp, {
+                    'dist_to_dest': dist_to_goal,
+                    'arrival_radius': arrival_radius,
+                    'arrival_counter': self._arrival_count,
+                    'trigger': 'goal',
+                }))
+                self._state = 'finished'
+                self._has_arrived = True
+                return events
 
         # ── Min-delta filter (JS: navigation.js:1635-1639) ────────────────
         if self._current_location is not None:
@@ -245,35 +265,48 @@ class NavigationEngine:
         self._current_location = {'lat': lat, 'lon': lon}
 
         # ── Off-route / reroute check (JS: navigation.js:1709-1754) ──────
-        if self._route is not None:
+        if self._route is not None and not self._has_arrived and not self._is_rerouting:
             result = remaining_route_distance(self._route, lat, lon)
             if result is not None:
                 offset_m = result['route_offset_meters']
+                if dist_to_goal is None and self._destination is not None:
+                    dist_to_goal = haversine(
+                        lat, lon,
+                        self._destination['lat'], self._destination['lon'],
+                    )
+                near_goal = dist_to_goal is not None and dist_to_goal <= self.near_goal_m
+                off_route_threshold = self.near_goal_off_route_m if near_goal else self.reroute_threshold
 
                 # Check if pending debounce timer has expired
                 if (self._debounce_start_ts is not None
                         and timestamp - self._debounce_start_ts >= self.debounce_sec
                         and self._off_route_count >= self.consecutive_required):
+                    self._is_rerouting = True
                     events.append(NavEvent('reroute_triggered', timestamp, {
                         'offset_m': offset_m,
+                        'threshold_m': off_route_threshold,
+                        'near_goal': near_goal,
                         'off_route_count': self._off_route_count,
                         'debounce_delay_sec': timestamp - self._debounce_start_ts,
                     }))
+                    self._is_rerouting = False
                     self._debounce_start_ts = None
                     self._off_route_count = 0
                     if self._state == 'warning':
                         self._state = 'active'
 
-                if offset_m >= self.off_route_m:
+                if offset_m >= off_route_threshold:
                     self._off_route_count += 1
                     if (self._off_route_count >= self.consecutive_required
                             and self._state == 'active'):
                         self._state = 'warning'
                         events.append(NavEvent('off_route_warning', timestamp, {
                             'offset_m': offset_m,
+                            'threshold_m': off_route_threshold,
+                            'near_goal': near_goal,
                             'off_route_count': self._off_route_count,
                         }))
-                    if (offset_m >= self.reroute_threshold
+                    if (offset_m >= off_route_threshold
                             and self._debounce_start_ts is None):
                         self._debounce_start_ts = timestamp
                 else:

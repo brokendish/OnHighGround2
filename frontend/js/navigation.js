@@ -9,11 +9,16 @@
  */
 
 // ── 定数 ──────────────────────────────────────────────────────────────────
-const NAV_OFF_ROUTE_M      = 20;    // 逸脱表示しきい値（メートル）
-const NAV_REROUTE_THRESHOLD_M  = 30; // 再ルートしきい値（メートル）
+const NAV_OFF_ROUTE_M      = 28;    // 通常時の逸脱候補しきい値（メートル）
+const NAV_OFF_ROUTE_NEAR_GOAL_M = 18; // 目的地近傍の逸脱候補しきい値（メートル）
+const NAV_NEAR_GOAL_M      = 50;    // 目的地近傍とみなす距離（メートル）
 const NAV_MAX_GPS_ACCURACY_M   = 50; // これ以上の誤差なら逸脱判定を保留
 const NAV_CONSECUTIVE      = 3;     // 連続 N 回外れたら warning
-const NAV_ARRIVAL_M        = 40;    // 到達判定しきい値（メートル）
+const NAV_ARRIVAL_M        = 12;    // 到達判定しきい値（メートル）
+const NAV_ARRIVAL_CONSECUTIVE = 2;  // 到達判定に必要な連続成立回数
+const NAV_ARRIVAL_LOW_ACCURACY_M = 30; // これを超える精度では到着確定を保守的にする
+const NAV_ARRIVAL_LOW_ACCURACY_RADIUS_M = 8; // 低精度時の到着判定しきい値（メートル）
+const NAV_ARRIVAL_LOW_ACCURACY_CONSECUTIVE = 3; // 低精度時の連続成立回数
 const NAV_MIN_DELTA_M      = 8;     // 移動量がこれ以下なら更新スキップ
 const NAV_LOW_ACCURACY_M   = 50;    // GPS 精度がこれ以上なら精度警告
 const NAV_REROUTE_COOLDOWN = 10000; // 再ルート連打防止（ms）
@@ -24,6 +29,7 @@ const NAV_AUTO_REROUTE_ACCURACY_M  = 50;    // 精度ガード（50m以内なら
 const NAV_AUTO_REROUTE_MAX_COUNT   = 5;     // ウィンドウ内最大回数
 const NAV_AUTO_REROUTE_WINDOW_MS   = 180000;// 回数カウントウィンドウ（ms）
 const NAV_AUTO_REROUTE_SUSPEND_RESET_MS = 180000; // suspension 自動リセット（3分）
+const NAV_REROUTE_WATCHDOG_MS = 15000; // callback 未達時も再ルート中フラグを戻す
 
 // ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
 const NAV_ELEV_UPDATE_M        = 10;   // 標高再取得の移動距離しきい値（メートル）
@@ -161,6 +167,83 @@ function _perfNowMs() {
         return performance.now();
     }
     return Date.now();
+}
+
+function _navDebugLog(message) {
+    console.log(`[navigation] ${message}`);
+}
+
+function _setNavRerouteInProgress(value, reason = '') {
+    navRerouteInProgress = value;
+    _navDebugLog(`isRerouting=${value}${reason ? ` reason=${reason}` : ''}`);
+}
+
+function _setNavAutoRerouteInProgress(value, reason = '') {
+    navAutoRerouteInProgress = value;
+    _navDebugLog(`isRerouting=${value}${reason ? ` reason=${reason}` : ''}`);
+}
+
+function _resetNavArrivalTracking() {
+    navArrivalConsecutiveCount = 0;
+    navHasArrived = false;
+}
+
+function _getArrivalRequirement(accuracy) {
+    if (accuracy > NAV_ARRIVAL_LOW_ACCURACY_M) {
+        return {
+            radiusM: NAV_ARRIVAL_LOW_ACCURACY_RADIUS_M,
+            consecutive: NAV_ARRIVAL_LOW_ACCURACY_CONSECUTIVE,
+            lowAccuracy: true
+        };
+    }
+    return {
+        radiusM: NAV_ARRIVAL_M,
+        consecutive: NAV_ARRIVAL_CONSECUTIVE,
+        lowAccuracy: false
+    };
+}
+
+function _distanceToRouteEndpoint(lat, lon) {
+    if (!navActiveRoute || !Array.isArray(navActiveRoute.coordinates) ||
+            navActiveRoute.coordinates.length < 1) {
+        return null;
+    }
+    const lastCoord = navActiveRoute.coordinates[navActiveRoute.coordinates.length - 1];
+    return _navHaversine(lat, lon, lastCoord.lat, lastCoord.lng);
+}
+
+function _completeReroute({ auto = false, success = false, reason = 'finished', startedAt = null } = {}) {
+    const durationMs = startedAt === null ? null : Math.round(_perfNowMs() - startedAt);
+    if (success) {
+        _navDebugLog(`reroute:success${durationMs === null ? '' : ` duration_ms=${durationMs}`}`);
+    } else {
+        _navDebugLog(`reroute:failed reason=${reason}${durationMs === null ? '' : ` duration_ms=${durationMs}`}`);
+    }
+    if (auto) {
+        _setNavAutoRerouteInProgress(false, reason);
+    } else {
+        _setNavRerouteInProgress(false, reason);
+    }
+    _navDebugLog('reroute:finally isRerouting=false');
+    _updateNavUI();
+}
+
+function _createRerouteWatchdog({ auto = false, startedAt = null, onTimeout = null } = {}) {
+    let completed = false;
+    const timer = setTimeout(() => {
+        if (completed) return;
+        completed = true;
+        if (typeof onTimeout === 'function') onTimeout();
+        _completeReroute({ auto, success: false, reason: 'timeout', startedAt });
+    }, NAV_REROUTE_WATCHDOG_MS);
+
+    return (callback) => {
+        if (completed) return false;
+        completed = true;
+        clearTimeout(timer);
+        if (typeof callback === 'function') callback();
+        return true;
+    };
 }
 
 let _blockAheadPerfMetrics = null;
@@ -1363,12 +1446,15 @@ function _updateRemainingDistanceDisplay(lat, lon, accuracy = 0) {
     remEl.textContent = _fmtNavDist(routeResult.remainingDistanceMeters);
 
     if (offsetEl) {
+        const distToDestination = navDestination
+            ? _navHaversine(lat, lon, navDestination.lat, navDestination.lon)
+            : null;
+        const isNearGoal = distToDestination !== null && distToDestination <= NAV_NEAR_GOAL_M;
+        const offRouteThresholdM = isNearGoal ? NAV_OFF_ROUTE_NEAR_GOAL_M : NAV_OFF_ROUTE_M;
         if (accuracy > NAV_MAX_GPS_ACCURACY_M) {
             offsetEl.textContent = '';
-        } else if (routeResult.routeOffsetMeters >= NAV_REROUTE_THRESHOLD_M) {
+        } else if (routeResult.routeOffsetMeters >= offRouteThresholdM) {
             offsetEl.textContent = '| 再ルートが必要です';
-        } else if (routeResult.routeOffsetMeters >= NAV_OFF_ROUTE_M) {
-            offsetEl.textContent = '| ルートから外れています';
         } else {
             offsetEl.textContent = '';
         }
@@ -1400,8 +1486,9 @@ function startNavigation() {
         return;
     }
     navOffRouteCount              = 0;
+    _resetNavArrivalTracking();
     navIsAutoFollow               = true;
-    navAutoRerouteInProgress      = false;
+    _setNavAutoRerouteInProgress(false, 'navigation-start');
     navAutoRerouteSuspended       = false;
     navAutoRerouteCount           = 0;
     navAutoRerouteWindowStartedAt = 0;
@@ -1469,8 +1556,9 @@ function stopNavigation() {
     }
     if (typeof _startLocationWatch === 'function') _startLocationWatch(false);
     navOffRouteCount         = 0;
-    navRerouteInProgress     = false;
-    navAutoRerouteInProgress = false;
+    navArrivalConsecutiveCount = 0;
+    _setNavRerouteInProgress(false, 'navigation-stop');
+    _setNavAutoRerouteInProgress(false, 'navigation-stop');
     navBlockAheadInProgress  = false;
     ++_blockAheadSeq; // pending callback を無効化（非同期完了後の復帰を防ぐ）
     navStartElevation        = null;
@@ -1536,7 +1624,9 @@ function rerouteToSameDestination() {
         return;
     }
 
-    navRerouteInProgress = true;
+    const rerouteStartedAt = _perfNowMs();
+    _navDebugLog('reroute:start reason=manual_same_destination near_goal=false');
+    _setNavRerouteInProgress(true, 'manual-start');
     navLastRerouteAt     = Date.now();
     _updateNavUI();
     _showNavBanner('🔄 現在地からルートを再計算しています...', 'info');
@@ -1545,50 +1635,64 @@ function rerouteToSameDestination() {
     if (typeof clearRouteCandidateLayers === 'function') clearRouteCandidateLayers();
     if (typeof clearSelectedRouteHighlight === 'function') clearSelectedRouteHighlight();
 
-    drawRouteTo(navDestination.lat, navDestination.lon, {
-        onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
-            navActiveRoute       = routes[selectedRouteIndex];
-            navOffRouteCount     = 0;
-            if (_offRouteDebounceTimer !== null) {
-                clearTimeout(_offRouteDebounceTimer);
-                _offRouteDebounceTimer = null;
-            }
-            navRerouteInProgress = false;
-            // 地図上に新しいルートを描画
-            if (typeof renderRouteCandidatesOnMap === 'function') {
-                renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
-            }
-            // サイドバーの経路ステップを更新
-            if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
-                // 避難先カードナビ
-                if (typeof renderDestinationRouteGuidance === 'function') {
-                    renderDestinationRouteGuidance(activeNavigatingIndex, routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
-                }
-            } else if (typeof userDestination !== 'undefined' && userDestination) {
-                // 「ここへ行く」ナビ
-                if (typeof renderUserDestRouteGuidance === 'function') {
-                    renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
-                }
-            } else {
-                // 緊急避難場所ナビ
-                if (typeof renderSelectedEmergencyShelterRouteGuidance === 'function') {
-                    renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
-                }
-            }
-            // GPS 追跡が停止していた場合は再開、継続中ならモードだけ更新
-            if (navWatchId === null) {
-                startNavigation();
-            } else {
-                setNavMode('navigation_active');
-            }
-            _showNavBanner('✅ ルートを更新しました。このまま避難を続けてください。', 'success', 4000);
-        },
-        onRouteError: () => {
-            navRerouteInProgress = false;
-            _updateNavUI();
-            _showNavBanner('⚠ 同じ避難先へのルートが見つかりません。別の避難先を再検索してください。', 'danger');
-        }
+    const finishReroute = _createRerouteWatchdog({
+        auto: false,
+        startedAt: rerouteStartedAt,
+        onTimeout: () => _showNavBanner('⚠ 再ルートがタイムアウトしました。もう一度お試しください。', 'danger')
     });
+
+    try {
+        drawRouteTo(navDestination.lat, navDestination.lon, {
+            onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
+                if (!finishReroute()) return;
+                navActiveRoute       = routes[selectedRouteIndex];
+                navOffRouteCount     = 0;
+                if (_offRouteDebounceTimer !== null) {
+                    clearTimeout(_offRouteDebounceTimer);
+                    _offRouteDebounceTimer = null;
+                }
+                // 地図上に新しいルートを描画
+                if (typeof renderRouteCandidatesOnMap === 'function') {
+                    renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
+                }
+                // サイドバーの経路ステップを更新
+                if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
+                    // 避難先カードナビ
+                    if (typeof renderDestinationRouteGuidance === 'function') {
+                        renderDestinationRouteGuidance(activeNavigatingIndex, routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                    }
+                } else if (typeof userDestination !== 'undefined' && userDestination) {
+                    // 「ここへ行く」ナビ
+                    if (typeof renderUserDestRouteGuidance === 'function') {
+                        renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                    }
+                } else {
+                    // 緊急避難場所ナビ
+                    if (typeof renderSelectedEmergencyShelterRouteGuidance === 'function') {
+                        renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                    }
+                }
+                // GPS 追跡が停止していた場合は再開、継続中ならモードだけ更新
+                if (navWatchId === null) {
+                    startNavigation();
+                } else {
+                    setNavMode('navigation_active');
+                }
+                _showNavBanner('✅ ルートを更新しました。このまま避難を続けてください。', 'success', 4000);
+                _completeReroute({ auto: false, success: true, reason: 'manual-success', startedAt: rerouteStartedAt });
+            },
+            onRouteError: () => {
+                if (!finishReroute()) return;
+                _showNavBanner('⚠ 同じ避難先へのルートが見つかりません。別の避難先を再検索してください。', 'danger');
+                _completeReroute({ auto: false, success: false, reason: 'manual-route-error', startedAt: rerouteStartedAt });
+            }
+        });
+    } catch (err) {
+        finishReroute();
+        console.warn('[navigation] reroute:exception', err);
+        _showNavBanner('⚠ 再ルート中にエラーが発生しました。もう一度お試しください。', 'danger');
+        _completeReroute({ auto: false, success: false, reason: 'manual-exception', startedAt: rerouteStartedAt });
+    }
 }
 
 // ── Phase 3-B: 避難先を再検索 ───────────────────────────────────────────
@@ -1603,33 +1707,33 @@ function rerouteWithNewSearch() {
 // ── 位置更新ハンドラ ──────────────────────────────────────────────────────
 function _onNavPosition(position) {
     const { latitude: lat, longitude: lon, accuracy, heading } = position.coords;
+    let distToGoal = null;
+    let nearGoal = false;
 
     // 到達判定（移動量チェック・精度チェックより前に必ず実施）
-    // 係数 1.5: GPS誤差＋OSRMスナップ誤差を合わせて吸収する
-    if (navDestination) {
-        const effectiveRadius = Math.max(NAV_ARRIVAL_M, accuracy * 1.5);
-        const arrDist = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
-        console.log(`[NAV] dist_to_dest=${arrDist.toFixed(1)}m, accuracy=${accuracy.toFixed(1)}m, radius=${effectiveRadius.toFixed(1)}m`);
+    if (navDestination && !navHasArrived) {
+        const destinationDist = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
+        const endpointDist = _distanceToRouteEndpoint(lat, lon);
+        distToGoal = endpointDist === null ? destinationDist : Math.min(destinationDist, endpointDist);
+        nearGoal = distToGoal <= NAV_NEAR_GOAL_M;
+        const arrivalRequirement = _getArrivalRequirement(accuracy);
+        const arrivalCandidate = distToGoal <= arrivalRequirement.radiusM;
+        navArrivalConsecutiveCount = arrivalCandidate ? navArrivalConsecutiveCount + 1 : 0;
+        const arrived = navArrivalConsecutiveCount >= arrivalRequirement.consecutive;
+        _navDebugLog(
+            `dist_to_goal=${distToGoal.toFixed(1)}m accuracy=${accuracy.toFixed(1)}m ` +
+            `arrival_counter=${navArrivalConsecutiveCount} arrived=${arrived} ` +
+            `arrival_radius=${arrivalRequirement.radiusM} low_accuracy=${arrivalRequirement.lowAccuracy}`
+        );
 
-        // ① 目的地座標との距離チェック（navDestination は元の施設座標）
-        if (arrDist <= effectiveRadius) {
-            console.log('[NAV] ✅ ARRIVAL DETECTED (destination)');
+        if (arrived) {
+            _navDebugLog('arrival:confirmed');
             _onNavArrival();
             return;
         }
-
-        // ② ルート最終ウェイポイントとの距離チェック
-        // OSRM がスナップした終端が目的地座標と離れている場合をカバー
-        if (navActiveRoute && Array.isArray(navActiveRoute.coordinates) &&
-                navActiveRoute.coordinates.length >= 1) {
-            const lastCoord = navActiveRoute.coordinates[navActiveRoute.coordinates.length - 1];
-            const lastDist  = _navHaversine(lat, lon, lastCoord.lat, lastCoord.lng);
-            if (lastDist <= effectiveRadius) {
-                console.log('[NAV] ✅ ARRIVAL DETECTED (route endpoint)');
-                _onNavArrival();
-                return;
-            }
-        }
+    } else if (navDestination) {
+        distToGoal = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
+        nearGoal = distToGoal <= NAV_NEAR_GOAL_M;
     }
 
     // 微小移動は無視（到着判定の後でフィルタ）
@@ -1708,11 +1812,20 @@ function _onNavPosition(position) {
 
     // 逸脱判定（再ルート処理中はスキップ、精度条件は除去）
     // routeResult != null で undefined も弾く（undefined !== null は true になるバグ対策）
-    if (navActiveRoute && !navRerouteInProgress && !navAutoRerouteInProgress
+    if (navActiveRoute && !navHasArrived && !navRerouteInProgress && !navAutoRerouteInProgress
             && routeResult != null) {
         const offsetM = routeResult.routeOffsetMeters;
-        console.log(`[NAV] off_route=${offsetM.toFixed(1)}m, offRouteCount=${navOffRouteCount}, accuracy=${accuracy.toFixed(1)}m`);
-        if (offsetM >= NAV_OFF_ROUTE_M) {
+        if (distToGoal === null && navDestination) {
+            distToGoal = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
+        }
+        nearGoal = distToGoal !== null && distToGoal <= NAV_NEAR_GOAL_M;
+        const offRouteThresholdM = nearGoal ? NAV_OFF_ROUTE_NEAR_GOAL_M : NAV_OFF_ROUTE_M;
+        const offRoute = offsetM >= offRouteThresholdM;
+        _navDebugLog(
+            `off_route_distance=${offsetM.toFixed(1)}m threshold=${offRouteThresholdM}m ` +
+            `near_goal=${nearGoal} off_route=${offRoute} accuracy=${accuracy.toFixed(1)}m`
+        );
+        if (offRoute) {
             navOffRouteCount++;
             // ① 連続 N 回カウント判定（即時 warning 遷移用）
             if (navOffRouteCount >= NAV_CONSECUTIVE) {
@@ -1725,14 +1838,18 @@ function _onNavPosition(position) {
                 }
             }
             // ② デバウンス方式：3秒後もまだ逸脱していたら再ルートを実行
-            if (offsetM >= NAV_REROUTE_THRESHOLD_M && _offRouteDebounceTimer === null) {
+            if (offsetM >= offRouteThresholdM && _offRouteDebounceTimer === null) {
                 const _capturedAccuracy = accuracy;
+                const _capturedNearGoal = nearGoal;
                 _offRouteDebounceTimer = setTimeout(() => {
                     _offRouteDebounceTimer = null;
-                    // タイマー発火時点でまだ逸脱中かつ処理中でなければ実行
+                    // 到着確定前なら目的地近傍でも再ルートを許可する
                     if (navOffRouteCount >= NAV_CONSECUTIVE &&
-                            !navRerouteInProgress && !navAutoRerouteInProgress) {
-                        _tryAutoReroute(_capturedAccuracy);
+                            !navHasArrived && !navRerouteInProgress && !navAutoRerouteInProgress) {
+                        _tryAutoReroute(_capturedAccuracy, {
+                            reason: 'off_route',
+                            nearGoal: _capturedNearGoal
+                        });
                     }
                 }, NAV_OFF_ROUTE_DEBOUNCE_MS);
             }
@@ -1759,14 +1876,18 @@ function _onNavPosition(position) {
 }
 
 // ── Phase 4-A: オート再ルート判定 ────────────────────────────────────────
-function _tryAutoReroute(accuracy) {
+function _tryAutoReroute(accuracy, context = {}) {
     if (!navAutoRerouteEnabled) return;
+    if (navHasArrived) {
+        _navDebugLog('reroute:skip reason=arrived');
+        return;
+    }
     if (navAutoRerouteSuspended) {
-        console.log('[Nav] auto-reroute skipped: suspended');
+        _navDebugLog('reroute:skip reason=suspended');
         return;
     }
     if (navAutoRerouteInProgress || navRerouteInProgress) {
-        console.log('[Nav] auto-reroute skipped: in progress');
+        _navDebugLog('reroute:skip reason=in_progress');
         return;
     }
 
@@ -1774,12 +1895,12 @@ function _tryAutoReroute(accuracy) {
 
     // クールダウン
     if (now - navLastAutoRerouteAt < NAV_AUTO_REROUTE_COOLDOWN_MS) {
-        console.log('[Nav] auto-reroute skipped: cooldown');
+        _navDebugLog('reroute:skip reason=cooldown');
         return;
     }
 
     if (!navDestination) {
-        console.log('[Nav] auto-reroute skipped: no destination');
+        _navDebugLog('reroute:skip reason=no_destination');
         return;
     }
 
@@ -1807,12 +1928,13 @@ function _tryAutoReroute(accuracy) {
         return;
     }
 
-    _executeAutoReroute();
+    _executeAutoReroute(context);
 }
 
-function _executeAutoReroute() {
-    console.log('[Nav] auto-reroute started');
-    navAutoRerouteInProgress = true;
+function _executeAutoReroute(context = {}) {
+    const rerouteStartedAt = _perfNowMs();
+    _navDebugLog(`reroute:start reason=${context.reason || 'auto'} near_goal=${!!context.nearGoal}`);
+    _setNavAutoRerouteInProgress(true, 'auto-start');
     navAutoRerouteCount++;
     navLastAutoRerouteAt = Date.now();
     _updateNavUI();
@@ -1821,45 +1943,62 @@ function _executeAutoReroute() {
     if (typeof clearRouteCandidateLayers === 'function') clearRouteCandidateLayers();
     if (typeof clearSelectedRouteHighlight === 'function') clearSelectedRouteHighlight();
 
-    drawRouteTo(navDestination.lat, navDestination.lon, {
-        onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
-            navActiveRoute           = routes[selectedRouteIndex];
-            navOffRouteCount         = 0;
-            if (_offRouteDebounceTimer !== null) {
-                clearTimeout(_offRouteDebounceTimer);
-                _offRouteDebounceTimer = null;
-            }
-            navAutoRerouteInProgress = false;
-
-            if (typeof renderRouteCandidatesOnMap === 'function') {
-                renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
-            }
-            // サイドバー経路ステップ更新
-            if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
-                if (typeof renderDestinationRouteGuidance === 'function') {
-                    renderDestinationRouteGuidance(activeNavigatingIndex, routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
-                }
-            } else if (typeof userDestination !== 'undefined' && userDestination) {
-                if (typeof renderUserDestRouteGuidance === 'function') {
-                    renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
-                }
-            } else {
-                if (typeof renderSelectedEmergencyShelterRouteGuidance === 'function') {
-                    renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
-                }
-            }
-
-            setNavMode('navigation_active');
-            _showNavBanner('✅ ルートを自動更新しました。このまま避難を続けてください。', 'success', 4000);
-            console.log('[Nav] auto-reroute success');
-        },
-        onRouteError: () => {
-            navAutoRerouteInProgress = false;
-            _updateNavUI();
-            console.warn('[Nav] auto-reroute failed');
-            _showNavBanner('⚠ 自動再ルートに失敗しました。手動で再ルートしてください。', 'danger');
+    const finishReroute = _createRerouteWatchdog({
+        auto: true,
+        startedAt: rerouteStartedAt,
+        onTimeout: () => {
+            navLastAutoRerouteAt = 0;
+            _showNavBanner('⚠ 自動再ルートがタイムアウトしました。次の位置更新で再試行します。', 'danger', 4000);
         }
     });
+
+    try {
+        drawRouteTo(navDestination.lat, navDestination.lon, {
+            onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
+                if (!finishReroute()) return;
+                navActiveRoute           = routes[selectedRouteIndex];
+                navOffRouteCount         = 0;
+                if (_offRouteDebounceTimer !== null) {
+                    clearTimeout(_offRouteDebounceTimer);
+                    _offRouteDebounceTimer = null;
+                }
+
+                if (typeof renderRouteCandidatesOnMap === 'function') {
+                    renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
+                }
+                // サイドバー経路ステップ更新
+                if (typeof activeNavigatingIndex !== 'undefined' && activeNavigatingIndex !== null) {
+                    if (typeof renderDestinationRouteGuidance === 'function') {
+                        renderDestinationRouteGuidance(activeNavigatingIndex, routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                    }
+                } else if (typeof userDestination !== 'undefined' && userDestination) {
+                    if (typeof renderUserDestRouteGuidance === 'function') {
+                        renderUserDestRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                    }
+                } else {
+                    if (typeof renderSelectedEmergencyShelterRouteGuidance === 'function') {
+                        renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, selectRouteIndex, routeColors);
+                    }
+                }
+
+                setNavMode('navigation_active');
+                _showNavBanner('✅ ルートを自動更新しました。このまま避難を続けてください。', 'success', 4000);
+                _completeReroute({ auto: true, success: true, reason: 'auto-success', startedAt: rerouteStartedAt });
+            },
+            onRouteError: () => {
+                if (!finishReroute()) return;
+                navLastAutoRerouteAt = 0;
+                _showNavBanner('⚠ 自動再ルートに失敗しました。次の位置更新で再試行します。', 'danger', 4000);
+                _completeReroute({ auto: true, success: false, reason: 'auto-route-error', startedAt: rerouteStartedAt });
+            }
+        });
+    } catch (err) {
+        finishReroute();
+        navLastAutoRerouteAt = 0;
+        console.warn('[navigation] reroute:exception', err);
+        _showNavBanner('⚠ 自動再ルート中にエラーが発生しました。次の位置更新で再試行します。', 'danger', 4000);
+        _completeReroute({ auto: true, success: false, reason: 'auto-exception', startedAt: rerouteStartedAt });
+    }
 }
 
 function _onNavPositionError(err) {
@@ -7091,6 +7230,8 @@ async function blockAheadAndReroute() {
 */
 // ── 到達処理 ─────────────────────────────────────────────────────────────
 function _onNavArrival() {
+    navHasArrived = true;
+    navArrivalConsecutiveCount = 0;
     stopNavigation();
     setNavMode('navigation_finished');
     _showNavBanner('🏁 目的地に到達しました！お疲れさまでした。', 'success');
