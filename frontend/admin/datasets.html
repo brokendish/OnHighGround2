@@ -25,93 +25,140 @@
   <!-- 通知バー -->
   <div id="notice-bar" class="notice-bar"></div>
 
-  <!-- フィルターバー -->
-  <div class="filter-bar">
-    <label>地域：</label>
-    <select id="region-filter">
-      <option value="">すべての地域</option>
-    </select>
-    <label style="margin-left:12px">レイヤー種別：</label>
-    <select id="layer-type-filter">
-      <option value="">すべて</option>
-    </select>
-    <div class="auto-refresh-indicator" id="auto-refresh-indicator" style="margin-left:auto">
-      <div class="dot-pulse"></div>
-      <span>自動更新中</span>
-    </div>
-    <button class="refresh-btn" onclick="loadDatasets()">今すぐ更新</button>
+  <!-- 管理タブ -->
+  <div class="admin-tabs">
+    <button class="admin-tab active" id="tab-btn-datasets" onclick="switchAdminTab('datasets')">Datasets</button>
+    <button class="admin-tab" id="tab-btn-config" onclick="switchAdminTab('config')">Config</button>
+    <button class="admin-tab" id="tab-btn-logs" onclick="switchAdminTab('logs')">Logs</button>
   </div>
 
-  <!-- データセット一覧 -->
-  <div class="table-card">
-    <div class="table-scroll">
-      <table class="dataset-table">
-        <thead>
-          <tr>
-            <th>地域</th>
-            <th>データセットID</th>
-            <th>データ名</th>
-            <th>説明</th>
-            <th>影響範囲</th>
-            <th>現在のファイル</th>
-            <th>最終更新</th>
-            <th>保管状態</th>
-            <th>整形</th>
-            <th>内容確認</th>
-            <th>反映状態</th>
-            <th>OSRM</th>
-            <th>有効</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody id="datasets-tbody">
-          <tr><td colspan="14" style="text-align:center;padding:30px;color:#94a3b8">
-            <div class="spinner"></div> 読み込み中...
-          </td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 詳細パネル -->
-  <div id="detail-panel">
-    <div class="detail-header">
-      <h2 id="detail-title">データセット詳細</h2>
-      <button class="close-btn" onclick="closeDetail()">✕</button>
-    </div>
-    <div class="detail-body">
-      <div>
-        <div class="detail-section">
-          <h3>基本情報</h3>
-          <div id="detail-info"></div>
-        </div>
-        <div class="detail-section" style="margin-top:16px">
-          <h3>現在の状態</h3>
-          <div id="detail-status"></div>
-        </div>
-        <div class="detail-section" id="detail-error-section" style="margin-top:16px;display:none">
-          <h3>エラー情報</h3>
-          <div id="detail-error"></div>
-        </div>
+  <section id="tab-panel-datasets" class="admin-tab-panel active">
+    <!-- フィルターバー -->
+    <div class="filter-bar">
+      <label>地域：</label>
+      <select id="region-filter">
+        <option value="">すべての地域</option>
+      </select>
+      <label style="margin-left:12px">レイヤー種別：</label>
+      <select id="layer-type-filter">
+        <option value="">すべて</option>
+      </select>
+      <div class="auto-refresh-indicator" id="auto-refresh-indicator" style="margin-left:auto">
+        <div class="dot-pulse"></div>
+        <span>自動更新中</span>
       </div>
-      <div>
-        <div class="detail-section">
-          <h3>最新ジョブログ</h3>
-          <div id="detail-log-controls" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <span id="detail-log-job-id" style="font-family:monospace;font-size:11px;color:#94a3b8"></span>
-            <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px" onclick="toggleDetailAutoRefresh()">
-              <span id="detail-auto-label">自動更新 ON</span>
-            </button>
+      <button class="refresh-btn" onclick="loadDatasets()">今すぐ更新</button>
+    </div>
+
+    <!-- データセット一覧 -->
+    <div class="table-card">
+      <div class="table-scroll">
+        <table class="dataset-table">
+          <thead>
+            <tr>
+              <th>地域</th>
+              <th>データセットID</th>
+              <th>データ名</th>
+              <th>説明</th>
+              <th>影響範囲</th>
+              <th>現在のファイル</th>
+              <th>最終更新</th>
+              <th>保管状態</th>
+              <th>整形</th>
+              <th>内容確認</th>
+              <th>反映状態</th>
+              <th>OSRM</th>
+              <th>有効</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="datasets-tbody">
+            <tr><td colspan="14" style="text-align:center;padding:30px;color:#94a3b8">
+              <div class="spinner"></div> 読み込み中...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 詳細パネル -->
+    <div id="detail-panel">
+      <div class="detail-header">
+        <h2 id="detail-title">データセット詳細</h2>
+        <button class="close-btn" onclick="closeDetail()">✕</button>
+      </div>
+      <div class="detail-body">
+        <div>
+          <div class="detail-section">
+            <h3>基本情報</h3>
+            <div id="detail-info"></div>
           </div>
-          <div class="log-area" id="detail-log-area">ログなし</div>
+          <div class="detail-section" style="margin-top:16px">
+            <h3>現在の状態</h3>
+            <div id="detail-status"></div>
+          </div>
+          <div class="detail-section" id="detail-error-section" style="margin-top:16px;display:none">
+            <h3>エラー情報</h3>
+            <div id="detail-error"></div>
+          </div>
         </div>
-        <div class="detail-section" style="margin-top:16px">
-          <h3>操作履歴</h3>
-          <div id="detail-history" style="font-size:12px;max-height:160px;overflow-y:auto"></div>
+        <div>
+          <div class="detail-section">
+            <h3>最新ジョブログ</h3>
+            <div id="detail-log-controls" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span id="detail-log-job-id" style="font-family:monospace;font-size:11px;color:#94a3b8"></span>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px" onclick="toggleDetailAutoRefresh()">
+                <span id="detail-auto-label">自動更新 ON</span>
+              </button>
+            </div>
+            <div class="log-area" id="detail-log-area">ログなし</div>
+          </div>
+          <div class="detail-section" style="margin-top:16px">
+            <h3>操作履歴</h3>
+            <div id="detail-history" style="font-size:12px;max-height:160px;overflow-y:auto"></div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </section>
+
+  <section id="tab-panel-config" class="admin-tab-panel">
+    <div class="config-toolbar">
+      <div>
+        <h2>Config</h2>
+        <p>ナビゲーション閾値など、運用中に調整する設定を管理します。</p>
+      </div>
+      <button class="refresh-btn" onclick="loadConfig()">設定を再読み込み</button>
+      <button class="btn btn-secondary" onclick="openConfigHistoryModal()">履歴を見る</button>
+    </div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table class="dataset-table config-table">
+          <thead>
+            <tr>
+              <th>設定名</th>
+              <th>キー</th>
+              <th>現在値</th>
+              <th>デフォルト</th>
+              <th>説明</th>
+              <th>最終更新</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="config-tbody">
+            <tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">Configタブを開くと読み込みます</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-panel-logs" class="admin-tab-panel">
+    <div class="placeholder-card">
+      <h2>Logs</h2>
+      <p>リアルタイムログ可視化は未実装です。将来ここに運用ログビューを追加します。</p>
+    </div>
+  </section>
 
 </div><!-- /admin-body -->
 
@@ -314,6 +361,22 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeActivateModal()">キャンセル</button>
       <button class="btn btn-success" onclick="executeActivate()">有効にする</button>
+    </div>
+  </div>
+</div>
+
+<!-- Config履歴モーダル -->
+<div class="modal-overlay" id="config-history-modal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header">
+      <h2>設定変更履歴</h2>
+      <button class="modal-close" onclick="closeConfigHistoryModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="config-history-list" class="config-history-list">履歴を読み込み中...</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeConfigHistoryModal()">閉じる</button>
     </div>
   </div>
 </div>

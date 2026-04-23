@@ -196,6 +196,9 @@ document.getElementById('clearMap').addEventListener('click', () => {
 
 scheduleEmergencyShelterRefresh();
 initializeHazardToggles();
+if (typeof loadRuntimeConfig === 'function') {
+    loadRuntimeConfig();
+}
 
 // ── 常時 GPS 追跡（watchPosition） ────────────────────────────────────────
 // アプリ起動時から継続的に位置を追跡する。

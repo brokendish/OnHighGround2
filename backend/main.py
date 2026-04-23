@@ -22,6 +22,7 @@ from geometry_utils import calc_reachable_safe_area, SHAPELY_AVAILABLE
 from hazard_engine import HazardEngine
 from app.api.hazards import router as hazards_router
 from app.api.admin import router as admin_router
+from app.api.admin_config import router as admin_config_router
 from app.api.admin_datasets import router as admin_datasets_router
 from app.api.admin_datasets import jobs_router as admin_jobs_router
 from app.api.layer_types_api import router as layer_types_router
@@ -169,6 +170,7 @@ app.add_middleware(
 )
 app.include_router(hazards_router)
 app.include_router(admin_router)
+app.include_router(admin_config_router)
 app.include_router(admin_datasets_router)
 app.include_router(admin_jobs_router)
 app.include_router(layer_types_router)

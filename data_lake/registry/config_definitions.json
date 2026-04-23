@@ -1,0 +1,67 @@
+[
+  {
+    "key": "navigation.arrival_distance_m",
+    "category": "navigation",
+    "label": "到着判定距離",
+    "type": "integer",
+    "default_value": 12,
+    "description": "目的地またはルート終端からこの距離以内を到着候補とします。",
+    "min": 1,
+    "max": 50,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 10
+  },
+  {
+    "key": "navigation.arrival_consecutive_count",
+    "category": "navigation",
+    "label": "到着連続判定回数",
+    "type": "integer",
+    "default_value": 2,
+    "description": "到着候補が何回連続したら到着確定にするかを指定します。",
+    "min": 1,
+    "max": 10,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 20
+  },
+  {
+    "key": "navigation.off_route_distance_m",
+    "category": "navigation",
+    "label": "通常逸脱判定距離",
+    "type": "integer",
+    "default_value": 28,
+    "description": "通常時にルート逸脱候補とするルートからの距離です。",
+    "min": 5,
+    "max": 100,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 30
+  },
+  {
+    "key": "navigation.near_goal_off_route_distance_m",
+    "category": "navigation",
+    "label": "目的地近傍逸脱判定距離",
+    "type": "integer",
+    "default_value": 18,
+    "description": "目的地近傍でルート逸脱候補とするルートからの距離です。",
+    "min": 5,
+    "max": 50,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 40
+  },
+  {
+    "key": "navigation.near_goal_distance_m",
+    "category": "navigation",
+    "label": "目的地近傍距離",
+    "type": "integer",
+    "default_value": 50,
+    "description": "この距離以内を目的地近傍として扱います。",
+    "min": 10,
+    "max": 200,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 50
+  }
+]

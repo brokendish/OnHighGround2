@@ -28,6 +28,33 @@ const OSRM_SERVICE_URLS = {
 // true にすると apiFetch の試行ログをコンソールに出力する
 const DEBUG_API_FETCH = true;
 
+async function loadRuntimeConfig() {
+    try {
+        const response = await apiFetch('/api/admin/config');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const items = await response.json();
+        appRuntimeConfig = Object.fromEntries(
+            items.map(item => [item.key, item.current_value])
+        );
+        appRuntimeConfigLoaded = true;
+        appRuntimeConfigError = null;
+        console.info('[config] runtime config loaded', appRuntimeConfig);
+    } catch (error) {
+        appRuntimeConfig = {};
+        appRuntimeConfigLoaded = false;
+        appRuntimeConfigError = error;
+        console.warn('[config] runtime config load failed; using built-in defaults', error);
+    }
+}
+
+function getRuntimeConfigValue(key, fallback) {
+    return Object.prototype.hasOwnProperty.call(appRuntimeConfig, key)
+        ? appRuntimeConfig[key]
+        : fallback;
+}
+
 // ── 避難場所リージョン定義 ──────────────────────────────────────────
 // 新しい都道府県を追加するときはここに1エントリ追加するだけでよい。
 // state.js・map-overlay-ui.js・index.html の手動編集は不要になる。

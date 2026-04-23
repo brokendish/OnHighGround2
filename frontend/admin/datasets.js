@@ -32,6 +32,9 @@ let _logRefreshTimer = null;
 let _detailAutoRefresh = true;
 let _logAutoRefresh = true;
 let _activateModalDataset = null;  // 有効化確認対象
+let _activeAdminTab = "datasets";
+let _configItems = [];
+let _configLoaded = false;
 
 // ── 初期化 ────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", async () => {
@@ -39,6 +42,17 @@ window.addEventListener("DOMContentLoaded", async () => {
   loadDatasets();
   _listRefreshTimer = setInterval(loadDatasets, LIST_AUTO_REFRESH_INTERVAL_MS);
 });
+
+function switchAdminTab(tab) {
+  _activeAdminTab = tab;
+  ["datasets", "config", "logs"].forEach(name => {
+    document.getElementById(`tab-btn-${name}`).classList.toggle("active", name === tab);
+    document.getElementById(`tab-panel-${name}`).classList.toggle("active", name === tab);
+  });
+  if (tab === "config" && !_configLoaded) {
+    loadConfig();
+  }
+}
 
 async function populateLayerTypeFilter() {
   try {
@@ -732,6 +746,148 @@ function toggleLogAutoRefresh() {
   document.getElementById("log-auto-label").textContent = `自動更新 ${_logAutoRefresh ? "ON" : "OFF"}`;
 }
 
+// ── Config 管理 ───────────────────────────────────────
+async function loadConfig() {
+  const tbody = document.getElementById("config-tbody");
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8"><div class="spinner"></div> 読み込み中...</td></tr>`;
+  }
+  try {
+    _configItems = await fetchJSON(`${API}/config`);
+    _configLoaded = true;
+    renderConfigTable();
+  } catch (err) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#b91c1c">設定の取得に失敗しました: ${escHtml(err.message)}</td></tr>`;
+    }
+    showNotice("error", "設定の取得に失敗しました: " + err.message);
+  }
+}
+
+function renderConfigTable() {
+  const tbody = document.getElementById("config-tbody");
+  if (!tbody) return;
+  if (_configItems.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">設定がありません</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = _configItems.map(item => renderConfigRow(item)).join("");
+}
+
+function renderConfigRow(item) {
+  const input = renderConfigInput(item);
+  const updatedAt = item.updated_at
+    ? `<span style="font-size:12px">${formatDate(item.updated_at)}</span>`
+    : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
+  const range = item.type === "integer" || item.type === "float"
+    ? `<div class="config-range">${item.min ?? "—"}〜${item.max ?? "—"}</div>`
+    : "";
+
+  return `<tr data-config-key="${escHtml(item.key)}">
+    <td>
+      <div class="dataset-name">${escHtml(item.label)}</div>
+      <div class="dataset-hint">${escHtml(item.category)} / ${escHtml(item.apply_mode)}</div>
+    </td>
+    <td><span class="dataset-id">${escHtml(item.key)}</span></td>
+    <td>${input}${range}<div class="config-save-status" id="config-status-${configDomId(item.key)}"></div></td>
+    <td><span class="config-default">${escHtml(formatConfigValue(item.default_value, item.type))}</span></td>
+    <td><span style="font-size:12px;color:#475569">${escHtml(item.description || "—")}</span></td>
+    <td>${updatedAt}</td>
+    <td>
+      <button class="btn btn-primary" onclick="saveConfigValue('${escAttr(item.key)}')" ${item.editable ? "" : "disabled"}>保存</button>
+    </td>
+  </tr>`;
+}
+
+function renderConfigInput(item) {
+  const id = `config-input-${configDomId(item.key)}`;
+  if (item.type === "boolean") {
+    return `<label class="config-checkbox"><input id="${id}" type="checkbox" ${item.current_value ? "checked" : ""} ${item.editable ? "" : "disabled"}> 有効</label>`;
+  }
+  if (item.type === "integer" || item.type === "float") {
+    const step = item.type === "integer" ? "1" : "0.1";
+    const min = item.min === null || item.min === undefined ? "" : ` min="${item.min}"`;
+    const max = item.max === null || item.max === undefined ? "" : ` max="${item.max}"`;
+    return `<input class="config-input" id="${id}" type="number" step="${step}"${min}${max} value="${escAttr(item.current_value)}" ${item.editable ? "" : "disabled"}>`;
+  }
+  return `<input class="config-input" id="${id}" type="text" value="${escAttr(item.current_value)}" ${item.editable ? "" : "disabled"}>`;
+}
+
+async function saveConfigValue(key) {
+  const item = _configItems.find(config => config.key === key);
+  if (!item) return;
+  const input = document.getElementById(`config-input-${configDomId(key)}`);
+  const status = document.getElementById(`config-status-${configDomId(key)}`);
+  if (!input) return;
+
+  let value;
+  if (item.type === "boolean") {
+    value = input.checked;
+  } else if (item.type === "integer") {
+    value = Number.parseInt(input.value, 10);
+  } else if (item.type === "float") {
+    value = Number.parseFloat(input.value);
+  } else {
+    value = input.value;
+  }
+
+  try {
+    if (status) {
+      status.textContent = "保存中...";
+      status.className = "config-save-status";
+    }
+    const updated = await putJSON(`${API}/config/${encodeURIComponent(key)}`, { value });
+    const idx = _configItems.findIndex(config => config.key === key);
+    if (idx >= 0) _configItems[idx] = updated.item;
+    renderConfigTable();
+    showNotice("success", "設定を保存しました。反映には画面の再読み込みが必要です。");
+  } catch (err) {
+    if (status) {
+      status.textContent = err.message;
+      status.className = "config-save-status error";
+    }
+    showNotice("error", "設定の保存に失敗しました: " + err.message);
+  }
+}
+
+async function openConfigHistoryModal() {
+  const modal = document.getElementById("config-history-modal");
+  const list = document.getElementById("config-history-list");
+  modal.classList.add("open");
+  list.textContent = "履歴を読み込み中...";
+  try {
+    const history = await fetchJSON(`${API}/config/history`);
+    renderConfigHistory(history);
+  } catch (err) {
+    list.textContent = "履歴の取得に失敗しました: " + err.message;
+  }
+}
+
+function renderConfigHistory(history) {
+  const list = document.getElementById("config-history-list");
+  if (!history.length) {
+    list.innerHTML = `<div style="color:#94a3b8;font-size:13px">設定変更履歴はまだありません。</div>`;
+    return;
+  }
+  list.innerHTML = history.map(entry => `
+    <div class="config-history-entry">
+      <div>
+        <span class="dataset-id">${escHtml(entry.key)}</span>
+        <div class="dataset-hint">${formatDate(entry.updated_at)}</div>
+      </div>
+      <div class="config-history-values">
+        <span>${escHtml(formatConfigValue(entry.old_value))}</span>
+        <span>→</span>
+        <strong>${escHtml(formatConfigValue(entry.new_value))}</strong>
+      </div>
+    </div>
+  `).join("");
+}
+
+function closeConfigHistoryModal() {
+  document.getElementById("config-history-modal").classList.remove("open");
+}
+
 // ── ユーティリティ ────────────────────────────────────
 async function fetchJSON(url) {
   const res = await fetch(url);
@@ -755,6 +911,19 @@ async function postJSON(url, body) {
   return json;
 }
 
+async function putJSON(url, body) {
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json.user_message || json.detail || `HTTP ${res.status}`);
+  }
+  return json;
+}
+
 function showNotice(type, message) {
   const el = document.getElementById("notice-bar");
   el.textContent = message;
@@ -767,6 +936,20 @@ function escHtml(str) {
   return String(str || "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function escAttr(value) {
+  return escHtml(value).replace(/'/g, "&#39;");
+}
+
+function configDomId(key) {
+  return key.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function formatConfigValue(value) {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return String(value);
 }
 
 function badgeHtml(cls, label) {

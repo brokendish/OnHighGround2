@@ -49,6 +49,7 @@ const DATASET_DEPLOYABLE = {
   deployed_at: null,
   last_job_id: 'job-shelter-001',
   has_running_job: false,
+  has_backup: true,
 };
 
 const DATASET_NOT_VALIDATED = {
@@ -74,6 +75,7 @@ const DATASET_NOT_VALIDATED = {
   deployed_at: null,
   last_job_id: null,
   has_running_job: false,
+  has_backup: false,
 };
 
 const DATASET_NO_DATA = {
@@ -99,6 +101,7 @@ const DATASET_NO_DATA = {
   deployed_at: null,
   last_job_id: null,
   has_running_job: false,
+  has_backup: false,
 };
 
 const DATASET_OSM = {
@@ -124,6 +127,7 @@ const DATASET_OSM = {
   deployed_at: null,
   last_job_id: 'job-road-001',
   has_running_job: false,
+  has_backup: true,
 };
 
 const DATASET_RUNNING = {
@@ -257,16 +261,76 @@ const LOG_LINES = [
   '[2026-04-05T10:00:06Z] === pipeline completed successfully ===',
 ];
 
+const CONFIG_ITEMS = [
+  {
+    key: 'navigation.arrival_distance_m',
+    category: 'navigation',
+    label: '到着判定距離',
+    type: 'integer',
+    default_value: 12,
+    current_value: 12,
+    description: '目的地またはルート終端からこの距離以内を到着候補とします。',
+    min: 1,
+    max: 50,
+    editable: true,
+    apply_mode: 'reload',
+    ui_order: 10,
+    updated_at: null,
+  },
+  {
+    key: 'navigation.near_goal_off_route_distance_m',
+    category: 'navigation',
+    label: '目的地近傍逸脱判定距離',
+    type: 'integer',
+    default_value: 18,
+    current_value: 18,
+    description: '目的地近傍でルート逸脱候補とする距離です。',
+    min: 5,
+    max: 50,
+    editable: true,
+    apply_mode: 'reload',
+    ui_order: 40,
+    updated_at: '2026-04-23T10:00:00Z',
+  },
+];
+
+const CONFIG_HISTORY = [
+  {
+    key: 'navigation.arrival_distance_m',
+    old_value: 15,
+    new_value: 12,
+    updated_at: '2026-04-23T10:00:00Z',
+  },
+];
+
 // ── URL: テストサーバーは .html 拡張子が必要 ─────────────────
 const PAGE_URL = '/admin/datasets.html';
 
 // ── 共通モックセットアップ ─────────────────────────────────
 
 async function setupBasicMocks(page, datasets = ALL_DATASETS) {
+  await page.route('/api/admin/layer-types', route =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { layer_type: 'shelter', display_name: '避難場所', sort_order: 10 },
+        { layer_type: 'flood', display_name: '洪水浸水想定', sort_order: 20 },
+        { layer_type: 'osm', display_name: '道路ネットワーク', sort_order: 90 },
+      ]),
+    })
+  );
   // datasets 一覧
-  await page.route('/api/admin/datasets', route => {
+  await page.route(/\/api\/admin\/datasets(\?.*)?$/, route => {
     if (route.request().method() === 'GET') {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(datasets) });
+      const url = new URL(route.request().url());
+      const region = url.searchParams.get('region');
+      const layerType = url.searchParams.get('layer_type');
+      const filtered = datasets.filter(d =>
+        (!region || d.region === region) &&
+        (!layerType || d.layer_type === layerType || d.category === layerType)
+      );
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(filtered) });
     } else {
       route.continue();
     }
@@ -283,6 +347,42 @@ async function setupBasicMocks(page, datasets = ALL_DATASETS) {
   await page.route('/api/admin/jobs/**', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(JOB_SUCCESS) })
   );
+  await page.route('/api/admin/config', route => {
+    if (route.request().method() === 'GET') {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONFIG_ITEMS) });
+    } else {
+      route.continue();
+    }
+  });
+  await page.route('/api/admin/config/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONFIG_HISTORY) })
+  );
+  await page.route('/api/admin/config/**', async route => {
+    if (route.request().method() === 'GET' && route.request().url().endsWith('/api/admin/config/history')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONFIG_HISTORY) });
+      return;
+    }
+    if (route.request().method() !== 'PUT') {
+      await route.continue();
+      return;
+    }
+    const body = route.request().postDataJSON();
+    if (Number(body.value) > 50) {
+      await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ detail: '50 以下の値を入力してください。' }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        key: 'navigation.arrival_distance_m',
+        old_value: 12,
+        new_value: body.value,
+        updated_at: '2026-04-23T10:10:00Z',
+        item: { ...CONFIG_ITEMS[0], current_value: body.value, updated_at: '2026-04-23T10:10:00Z' },
+      }),
+    });
+  });
 }
 
 // コンソールエラーを収集するヘルパー
@@ -787,6 +887,9 @@ test.describe('7. 失敗時エラー表示', () => {
 
   test('ネットワークエラー時もクラッシュせずエラー通知が出る', async ({ page }) => {
     const errors = collectConsoleErrors(page);
+    await page.route('/api/admin/layer-types', route =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+    );
     await page.route('/api/admin/datasets', route => route.abort('failed'));
     await page.goto(PAGE_URL);
     await page.waitForTimeout(1000);
@@ -885,7 +988,7 @@ test.describe('9. ボタン活性/非活性条件', () => {
   test('種別フィルター: "shelter" で1件に絞り込まれる', async ({ page }) => {
     await setupBasicMocks(page);
     await page.goto(PAGE_URL);
-    await page.locator('#category-filter').selectOption('shelter');
+    await page.locator('#layer-type-filter').selectOption('shelter');
     await expect(page.locator('#datasets-tbody tr')).toHaveCount(1);
     await expect(page.locator('text=TOKYO-SHELTER-001')).toBeVisible();
   });
@@ -930,5 +1033,65 @@ test.describe('10. バッジ表示', () => {
     await page.goto(PAGE_URL);
     const row = page.locator('tr', { has: page.locator('text=TOKYO-ROAD-001') });
     await expect(row.locator('.badge-success').filter({ hasText: '構築済' })).toBeVisible();
+  });
+});
+
+// ════════════════════════════════════════════════════════════
+//  11. Config タブ
+// ════════════════════════════════════════════════════════════
+
+test.describe('11. Config タブ', () => {
+  test('Config タブで設定一覧が表示される', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-config').click();
+
+    await expect(page.locator('#tab-panel-config')).toHaveClass(/active/);
+    await expect(page.locator('#config-tbody')).toContainText('到着判定距離');
+    await expect(page.locator('#config-tbody')).toContainText('navigation.arrival_distance_m');
+  });
+
+  test('Config を編集して保存できる', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-config').click();
+
+    const input = page.locator('#config-input-navigation-arrival_distance_m');
+    await input.fill('14');
+    await page.locator('tr[data-config-key="navigation.arrival_distance_m"] button').click();
+
+    await expect(page.locator('#notice-bar')).toContainText('設定を保存しました');
+  });
+
+  test('Config の範囲外値はエラー表示される', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-config').click();
+
+    const input = page.locator('#config-input-navigation-arrival_distance_m');
+    await input.fill('100');
+    await page.locator('tr[data-config-key="navigation.arrival_distance_m"] button').click();
+
+    await expect(page.locator('#notice-bar')).toContainText('設定の保存に失敗しました');
+    await expect(page.locator('#config-status-navigation-arrival_distance_m')).toContainText('50 以下');
+  });
+
+  test('Config 履歴モーダルが表示される', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-config').click();
+    await page.getByRole('button', { name: '履歴を見る' }).click();
+
+    await expect(page.locator('#config-history-modal')).toHaveClass(/open/);
+    await expect(page.locator('#config-history-list')).toContainText('navigation.arrival_distance_m');
+  });
+
+  test('Logs タブは placeholder を表示する', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-logs').click();
+
+    await expect(page.locator('#tab-panel-logs')).toHaveClass(/active/);
+    await expect(page.locator('#tab-panel-logs')).toContainText('リアルタイムログ可視化は未実装');
   });
 });

@@ -48,6 +48,9 @@ const shelterRegionVisible = Object.fromEntries(
 let isShelterBrowseLayerVisible = true;
 let shelterRefreshTimer = null;
 let suppressNextManualLocationClick = false;
+let appRuntimeConfig = {};        // /api/admin/config から読み込む運用設定 current_value
+let appRuntimeConfigLoaded = false;
+let appRuntimeConfigError = null;
 
 // ── RSA（到達可能安全エリア） ─────────────────────────────────────────────
 let reachableSafeAreaLayer = null;

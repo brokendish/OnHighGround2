@@ -189,6 +189,14 @@ function _resetNavArrivalTracking() {
 }
 
 function _getArrivalRequirement(accuracy) {
+    const arrivalDistanceM = Number(getRuntimeConfigValue(
+        'navigation.arrival_distance_m',
+        NAV_ARRIVAL_M
+    ));
+    const arrivalConsecutive = Number(getRuntimeConfigValue(
+        'navigation.arrival_consecutive_count',
+        NAV_ARRIVAL_CONSECUTIVE
+    ));
     if (accuracy > NAV_ARRIVAL_LOW_ACCURACY_M) {
         return {
             radiusM: NAV_ARRIVAL_LOW_ACCURACY_RADIUS_M,
@@ -197,10 +205,25 @@ function _getArrivalRequirement(accuracy) {
         };
     }
     return {
-        radiusM: NAV_ARRIVAL_M,
-        consecutive: NAV_ARRIVAL_CONSECUTIVE,
+        radiusM: Number.isFinite(arrivalDistanceM) ? arrivalDistanceM : NAV_ARRIVAL_M,
+        consecutive: Number.isFinite(arrivalConsecutive) ? arrivalConsecutive : NAV_ARRIVAL_CONSECUTIVE,
         lowAccuracy: false
     };
+}
+
+function _getNavigationConfigNumber(key, fallback) {
+    const value = Number(getRuntimeConfigValue(key, fallback));
+    return Number.isFinite(value) ? value : fallback;
+}
+
+function _getNearGoalDistanceM() {
+    return _getNavigationConfigNumber('navigation.near_goal_distance_m', NAV_NEAR_GOAL_M);
+}
+
+function _getOffRouteThresholdM(nearGoal) {
+    return nearGoal
+        ? _getNavigationConfigNumber('navigation.near_goal_off_route_distance_m', NAV_OFF_ROUTE_NEAR_GOAL_M)
+        : _getNavigationConfigNumber('navigation.off_route_distance_m', NAV_OFF_ROUTE_M);
 }
 
 function _distanceToRouteEndpoint(lat, lon) {
@@ -1449,8 +1472,8 @@ function _updateRemainingDistanceDisplay(lat, lon, accuracy = 0) {
         const distToDestination = navDestination
             ? _navHaversine(lat, lon, navDestination.lat, navDestination.lon)
             : null;
-        const isNearGoal = distToDestination !== null && distToDestination <= NAV_NEAR_GOAL_M;
-        const offRouteThresholdM = isNearGoal ? NAV_OFF_ROUTE_NEAR_GOAL_M : NAV_OFF_ROUTE_M;
+        const isNearGoal = distToDestination !== null && distToDestination <= _getNearGoalDistanceM();
+        const offRouteThresholdM = _getOffRouteThresholdM(isNearGoal);
         if (accuracy > NAV_MAX_GPS_ACCURACY_M) {
             offsetEl.textContent = '';
         } else if (routeResult.routeOffsetMeters >= offRouteThresholdM) {
@@ -1715,7 +1738,7 @@ function _onNavPosition(position) {
         const destinationDist = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
         const endpointDist = _distanceToRouteEndpoint(lat, lon);
         distToGoal = endpointDist === null ? destinationDist : Math.min(destinationDist, endpointDist);
-        nearGoal = distToGoal <= NAV_NEAR_GOAL_M;
+        nearGoal = distToGoal <= _getNearGoalDistanceM();
         const arrivalRequirement = _getArrivalRequirement(accuracy);
         const arrivalCandidate = distToGoal <= arrivalRequirement.radiusM;
         navArrivalConsecutiveCount = arrivalCandidate ? navArrivalConsecutiveCount + 1 : 0;
@@ -1733,7 +1756,7 @@ function _onNavPosition(position) {
         }
     } else if (navDestination) {
         distToGoal = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
-        nearGoal = distToGoal <= NAV_NEAR_GOAL_M;
+        nearGoal = distToGoal <= _getNearGoalDistanceM();
     }
 
     // 微小移動は無視（到着判定の後でフィルタ）
@@ -1818,8 +1841,8 @@ function _onNavPosition(position) {
         if (distToGoal === null && navDestination) {
             distToGoal = _navHaversine(lat, lon, navDestination.lat, navDestination.lon);
         }
-        nearGoal = distToGoal !== null && distToGoal <= NAV_NEAR_GOAL_M;
-        const offRouteThresholdM = nearGoal ? NAV_OFF_ROUTE_NEAR_GOAL_M : NAV_OFF_ROUTE_M;
+        nearGoal = distToGoal !== null && distToGoal <= _getNearGoalDistanceM();
+        const offRouteThresholdM = _getOffRouteThresholdM(nearGoal);
         const offRoute = offsetM >= offRouteThresholdM;
         _navDebugLog(
             `off_route_distance=${offsetM.toFixed(1)}m threshold=${offRouteThresholdM}m ` +
