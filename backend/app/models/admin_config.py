@@ -29,6 +29,7 @@ class ConfigDefinition(BaseModel):
     type: ConfigValueType
     default_value: Any
     description: str = ""
+    options: Optional[list[str]] = None
     min: Optional[float] = None
     max: Optional[float] = None
     editable: bool = True
@@ -44,6 +45,7 @@ class ConfigItem(BaseModel):
     default_value: Any
     current_value: Any
     description: str = ""
+    options: Optional[list[str]] = None
     min: Optional[float] = None
     max: Optional[float] = None
     editable: bool = True

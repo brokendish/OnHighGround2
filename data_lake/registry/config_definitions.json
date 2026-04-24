@@ -1,5 +1,17 @@
 [
   {
+    "key": "logging.level",
+    "category": "system",
+    "label": "ログレベル",
+    "type": "string",
+    "default_value": "INFO",
+    "description": "Logs タブとバックエンドの出力量を制御します。",
+    "options": ["DEBUG", "INFO", "WARNING", "ERROR"],
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 500
+  },
+  {
     "key": "navigation.arrival_distance_m",
     "category": "navigation",
     "label": "到着判定距離",

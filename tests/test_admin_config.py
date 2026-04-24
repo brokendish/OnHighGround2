@@ -36,6 +36,22 @@ def _integer_def(**overrides) -> ConfigDefinition:
     return ConfigDefinition(**data)
 
 
+def _string_def(**overrides) -> ConfigDefinition:
+    data = {
+        "key": "logging.level",
+        "category": "system",
+        "label": "ログレベル",
+        "type": "string",
+        "default_value": "INFO",
+        "options": ["DEBUG", "INFO", "WARNING", "ERROR"],
+        "editable": True,
+        "apply_mode": "reload",
+        "ui_order": 500,
+    }
+    data.update(overrides)
+    return ConfigDefinition(**data)
+
+
 def test_config_update_persists_override_and_history(tmp_path):
     svc = _service(tmp_path)
     defn = _integer_def()
@@ -77,3 +93,23 @@ def test_config_update_rejects_not_editable(tmp_path):
 
     with pytest.raises(ConfigValidationError):
         svc.update_value(defn, 10)
+
+
+def test_string_option_config_accepts_allowed_value(tmp_path):
+    svc = _service(tmp_path)
+    defn = _string_def()
+
+    old_value, new_value, updated_at, item = svc.update_value(defn, "ERROR")
+
+    assert old_value == "INFO"
+    assert new_value == "ERROR"
+    assert item.current_value == "ERROR"
+    assert item.updated_at == updated_at
+
+
+def test_string_option_config_rejects_disallowed_value(tmp_path):
+    svc = _service(tmp_path)
+    defn = _string_def()
+
+    with pytest.raises(ConfigValidationError):
+        svc.update_value(defn, "TRACE")

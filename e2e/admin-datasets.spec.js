@@ -263,6 +263,20 @@ const LOG_LINES = [
 
 const CONFIG_ITEMS = [
   {
+    key: 'logging.level',
+    category: 'system',
+    label: 'ログレベル',
+    type: 'string',
+    default_value: 'INFO',
+    current_value: 'INFO',
+    description: 'Logs タブとバックエンドの出力量を制御します。',
+    options: ['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+    editable: true,
+    apply_mode: 'reload',
+    ui_order: 500,
+    updated_at: null,
+  },
+  {
     key: 'navigation.arrival_distance_m',
     category: 'navigation',
     label: '到着判定距離',
@@ -1154,6 +1168,19 @@ test.describe('11. Config タブ', () => {
     const input = page.locator('#config-input-navigation-arrival_distance_m');
     await input.fill('14');
     await page.locator('tr[data-config-key="navigation.arrival_distance_m"] button').click();
+
+    await expect(page.locator('#notice-bar')).toContainText('設定を保存しました');
+  });
+
+  test('ログレベル設定は select で編集できる', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-config').click();
+
+    const input = page.locator('#config-input-logging-level');
+    await expect(input).toBeVisible();
+    await input.selectOption('ERROR');
+    await page.locator('tr[data-config-key="logging.level"] button').click();
 
     await expect(page.locator('#notice-bar')).toContainText('設定を保存しました');
   });

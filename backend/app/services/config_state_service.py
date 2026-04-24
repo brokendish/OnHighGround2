@@ -118,6 +118,7 @@ class ConfigStateService:
             default_value=defn.default_value,
             current_value=current_value,
             description=defn.description,
+            options=defn.options,
             min=defn.min,
             max=defn.max,
             editable=defn.editable,
@@ -160,6 +161,10 @@ class ConfigStateService:
         if defn.type == ConfigValueType.string:
             if not isinstance(value, str):
                 raise ConfigValidationError("文字列を入力してください。")
+            if defn.options and value not in defn.options:
+                raise ConfigValidationError(
+                    f"許可されていない値です。選択肢: {', '.join(defn.options)}"
+                )
             return value
 
         raise ConfigValidationError("未対応の設定型です。")

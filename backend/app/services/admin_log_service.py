@@ -11,7 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Dict, List, Optional
 
+from app.services.config_definition_service import get_config_definition_service
+from app.services.config_state_service import get_config_state_service
+
 logger = logging.getLogger(__name__)
+_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+_DEFAULT_LOG_LEVEL = "INFO"
 
 
 def _utc_now_iso() -> str:
@@ -20,6 +25,30 @@ def _utc_now_iso() -> str:
 
 def _local_now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def get_current_log_level() -> str:
+    try:
+        defn = get_config_definition_service().get("logging.level")
+        if defn is None:
+            return _DEFAULT_LOG_LEVEL
+        current = str(get_config_state_service().resolve_value(defn)).upper()
+        if current in _LOG_LEVELS:
+            return current
+    except Exception:
+        pass
+    return _DEFAULT_LOG_LEVEL
+
+
+def should_log(level: str) -> bool:
+    normalized = str(level).upper()
+    if normalized not in _LOG_LEVELS:
+        normalized = _DEFAULT_LOG_LEVEL
+    current = get_current_log_level()
+    try:
+        return _LOG_LEVELS.index(normalized) >= _LOG_LEVELS.index(current)
+    except ValueError:
+        return normalized != "DEBUG"
 
 
 class AdminLogService:
@@ -131,6 +160,8 @@ def get_admin_log_service() -> AdminLogService:
 
 
 def write_app_log(message: str, level: str = "INFO") -> None:
+    if not should_log(level):
+        return
     try:
         getattr(logger, level.lower(), logger.info)("app_log %s", message)
     except Exception:
@@ -139,6 +170,8 @@ def write_app_log(message: str, level: str = "INFO") -> None:
 
 
 def write_job_log(message: str, level: str = "INFO", job_id: Optional[str] = None) -> None:
+    if not should_log(level):
+        return
     try:
         getattr(logger, level.lower(), logger.info)("job_log job_id=%s %s", job_id, message)
     except Exception:

@@ -818,6 +818,13 @@ function renderConfigRow(item) {
 
 function renderConfigInput(item) {
   const id = `config-input-${configDomId(item.key)}`;
+  if (item.type === "string" && Array.isArray(item.options) && item.options.length > 0) {
+    return `<select class="config-input" id="${id}" ${item.editable ? "" : "disabled"}>
+      ${item.options.map(option => `
+        <option value="${escAttr(option)}" ${item.current_value === option ? "selected" : ""}>${escHtml(option)}</option>
+      `).join("")}
+    </select>`;
+  }
   if (item.type === "boolean") {
     return `<label class="config-checkbox"><input id="${id}" type="checkbox" ${item.current_value ? "checked" : ""} ${item.editable ? "" : "disabled"}> 有効</label>`;
   }
