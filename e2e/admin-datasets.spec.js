@@ -333,6 +333,13 @@ const LOG_LINES_BY_SOURCE = {
   ],
 };
 
+const LOG_STATUS = {
+  sources: [
+    { key: 'app', label: 'Application', size_bytes: 12345 },
+    { key: 'jobs', label: 'Jobs', size_bytes: 67890 },
+  ],
+};
+
 // ── URL: テストサーバーは .html 拡張子が必要 ─────────────────
 const PAGE_URL = '/admin/datasets.html';
 
@@ -389,6 +396,24 @@ async function setupBasicMocks(page, datasets = ALL_DATASETS) {
   );
   await page.route('/api/admin/logs/sources', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LOG_SOURCES) })
+  );
+  await page.route('/api/admin/logs/status', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LOG_STATUS) })
+  );
+  await page.route('/api/admin/logs/cleanup', route =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        cleanup_enabled: true,
+        retention_days: 7,
+        max_file_size_bytes: 104857600,
+        sources: [
+          { key: 'app', size_bytes_after: 4096, deleted_files: ['app.log.1.gz'], truncated: true },
+          { key: 'jobs', size_bytes_after: 2048, deleted_files: [], truncated: false },
+        ],
+      }),
+    })
   );
   await page.route(/\/api\/admin\/logs\?source=.*$/, route => {
     const url = new URL(route.request().url());
@@ -1225,6 +1250,7 @@ test.describe('12. Logs タブ', () => {
     await expect(page.locator('#logs-source-select')).toHaveValue('app');
     await expect(page.locator('#logs-viewer')).toContainText('dist_to_goal=18.4m');
     await expect(page.locator('#logs-line-count')).toContainText('2 / 1000 lines');
+    await expect(page.locator('#logs-size-meta')).toContainText('12.1 KB');
   });
 
   test('ソース切替でログ一覧が切り替わる', async ({ page }) => {
@@ -1305,5 +1331,15 @@ test.describe('12. Logs タブ', () => {
     await page.locator('#logs-connect-btn').click();
     const sourceState = await page.evaluate(() => window.__eventSourceState(1));
     expect(sourceState.url).toContain('/api/admin/logs/stream?source=jobs');
+  });
+
+  test('cleanup ボタンでログクリーンアップを実行できる', async ({ page }) => {
+    await installMockEventSource(page);
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-logs').click();
+
+    await page.locator('#logs-cleanup-btn').click();
+    await expect(page.locator('#notice-bar')).toContainText('ログクリーンアップを実行しました');
   });
 });

@@ -170,6 +170,7 @@
         <button class="btn btn-primary" id="logs-connect-btn" onclick="connectLogsStream()">接続</button>
         <button class="btn btn-secondary" id="logs-disconnect-btn" onclick="disconnectLogsStream()" disabled>切断</button>
         <button class="refresh-btn" id="logs-reload-btn" onclick="reloadLogs()">再読込</button>
+        <button class="btn btn-secondary" id="logs-cleanup-btn" onclick="runLogsCleanup()">今すぐクリーンアップ</button>
         <button class="btn btn-secondary" id="logs-clear-btn" onclick="clearLogsViewer()">クリア</button>
         <label class="config-checkbox" for="logs-autoscroll-toggle">
           <input id="logs-autoscroll-toggle" type="checkbox" checked onchange="toggleLogsAutoScroll()">
@@ -179,6 +180,7 @@
       <div class="logs-meta">
         <span id="logs-source-meta">source: —</span>
         <span id="logs-line-count">0 / 1000 lines</span>
+        <span id="logs-size-meta">size: —</span>
       </div>
       <div class="job-log-area logs-viewer" id="logs-viewer">Logsタブを開くと読み込みます</div>
       <div class="placeholder-card logs-placeholder">

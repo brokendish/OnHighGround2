@@ -1,11 +1,13 @@
 """
-admin.py — 管理 API エンドポイント（read-only）
+admin.py — 管理 API エンドポイント
 
 GET /api/admin/hazards             ハザードレイヤー一覧
 GET /api/admin/hazards/{layer_key} レイヤー詳細
 GET /api/admin/runtime/summary     runtime 全体サマリー
 GET /api/admin/logs/sources        利用可能なログソース一覧
 GET /api/admin/logs                ログ末尾一覧
+GET /api/admin/logs/status         ログサイズ一覧
+POST /api/admin/logs/cleanup       ログクリーンアップ
 GET /api/admin/logs/stream         SSEログストリーム
 """
 from __future__ import annotations
@@ -58,6 +60,16 @@ async def get_logs(
         return {"lines": _log_service.tail_lines(source=source, limit=limit)}
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=f"invalid source: {exc.args[0]}") from exc
+
+
+@router.get("/logs/status")
+async def get_logs_status():
+    return _log_service.status()
+
+
+@router.post("/logs/cleanup")
+async def cleanup_logs():
+    return _log_service.cleanup_logs()
 
 
 @router.get("/logs/stream")

@@ -7,9 +7,9 @@ import asyncio
 import json
 import logging
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from app.services.config_definition_service import get_config_definition_service
 from app.services.config_state_service import get_config_state_service
@@ -17,6 +17,10 @@ from app.services.config_state_service import get_config_state_service
 logger = logging.getLogger(__name__)
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 _DEFAULT_LOG_LEVEL = "INFO"
+_DEFAULT_RETENTION_DAYS = 7
+_DEFAULT_MAX_FILE_SIZE_MB = 100
+_DEFAULT_CLEANUP_ENABLED = True
+_JST = timezone(timedelta(hours=9), name="JST")
 
 
 def _utc_now_iso() -> str:
@@ -24,7 +28,7 @@ def _utc_now_iso() -> str:
 
 
 def _local_now_iso() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return datetime.now(_JST).isoformat(timespec="seconds")
 
 
 def get_current_log_level() -> str:
@@ -49,6 +53,16 @@ def should_log(level: str) -> bool:
         return _LOG_LEVELS.index(normalized) >= _LOG_LEVELS.index(current)
     except ValueError:
         return normalized != "DEBUG"
+
+
+def get_config_value(key: str, default: Any) -> Any:
+    try:
+        defn = get_config_definition_service().get(key)
+        if defn is None:
+            return default
+        return get_config_state_service().resolve_value(defn)
+    except Exception:
+        return default
 
 
 class AdminLogService:
@@ -80,6 +94,18 @@ class AdminLogService:
             {"key": key, "label": self._labels.get(key, key.title())}
             for key in self._source_paths.keys()
         ]
+
+    def status(self) -> dict:
+        sources = []
+        for key in self._source_paths.keys():
+            path = self.validate_source(key)
+            size_bytes = path.stat().st_size if path.exists() else 0
+            sources.append({
+                "key": key,
+                "label": self._labels.get(key, key.title()),
+                "size_bytes": size_bytes,
+            })
+        return {"sources": sources}
 
     def validate_source(self, source: str) -> Path:
         if source not in self._source_paths:
@@ -147,6 +173,73 @@ class AdminLogService:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(f"{line}\n")
+
+    def cleanup_logs(self) -> dict:
+        cleanup_enabled = bool(get_config_value("logging.cleanup_enabled", _DEFAULT_CLEANUP_ENABLED))
+        retention_days = int(get_config_value("logging.retention_days", _DEFAULT_RETENTION_DAYS))
+        max_file_size_bytes = int(get_config_value("logging.max_file_size_mb", _DEFAULT_MAX_FILE_SIZE_MB)) * 1024 * 1024
+        result = {
+            "cleanup_enabled": cleanup_enabled,
+            "retention_days": retention_days,
+            "max_file_size_bytes": max_file_size_bytes,
+            "sources": [],
+        }
+        if not cleanup_enabled:
+            return result
+
+        cutoff = datetime.now(_JST) - timedelta(days=retention_days)
+        for key in self._source_paths.keys():
+            source_result = {
+                "key": key,
+                "truncated": False,
+                "deleted_files": [],
+                "size_bytes_before": 0,
+                "size_bytes_after": 0,
+            }
+            path = self.validate_source(key)
+            try:
+                if path.exists():
+                    source_result["size_bytes_before"] = path.stat().st_size
+                    if path.stat().st_size > max_file_size_bytes:
+                        with path.open("w", encoding="utf-8"):
+                            pass
+                        source_result["truncated"] = True
+                deleted_files = self._delete_old_files(path, cutoff)
+                source_result["deleted_files"] = deleted_files
+                source_result["size_bytes_after"] = path.stat().st_size if path.exists() else 0
+            except Exception:
+                pass
+            result["sources"].append(source_result)
+
+        try:
+            write_app_log(
+                "log cleanup executed "
+                f"retention_days={retention_days} max_file_size_bytes={max_file_size_bytes}",
+                level="INFO",
+            )
+        except Exception:
+            pass
+        return result
+
+    def _delete_old_files(self, base_path: Path, cutoff: datetime) -> List[str]:
+        deleted: List[str] = []
+        parent = base_path.parent
+        prefix = base_path.name + "."
+        if not parent.exists():
+            return deleted
+        for candidate in parent.iterdir():
+            if not candidate.is_file():
+                continue
+            if not candidate.name.startswith(prefix):
+                continue
+            try:
+                modified_at = datetime.fromtimestamp(candidate.stat().st_mtime, tz=_JST)
+                if modified_at < cutoff:
+                    candidate.unlink(missing_ok=True)
+                    deleted.append(candidate.name)
+            except Exception:
+                continue
+        return deleted
 
 
 _admin_log_service: Optional[AdminLogService] = None

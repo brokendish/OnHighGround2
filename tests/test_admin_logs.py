@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -71,9 +72,11 @@ def test_write_app_log_and_write_job_log_append_lines(tmp_path):
     job_lines = (tmp_path / "jobs.log").read_text(encoding="utf-8").splitlines()
 
     assert len(app_lines) == 1
+    assert "+09:00 INFO app " in app_lines[0]
     assert "INFO app backend startup" in app_lines[0]
 
     assert len(job_lines) == 1
+    assert "+09:00 INFO job " in job_lines[0]
     assert "INFO job job_id=job-123 job started type=deploy dataset_id=TOKYO-001" in job_lines[0]
 
 
@@ -125,6 +128,61 @@ def test_should_log_respects_logging_level_config(tmp_path):
     assert "keep error" in joined
 
 
+def test_cleanup_logs_truncates_large_file_and_deletes_old_rotated_files(tmp_path):
+    service = _service(tmp_path)
+    app_log = tmp_path / "app.log"
+    old_rotated = tmp_path / "app.log.1.gz"
+    new_rotated = tmp_path / "app.log.2.gz"
+    app_log.write_text("x" * 64, encoding="utf-8")
+    old_rotated.write_text("old", encoding="utf-8")
+    new_rotated.write_text("new", encoding="utf-8")
+    cutoff_age = time.time() - (10 * 24 * 60 * 60)
+    old_rotated.touch()
+    new_rotated.touch()
+    app_log.touch()
+    old_rotated.touch()
+    new_rotated.touch()
+    Path(old_rotated).touch()
+    Path(new_rotated).touch()
+    import os
+    os.utime(old_rotated, (cutoff_age, cutoff_age))
+
+    original_get_config_value = admin_log_service.get_config_value
+    admin_log_service.get_config_value = lambda key, default: {
+        "logging.cleanup_enabled": True,
+        "logging.retention_days": 7,
+        "logging.max_file_size_mb": 0,
+    }.get(key, default)
+    try:
+        result = service.cleanup_logs()
+    finally:
+        admin_log_service.get_config_value = original_get_config_value
+
+    assert result["cleanup_enabled"] is True
+    assert old_rotated.name in result["sources"][0]["deleted_files"]
+    assert not old_rotated.exists()
+    assert new_rotated.exists()
+    assert app_log.exists()
+
+
+def test_cleanup_logs_skips_when_disabled(tmp_path):
+    service = _service(tmp_path)
+    app_log = tmp_path / "app.log"
+    app_log.write_text("hello", encoding="utf-8")
+
+    original_get_config_value = admin_log_service.get_config_value
+    admin_log_service.get_config_value = lambda key, default: {
+        "logging.cleanup_enabled": False,
+    }.get(key, default)
+    try:
+        result = service.cleanup_logs()
+    finally:
+        admin_log_service.get_config_value = original_get_config_value
+
+    assert result["cleanup_enabled"] is False
+    assert app_log.read_text(encoding="utf-8") == "hello"
+
+
 def test_stream_lines_emits_appended_line(tmp_path):
     service = _service(tmp_path)
     app_log = tmp_path / "app.log"
@@ -163,6 +221,10 @@ def test_logs_api_returns_sources_and_rejects_invalid_source(tmp_path):
 
         logs = asyncio.run(admin_api.get_logs(source="jobs", limit=10))
         assert logs == {"lines": ["job-line"]}
+
+        status = asyncio.run(admin_api.get_logs_status())
+        assert status["sources"][1]["key"] == "jobs"
+        assert status["sources"][1]["size_bytes"] > 0
 
         with pytest.raises(HTTPException) as exc:
             asyncio.run(admin_api.get_logs(source="invalid", limit=10))

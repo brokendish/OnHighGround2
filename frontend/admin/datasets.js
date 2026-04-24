@@ -42,6 +42,7 @@ let _logsSource = "app";
 let _logsLines = [];
 let _logsAutoScroll = true;
 let _logsEventSource = null;
+let _logsStatus = { sources: [] };
 
 // ── 初期化 ────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", async () => {
@@ -916,6 +917,7 @@ function closeConfigHistoryModal() {
 async function initializeLogsPanel() {
   try {
     await loadLogSources();
+    await loadLogsStatus();
     await reloadLogs();
     _logsLoaded = true;
     connectLogsStream();
@@ -963,10 +965,16 @@ async function reloadLogs() {
   if (viewer) viewer.textContent = "ログを読み込み中...";
 
   const source = getSelectedLogsSource();
+  await loadLogsStatus();
   const data = await fetchJSON(`${API}/logs?source=${encodeURIComponent(source)}&limit=200`);
   _logsSource = source;
   _logsLines = Array.isArray(data.lines) ? data.lines.slice(-LOGS_MAX_LINES) : [];
   renderLogsViewer();
+  updateLogsMeta();
+}
+
+async function loadLogsStatus() {
+  _logsStatus = await fetchJSON(`${API}/logs/status`);
   updateLogsMeta();
 }
 
@@ -1038,6 +1046,30 @@ function clearLogsViewer() {
   updateLogsMeta();
 }
 
+async function runLogsCleanup() {
+  const button = document.getElementById("logs-cleanup-btn");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "実行中...";
+  }
+  try {
+    const result = await postJSON(`${API}/logs/cleanup`, {});
+    await loadLogsStatus();
+    await reloadLogs();
+    const cleaned = (result.sources || [])
+      .map(source => `${source.key}:${formatBytes(source.size_bytes_after || 0)}`)
+      .join(" ");
+    showNotice("success", `ログクリーンアップを実行しました。${cleaned}`.trim());
+  } catch (err) {
+    showNotice("error", "ログクリーンアップに失敗しました: " + err.message);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "今すぐクリーンアップ";
+    }
+  }
+}
+
 function toggleLogsAutoScroll() {
   const checkbox = document.getElementById("logs-autoscroll-toggle");
   _logsAutoScroll = !checkbox || checkbox.checked;
@@ -1080,11 +1112,16 @@ function scrollLogsViewerToBottom() {
 function updateLogsMeta() {
   const sourceMeta = document.getElementById("logs-source-meta");
   const lineCount = document.getElementById("logs-line-count");
+  const sizeMeta = document.getElementById("logs-size-meta");
   if (sourceMeta) {
     sourceMeta.textContent = `source: ${_logsSource || "—"}`;
   }
   if (lineCount) {
     lineCount.textContent = `${_logsLines.length} / ${LOGS_MAX_LINES} lines`;
+  }
+  if (sizeMeta) {
+    const source = (_logsStatus.sources || []).find(item => item.key === _logsSource);
+    sizeMeta.textContent = `size: ${formatBytes(source ? source.size_bytes : 0)}`;
   }
 }
 
