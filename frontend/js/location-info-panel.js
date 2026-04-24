@@ -31,6 +31,11 @@ let _lipAgeTimer          = null;  // setInterval ID
  * watchPosition が後から来た場合はそちらが自然に上書きする。
  */
 function _lipInit() {
+    // 起動時のナビモードでパネル表示状態を初期化（setNavMode()が呼ばれないまま
+    // navigationMode='browse'が直接セットされるため、ここで明示的に初期化する）
+    const initMode = (typeof navigationMode !== 'undefined') ? navigationMode : 'browse';
+    _lipUpdateNavMode(initMode);
+
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
         (position) => {
