@@ -18,6 +18,7 @@ from typing import Callable, Coroutine, Dict, List, Optional
 
 from app.models.admin_dataset import Job, JobStatus, JobStep, JobType
 from app.models.admin_dataset import DeployStatus, NormalizeStatus, OsrmRebuildStatus, ValidationStatus
+from app.services.admin_log_service import write_job_log
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +290,12 @@ class JobManager:
         self._save(job)
         return job
 
+    def _safe_write_job_log(self, message: str, level: str = "INFO", job_id: Optional[str] = None) -> None:
+        try:
+            write_job_log(message=message, level=level, job_id=job_id)
+        except Exception:
+            pass
+
     # ── ジョブ状態更新 ────────────────────────────────────────────────────────
 
     def update(
@@ -303,6 +310,7 @@ class JobManager:
         action_message: Optional[str] = None,
         exit_code: Optional[int] = None,
     ) -> Job:
+        previous_status = job.status
         if status is not None:
             job.status = status
             if status == JobStatus.running and job.started_at is None:
@@ -322,6 +330,31 @@ class JobManager:
         if exit_code is not None:
             job.exit_code = exit_code
         self._save(job)
+        if status is not None and status != previous_status:
+            if status == JobStatus.running:
+                self._safe_write_job_log(
+                    f"job started type={job.job_type.value} dataset_id={job.dataset_id}",
+                    level="INFO",
+                    job_id=job.job_id,
+                )
+            elif status == JobStatus.success:
+                self._safe_write_job_log(
+                    f"job success type={job.job_type.value} dataset_id={job.dataset_id}",
+                    level="INFO",
+                    job_id=job.job_id,
+                )
+            elif status == JobStatus.failed:
+                self._safe_write_job_log(
+                    f"job failed type={job.job_type.value} dataset_id={job.dataset_id} error_code={job.error_code or 'UNKNOWN'}",
+                    level="ERROR",
+                    job_id=job.job_id,
+                )
+            elif status == JobStatus.canceled:
+                self._safe_write_job_log(
+                    f"job canceled type={job.job_type.value} dataset_id={job.dataset_id}",
+                    level="WARNING",
+                    job_id=job.job_id,
+                )
         return job
 
     # ── ログ書き込み ──────────────────────────────────────────────────────────
@@ -389,9 +422,26 @@ class JobManager:
 
         async def _wrapper():
             try:
+                self._safe_write_job_log(
+                    f"job coroutine accepted type={job.job_type.value} dataset_id={job.dataset_id}",
+                    level="INFO",
+                    job_id=job.job_id,
+                )
                 await coro
+                latest = self._load(job.job_id)
+                if latest and latest.status == JobStatus.queued:
+                    self._safe_write_job_log(
+                        f"job completed without explicit status transition type={job.job_type.value} dataset_id={job.dataset_id}",
+                        level="WARNING",
+                        job_id=job.job_id,
+                    )
             except Exception as exc:
                 logger.exception("Unhandled error in job %s: %s", job.job_id, exc)
+                self._safe_write_job_log(
+                    f"job failed with unhandled exception type={job.job_type.value} dataset_id={job.dataset_id} error={exc}",
+                    level="ERROR",
+                    job_id=job.job_id,
+                )
                 latest = self._load(job.job_id)
                 if latest and latest.status == JobStatus.running:
                     self.update(

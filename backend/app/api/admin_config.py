@@ -18,6 +18,7 @@ from app.models.admin_config import (
     ConfigUpdateResponse,
 )
 from app.services.config_definition_service import get_config_definition_service
+from app.services.admin_log_service import write_app_log
 from app.services.config_state_service import (
     ConfigValidationError,
     get_config_state_service,
@@ -55,11 +56,26 @@ async def update_config(key: str, request: ConfigUpdateRequest):
     try:
         old_value, new_value, updated_at, item = state_svc.update_value(defn, request.value)
     except ConfigValidationError as exc:
+        try:
+            write_app_log(
+                f"config update failed key={key} value={request.value} reason={exc}",
+                level="ERROR",
+            )
+        except Exception:
+            pass
         raise HTTPException(
             status_code=400,
             detail=str(exc),
             headers={"X-Error-Code": exc.error_code},
         ) from exc
+
+    try:
+        write_app_log(
+            f"config updated key={key} old={old_value} new={new_value}",
+            level="INFO",
+        )
+    except Exception:
+        pass
 
     return ConfigUpdateResponse(
         key=key,
@@ -68,4 +84,3 @@ async def update_config(key: str, request: ConfigUpdateRequest):
         updated_at=updated_at,
         item=item,
     )
-

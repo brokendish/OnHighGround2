@@ -154,9 +154,37 @@
   </section>
 
   <section id="tab-panel-logs" class="admin-tab-panel">
-    <div class="placeholder-card">
-      <h2>Logs</h2>
-      <p>リアルタイムログ可視化は未実装です。将来ここに運用ログビューを追加します。</p>
+    <div class="config-toolbar">
+      <div>
+        <h2>Logs</h2>
+        <p>サーバ固定ログを一覧表示し、SSE で追従します。</p>
+      </div>
+      <span id="logs-connection-status" class="logs-status disconnected">未接続</span>
+    </div>
+    <div class="logs-card">
+      <div class="logs-toolbar">
+        <label for="logs-source-select">ソース</label>
+        <select id="logs-source-select" onchange="handleLogsSourceChange()">
+          <option value="">読み込み中...</option>
+        </select>
+        <button class="btn btn-primary" id="logs-connect-btn" onclick="connectLogsStream()">接続</button>
+        <button class="btn btn-secondary" id="logs-disconnect-btn" onclick="disconnectLogsStream()" disabled>切断</button>
+        <button class="refresh-btn" id="logs-reload-btn" onclick="reloadLogs()">再読込</button>
+        <button class="btn btn-secondary" id="logs-clear-btn" onclick="clearLogsViewer()">クリア</button>
+        <label class="config-checkbox" for="logs-autoscroll-toggle">
+          <input id="logs-autoscroll-toggle" type="checkbox" checked onchange="toggleLogsAutoScroll()">
+          自動スクロール
+        </label>
+      </div>
+      <div class="logs-meta">
+        <span id="logs-source-meta">source: —</span>
+        <span id="logs-line-count">0 / 1000 lines</span>
+      </div>
+      <div class="job-log-area logs-viewer" id="logs-viewer">Logsタブを開くと読み込みます</div>
+      <div class="placeholder-card logs-placeholder">
+        <h2>Logs Placeholder</h2>
+        <p>今後は検索や絞り込みをこの領域に追加できます。</p>
+      </div>
     </div>
   </section>
 

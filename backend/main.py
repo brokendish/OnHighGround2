@@ -27,6 +27,7 @@ from app.api.admin_datasets import router as admin_datasets_router
 from app.api.admin_datasets import jobs_router as admin_jobs_router
 from app.api.layer_types_api import router as layer_types_router
 from app.services.job_manager import get_job_manager
+from app.services.admin_log_service import write_app_log
 from app.services.shelter_service import (
     HAZARD_COLUMN_MAP,
     REGION_PATH_MAP,
@@ -179,6 +180,10 @@ app.include_router(layer_types_router)
 @app.on_event("startup")
 async def _startup():
     """起動時: queued/running のまま残った古いジョブを failed にリセットする。"""
+    try:
+        write_app_log("backend startup")
+    except Exception:
+        pass
     get_job_manager().cleanup_stale_running()
 
 
@@ -204,6 +209,10 @@ async def _shutdown():
         os.getpid(),
         _sys.version.split()[0],
     )
+    try:
+        write_app_log("backend shutdown", level="WARNING")
+    except Exception:
+        pass
 
 # 標高サービスの初期化
 # [Phase 1] data_runtime/backend/elevation/ を優先参照。

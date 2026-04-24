@@ -48,6 +48,7 @@ from app.services.dataset_definition_service import get_definition_service
 from app.services.dataset_state_service import get_state_service
 from app.services.job_manager import get_job_manager
 from app.services.active_mapping_service import get_active_mapping_service
+from app.services.admin_log_service import write_app_log
 from app.services import pipeline_service
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,13 @@ def _check_running_job(dataset_id: str) -> Optional[JSONResponse]:
     if jm.has_running_job(dataset_id):
         return _error_response("JOB_ALREADY_RUNNING")
     return None
+
+
+def _safe_write_app_log(message: str, level: str = "INFO") -> None:
+    try:
+        write_app_log(message, level=level)
+    except Exception:
+        pass
 
 
 # ── ヘルパー: DatasetSummary 組み立て ─────────────────────────────────────────
@@ -304,6 +312,9 @@ async def upload_dataset(dataset_id: str, files: List[UploadFile] = File(...)):
     ss.save(state)
 
     jm.submit(job, pipeline_service.run_ingest_upload(job, defn, state, jm, ss, final_tmp))
+    _safe_write_app_log(
+        f"dataset request accepted action=ingest_upload dataset_id={dataset_id} job_id={job.job_id}"
+    )
 
     n = len(contents)
     msg = "ファイルを受け付けました。処理を開始します。" if n == 1 else f"{n} ファイルを受け付けました。bundle.zip として処理を開始します。"
@@ -338,6 +349,9 @@ async def fetch_url_dataset(dataset_id: str, body: FetchUrlRequest):
     ss.save(state)
 
     jm.submit(job, pipeline_service.run_ingest_fetch_url(job, defn, state, jm, ss, body.url))
+    _safe_write_app_log(
+        f"dataset request accepted action=ingest_fetch_url dataset_id={dataset_id} job_id={job.job_id}"
+    )
 
     return JobAccepted(job_id=job.job_id, message="URL取得を受け付けました。バックグラウンドで処理を開始します。")
 
@@ -371,6 +385,9 @@ async def fetch_official_dataset(dataset_id: str):
     ss.save(state)
 
     jm.submit(job, pipeline_service.run_ingest_fetch_official(job, defn, state, jm, ss))
+    _safe_write_app_log(
+        f"dataset request accepted action=ingest_fetch_official dataset_id={dataset_id} job_id={job.job_id}"
+    )
 
     return JobAccepted(job_id=job.job_id, message="公式サイトからの取得を受け付けました。バックグラウンドで処理を開始します。")
 
@@ -407,6 +424,9 @@ async def deploy_dataset(dataset_id: str):
     ss.save(state)
 
     jm.submit(job, pipeline_service.run_deploy(job, defn, state, jm, ss))
+    _safe_write_app_log(
+        f"dataset request accepted action=deploy dataset_id={dataset_id} job_id={job.job_id}"
+    )
 
     return JobAccepted(job_id=job.job_id, message="実行環境への反映を開始しました。")
 
@@ -436,6 +456,9 @@ async def rollback_dataset(dataset_id: str):
     ss.save(state)
 
     jm.submit(job, pipeline_service.run_rollback(job, defn, state, jm, ss))
+    _safe_write_app_log(
+        f"dataset request accepted action=rollback dataset_id={dataset_id} job_id={job.job_id}"
+    )
 
     return JobAccepted(job_id=job.job_id, message="1世代前へのロールバックを開始しました。")
 
@@ -466,6 +489,9 @@ async def rebuild_osrm(dataset_id: str):
     ss.save(state)
 
     jm.submit(job, pipeline_service.run_osrm_rebuild(job, defn, state, jm, ss))
+    _safe_write_app_log(
+        f"dataset request accepted action=osrm_rebuild dataset_id={dataset_id} job_id={job.job_id}"
+    )
 
     return JobAccepted(job_id=job.job_id,
                        message="ルートエンジンの再構築を開始しました。完了まで数分かかります。")

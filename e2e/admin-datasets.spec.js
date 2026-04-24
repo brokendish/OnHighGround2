@@ -303,6 +303,22 @@ const CONFIG_HISTORY = [
   },
 ];
 
+const LOG_SOURCES = [
+  { key: 'app', label: 'Application' },
+  { key: 'jobs', label: 'Jobs' },
+];
+
+const LOG_LINES_BY_SOURCE = {
+  app: [
+    '[2026-04-24T09:00:00Z] [navigation] dist_to_goal=18.4m accuracy=12.0m arrival_counter=1 arrived=false',
+    '[2026-04-24T09:00:02Z] [navigation] reroute:start reason=off_route near_goal=true',
+  ],
+  jobs: [
+    '[2026-04-24T09:01:00Z] job=deploy-job-001 status=queued',
+    '[2026-04-24T09:01:04Z] job=deploy-job-001 status=success',
+  ],
+};
+
 // ── URL: テストサーバーは .html 拡張子が必要 ─────────────────
 const PAGE_URL = '/admin/datasets.html';
 
@@ -357,6 +373,22 @@ async function setupBasicMocks(page, datasets = ALL_DATASETS) {
   await page.route('/api/admin/config/history', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONFIG_HISTORY) })
   );
+  await page.route('/api/admin/logs/sources', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LOG_SOURCES) })
+  );
+  await page.route(/\/api\/admin\/logs\?source=.*$/, route => {
+    const url = new URL(route.request().url());
+    const source = url.searchParams.get('source') || 'app';
+    if (!LOG_LINES_BY_SOURCE[source]) {
+      route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ detail: `invalid source: ${source}` }) });
+      return;
+    }
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ lines: LOG_LINES_BY_SOURCE[source] }),
+    });
+  });
   await page.route('/api/admin/config/**', async route => {
     if (route.request().method() === 'GET' && route.request().url().endsWith('/api/admin/config/history')) {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONFIG_HISTORY) });
@@ -382,6 +414,69 @@ async function setupBasicMocks(page, datasets = ALL_DATASETS) {
         item: { ...CONFIG_ITEMS[0], current_value: body.value, updated_at: '2026-04-23T10:10:00Z' },
       }),
     });
+  });
+}
+
+async function installMockEventSource(page) {
+  await page.addInitScript(() => {
+    const eventSources = [];
+
+    class MockEventSource {
+      constructor(url) {
+        this.url = url;
+        this.readyState = 0;
+        this.closed = false;
+        this.listeners = {};
+        this.onopen = null;
+        this.onerror = null;
+        eventSources.push(this);
+        setTimeout(() => {
+          if (this.closed) return;
+          this.readyState = 1;
+          const evt = { type: 'open' };
+          if (typeof this.onopen === 'function') this.onopen(evt);
+          (this.listeners.open || []).forEach(listener => listener(evt));
+        }, 0);
+      }
+
+      addEventListener(type, listener) {
+        if (!this.listeners[type]) {
+          this.listeners[type] = [];
+        }
+        this.listeners[type].push(listener);
+      }
+
+      close() {
+        this.readyState = 2;
+        this.closed = true;
+      }
+
+      dispatch(type, data) {
+        const evt = data === undefined ? { type } : { type, data: JSON.stringify(data) };
+        if (type === 'error' && typeof this.onerror === 'function') {
+          this.onerror(evt);
+        }
+        (this.listeners[type] || []).forEach(listener => listener(evt));
+      }
+    }
+
+    window.EventSource = MockEventSource;
+    window.__eventSources = eventSources;
+    window.__emitEventSourceEvent = (index, type, data) => {
+      const eventSource = eventSources[index];
+      if (eventSource) {
+        eventSource.dispatch(type, data);
+      }
+    };
+    window.__eventSourceState = index => {
+      const eventSource = eventSources[index];
+      if (!eventSource) return null;
+      return {
+        url: eventSource.url,
+        readyState: eventSource.readyState,
+        closed: eventSource.closed,
+      };
+    };
   });
 }
 
@@ -1086,12 +1181,102 @@ test.describe('11. Config タブ', () => {
     await expect(page.locator('#config-history-list')).toContainText('navigation.arrival_distance_m');
   });
 
-  test('Logs タブは placeholder を表示する', async ({ page }) => {
+});
+
+// ════════════════════════════════════════════════════════════
+//  12. Logs タブ
+// ════════════════════════════════════════════════════════════
+
+test.describe('12. Logs タブ', () => {
+  test('Logs タブで初期ログとソース一覧が表示される', async ({ page }) => {
+    await installMockEventSource(page);
     await setupBasicMocks(page);
     await page.goto(PAGE_URL);
     await page.locator('#tab-btn-logs').click();
 
     await expect(page.locator('#tab-panel-logs')).toHaveClass(/active/);
-    await expect(page.locator('#tab-panel-logs')).toContainText('リアルタイムログ可視化は未実装');
+    await expect(page.locator('#logs-source-select')).toHaveValue('app');
+    await expect(page.locator('#logs-viewer')).toContainText('dist_to_goal=18.4m');
+    await expect(page.locator('#logs-line-count')).toContainText('2 / 1000 lines');
+  });
+
+  test('ソース切替でログ一覧が切り替わる', async ({ page }) => {
+    await installMockEventSource(page);
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-logs').click();
+
+    await page.locator('#logs-source-select').selectOption('jobs');
+    await expect(page.locator('#logs-viewer')).toContainText('job=deploy-job-001 status=success');
+    await expect(page.locator('#logs-source-meta')).toContainText('source: jobs');
+  });
+
+  test('接続と切断で状態表示が切り替わる', async ({ page }) => {
+    await installMockEventSource(page);
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-logs').click();
+
+    await expect(page.locator('#logs-connection-status')).toContainText('接続中');
+    await expect(page.locator('#logs-connect-btn')).toBeDisabled();
+    await page.locator('#logs-disconnect-btn').click();
+    await expect(page.locator('#logs-connection-status')).toContainText('未接続');
+    await expect(page.locator('#logs-connect-btn')).toBeEnabled();
+  });
+
+  test('SSE で新しいログ行が追加される', async ({ page }) => {
+    await installMockEventSource(page);
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-logs').click();
+    await expect(page.locator('#logs-connection-status')).toContainText('接続中');
+
+    await page.evaluate(() => {
+      window.__emitEventSourceEvent(0, 'log', {
+        line: '[2026-04-24T09:00:03Z] [navigation] reroute:success duration_ms=842',
+        ts: '2026-04-24T09:00:03Z',
+      });
+    });
+
+    await expect(page.locator('#logs-viewer')).toContainText('reroute:success duration_ms=842');
+    await expect(page.locator('#logs-line-count')).toContainText('3 / 1000 lines');
+  });
+
+  test('最大1000行を超えると先頭から間引かれる', async ({ page }) => {
+    await installMockEventSource(page);
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-logs').click();
+    await expect(page.locator('#logs-connection-status')).toContainText('接続中');
+
+    await page.evaluate(() => {
+      for (let i = 0; i < 1105; i += 1) {
+        window.__emitEventSourceEvent(0, 'log', {
+          line: `bulk-line-${i}`,
+          ts: '2026-04-24T09:00:03Z',
+        });
+      }
+    });
+
+    await expect(page.locator('#logs-line-count')).toContainText('1000 / 1000 lines');
+    await expect(page.locator('#logs-viewer')).toContainText('bulk-line-1104');
+    await expect(page.locator('#logs-viewer')).not.toContainText('bulk-line-0');
+  });
+
+  test('クリアで表示行が消え、再接続で source を維持できる', async ({ page }) => {
+    await installMockEventSource(page);
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-logs').click();
+    await page.locator('#logs-source-select').selectOption('jobs');
+
+    await page.locator('#logs-clear-btn').click();
+    await expect(page.locator('#logs-viewer')).toContainText('ログがありません');
+    await expect(page.locator('#logs-line-count')).toContainText('0 / 1000 lines');
+
+    await page.locator('#logs-disconnect-btn').click();
+    await page.locator('#logs-connect-btn').click();
+    const sourceState = await page.evaluate(() => window.__eventSourceState(1));
+    expect(sourceState.url).toContain('/api/admin/logs/stream?source=jobs');
   });
 });

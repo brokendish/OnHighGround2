@@ -13,6 +13,7 @@ const API = "/api/admin";
 const POLL_INTERVAL_MS = 3000;
 const DETAIL_LOG_INTERVAL_MS = 3000;
 const LIST_AUTO_REFRESH_INTERVAL_MS = 5000;
+const LOGS_MAX_LINES = 1000;
 
 // ── グローバル状態 ─────────────────────────────────────
 let _allDatasets = [];           // 最新のDatasetSummary[]
@@ -35,6 +36,12 @@ let _activateModalDataset = null;  // 有効化確認対象
 let _activeAdminTab = "datasets";
 let _configItems = [];
 let _configLoaded = false;
+let _logSources = [];
+let _logsLoaded = false;
+let _logsSource = "app";
+let _logsLines = [];
+let _logsAutoScroll = true;
+let _logsEventSource = null;
 
 // ── 初期化 ────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", async () => {
@@ -44,6 +51,9 @@ window.addEventListener("DOMContentLoaded", async () => {
 });
 
 function switchAdminTab(tab) {
+  if (tab !== "logs") {
+    disconnectLogsStream({ preserveStatus: false });
+  }
   _activeAdminTab = tab;
   ["datasets", "config", "logs"].forEach(name => {
     document.getElementById(`tab-btn-${name}`).classList.toggle("active", name === tab);
@@ -51,6 +61,13 @@ function switchAdminTab(tab) {
   });
   if (tab === "config" && !_configLoaded) {
     loadConfig();
+  }
+  if (tab === "logs") {
+    if (!_logsLoaded) {
+      initializeLogsPanel();
+    } else if (!_logsEventSource) {
+      connectLogsStream();
+    }
   }
 }
 
@@ -886,6 +903,201 @@ function renderConfigHistory(history) {
 
 function closeConfigHistoryModal() {
   document.getElementById("config-history-modal").classList.remove("open");
+}
+
+// ── Logs タブ ─────────────────────────────────────────
+async function initializeLogsPanel() {
+  try {
+    await loadLogSources();
+    await reloadLogs();
+    _logsLoaded = true;
+    connectLogsStream();
+  } catch (err) {
+    showNotice("error", "ログの初期化に失敗しました: " + err.message);
+    setLogsConnectionStatus("error", "初期化失敗");
+  }
+}
+
+async function loadLogSources() {
+  const select = document.getElementById("logs-source-select");
+  if (select) {
+    select.innerHTML = `<option value="">読み込み中...</option>`;
+    select.disabled = true;
+  }
+
+  const sources = await fetchJSON(`${API}/logs/sources`);
+  _logSources = Array.isArray(sources) ? sources : [];
+
+  if (_logSources.length === 0) {
+    _logsSource = "app";
+    if (select) {
+      select.innerHTML = `<option value="app">Application</option>`;
+      select.value = "app";
+      select.disabled = false;
+    }
+    return;
+  }
+
+  if (!_logSources.some(source => source.key === _logsSource)) {
+    _logsSource = _logSources[0].key;
+  }
+
+  if (select) {
+    select.innerHTML = _logSources.map(source => `
+      <option value="${escAttr(source.key)}">${escHtml(source.label)}</option>
+    `).join("");
+    select.value = _logsSource;
+    select.disabled = false;
+  }
+}
+
+async function reloadLogs() {
+  const viewer = document.getElementById("logs-viewer");
+  if (viewer) viewer.textContent = "ログを読み込み中...";
+
+  const source = getSelectedLogsSource();
+  const data = await fetchJSON(`${API}/logs?source=${encodeURIComponent(source)}&limit=200`);
+  _logsSource = source;
+  _logsLines = Array.isArray(data.lines) ? data.lines.slice(-LOGS_MAX_LINES) : [];
+  renderLogsViewer();
+  updateLogsMeta();
+}
+
+async function handleLogsSourceChange() {
+  const wasConnected = !!_logsEventSource;
+  disconnectLogsStream({ preserveStatus: false });
+  await reloadLogs();
+  if (wasConnected) {
+    connectLogsStream();
+  }
+}
+
+function connectLogsStream() {
+  const source = getSelectedLogsSource();
+  disconnectLogsStream({ preserveStatus: false });
+  _logsSource = source;
+
+  try {
+    const es = new EventSource(`${API}/logs/stream?source=${encodeURIComponent(source)}`);
+    _logsEventSource = es;
+    setLogsConnectionStatus("connecting", "接続中");
+    updateLogsControls();
+
+    es.addEventListener("open", () => {
+      setLogsConnectionStatus("connected", "接続中");
+      updateLogsControls();
+    });
+
+    es.addEventListener("log", event => {
+      const payload = JSON.parse(event.data);
+      appendLogLine(payload.line || "");
+      setLogsConnectionStatus("connected", "接続中");
+      updateLogsControls();
+    });
+
+    es.addEventListener("heartbeat", () => {
+      if (_logsEventSource === es) {
+        setLogsConnectionStatus("connected", "接続中");
+      }
+    });
+
+    es.onerror = () => {
+      if (_logsEventSource === es) {
+        setLogsConnectionStatus("error", "再接続中");
+      }
+    };
+  } catch (err) {
+    _logsEventSource = null;
+    setLogsConnectionStatus("error", "接続失敗");
+    updateLogsControls();
+    showNotice("error", "ログストリームの接続に失敗しました: " + err.message);
+  }
+}
+
+function disconnectLogsStream(options = {}) {
+  if (_logsEventSource) {
+    _logsEventSource.close();
+    _logsEventSource = null;
+  }
+  if (!options.preserveStatus) {
+    setLogsConnectionStatus("disconnected", "未接続");
+  }
+  updateLogsControls();
+}
+
+function clearLogsViewer() {
+  _logsLines = [];
+  renderLogsViewer();
+  updateLogsMeta();
+}
+
+function toggleLogsAutoScroll() {
+  const checkbox = document.getElementById("logs-autoscroll-toggle");
+  _logsAutoScroll = !checkbox || checkbox.checked;
+  if (_logsAutoScroll) {
+    scrollLogsViewerToBottom();
+  }
+}
+
+function appendLogLine(line) {
+  _logsLines.push(line);
+  if (_logsLines.length > LOGS_MAX_LINES) {
+    _logsLines.splice(0, _logsLines.length - LOGS_MAX_LINES);
+  }
+  renderLogsViewer();
+  updateLogsMeta();
+}
+
+function renderLogsViewer() {
+  const viewer = document.getElementById("logs-viewer");
+  if (!viewer) return;
+
+  if (_logsLines.length === 0) {
+    viewer.textContent = "ログがありません";
+  } else {
+    viewer.innerHTML = _logsLines.map(line => colorLogLine(line)).join("\n");
+  }
+
+  if (_logsAutoScroll) {
+    scrollLogsViewerToBottom();
+  }
+}
+
+function scrollLogsViewerToBottom() {
+  const viewer = document.getElementById("logs-viewer");
+  if (viewer) {
+    viewer.scrollTop = viewer.scrollHeight;
+  }
+}
+
+function updateLogsMeta() {
+  const sourceMeta = document.getElementById("logs-source-meta");
+  const lineCount = document.getElementById("logs-line-count");
+  if (sourceMeta) {
+    sourceMeta.textContent = `source: ${_logsSource || "—"}`;
+  }
+  if (lineCount) {
+    lineCount.textContent = `${_logsLines.length} / ${LOGS_MAX_LINES} lines`;
+  }
+}
+
+function updateLogsControls() {
+  const connectBtn = document.getElementById("logs-connect-btn");
+  const disconnectBtn = document.getElementById("logs-disconnect-btn");
+  if (connectBtn) connectBtn.disabled = !!_logsEventSource;
+  if (disconnectBtn) disconnectBtn.disabled = !_logsEventSource;
+}
+
+function setLogsConnectionStatus(state, label) {
+  const el = document.getElementById("logs-connection-status");
+  if (!el) return;
+  el.className = `logs-status ${state}`;
+  el.textContent = label;
+}
+
+function getSelectedLogsSource() {
+  const select = document.getElementById("logs-source-select");
+  return (select && select.value) || _logsSource || "app";
 }
 
 // ── ユーティリティ ────────────────────────────────────
