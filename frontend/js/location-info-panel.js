@@ -23,6 +23,39 @@ let _lipLon               = null;
 let _lipAcc               = null;
 let _lipAgeTimer          = null;  // setInterval ID
 
+// ── 起動時1回のみ実行（watchPosition の初回コールバック前にパネルを埋める） ──
+
+/**
+ * 起動時に getCurrentPosition で即時1回取得してパネルを初期表示する。
+ * watchPosition の初回 fix 待ちによる空表示を解消する。
+ * watchPosition が後から来た場合はそちらが自然に上書きする。
+ */
+function _lipInit() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            const lat      = position.coords.latitude;
+            const lon      = position.coords.longitude;
+            const accuracy = Number(position.coords.accuracy);
+
+            // fetchCurrentLocInfo が標高・ハザード取得とパネル更新を一括で行う
+            if (typeof fetchCurrentLocInfo === 'function') {
+                fetchCurrentLocInfo(lat, lon, null, accuracy);
+            }
+
+            // currentLocation が未設定なら locate ボタンが使えるようにセットする
+            if (typeof currentLocation !== 'undefined' && !currentLocation
+                    && typeof updateCurrentLocation === 'function') {
+                updateCurrentLocation(lat, lon, '現在地', accuracy, false).catch(() => {});
+            }
+        },
+        (err) => {
+            console.warn('[lip] 初回位置取得失敗:', err.message);
+        },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 30000 }
+    );
+}
+
 // ── エントリーポイント（navigation.js からフック） ────────────────
 
 /**
@@ -221,3 +254,6 @@ function _lipBearingLabel(lat1, lon1, lat2, lon2) {
     const dirs  = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
     return dirs[Math.round(deg / 45) % 8];
 }
+
+// 起動時1回のみ実行（他のスクリプトがすべてロード済みの状態で実行される）
+_lipInit();

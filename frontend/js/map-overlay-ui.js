@@ -227,8 +227,18 @@ function bindLocateMapButton() {
     if (!btn) return;
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
+        // 手動選択モードをクリアして watchPosition に制御を戻す
+        if (typeof exitManualLocationMode === 'function') exitManualLocationMode();
         if (typeof currentLocation !== 'undefined' && currentLocation) {
             map.setView([currentLocation.lat, currentLocation.lon], 15, { animate: true });
+            // 非ナビ情報パネルを現在地データで更新
+            if (typeof fetchCurrentLocInfo === 'function') {
+                fetchCurrentLocInfo(
+                    currentLocation.lat,
+                    currentLocation.lon,
+                    currentLocation.elevation ?? null
+                );
+            }
         }
     });
 }
