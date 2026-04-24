@@ -87,6 +87,7 @@ let navLastAutoRerouteAt          = 0;     // 最終自動再ルート時刻（m
 let navAutoRerouteCount           = 0;     // ウィンドウ内回数カウント
 let navAutoRerouteWindowStartedAt = 0;     // 回数ウィンドウ開始時刻（ms）
 let navAutoRerouteSuspended       = false; // 暴走防止で一時停止中
+let navOffRouteSkipUntilMs        = 0;     // 再ルート完了後のoff_route判定抑制タイマー（ms epoch）
 let navLastKnownAccuracy          = null;  // 直近GPS精度（m）
 let navStartElevation             = null;  // ナビ開始地点の標高（m）
 let navCurrentElevation           = null;  // 現在地の標高（m、ナビ中随時更新）

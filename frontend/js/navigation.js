@@ -24,7 +24,7 @@ const NAV_LOW_ACCURACY_M   = 50;    // GPS 精度がこれ以上なら精度警�
 const NAV_REROUTE_COOLDOWN = 10000; // 再ルート連打防止（ms）
 
 // ── オート再ルート定数 ─────────────────────────────────────────────────────
-const NAV_AUTO_REROUTE_COOLDOWN_MS = 20000; // クールダウン（ms）
+const NAV_AUTO_REROUTE_COOLDOWN_MS = 15000; // クールダウン（ms、デフォルト15秒）
 const NAV_AUTO_REROUTE_ACCURACY_M  = 50;    // 精度ガード（50m以内なら実行）
 const NAV_AUTO_REROUTE_MAX_COUNT   = 5;     // ウィンドウ内最大回数
 const NAV_AUTO_REROUTE_WINDOW_MS   = 180000;// 回数カウントウィンドウ（ms）
@@ -216,6 +216,10 @@ function _getNavigationConfigNumber(key, fallback) {
     return Number.isFinite(value) ? value : fallback;
 }
 
+function _getAutoRerouteCooldownMs() {
+    return _getNavigationConfigNumber('navigation.auto_reroute_cooldown_ms', NAV_AUTO_REROUTE_COOLDOWN_MS);
+}
+
 function _getNearGoalDistanceM() {
     return _getNavigationConfigNumber('navigation.near_goal_distance_m', NAV_NEAR_GOAL_M);
 }
@@ -247,7 +251,9 @@ function _completeReroute({ auto = false, success = false, reason = 'finished', 
     } else {
         _setNavRerouteInProgress(false, reason);
     }
-    _navDebugLog('reroute:finally isRerouting=false');
+    // 再ルート完了後クールダウン期間中はoff_route判定をスキップする（成功・失敗問わず）
+    navOffRouteSkipUntilMs = Date.now() + _getAutoRerouteCooldownMs();
+    _navDebugLog(`reroute:finally isRerouting=false skip_off_route_until=${navOffRouteSkipUntilMs}`);
     _updateNavUI();
 }
 
@@ -1516,6 +1522,7 @@ function startNavigation() {
     navAutoRerouteCount           = 0;
     navAutoRerouteWindowStartedAt = 0;
     navLastAutoRerouteAt          = 0;
+    navOffRouteSkipUntilMs        = 0;
     // コンパス初期化（iOS はユーザー操作後でないと許可ダイアログが出ないためここで呼ぶ）
     if (typeof initOrientation === 'function') initOrientation();
     // 開始地点の標高を取得
@@ -1833,9 +1840,10 @@ function _onNavPosition(position) {
         _showNavBanner('⚠ 位置情報の精度が低下しています（±' + Math.round(accuracy) + 'm）', 'warning');
     }
 
-    // 逸脱判定（再ルート処理中はスキップ、精度条件は除去）
+    // 逸脱判定（再ルート処理中・クールダウン中はスキップ、精度条件は除去）
     // routeResult != null で undefined も弾く（undefined !== null は true になるバグ対策）
     if (navActiveRoute && !navHasArrived && !navRerouteInProgress && !navAutoRerouteInProgress
+            && Date.now() >= navOffRouteSkipUntilMs
             && routeResult != null) {
         const offsetM = routeResult.routeOffsetMeters;
         if (distToGoal === null && navDestination) {
@@ -1916,8 +1924,8 @@ function _tryAutoReroute(accuracy, context = {}) {
 
     const now = Date.now();
 
-    // クールダウン
-    if (now - navLastAutoRerouteAt < NAV_AUTO_REROUTE_COOLDOWN_MS) {
+    // クールダウン（config から取得、デフォルト15秒）
+    if (now - navLastAutoRerouteAt < _getAutoRerouteCooldownMs()) {
         _navDebugLog('reroute:skip reason=cooldown');
         return;
     }
@@ -1970,7 +1978,6 @@ function _executeAutoReroute(context = {}) {
         auto: true,
         startedAt: rerouteStartedAt,
         onTimeout: () => {
-            navLastAutoRerouteAt = 0;
             _showNavBanner('⚠ 自動再ルートがタイムアウトしました。次の位置更新で再試行します。', 'danger', 4000);
         }
     });
@@ -2010,14 +2017,12 @@ function _executeAutoReroute(context = {}) {
             },
             onRouteError: () => {
                 if (!finishReroute()) return;
-                navLastAutoRerouteAt = 0;
                 _showNavBanner('⚠ 自動再ルートに失敗しました。次の位置更新で再試行します。', 'danger', 4000);
                 _completeReroute({ auto: true, success: false, reason: 'auto-route-error', startedAt: rerouteStartedAt });
             }
         });
     } catch (err) {
         finishReroute();
-        navLastAutoRerouteAt = 0;
         console.warn('[navigation] reroute:exception', err);
         _showNavBanner('⚠ 自動再ルート中にエラーが発生しました。次の位置更新で再試行します。', 'danger', 4000);
         _completeReroute({ auto: true, success: false, reason: 'auto-exception', startedAt: rerouteStartedAt });

@@ -1,1 +1,50 @@
-[]
+[
+  {
+    "key": "navigation.arrival_distance_m",
+    "old_value": 12,
+    "new_value": 13,
+    "updated_at": "2026-04-23T13:01:12.052086Z"
+  },
+  {
+    "key": "navigation.arrival_distance_m",
+    "old_value": 13,
+    "new_value": 12,
+    "updated_at": "2026-04-23T13:01:27.203522Z"
+  },
+  {
+    "key": "navigation.arrival_distance_m",
+    "old_value": 12,
+    "new_value": 50,
+    "updated_at": "2026-04-23T13:02:37.302367Z"
+  },
+  {
+    "key": "navigation.arrival_consecutive_count",
+    "old_value": 2,
+    "new_value": 1,
+    "updated_at": "2026-04-23T13:03:42.936641Z"
+  },
+  {
+    "key": "navigation.arrival_consecutive_count",
+    "old_value": 1,
+    "new_value": 2,
+    "updated_at": "2026-04-23T13:04:39.625871Z"
+  },
+  {
+    "key": "navigation.arrival_consecutive_count",
+    "old_value": 2,
+    "new_value": 1,
+    "updated_at": "2026-04-23T13:05:27.785112Z"
+  },
+  {
+    "key": "navigation.arrival_consecutive_count",
+    "old_value": 1,
+    "new_value": 2,
+    "updated_at": "2026-04-23T13:06:15.702411Z"
+  },
+  {
+    "key": "navigation.arrival_distance_m",
+    "old_value": 50,
+    "new_value": 12,
+    "updated_at": "2026-04-23T13:07:06.070596Z"
+  }
+]
