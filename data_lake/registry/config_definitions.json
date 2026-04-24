@@ -105,7 +105,7 @@
     "category": "navigation",
     "label": "目的地近傍距離",
     "type": "integer",
-    "default_value": 50,
+    "default_value": 30,
     "description": "この距離以内を目的地近傍として扱います。",
     "min": 10,
     "max": 200,

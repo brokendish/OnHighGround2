@@ -11,7 +11,7 @@
 // ── 定数 ──────────────────────────────────────────────────────────────────
 const NAV_OFF_ROUTE_M      = 28;    // 通常時の逸脱候補しきい値（メートル）
 const NAV_OFF_ROUTE_NEAR_GOAL_M = 18; // 目的地近傍の逸脱候補しきい値（メートル）
-const NAV_NEAR_GOAL_M      = 50;    // 目的地近傍とみなす距離（メートル）
+const NAV_NEAR_GOAL_M      = 30;    // 目的地近傍とみなす距離（メートル）
 const NAV_MAX_GPS_ACCURACY_M   = 50; // これ以上の誤差なら逸脱判定を保留
 const NAV_CONSECUTIVE      = 3;     // 連続 N 回外れたら warning
 const NAV_ARRIVAL_M        = 12;    // 到達判定しきい値（メートル）
