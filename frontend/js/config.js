@@ -86,7 +86,13 @@ function initConfigChangeSSE() {
         });
 
         es.onerror = () => {
-            // EventSource は自動再接続するためここでは何もしない
+            // readyState が CLOSED の場合はブラウザが自動再接続を諦めた状態。
+            // 参照をリセットして 5 秒後に再接続を試みる。
+            if (es.readyState === EventSource.CLOSED) {
+                _configChangeEventSource = null;
+                setTimeout(() => initConfigChangeSSE(), 5000);
+            }
+            // CONNECTING/OPEN の場合はブラウザが自動再接続するため何もしない。
         };
 
         console.info('[config] config change SSE connected:', url);

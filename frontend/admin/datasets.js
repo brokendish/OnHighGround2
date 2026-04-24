@@ -43,13 +43,51 @@ let _logsLines = [];
 let _logsAutoScroll = true;
 let _logsEventSource = null;
 let _logsStatus = { sources: [] };
+let _configChangeEventSource = null; // Logs用SSEとは独立した接続
 
 // ── 初期化 ────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", async () => {
   await Promise.all([populateLayerTypeFilter(), populateRegionFilter()]);
   loadDatasets();
   _listRefreshTimer = setInterval(loadDatasets, LIST_AUTO_REFRESH_INTERVAL_MS);
+  connectAdminConfigChangeSSE();
 });
+
+function connectAdminConfigChangeSSE() {
+  if (_configChangeEventSource) return;
+  try {
+    const es = new EventSource(`${API}/config/stream`);
+    _configChangeEventSource = es;
+
+    es.addEventListener("config_updated", async (event) => {
+      try {
+        const { key } = JSON.parse(event.data);
+        console.info("[admin] config_updated key=" + key + "; reloading config table");
+      } catch (_) { /* parse失敗は無視 */ }
+      // 既に読み込み済みのときだけ再取得（未表示のタブは開いたときに取得する）
+      if (_configLoaded) {
+        try {
+          await loadConfig();
+        } catch (err) {
+          console.warn("[admin] config reload failed:", err);
+        }
+      }
+    });
+
+    es.addEventListener("heartbeat", () => {
+      // 接続維持確認のみ。
+    });
+
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        _configChangeEventSource = null;
+        setTimeout(() => connectAdminConfigChangeSSE(), 5000);
+      }
+    };
+  } catch (err) {
+    console.warn("[admin] failed to connect config change SSE:", err);
+  }
+}
 
 function switchAdminTab(tab) {
   if (tab !== "logs") {
