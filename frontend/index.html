@@ -2004,6 +2004,46 @@
             margin-bottom: 4px;
         }
 
+        /* ── 非ナビ時 現在地情報パネル ───────────────────── */
+        #loc-info-nonnav {
+            padding: 10px 12px 6px;
+        }
+        .lip-section {
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .lip-section:last-child { border-bottom: none; }
+        .lip-section-title {
+            font-size: 10px;
+            font-weight: 700;
+            color: #64748b;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .lip-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 13px;
+            padding: 2px 0;
+            gap: 8px;
+        }
+        .lip-row-label {
+            color: #94a3b8;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .lip-row-value {
+            color: #f1f5f9;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .lip-hazard-danger  { color: #f59e0b; }
+        .lip-hazard-safe    { color: #34d399; }
+        .lip-hazard-unknown { color: #94a3b8; }
+
         #map-bottom-controls {
             position: absolute;
             bottom: calc(var(--ui-safe-bottom) + 24px);
@@ -2700,6 +2740,32 @@
                     </div><!-- /#mbc-tab-panel-action -->
                     <!-- 情報タブ -->
                     <div id="mbc-tab-panel-info" style="display:none;">
+                        <!-- 非ナビ時：現在地情報パネル -->
+                        <div id="loc-info-nonnav" style="display:none;">
+                            <!-- A: 位置情報 -->
+                            <div class="lip-section">
+                                <div class="lip-section-title">📍 位置情報</div>
+                                <div class="lip-row"><span class="lip-row-label">緯度</span><span class="lip-row-value" id="lip-lat">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">経度</span><span class="lip-row-value" id="lip-lon">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">GPS精度</span><span class="lip-row-value" id="lip-acc">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">最終更新</span><span class="lip-row-value" id="lip-age">--</span></div>
+                            </div>
+                            <!-- B: 標高・ハザード -->
+                            <div class="lip-section">
+                                <div class="lip-section-title">🏔 標高・ハザード</div>
+                                <div class="lip-row"><span class="lip-row-label">標高</span><span class="lip-row-value" id="lip-elev">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">津波浸水域</span><span class="lip-row-value" id="lip-h-tsunami">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">洪水リスク</span><span class="lip-row-value" id="lip-h-flood">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">土砂災害警戒域</span><span class="lip-row-value" id="lip-h-landslide">--</span></div>
+                            </div>
+                            <!-- C: 周辺情報（最寄り避難場所のみ。高台はスコープ外） -->
+                            <div class="lip-section">
+                                <div class="lip-section-title">🏃 周辺の安全情報</div>
+                                <div class="lip-row"><span class="lip-row-label">最寄り避難場所</span><span class="lip-row-value" id="lip-nearest-shelter">--</span></div>
+                            </div>
+                        </div>
+                        <!-- ナビ中：既存の避難先情報（wrap） -->
+                        <div id="loc-info-nav">
                         <div id="mbc-info-header">
                             <div id="shelter-card-name">-</div>
                         </div>
@@ -2717,7 +2783,8 @@
                             <div id="shelter-card-comment" style="display:none;"></div>
                         </div>
                         <div class="route-guidance" id="shelter-card-route-guidance"></div>
-                        <!-- 音声・振動設定 -->
+                        </div><!-- /#loc-info-nav -->
+                        <!-- 音声・振動設定（ナビ中・非ナビ共通） -->
                         <div class="mbc-settings-row">
                             <button id="voice-nav-toggle-btn" class="mbc-settings-btn map-overlay-btn--active"
                                     title="音声案内のON/OFF"
@@ -2858,6 +2925,8 @@
     <script src="js/voice-nav.js"></script>
     <!-- ナビゲーションモード -->
     <script src="js/navigation.js"></script>
+    <!-- 非ナビ時 現在地情報パネル -->
+    <script src="js/location-info-panel.js"></script>
     <!-- 行政界レイヤー管理 -->
     <script src="js/boundary-layers.js"></script>
     <!-- 地図オーバーレイUI -->

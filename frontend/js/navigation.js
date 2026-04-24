@@ -1334,15 +1334,20 @@ function fetchCurrentLocInfo(lat, lon, elevation, accuracyMeters) {
     const rowHazard = document.getElementById('mbc-row-hazard');
     if (rowHazard) rowHazard.style.display = '';
 
+    // 非ナビ時の現在地情報パネルを更新
+    if (typeof _lipUpdate === 'function') _lipUpdate(lat, lon, accuracyMeters);
+
     // 標高表示
     const elevEl = document.getElementById('mbc-current-elev');
     if (elevEl) {
         if (elevation != null) {
             elevEl.textContent = `標高 ${Number(elevation).toFixed(0)}m`;
+            if (typeof _lipUpdateElev === 'function') _lipUpdateElev(Number(elevation));
         } else {
             elevEl.textContent = '—';
             _fetchElevation(lat, lon).then(elev => {
                 if (elev !== null && elevEl) elevEl.textContent = `標高 ${elev.toFixed(0)}m`;
+                if (elev !== null && typeof _lipUpdateElev === 'function') _lipUpdateElev(elev);
             });
         }
     }
@@ -1369,6 +1374,7 @@ async function _checkCurrentHazard(lat, lon) {
         if (!res.ok) return;
         const data = await res.json();
         _updateHazardRow(data.is_danger, data.hazard_assessment);
+        if (typeof _lipUpdateHazard === 'function') _lipUpdateHazard(data.hazard_assessment);
     } catch {
         // ネットワークエラー等は無視
     }
@@ -7449,6 +7455,9 @@ function _updateNavUI() {
         const banner = el('navBanner');
         if (banner) banner.style.display = 'none';
     }
+
+    // 非ナビ時情報パネルの表示切り替え
+    if (typeof _lipUpdateNavMode === 'function') _lipUpdateNavMode(mode);
 }
 
 // ── 地図ドラッグで自動追従を一時解除 ─────────────────────────────────────
