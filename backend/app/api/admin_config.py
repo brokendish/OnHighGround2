@@ -1,15 +1,17 @@
 """
 admin_config.py — 設定管理 REST API
 
-GET /api/admin/config
-PUT /api/admin/config/{key}
-GET /api/admin/config/history
+GET  /api/admin/config
+PUT  /api/admin/config/{key}
+GET  /api/admin/config/history
+GET  /api/admin/config/stream   SSE — Config更新通知
 """
 from __future__ import annotations
 
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.models.admin_config import (
     ConfigHistoryEntry,
@@ -23,6 +25,7 @@ from app.services.config_state_service import (
     ConfigValidationError,
     get_config_state_service,
 )
+from app.services.config_change_notifier import get_config_change_notifier
 
 router = APIRouter(prefix="/api/admin/config", tags=["admin-config"])
 
@@ -77,10 +80,33 @@ async def update_config(key: str, request: ConfigUpdateRequest):
     except Exception:
         pass
 
+    try:
+        get_config_change_notifier().broadcast(key, new_value)
+    except Exception:
+        pass
+
     return ConfigUpdateResponse(
         key=key,
         old_value=old_value,
         new_value=new_value,
         updated_at=updated_at,
         item=item,
+    )
+
+
+@router.get("/stream")
+async def stream_config_changes():
+    """SSE — Config更新を全接続クライアントにリアルタイム通知する。"""
+    async def event_generator():
+        async for event in get_config_change_notifier().stream():
+            yield event
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

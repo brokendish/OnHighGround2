@@ -55,6 +55,46 @@ function getRuntimeConfigValue(key, fallback) {
         : fallback;
 }
 
+// ── Config変更SSE ────────────────────────────────────────────────
+// バックエンドのPUT /api/admin/config/{key} 成功後に config_updated イベントが届く。
+// 受信したら loadRuntimeConfig() で全件再取得し appRuntimeConfig を更新する。
+// navigation.js 等は次回判定から自動的に新値を参照する。
+
+let _configChangeEventSource = null;
+
+function initConfigChangeSSE() {
+    if (_configChangeEventSource) return;
+    const url = '/api/admin/config/stream';
+    try {
+        const es = new EventSource(url);
+        _configChangeEventSource = es;
+
+        es.addEventListener('config_updated', async (event) => {
+            try {
+                const { key } = JSON.parse(event.data);
+                console.info('[config] SSE config_updated key=' + key + '; reloading runtime config');
+            } catch (_) { /* parse失敗は無視 */ }
+            try {
+                await loadRuntimeConfig();
+            } catch (err) {
+                console.warn('[config] runtime config reload failed; keeping existing values', err);
+            }
+        });
+
+        es.addEventListener('heartbeat', () => {
+            // 接続維持確認のみ。ログには出さない。
+        });
+
+        es.onerror = () => {
+            // EventSource は自動再接続するためここでは何もしない
+        };
+
+        console.info('[config] config change SSE connected:', url);
+    } catch (err) {
+        console.warn('[config] failed to connect config change SSE:', err);
+    }
+}
+
 // ── 避難場所リージョン定義 ──────────────────────────────────────────
 // 新しい都道府県を追加するときはここに1エントリ追加するだけでよい。
 // state.js・map-overlay-ui.js・index.html の手動編集は不要になる。

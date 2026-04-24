@@ -199,6 +199,9 @@ initializeHazardToggles();
 if (typeof loadRuntimeConfig === 'function') {
     loadRuntimeConfig();
 }
+if (typeof initConfigChangeSSE === 'function') {
+    initConfigChangeSSE();
+}
 
 // ── 常時 GPS 追跡（watchPosition） ────────────────────────────────────────
 // アプリ起動時から継続的に位置を追跡する。
