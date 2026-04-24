@@ -164,6 +164,16 @@ global escape navigation platform
 The goal is to support evacuation decisions in disaster-prone regions worldwide.
 
 -----
+## UIパネルの初期化パターン（教訓）
+
+state.js で直接代入している変数（navigationMode 等）は
+起動時に setter を通らないため、
+パネルの表示制御を setter に依存している場合は
+初期化関数内で明示的に表示状態をセットする必要がある。
+
+❌ state.js の直接代入に依存
+✅ 初期化関数内で _lipUpdateNavMode(initMode) を同期的に呼ぶ
+-----
 
 ## Author
 
