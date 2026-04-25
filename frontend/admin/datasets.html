@@ -159,6 +159,10 @@
         <div class="warning-box" style="margin-bottom:14px">
           ⚠️ 値を保存しても OSRM には即時反映されません。「OSRMに適用」ボタンで再ビルドが必要です（数分かかります）。
         </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button class="btn btn-secondary" onclick="fillOsrmPreset('ohg')">OHG推奨値を入力</button>
+          <button class="btn btn-secondary" onclick="fillOsrmPreset('default')">デフォルトに戻す</button>
+        </div>
         <table class="dataset-table config-table" style="margin-bottom:14px">
           <thead>
             <tr>

@@ -928,6 +928,20 @@ async function saveConfigValue(key) {
   }
 }
 
+const _OSRM_PRESETS = {
+  ohg:     { "osrm.trunk_penalty": 0.15, "osrm.primary_penalty": 0.25, "osrm.secondary_factor": 0.80 },
+  default: { "osrm.trunk_penalty": 1.0,  "osrm.primary_penalty": 1.0,  "osrm.secondary_factor": 1.0  },
+};
+
+function fillOsrmPreset(preset) {
+  const values = _OSRM_PRESETS[preset];
+  if (!values) return;
+  Object.entries(values).forEach(([key, val]) => {
+    const el = document.getElementById(`config-input-${configDomId(key)}`);
+    if (el) el.value = val;
+  });
+}
+
 const _OSRM_STEP_LABELS = {
   accepted:         "受付済み",
   osrm_extract:     "osrm-extract 実行中...",
