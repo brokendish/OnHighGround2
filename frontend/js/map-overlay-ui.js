@@ -612,8 +612,62 @@ function buildLayerPanel() {
     browseStatus.className = 'shelter-browse-status';
     container.appendChild(browseStatus);
 
+    const navDebugSep = document.createElement('hr');
+    navDebugSep.style.cssText = 'margin:6px 0; border:none; border-top:1px solid rgba(0,0,0,0.12);';
+    container.appendChild(navDebugSep);
+
+    const navDebugLabel = document.createElement('div');
+    navDebugLabel.className = 'mou-panel-section-label';
+    navDebugLabel.textContent = 'ナビイベント';
+    container.appendChild(navDebugLabel);
+
+    const navDebugToggleLabel = document.createElement('label');
+    navDebugToggleLabel.className = 'shelter-panel-item';
+    const navDebugToggle = document.createElement('input');
+    navDebugToggle.type = 'checkbox';
+    navDebugToggle.id = 'nav-debug-layer-toggle';
+    navDebugToggle.checked = typeof window.isNavigationDebugLayerVisible === 'function'
+        ? !!window.isNavigationDebugLayerVisible()
+        : false;
+    navDebugToggle.addEventListener('change', () => {
+        try {
+            window.setNavigationDebugLayerVisible?.(navDebugToggle.checked);
+        } catch (_) {
+            // debug layer toggle must remain best-effort
+        }
+    });
+    navDebugToggleLabel.appendChild(navDebugToggle);
+    navDebugToggleLabel.appendChild(document.createTextNode(' ナビイベント表示'));
+    container.appendChild(navDebugToggleLabel);
+
+    const navDebugActions = document.createElement('div');
+    navDebugActions.className = 'nav-debug-layer-actions';
+    const navDebugClearBtn = document.createElement('button');
+    navDebugClearBtn.type = 'button';
+    navDebugClearBtn.id = 'nav-debug-layer-clear-btn';
+    navDebugClearBtn.className = 'nav-debug-layer-btn';
+    navDebugClearBtn.textContent = 'クリア';
+    navDebugClearBtn.addEventListener('click', () => {
+        try {
+            window.clearNavigationDebugEvents?.();
+        } catch (_) {
+            // best-effort
+        }
+    });
+    navDebugActions.appendChild(navDebugClearBtn);
+    container.appendChild(navDebugActions);
+
+    const navDebugStatus = document.createElement('div');
+    navDebugStatus.id = 'nav-debug-layer-status';
+    navDebugStatus.className = 'nav-debug-layer-status';
+    navDebugStatus.textContent = '0 / 100 events';
+    container.appendChild(navDebugStatus);
+
     panel.appendChild(container);
     syncHazardLayerPanelState();
+    if (typeof window.syncNavigationDebugLayerControls === 'function') {
+        window.syncNavigationDebugLayerControls();
+    }
 }
 
 // ── 凡例パネル構築 ────────────────────────────────────────────────────────
@@ -630,6 +684,7 @@ function buildLegendPanel() {
 // ── レイヤーパネル トグル ─────────────────────────────────────────────────
 function bindLayerPanelToggle() {
     const btn        = document.getElementById('layer-toggle-btn');
+    if (!btn) return;
     const panel      = document.getElementById('layer-panel');
     const legendBtn  = document.getElementById('legend-toggle-btn');
     const legendPanel = document.getElementById('legend-panel');
@@ -654,6 +709,7 @@ function bindLayerPanelToggle() {
 // ── 凡例パネル トグル ─────────────────────────────────────────────────────
 function bindLegendPanelToggle() {
     const btn        = document.getElementById('legend-toggle-btn');
+    if (!btn) return;
     const panel      = document.getElementById('legend-panel');
     const layerBtn   = document.getElementById('layer-toggle-btn');
     const layerPanel = document.getElementById('layer-panel');
@@ -683,13 +739,17 @@ function bindOutsideClick() {
 
         if (mapUiState.layerPanelOpen) {
             mapUiState.layerPanelOpen = false;
-            document.getElementById('layer-panel').style.display = 'none';
-            document.getElementById('layer-toggle-btn').classList.remove('map-overlay-btn--active');
+            const lp = document.getElementById('layer-panel');
+            const lb = document.getElementById('layer-toggle-btn');
+            if (lp) lp.style.display = 'none';
+            if (lb) lb.classList.remove('map-overlay-btn--active');
         }
         if (mapUiState.legendPanelOpen) {
             mapUiState.legendPanelOpen = false;
-            document.getElementById('legend-panel').style.display = 'none';
-            document.getElementById('legend-toggle-btn').classList.remove('map-overlay-btn--active');
+            const lgp = document.getElementById('legend-panel');
+            const lgb = document.getElementById('legend-toggle-btn');
+            if (lgp) lgp.style.display = 'none';
+            if (lgb) lgb.classList.remove('map-overlay-btn--active');
         }
     });
 }

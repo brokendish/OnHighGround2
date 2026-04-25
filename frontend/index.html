@@ -1880,6 +1880,55 @@
             pointer-events: none;
         }
 
+        .nav-debug-layer-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 4px 6px;
+        }
+        .nav-debug-layer-btn {
+            border: 1px solid rgba(0, 0, 0, 0.14);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.92);
+            color: #234;
+            padding: 5px 9px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.12s, opacity 0.12s;
+        }
+        .nav-debug-layer-btn:hover {
+            background: rgba(0, 0, 0, 0.04);
+        }
+        .nav-debug-layer-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .nav-debug-layer-status {
+            font-size: 10px;
+            color: #8892a0;
+            padding: 0 4px 4px;
+        }
+        .nav-debug-marker-wrapper {
+            background: transparent;
+            border: none;
+        }
+        .nav-debug-marker {
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            text-align: center;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+        }
+        .nav-debug-popup {
+            font-size: 12px;
+            line-height: 1.45;
+            min-width: 180px;
+        }
+
         /* 凡例パネル */
         #legend-panel .legend-item {
             display: flex;
@@ -1996,7 +2045,9 @@
             color: #1976d2;
             font-weight: 700;
         }
-        #mbc-tab-panel-info {
+        #mbc-tab-panel-info,
+        #mbc-tab-panel-layer,
+        #mbc-tab-panel-legend {
             overflow-y: auto;
             flex: 1;
         }
@@ -2383,6 +2434,9 @@
                 </label>
                 <div id="shelterBrowseStatusSide" style="font-size:11px;color:#888;padding:1px 4px 4px;min-height:14px;"></div>
                 <div class="shelter-status" id="shelterStatus">避難場所データを読み込み中...</div>
+                <!-- ハザード・行政界レイヤー操作は下部パネル「レイヤー」タブに移動。
+                     チェックボックスは buildLayerPanel() のミラー元として DOM に残す。 -->
+                <div style="display:none;" aria-hidden="true">
                 <details class="hazard-group">
                     <summary class="hazard-group-summary">津波浸水想定</summary>
                     <label class="manual-location-toggle" for="showTsunamiHazardTokyo">
@@ -2485,6 +2539,7 @@
                     </label>
                 </details>
                 <div class="shelter-status" id="boundaryStatus">行政界レイヤー: OFF</div>
+                </div><!-- /hidden hazard source checkboxes -->
 
                 <div class="current-location" id="currentLocationInfo" style="display: none;">
                     <strong>現在地:</strong><br>
@@ -2609,20 +2664,6 @@
                 <!-- 右上: レイヤー / クリア / 凡例 / 現在地 -->
                 <div id="map-top-right-controls">
 
-                    <!-- レイヤー選択（避難場所を含む） -->
-                    <div class="mou-btn-wrap">
-                        <button id="layer-toggle-btn" class="map-overlay-btn" title="レイヤー選択">
-                            <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zm.01-2.49l7.36-5.73L21 8.93l-9-7-9 7 1.63 1.26 7.37 5.85z"/>
-                            </svg>
-                            <span>レイヤー</span>
-                        </button>
-                        <div id="layer-panel" class="mou-panel" style="display:none;">
-                            <div class="mou-panel-title">レイヤー設定</div>
-                            <!-- JS で buildLayerPanel() により生成（ハザード・行政界・避難場所） -->
-                        </div>
-                    </div>
-
                     <!-- 地図クリア -->
                     <button id="map-clear-overlay-btn" class="map-overlay-btn map-overlay-btn--danger" title="地図をクリア">
                         <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -2630,20 +2671,6 @@
                         </svg>
                         <span>クリア</span>
                     </button>
-
-                    <!-- 凡例 -->
-                    <div class="mou-btn-wrap">
-                        <button id="legend-toggle-btn" class="map-overlay-btn" title="凡例">
-                            <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
-                            </svg>
-                            <span>凡例</span>
-                        </button>
-                        <div id="legend-panel" class="mou-panel" style="display:none;">
-                            <div class="mou-panel-title">凡例</div>
-                            <!-- JS で buildLegendPanel() により生成 -->
-                        </div>
-                    </div>
 
                     <!-- 現在地（センタリング） -->
                     <button id="locate-map-btn" class="map-overlay-btn" title="現在地に移動">
@@ -2683,6 +2710,14 @@
                         <button id="mbc-tab-btn-info" class="mbc-tab-btn">
                             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
                             情報
+                        </button>
+                        <button id="mbc-tab-btn-layer" class="mbc-tab-btn">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zm.01-2.49l7.36-5.73L21 8.93l-9-7-9 7 1.63 1.26 7.37 5.85z"/></svg>
+                            レイヤー
+                        </button>
+                        <button id="mbc-tab-btn-legend" class="mbc-tab-btn">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
+                            凡例
                         </button>
                     </div>
                     <!-- 操作タブ -->
@@ -2809,6 +2844,20 @@
                             </button>
                         </div>
                     </div><!-- /#mbc-tab-panel-info -->
+                    <!-- レイヤータブ -->
+                    <div id="mbc-tab-panel-layer" style="display:none;">
+                        <div id="layer-panel">
+                            <div class="mou-panel-title">レイヤー設定</div>
+                            <!-- JS で buildLayerPanel() により生成（ハザード・行政界・避難場所） -->
+                        </div>
+                    </div><!-- /#mbc-tab-panel-layer -->
+                    <!-- 凡例タブ -->
+                    <div id="mbc-tab-panel-legend" style="display:none;">
+                        <div id="legend-panel">
+                            <div class="mou-panel-title">凡例</div>
+                            <!-- JS で buildLegendPanel() により生成 -->
+                        </div>
+                    </div><!-- /#mbc-tab-panel-legend -->
                     </div><!-- /#map-bottom-body -->
                 </div><!-- /#map-bottom-controls -->
 
@@ -2914,6 +2963,7 @@
     <script src="js/api.js"></script>
     <!-- Leaflet マップ初期化・現在地管理 -->
     <script src="js/map.js"></script>
+    <script src="js/navigation-debug-layer.js"></script>
     <!-- ハザードレイヤー管理 -->
     <script src="js/hazard-layers.js"></script>
     <!-- ルーティング・経路案内 -->

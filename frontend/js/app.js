@@ -68,37 +68,57 @@ autoRefreshOnManualUpdateCheckbox.addEventListener('change', (event) => {
 
 // ── 下部パネル タブ切り替え ───────────────────────────────────────────────
 function switchMbcTab(tab) {
-    const controls  = document.getElementById('map-bottom-controls');
-    const panelAct  = document.getElementById('mbc-tab-panel-action');
-    const panelInfo = document.getElementById('mbc-tab-panel-info');
-    const btnAct    = document.getElementById('mbc-tab-btn-action');
-    const btnInfo   = document.getElementById('mbc-tab-btn-info');
+    const controls     = document.getElementById('map-bottom-controls');
+    const panelAct     = document.getElementById('mbc-tab-panel-action');
+    const panelInfo    = document.getElementById('mbc-tab-panel-info');
+    const panelLayer   = document.getElementById('mbc-tab-panel-layer');
+    const panelLegend  = document.getElementById('mbc-tab-panel-legend');
+    const btnAct       = document.getElementById('mbc-tab-btn-action');
+    const btnInfo      = document.getElementById('mbc-tab-btn-info');
+    const btnLayer     = document.getElementById('mbc-tab-btn-layer');
+    const btnLegend    = document.getElementById('mbc-tab-btn-legend');
     if (!controls || !panelAct || !panelInfo) return;
 
+    // すべて非表示・非アクティブにリセット
+    panelAct.style.display  = 'none';
+    panelInfo.style.display = 'none';
+    if (panelLayer)  panelLayer.style.display  = 'none';
+    if (panelLegend) panelLegend.style.display = 'none';
+    btnAct.classList.remove('mbc-tab-btn--active');
+    btnInfo.classList.remove('mbc-tab-btn--active');
+    if (btnLayer)  btnLayer.classList.remove('mbc-tab-btn--active');
+    if (btnLegend) btnLegend.classList.remove('mbc-tab-btn--active');
+
     if (tab === 'info') {
-        panelAct.style.display  = 'none';
         panelInfo.style.display = 'block';
-        btnAct.classList.remove('mbc-tab-btn--active');
         btnInfo.classList.add('mbc-tab-btn--active');
-        // 折りたたまれていれば展開
+        controls.classList.remove('mbc-collapsed');
+    } else if (tab === 'layer') {
+        if (panelLayer) panelLayer.style.display = 'block';
+        if (btnLayer)   btnLayer.classList.add('mbc-tab-btn--active');
+        controls.classList.remove('mbc-collapsed');
+    } else if (tab === 'legend') {
+        if (panelLegend) panelLegend.style.display = 'block';
+        if (btnLegend)   btnLegend.classList.add('mbc-tab-btn--active');
         controls.classList.remove('mbc-collapsed');
     } else {
-        panelAct.style.display  = 'block';
-        panelInfo.style.display = 'none';
+        // action（デフォルト）
+        panelAct.style.display = 'block';
         btnAct.classList.add('mbc-tab-btn--active');
-        btnInfo.classList.remove('mbc-tab-btn--active');
     }
 }
 
 // タブボタン
 document.getElementById('mbc-tab-btn-action').addEventListener('click', () => switchMbcTab('action'));
 document.getElementById('mbc-tab-btn-info').addEventListener('click',   () => switchMbcTab('info'));
+document.getElementById('mbc-tab-btn-layer')?.addEventListener('click',  () => switchMbcTab('layer'));
+document.getElementById('mbc-tab-btn-legend')?.addEventListener('click', () => switchMbcTab('legend'));
 
-// 情報タブ内スクロールが地図パンに伝播しないようにする
-const mbcInfoPanel = document.getElementById('mbc-tab-panel-info');
-if (mbcInfoPanel && typeof L !== 'undefined') {
-    L.DomEvent.disableScrollPropagation(mbcInfoPanel);
-}
+// タブ内スクロールが地図パンに伝播しないようにする
+['mbc-tab-panel-info', 'mbc-tab-panel-layer', 'mbc-tab-panel-legend'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && typeof L !== 'undefined') L.DomEvent.disableScrollPropagation(el);
+});
 
 showEmergencySheltersCheckbox.addEventListener('change', (event) => {
     isEmergencyShelterVisible = event.target.checked;
