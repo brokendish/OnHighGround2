@@ -129,10 +129,52 @@ function _lipRenderPosition() {
     _lipSet('lip-lon', _lipLon != null ? _lipLon.toFixed(6) : '--');
     _lipSet('lip-acc', _lipAcc != null ? `±${Math.round(_lipAcc)} m` : '--');
     _lipRenderAge();
+    _lipRenderReverseGeocode();
 }
 
 function _lipRenderElev() {
     _lipSet('lip-elev', _lipElevation != null ? `${Math.round(_lipElevation)} m` : '--');
+}
+
+function _lipRenderReverseGeocode() {
+    const addressEl = document.getElementById('lip-address');
+    const postcodeEl = document.getElementById('lip-postcode');
+    const attributionEl = document.getElementById('lip-address-attribution');
+    if (!addressEl || !postcodeEl || !attributionEl) return;
+
+    if (currentReverseGeocodeStatus === 'disabled') {
+        addressEl.textContent = '無効';
+        postcodeEl.textContent = '—';
+        attributionEl.style.display = 'none';
+        return;
+    }
+    if (currentReverseGeocodeStatus === 'loading') {
+        addressEl.textContent = '取得中...';
+        postcodeEl.textContent = '取得中...';
+        attributionEl.style.display = '';
+        return;
+    }
+    if (currentReverseGeocodeStatus === 'error') {
+        addressEl.textContent = '取得失敗';
+        postcodeEl.textContent = '—';
+        attributionEl.style.display = '';
+        return;
+    }
+    if (currentReverseGeocode && currentReverseGeocode.address) {
+        addressEl.textContent = currentReverseGeocode.address;
+        postcodeEl.textContent = currentReverseGeocode.postcode || '—';
+        attributionEl.style.display = '';
+        return;
+    }
+    if (currentReverseGeocodeStatus === 'unknown') {
+        addressEl.textContent = '不明';
+        postcodeEl.textContent = '—';
+        attributionEl.style.display = '';
+        return;
+    }
+    addressEl.textContent = '--';
+    postcodeEl.textContent = '--';
+    attributionEl.style.display = 'none';
 }
 
 function _lipRenderHazard() {
@@ -244,6 +286,77 @@ function _lipStopAgeTimer() {
 function _lipSet(id, text) {
     const el = document.getElementById(id);
     if (el) el.textContent = text;
+}
+
+function _lipHaversineMeters(lat1, lon1, lat2, lon2) {
+    const toRad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * toRad;
+    const dLon = (lon2 - lon1) * toRad;
+    const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+    return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function _shouldFetchReverseGeocode(lat, lon) {
+    if (getRuntimeConfigValue('geocode.enabled', true) === false) {
+        currentReverseGeocodeStatus = 'disabled';
+        _lipRenderReverseGeocode();
+        return false;
+    }
+    const minMoveDistance = Number(getRuntimeConfigValue('geocode.min_move_distance_m', 50));
+    if (!currentReverseGeocodeLastFetchPos) {
+        return true;
+    }
+    const moved = _lipHaversineMeters(
+        currentReverseGeocodeLastFetchPos.lat,
+        currentReverseGeocodeLastFetchPos.lon,
+        lat,
+        lon,
+    );
+    return moved >= minMoveDistance;
+}
+
+async function requestCurrentLocationReverseGeocode(lat, lon) {
+    if (!_shouldFetchReverseGeocode(lat, lon)) {
+        return currentReverseGeocode;
+    }
+    if (currentReverseGeocodeInFlight) {
+        return currentReverseGeocodeInFlight;
+    }
+
+    currentReverseGeocodeStatus = 'loading';
+    _lipRenderReverseGeocode();
+
+    currentReverseGeocodeInFlight = (async () => {
+        try {
+            const response = await apiFetch(`/reverse-geocode?lat=${lat}&lon=${lon}`);
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || `HTTP ${response.status}`);
+            }
+
+            currentReverseGeocode = {
+                address: data.address || null,
+                postcode: data.postcode || null,
+                source: data.source || 'unknown',
+                lat: data.lat,
+                lon: data.lon,
+            };
+            currentReverseGeocodeLastFetchPos = { lat, lon };
+            currentReverseGeocodeStatus = data.address ? 'ready' : 'unknown';
+            _lipRenderReverseGeocode();
+            return currentReverseGeocode;
+        } catch (error) {
+            console.warn('[reverse-geocode] fetch failed:', error);
+            currentReverseGeocodeStatus = 'error';
+            _lipRenderReverseGeocode();
+            return null;
+        } finally {
+            currentReverseGeocodeInFlight = null;
+        }
+    })();
+
+    return currentReverseGeocodeInFlight;
 }
 
 /** 2点間の方位を8方位の日本語ラベルで返す。 */

@@ -28,6 +28,7 @@ from app.api.admin_datasets import jobs_router as admin_jobs_router
 from app.api.layer_types_api import router as layer_types_router
 from app.services.job_manager import get_job_manager
 from app.services.admin_log_service import write_app_log
+from app.services.reverse_geocode_service import get_reverse_geocode_service
 from app.services.shelter_service import (
     HAZARD_COLUMN_MAP,
     REGION_PATH_MAP,
@@ -583,6 +584,14 @@ class ElevationProfileRequest(BaseModel):
     end_lat: float
     end_lon: float
     num_points: int = Field(default=50, ge=10, le=200)
+
+
+class ReverseGeocodeResponse(BaseModel):
+    address: Optional[str] = None
+    postcode: Optional[str] = None
+    source: str
+    lat: float
+    lon: float
 
 
 # ------------------------------------------------------------------
@@ -1198,6 +1207,25 @@ async def hazard_check(
     except Exception as e:
         logger.exception("ハザード判定エラー")
         raise HTTPException(status_code=500, detail="ハザード判定中に内部エラーが発生しました")
+
+
+@app.get("/api/reverse-geocode", response_model=ReverseGeocodeResponse)
+async def reverse_geocode(
+    lat: float = Query(..., description="緯度", ge=-90, le=90),
+    lon: float = Query(..., description="経度", ge=-180, le=180),
+):
+    try:
+        result = get_reverse_geocode_service().reverse_geocode(lat, lon)
+        return ReverseGeocodeResponse(**result)
+    except Exception as exc:
+        logger.warning("reverse geocode endpoint failed: %s", exc)
+        return ReverseGeocodeResponse(
+            address=None,
+            postcode=None,
+            source="unknown",
+            lat=lat,
+            lon=lon,
+        )
 
 
 @app.post("/api/evacuation")

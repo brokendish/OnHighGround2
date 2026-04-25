@@ -49,6 +49,68 @@
     "ui_order": 530
   },
   {
+    "key": "geocode.enabled",
+    "category": "system",
+    "label": "逆ジオコード有効",
+    "type": "boolean",
+    "default_value": true,
+    "description": "現在地住所の逆ジオコーディングを有効にします。",
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 540
+  },
+  {
+    "key": "geocode.cache_ttl_hours",
+    "category": "system",
+    "label": "逆ジオコードキャッシュTTL",
+    "type": "integer",
+    "default_value": 24,
+    "description": "逆ジオコードキャッシュの有効時間です。",
+    "min": 1,
+    "max": 168,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 550
+  },
+  {
+    "key": "geocode.min_move_distance_m",
+    "category": "system",
+    "label": "逆ジオコード再取得距離",
+    "type": "integer",
+    "default_value": 50,
+    "description": "この距離以上移動したときだけ住所を再取得します。",
+    "min": 5,
+    "max": 500,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 560
+  },
+  {
+    "key": "geocode.coordinate_precision",
+    "category": "system",
+    "label": "逆ジオコード座標丸め精度",
+    "type": "integer",
+    "default_value": 4,
+    "description": "キャッシュキーに使う座標の小数桁数です。",
+    "min": 2,
+    "max": 6,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 570
+  },
+  {
+    "key": "geocode.provider",
+    "category": "system",
+    "label": "逆ジオコードプロバイダ",
+    "type": "string",
+    "default_value": "nominatim",
+    "description": "逆ジオコードに使用するプロバイダです。",
+    "options": ["nominatim"],
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 580
+  },
+  {
     "key": "navigation.arrival_distance_m",
     "category": "navigation",
     "label": "到着判定距離",

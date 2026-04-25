@@ -1364,6 +1364,9 @@ function fetchCurrentLocInfo(lat, lon, elevation, accuracyMeters) {
         hazardEl.textContent = '確認中...';
         hazardEl.className   = 'mbc-status-cell mbc-status-hazard';
     }
+    if (typeof requestCurrentLocationReverseGeocode === 'function') {
+        requestCurrentLocationReverseGeocode(lat, lon);
+    }
     _checkCurrentHazard(lat, lon);
 }
 

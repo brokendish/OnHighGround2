@@ -9,6 +9,10 @@
 let currentLocation = null;       // { lat, lon, accuracyMeters }
 let currentMarker = null;         // Leaflet CircleMarker
 let currentAccuracyCircle = null; // Leaflet Circle（GPS 精度圏）
+let currentReverseGeocode = null; // { address, postcode, source, lat, lon }
+let currentReverseGeocodeStatus = 'idle'; // idle | loading | ready | error | disabled | unknown
+let currentReverseGeocodeLastFetchPos = null; // { lat, lon }
+let currentReverseGeocodeInFlight = null; // Promise | null
 
 // ── 避難先候補 ────────────────────────────────────────────────────────────
 let destinationMarkers = [];
