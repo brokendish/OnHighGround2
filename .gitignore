@@ -81,10 +81,13 @@ data_lake/admin/logs/*.log
 # ---- data_runtime: 配備済みデータ（deploy_to_runtime.sh で生成、git 管理外）----
 # ディレクトリ構造（.gitkeep）と README は管理対象、データファイルは除外
 data_runtime/backend/
+data_runtime/cache/
 data_runtime/frontend/layers/
 data_runtime/frontend/tiles/
 data_runtime/manifests/*.json
 data_runtime/manifests/*.log
+data_runtime/system/config_history.json
+data_runtime/system/config_overrides.json
 
 # ---- frontend/layers: deploy_to_runtime.sh で同期される GeoJSON (deploy artifact) ----
 frontend/layers/*.geojson
