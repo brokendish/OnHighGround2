@@ -243,6 +243,21 @@ osrm-walking:
 ```
 
 ---
+## 追加要件: デフォルト値の修正
+
+### デフォルト値を元のfoot.luaの値に変更する
+osrm.trunk_penalty    デフォルト: 1.0（ペナルティなし）
+osrm.primary_penalty  デフォルト: 1.0（ペナルティなし）
+osrm.secondary_factor デフォルト: 1.0（ペナルティなし）
+
+### Config画面に2つのプリセットボタンを追加する
+[OHG推奨値を入力]   → trunk=0.15 / primary=0.25 / secondary=0.80 を入力欄にセット
+[デフォルトに戻す]  → trunk=1.0  / primary=1.0  / secondary=1.0  を入力欄にセット
+
+※ ボタンは入力欄にセットするだけ。
+  実際の反映は「OSRMに適用」ボタンを押すまで行われない。
+
+---
 
 ## 完了時の報告フォーマット
 

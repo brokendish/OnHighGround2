@@ -22,6 +22,20 @@ let _lipLat               = null;
 let _lipLon               = null;
 let _lipAcc               = null;
 let _lipAgeTimer          = null;  // setInterval ID
+let _lipRouteSelection    = {
+    route: null,
+    destination: null,
+    selectedRouteIndex: null,
+    transportMode: null,
+    mode: 'idle',
+    routes: [],
+    routeColors: [],
+    onSelectRouteIndex: null
+};
+let _lipDestinationReverseGeocode = null;
+let _lipDestinationReverseGeocodeStatus = 'idle';
+let _lipDestinationReverseGeocodeInFlight = null;
+let _lipDestinationReverseGeocodeKey = null;
 
 // ── 起動時1回のみ実行（watchPosition の初回コールバック前にパネルを埋める） ──
 
@@ -102,24 +116,20 @@ function _lipUpdateElev(elev) {
  * @param {string} mode  navigationMode の値
  */
 function _lipUpdateNavMode(mode) {
-    const isNav = mode === 'navigation_active'
-               || mode === 'navigation_warning'
-               || mode === 'navigation_paused'
-               || mode === 'navigation_finished';
-
     const elNonNav = document.getElementById('loc-info-nonnav');
+    const elRoute  = document.getElementById('loc-info-route');
     const elNav    = document.getElementById('loc-info-nav');
-    if (!elNonNav || !elNav) return;
+    if (!elNonNav || !elRoute || !elNav) return;
 
-    if (isNav) {
-        elNonNav.style.display = 'none';
-        elNav.style.display    = '';
-        _lipStopAgeTimer();
-    } else {
-        elNonNav.style.display = '';
-        elNav.style.display    = 'none';
-        if (_lipLastUpdateAt) _lipStartAgeTimer();
-    }
+    const showRouteSummary = mode === 'route_preview'
+        || mode === 'navigation_active'
+        || mode === 'navigation_warning'
+        || mode === 'navigation_paused'
+        || mode === 'navigation_finished';
+    elNonNav.style.display = showRouteSummary ? 'none' : '';
+    elNav.style.display = 'none';
+    _lipRenderRouteSelection(mode);
+    if (_lipLastUpdateAt) _lipStartAgeTimer();
 }
 
 // ── 内部レンダリング ───────────────────────────────────────────────
@@ -132,8 +142,344 @@ function _lipRenderPosition() {
     _lipRenderReverseGeocode();
 }
 
+function _lipUpdateRouteSelection(payload = {}) {
+    if (Object.prototype.hasOwnProperty.call(payload, 'route')) {
+        _lipRouteSelection.route = payload.route || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'destination') && payload.destination) {
+        _lipRouteSelection.destination = payload.destination;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'selectedRouteIndex')) {
+        _lipRouteSelection.selectedRouteIndex = Number.isFinite(Number(payload.selectedRouteIndex))
+            ? Number(payload.selectedRouteIndex)
+            : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'transportMode')) {
+        _lipRouteSelection.transportMode = payload.transportMode || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'mode') && payload.mode) {
+        _lipRouteSelection.mode = payload.mode;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'routes')) {
+        _lipRouteSelection.routes = Array.isArray(payload.routes) ? payload.routes : [];
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'routeColors')) {
+        _lipRouteSelection.routeColors = Array.isArray(payload.routeColors) ? payload.routeColors : [];
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'onSelectRouteIndex')) {
+        _lipRouteSelection.onSelectRouteIndex = typeof payload.onSelectRouteIndex === 'function'
+            ? payload.onSelectRouteIndex
+            : null;
+    }
+    _lipMaybeRequestDestinationReverseGeocode();
+    _lipRenderRouteSelection();
+}
+
+function _lipClearRouteSelection() {
+    _lipRouteSelection = {
+        route: null,
+        destination: null,
+        selectedRouteIndex: null,
+        transportMode: null,
+        mode: 'idle',
+        routes: [],
+        routeColors: [],
+        onSelectRouteIndex: null
+    };
+    _lipDestinationReverseGeocode = null;
+    _lipDestinationReverseGeocodeStatus = 'idle';
+    _lipDestinationReverseGeocodeInFlight = null;
+    _lipDestinationReverseGeocodeKey = null;
+    _lipRenderRouteSelection('browse');
+}
+
+function _lipFormatDistance(distanceMeters) {
+    const value = Number(distanceMeters);
+    if (!Number.isFinite(value)) return '--';
+    if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)} km`;
+    return `${Math.round(value)} m`;
+}
+
+function _lipFormatDuration(durationSeconds) {
+    const value = Number(durationSeconds);
+    if (!Number.isFinite(value)) return '--';
+    const totalMinutes = Math.round(value / 60);
+    if (totalMinutes < 1) return '1分未満';
+    if (totalMinutes >= 60) {
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return `${hours}時間${minutes > 0 ? `${minutes}分` : ''}`;
+    }
+    return `${totalMinutes}分`;
+}
+
+function _lipDescribeDestinationHazard(dest) {
+    if (!dest) return '';
+    if (dest.hazard_safe === true) return '✅ 危険区域外';
+    if (dest.hazard_safe === false) return '⚠️ 危険区域内の可能性';
+    if (Array.isArray(dest.hazard_types) && dest.hazard_types.length > 0) {
+        return `対応ハザード: ${dest.hazard_types.join(', ')}`;
+    }
+    if (dest.hazard_assessment) return '判定あり';
+    return '';
+}
+
+function _lipDescribeRouteCaution(route) {
+    const safety = route?.__pedestrianSafety || null;
+    if (!safety) return '';
+    if (Array.isArray(safety.dangerousCrossings) && safety.dangerousCrossings.length > 0) {
+        const first = safety.dangerousCrossings[0];
+        const highway = first?.classification?.highway || '幹線道路';
+        return `${highway} 横断に注意`;
+    }
+    if (safety.status === 'unknown') {
+        return '横断安全性を判定できません';
+    }
+    return '';
+}
+
+function _lipRouteMetric(route, key) {
+    const summary = route?.summary || null;
+    if (key === 'distance') {
+        return Number(summary?.totalDistance ?? route?.totalDistance);
+    }
+    if (key === 'time') {
+        return Number(summary?.totalTime ?? route?.totalTime);
+    }
+    return NaN;
+}
+
+function _lipResolveRouteBadge(route, routeIndex, routes) {
+    const routeList = Array.isArray(routes) ? routes : [];
+    if (routeList.length === 0) return '候補';
+    let shortestIndex = 0;
+    let shortestValue = Infinity;
+    routeList.forEach((candidate, index) => {
+        const timeValue = _lipRouteMetric(candidate, 'time');
+        const distanceValue = _lipRouteMetric(candidate, 'distance');
+        const metric = Number.isFinite(timeValue) ? timeValue : distanceValue;
+        if (Number.isFinite(metric) && metric < shortestValue) {
+            shortestValue = metric;
+            shortestIndex = index;
+        }
+    });
+    const safety = route?.__pedestrianSafety || null;
+    if (routeIndex === 0) return '推奨';
+    if (routeIndex === shortestIndex) return '最短';
+    if (safety?.status === 'safe') return '回避';
+    if (safety?.status === 'unsafe') return '注意';
+    return '候補';
+}
+
+function _lipRenderRouteSelector(transportMode) {
+    const section = document.getElementById('lip-route-selector-section');
+    const container = document.getElementById('lip-route-options');
+    if (!section || !container) return;
+
+    const routeList = Array.isArray(_lipRouteSelection.routes) ? _lipRouteSelection.routes : [];
+    const onSelect = typeof _lipRouteSelection.onSelectRouteIndex === 'function'
+        ? _lipRouteSelection.onSelectRouteIndex
+        : null;
+    if (routeList.length <= 1 || !onSelect) {
+        section.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+
+    section.style.display = '';
+    container.innerHTML = '';
+    routeList.forEach((candidateRoute, routeIndex) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'route-option-button';
+        if (routeIndex === _lipRouteSelection.selectedRouteIndex) {
+            button.classList.add('active');
+        }
+        const color = _lipRouteSelection.routeColors[routeIndex]
+            || (typeof getRouteColorByIndex === 'function' ? getRouteColorByIndex(routeIndex) : '#1e88e5');
+        const distance = _lipFormatDistance(_lipRouteMetric(candidateRoute, 'distance'));
+        const duration = _lipFormatDuration(_lipRouteMetric(candidateRoute, 'time'));
+        const badge = _lipResolveRouteBadge(candidateRoute, routeIndex, routeList);
+        const modeLabel = transportMode === 'walking' ? '徒歩' : transportMode === 'driving' ? '車' : '';
+        button.innerHTML = `
+            <span class="route-color-chip" style="background: ${color};"></span>
+            候補${routeIndex + 1}
+            <span style="margin-left:6px;font-size:11px;color:#64748b;">${distance} / ${duration}${modeLabel ? ` / ${modeLabel}` : ''}</span>
+            <span style="margin-left:auto;font-size:11px;font-weight:700;color:${routeIndex === _lipRouteSelection.selectedRouteIndex ? '#fff' : '#1d4ed8'};">${badge}</span>
+        `;
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onSelect(routeIndex);
+        });
+        container.appendChild(button);
+    });
+}
+
+function _lipResolveElevationGain(route, dest) {
+    const directGain = Number(dest?.elevation_gain);
+    if (Number.isFinite(directGain)) {
+        return `+${directGain.toFixed(1)} m`;
+    }
+    const currentElev = Number(_lipElevation);
+    const destElev = Number(dest?.elevation);
+    if (Number.isFinite(currentElev) && Number.isFinite(destElev)) {
+        const diff = destElev - currentElev;
+        return `${diff >= 0 ? '+' : ''}${diff.toFixed(1)} m`;
+    }
+    return '--';
+}
+
+function _lipDescribeCurrentHazardSummary() {
+    const assessment = _lipHazardAssessment;
+    if (!assessment || typeof assessment !== 'object') return '';
+    const labels = {
+        tsunami: '津波',
+        flood: '洪水',
+        inland_flood: '内水氾濫',
+        inland_flood_l2: '内水氾濫',
+        storm_surge: '高潮',
+        landslide: '土砂災害'
+    };
+    const inside = [];
+    let hasUnknown = false;
+    Object.entries(assessment).forEach(([key, value]) => {
+        const status = typeof value === 'string' ? value : value?.status;
+        if (status === 'inside') inside.push(labels[key] || key);
+        if (status === 'unknown') hasUnknown = true;
+    });
+    if (inside.length > 0) return `⚠️ ${inside.join('・')} に注意`;
+    if (hasUnknown) return '❓ 一部未判定';
+    return '✅ 危険区域外';
+}
+
+function _lipDestinationKey(dest) {
+    if (!dest) return null;
+    const lat = Number(dest.lat);
+    const lon = Number(dest.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return `${lat.toFixed(6)},${lon.toFixed(6)}`;
+}
+
+function _lipResolveDestinationAddress(dest) {
+    if (_lipDestinationReverseGeocode?.address) return _lipDestinationReverseGeocode.address;
+    if (dest?.address) return dest.address;
+    if (dest?.display_name) return dest.display_name;
+    return '';
+}
+
+function _lipResolveDestinationPostcode(dest) {
+    if (_lipDestinationReverseGeocode?.postcode) return _lipDestinationReverseGeocode.postcode;
+    if (dest?.postcode) return dest.postcode;
+    return '';
+}
+
+function _lipSetOptionalRow(id, text) {
+    const el = document.getElementById(id);
+    const row = el ? el.closest('.lip-row') : null;
+    if (!el || !row) return;
+    const hasValue = text !== null && text !== undefined && String(text).trim() !== '' && String(text).trim() !== '--';
+    row.style.display = hasValue ? '' : 'none';
+    if (hasValue) {
+        el.textContent = text;
+    }
+}
+
+function _lipMaybeRequestDestinationReverseGeocode() {
+    const destination = _lipRouteSelection.destination || navDestination || navOriginalDestination || userDestination || null;
+    const key = _lipDestinationKey(destination);
+    if (!key) {
+        _lipDestinationReverseGeocode = null;
+        _lipDestinationReverseGeocodeStatus = 'idle';
+        _lipDestinationReverseGeocodeInFlight = null;
+        _lipDestinationReverseGeocodeKey = null;
+        return null;
+    }
+    if (_lipDestinationReverseGeocodeKey === key && (
+        _lipDestinationReverseGeocodeStatus === 'ready'
+        || _lipDestinationReverseGeocodeStatus === 'unknown'
+        || _lipDestinationReverseGeocodeStatus === 'loading'
+    )) {
+        return _lipDestinationReverseGeocodeInFlight;
+    }
+    const lat = Number(destination.lat);
+    const lon = Number(destination.lon);
+    _lipDestinationReverseGeocodeKey = key;
+    _lipDestinationReverseGeocodeStatus = 'loading';
+    _lipDestinationReverseGeocodeInFlight = (async () => {
+        try {
+            const response = await apiFetch(`/reverse-geocode?lat=${lat}&lon=${lon}`);
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || `HTTP ${response.status}`);
+            }
+            _lipDestinationReverseGeocode = {
+                address: data.address || null,
+                postcode: data.postcode || null,
+                source: data.source || 'unknown',
+                lat: data.lat,
+                lon: data.lon
+            };
+            _lipDestinationReverseGeocodeStatus = data.address ? 'ready' : 'unknown';
+        } catch (error) {
+            console.warn('[lip] destination reverse geocode failed:', error);
+            _lipDestinationReverseGeocode = null;
+            _lipDestinationReverseGeocodeStatus = 'error';
+        } finally {
+            _lipDestinationReverseGeocodeInFlight = null;
+            _lipRenderRouteSelection();
+        }
+        return _lipDestinationReverseGeocode;
+    })();
+    return _lipDestinationReverseGeocodeInFlight;
+}
+
+function _lipRenderRouteSelection(modeOverride = null) {
+    const container = document.getElementById('loc-info-route');
+    if (!container) return;
+
+    const activeMode = modeOverride || navigationMode || _lipRouteSelection.mode || 'browse';
+    const isPreview = activeMode === 'route_preview';
+    const isNavigating = activeMode === 'navigation_active'
+        || activeMode === 'navigation_warning'
+        || activeMode === 'navigation_paused'
+        || activeMode === 'navigation_finished';
+    const shouldShow = isPreview || isNavigating;
+    container.style.display = shouldShow ? '' : 'none';
+    if (!shouldShow) return;
+
+    const route = _lipRouteSelection.route || navActiveRoute || null;
+    const destination = _lipRouteSelection.destination || navDestination || navOriginalDestination || userDestination || null;
+    const transportMode = _lipRouteSelection.transportMode || document.getElementById('transportMode')?.value || null;
+    const address = _lipResolveDestinationAddress(destination);
+    const postcode = _lipResolveDestinationPostcode(destination);
+    const currentElev = Number(_lipElevation);
+    const destElev = Number(destination?.elevation);
+    const elevDiff = _lipResolveElevationGain(route, destination);
+
+    _lipSet('lip-dest-name', destination?.name || '目的地未設定');
+    _lipSetOptionalRow('lip-dest-address', address || (
+        _lipDestinationReverseGeocodeStatus === 'loading' ? '取得中...' : ''
+    ));
+    _lipSetOptionalRow('lip-dest-postcode', postcode);
+
+    const attributionRow = document.getElementById('lip-dest-address-attribution-row');
+    if (attributionRow) {
+        attributionRow.style.display = address ? '' : 'none';
+    }
+
+    _lipRenderRouteSelector(transportMode);
+    _lipSetOptionalRow('lip-current-elev', Number.isFinite(currentElev) ? `${Math.round(currentElev)} m` : '');
+    _lipSetOptionalRow('lip-dest-elev', Number.isFinite(destElev) ? `${Math.round(destElev)} m` : '');
+    _lipSetOptionalRow('lip-elev-diff', elevDiff);
+    _lipSetOptionalRow('lip-current-hazard-summary', _lipDescribeCurrentHazardSummary());
+    _lipSetOptionalRow('lip-dest-hazard', _lipDescribeDestinationHazard(destination));
+    _lipSetOptionalRow('lip-route-caution', _lipDescribeRouteCaution(route));
+}
+
 function _lipRenderElev() {
     _lipSet('lip-elev', _lipElevation != null ? `${Math.round(_lipElevation)} m` : '--');
+    _lipRenderRouteSelection();
 }
 
 function _lipRenderReverseGeocode() {
@@ -200,6 +546,7 @@ function _lipRenderHazard() {
         insideLabel: '⚠️ 警戒域',
         outsideLabel: '✅ 域外',
     });
+    _lipRenderRouteSelection();
 }
 
 function _lipSetHazard(id, value, { insideLabel, outsideLabel }) {

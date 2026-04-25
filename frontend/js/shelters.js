@@ -231,7 +231,14 @@ function showRouteToEmergencyShelter(site, marker) {
 
     // ナビモードに目的地を即時通知（navPanel 表示・navDestination 設定）
     if (typeof onNavRouteSelected === 'function') {
-        onNavRouteSelected(null, { lat: site.lat, lon: site.lon, name: site.name });
+        onNavRouteSelected(null, { lat: site.lat, lon: site.lon, name: site.name }, {
+            selectedRouteIndex: null,
+            transportMode: null,
+            routes: [],
+            routeColors: [],
+            onSelectRouteIndex: null,
+            infoMode: 'route_preview'
+        });
     }
 
     const routed = drawRouteTo(site.lat, site.lon, {
@@ -246,7 +253,14 @@ function showRouteToEmergencyShelter(site, marker) {
             }
             // ナビモードにルートを通知
             if (typeof onNavRouteSelected === 'function') {
-                onNavRouteSelected(routes[selectedRouteIndex], null);
+                onNavRouteSelected(routes[selectedRouteIndex], null, {
+                    selectedRouteIndex,
+                    transportMode,
+                    routes,
+                    routeColors,
+                    onSelectRouteIndex: selectRouteIndex,
+                    infoMode: 'route_preview'
+                });
             }
             renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             renderSelectedEmergencyShelterRouteGuidance(

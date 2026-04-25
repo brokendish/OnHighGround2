@@ -240,13 +240,27 @@ function _drawRouteToUserDestination() {
             lat:  userDestination.lat,
             lon:  userDestination.lon,
             name: userDestination.name
+        }, {
+            selectedRouteIndex: null,
+            transportMode: null,
+            routes: [],
+            routeColors: [],
+            onSelectRouteIndex: null,
+            infoMode: 'route_preview'
         });
     }
 
     drawRouteTo(userDestination.lat, userDestination.lon, {
         onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
             if (typeof onNavRouteSelected === 'function') {
-                onNavRouteSelected(routes[selectedRouteIndex], null);
+                onNavRouteSelected(routes[selectedRouteIndex], null, {
+                    selectedRouteIndex,
+                    transportMode,
+                    routes,
+                    routeColors,
+                    onSelectRouteIndex: selectRouteIndex,
+                    infoMode: 'route_preview'
+                });
             }
             renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             if (typeof renderUserDestRouteGuidance === 'function') {

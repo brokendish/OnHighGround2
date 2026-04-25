@@ -1700,6 +1700,9 @@ function stopNavigation() {
     if (currentLocation) {
         fetchCurrentLocInfo(currentLocation.lat, currentLocation.lon, currentLocation.elevation ?? null);
     }
+    if (typeof _lipClearRouteSelection === 'function') {
+        _lipClearRouteSelection();
+    }
 }
 
 // ── 自動再ルート ON/OFF トグル ────────────────────────────────────────────
@@ -1714,11 +1717,27 @@ function toggleNavAutoReroute() {
 }
 
 // ── ルート選択時に呼ばれる（routing.js から） ─────────────────────────────
-function onNavRouteSelected(route, destination) {
+function onNavRouteSelected(route, destination, meta = {}) {
     if (route) navActiveRoute = route;
     if (destination) {
         navDestination = destination;
         if (!navOriginalDestination) navOriginalDestination = destination;
+    }
+    if (typeof _lipUpdateRouteSelection === 'function') {
+        _lipUpdateRouteSelection({
+            route: route === null ? null : (route || navActiveRoute || null),
+            destination: destination || navDestination || navOriginalDestination || null,
+            selectedRouteIndex: meta.selectedRouteIndex,
+            transportMode: meta.transportMode,
+            routes: meta.routes,
+            routeColors: meta.routeColors,
+            onSelectRouteIndex: meta.onSelectRouteIndex,
+            mode: meta.infoMode || (
+                navigationMode === 'browse' || navigationMode === 'navigation_finished'
+                    ? 'route_preview'
+                    : 'navigation_active'
+            )
+        });
     }
     if (navigationMode === 'browse' || navigationMode === 'navigation_finished') {
         setNavMode('route_preview'); // 内部で _updateNavUI() を呼ぶ
@@ -1769,6 +1788,16 @@ function rerouteToSameDestination() {
             onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
                 if (!finishReroute()) return;
                 navActiveRoute       = routes[selectedRouteIndex];
+                if (typeof onNavRouteSelected === 'function') {
+                    onNavRouteSelected(routes[selectedRouteIndex], null, {
+                        selectedRouteIndex,
+                        transportMode,
+                        routes,
+                        routeColors,
+                        onSelectRouteIndex: selectRouteIndex,
+                        infoMode: 'navigation_active'
+                    });
+                }
                 navOffRouteCount     = 0;
                 if (_offRouteDebounceTimer !== null) {
                     clearTimeout(_offRouteDebounceTimer);
@@ -2117,6 +2146,16 @@ function _executeAutoReroute(context = {}) {
             onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
                 if (!finishReroute()) return;
                 navActiveRoute           = routes[selectedRouteIndex];
+                if (typeof onNavRouteSelected === 'function') {
+                    onNavRouteSelected(routes[selectedRouteIndex], null, {
+                        selectedRouteIndex,
+                        transportMode,
+                        routes,
+                        routeColors,
+                        onSelectRouteIndex: selectRouteIndex,
+                        infoMode: 'navigation_active'
+                    });
+                }
                 navOffRouteCount         = 0;
                 if (_offRouteDebounceTimer !== null) {
                     clearTimeout(_offRouteDebounceTimer);
@@ -7281,6 +7320,16 @@ async function blockAheadAndReroute() {
 
     if (typeof renderRouteCandidatesOnMap === 'function') {
         renderRouteCandidatesOnMap(selectedBundle.routes, selectedBundle.routeColors, 0, selectedBundle.selectRouteIndex);
+    }
+    if (typeof onNavRouteSelected === 'function') {
+        onNavRouteSelected(adoptedRoute, null, {
+            selectedRouteIndex: 0,
+            transportMode: selectedBundle.transportMode,
+            routes: selectedBundle.routes,
+            routeColors: selectedBundle.routeColors,
+            onSelectRouteIndex: selectedBundle.selectRouteIndex,
+            infoMode: 'navigation_active'
+        });
     }
     if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
     if (typeof voiceNav !== 'undefined') voiceNav.clear();

@@ -2780,7 +2780,7 @@
                         <div id="loc-info-nonnav" style="display:none;">
                             <!-- A: 位置情報 -->
                             <div class="lip-section">
-                                <div class="lip-section-title">📍 位置情報</div>
+                                <div class="lip-section-title">📍 現在地</div>
                                 <div class="lip-row"><span class="lip-row-label">緯度</span><span class="lip-row-value" id="lip-lat">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">経度</span><span class="lip-row-value" id="lip-lon">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">GPS精度</span><span class="lip-row-value" id="lip-acc">--</span></div>
@@ -2808,8 +2808,39 @@
                                 <div class="lip-row"><span class="lip-row-label">最寄り避難場所</span><span class="lip-row-value" id="lip-nearest-shelter">--</span></div>
                             </div>
                         </div>
+                        <div id="loc-info-route" style="display:none;">
+                            <div class="lip-section" id="lip-route-selector-section" style="display:none;">
+                                <div class="lip-section-title">🛣 ルート選択</div>
+                                <div id="lip-route-options"></div>
+                            </div>
+                            <div class="lip-section">
+                                <div class="lip-section-title">🎯 目的地住所情報</div>
+                                <div class="lip-row"><span class="lip-row-label">目的地名</span><span class="lip-row-value" id="lip-dest-name">目的地未設定</span></div>
+                                <div class="lip-row"><span class="lip-row-label">推定住所</span><span class="lip-row-value" id="lip-dest-address">取得待ち</span></div>
+                                <div class="lip-row"><span class="lip-row-label">郵便番号</span><span class="lip-row-value" id="lip-dest-postcode">--</span></div>
+                                <div class="lip-row" id="lip-dest-address-attribution-row" style="display:none;">
+                                    <span class="lip-row-label"></span>
+                                    <span class="lip-row-value" id="lip-dest-address-attribution" style="font-size:10px;color:#94a3b8;">
+                                        Address: © OpenStreetMap contributors
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="lip-section">
+                                <div class="lip-section-title">🪧 案内ステップ</div>
+                                <div class="route-guidance" id="shelter-card-route-guidance"></div>
+                            </div>
+                            <div class="lip-section">
+                                <div class="lip-section-title">🏔 標高・ハザード</div>
+                                <div class="lip-row"><span class="lip-row-label">現在地標高</span><span class="lip-row-value" id="lip-current-elev">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">目的地標高</span><span class="lip-row-value" id="lip-dest-elev">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">標高差</span><span class="lip-row-value" id="lip-elev-diff">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">現在地ハザード</span><span class="lip-row-value" id="lip-current-hazard-summary">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">目的地ハザード</span><span class="lip-row-value" id="lip-dest-hazard">--</span></div>
+                                <div class="lip-row"><span class="lip-row-label">注意情報</span><span class="lip-row-value" id="lip-route-caution">--</span></div>
+                            </div>
+                        </div>
                         <!-- ナビ中：既存の避難先情報（wrap） -->
-                        <div id="loc-info-nav">
+                        <div id="loc-info-nav" style="display:none;" aria-hidden="true">
                         <div id="mbc-info-header">
                             <div id="shelter-card-name">-</div>
                         </div>
@@ -2826,7 +2857,6 @@
                             <div id="shelter-card-elev-score"></div>
                             <div id="shelter-card-comment" style="display:none;"></div>
                         </div>
-                        <div class="route-guidance" id="shelter-card-route-guidance"></div>
                         </div><!-- /#loc-info-nav -->
                         <!-- 音声・振動設定（ナビ中・非ナビ共通） -->
                         <div class="mbc-settings-row">

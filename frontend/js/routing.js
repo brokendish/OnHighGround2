@@ -569,6 +569,7 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
         ? formatDurationText(Number(summary.totalTime))
         : '-';
     const steps = buildRouteInstructionItems(route, formatter);
+    const isCompactInfoPanel = panelId === 'shelter-card-route-guidance';
 
     const title = document.createElement('div');
     title.className = 'route-guidance-title';
@@ -637,11 +638,13 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
     }
 
     panel.innerHTML = '';
-    panel.appendChild(title);
-    panel.appendChild(selectedLabel);
-    panel.appendChild(summaryEl);
-    if (routeList.length > 1) {
-        panel.appendChild(buttons);
+    if (!isCompactInfoPanel) {
+        panel.appendChild(title);
+        panel.appendChild(selectedLabel);
+        panel.appendChild(summaryEl);
+        if (routeList.length > 1) {
+            panel.appendChild(buttons);
+        }
     }
     panel.appendChild(list);
     panel.classList.add('active');
@@ -936,14 +939,28 @@ function showRoute(destination, index, options = {}) {
 
     // ルート取得前にナビモードへ目的地を即時通知（navPanel を即表示）
     if (typeof onNavRouteSelected === 'function') {
-        onNavRouteSelected(null, destination);
+        onNavRouteSelected(null, destination, {
+            selectedRouteIndex: null,
+            transportMode: null,
+            routes: [],
+            routeColors: [],
+            onSelectRouteIndex: null,
+            infoMode: 'route_preview'
+        });
     }
 
     const routed = drawRouteTo(destination.lat, destination.lon, {
         onRoutesAvailable: ({ routes, selectedRouteIndex, selectedRouteColor, routeColors, formatter, transportMode, selectRouteIndex }) => {
             // ナビモードにルート・目的地を通知
             if (typeof onNavRouteSelected === 'function') {
-                onNavRouteSelected(routes[selectedRouteIndex], destination);
+                onNavRouteSelected(routes[selectedRouteIndex], destination, {
+                    selectedRouteIndex,
+                    transportMode,
+                    routes,
+                    routeColors,
+                    onSelectRouteIndex: selectRouteIndex,
+                    infoMode: 'route_preview'
+                });
             }
             renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, selectRouteIndex);
             renderDestinationRouteGuidance(
