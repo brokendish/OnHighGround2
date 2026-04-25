@@ -1,7 +1,0 @@
-{
-  "navigation.arrival_distance_m": 12,
-  "navigation.arrival_consecutive_count": 2,
-  "navigation.off_route_distance_m": 28,
-  "navigation.near_goal_off_route_distance_m": 18,
-  "navigation.near_goal_distance_m": 50
-}
