@@ -19,6 +19,7 @@ def _service(tmp_path: Path) -> AdminLogService:
         source_paths={
             "app": tmp_path / "app.log",
             "jobs": tmp_path / "jobs.log",
+            "navigation": tmp_path / "navigation.log",
         },
         heartbeat_interval_sec=60.0,
         poll_interval_sec=0.01,
@@ -63,6 +64,7 @@ def test_write_app_log_and_write_job_log_append_lines(tmp_path):
     try:
         admin_log_service.write_app_log("backend startup")
         admin_log_service.write_job_log("job started type=deploy dataset_id=TOKYO-001", job_id="job-123")
+        admin_log_service.write_navigation_log("reroute:start reason=off_route distance=23.5")
     finally:
         admin_log_service._admin_log_service = original_service
         admin_log_service.get_config_definition_service = original_definition_service
@@ -70,6 +72,7 @@ def test_write_app_log_and_write_job_log_append_lines(tmp_path):
 
     app_lines = (tmp_path / "app.log").read_text(encoding="utf-8").splitlines()
     job_lines = (tmp_path / "jobs.log").read_text(encoding="utf-8").splitlines()
+    navigation_lines = (tmp_path / "navigation.log").read_text(encoding="utf-8").splitlines()
 
     assert len(app_lines) == 1
     assert "+09:00 INFO app " in app_lines[0]
@@ -78,6 +81,10 @@ def test_write_app_log_and_write_job_log_append_lines(tmp_path):
     assert len(job_lines) == 1
     assert "+09:00 INFO job " in job_lines[0]
     assert "INFO job job_id=job-123 job started type=deploy dataset_id=TOKYO-001" in job_lines[0]
+
+    assert len(navigation_lines) == 1
+    assert "+09:00 INFO navigation " in navigation_lines[0]
+    assert "INFO navigation reroute:start reason=off_route distance=23.5" in navigation_lines[0]
 
 
 def test_should_log_respects_logging_level_config(tmp_path):
@@ -208,6 +215,7 @@ def test_stream_lines_emits_appended_line(tmp_path):
 def test_logs_api_returns_sources_and_rejects_invalid_source(tmp_path):
     service = _service(tmp_path)
     (tmp_path / "jobs.log").write_text("job-line\n", encoding="utf-8")
+    (tmp_path / "navigation.log").write_text("nav-line\n", encoding="utf-8")
 
     original_service = admin_api._log_service
     admin_api._log_service = service
@@ -217,14 +225,20 @@ def test_logs_api_returns_sources_and_rejects_invalid_source(tmp_path):
         assert sources == [
             {"key": "app", "label": "Application"},
             {"key": "jobs", "label": "Jobs"},
+            {"key": "navigation", "label": "Navigation"},
         ]
 
         logs = asyncio.run(admin_api.get_logs(source="jobs", limit=10))
         assert logs == {"lines": ["job-line"]}
 
+        nav_logs = asyncio.run(admin_api.get_logs(source="navigation", limit=10))
+        assert nav_logs == {"lines": ["nav-line"]}
+
         status = asyncio.run(admin_api.get_logs_status())
         assert status["sources"][1]["key"] == "jobs"
         assert status["sources"][1]["size_bytes"] > 0
+        assert status["sources"][2]["key"] == "navigation"
+        assert status["sources"][2]["size_bytes"] > 0
 
         with pytest.raises(HTTPException) as exc:
             asyncio.run(admin_api.get_logs(source="invalid", limit=10))
@@ -232,3 +246,45 @@ def test_logs_api_returns_sources_and_rejects_invalid_source(tmp_path):
         assert exc.value.detail == "invalid source: invalid"
     finally:
         admin_api._log_service = original_service
+
+
+def test_post_navigation_log_writes_line(tmp_path):
+    service = _service(tmp_path)
+    original_service = admin_api._log_service
+    original_global_service = admin_log_service._admin_log_service
+    original_definition_service = admin_log_service.get_config_definition_service
+    original_state_service = admin_log_service.get_config_state_service
+    admin_api._log_service = service
+    admin_log_service._admin_log_service = service
+
+    class _Defn:
+        default_value = "DEBUG"
+
+    class _DefinitionService:
+        def get(self, key):
+            return _Defn() if key == "logging.level" else None
+
+    class _StateService:
+        def resolve_value(self, defn):
+            return "DEBUG"
+
+    admin_log_service.get_config_definition_service = lambda: _DefinitionService()
+    admin_log_service.get_config_state_service = lambda: _StateService()
+
+    try:
+        payload = admin_api.NavigationLogRequest(
+            level="INFO",
+            message="reroute:start reason=off_route",
+            context={"distance": 23.5},
+        )
+        result = asyncio.run(admin_api.post_navigation_log(payload))
+    finally:
+        admin_api._log_service = original_service
+        admin_log_service._admin_log_service = original_global_service
+        admin_log_service.get_config_definition_service = original_definition_service
+        admin_log_service.get_config_state_service = original_state_service
+
+    assert result == {"ok": True}
+    lines = (tmp_path / "navigation.log").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    assert "INFO navigation reroute:start reason=off_route distance=23.5" in lines[0]

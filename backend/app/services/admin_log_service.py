@@ -79,10 +79,12 @@ class AdminLogService:
         self._source_paths = source_paths or {
             "app": logs_dir / "app.log",
             "jobs": logs_dir / "jobs.log",
+            "navigation": logs_dir / "navigation.log",
         }
         self._labels = {
             "app": "Application",
             "jobs": "Jobs",
+            "navigation": "Navigation",
         }
         self._heartbeat_interval_sec = heartbeat_interval_sec
         self._poll_interval_sec = poll_interval_sec
@@ -167,6 +169,9 @@ class AdminLogService:
     ) -> None:
         suffix = f" job_id={job_id}" if job_id else ""
         self._write_line("jobs", f"{_local_now_iso()} {level.upper()} job{suffix} {message}")
+
+    def write_navigation_log(self, message: str, level: str = "INFO") -> None:
+        self._write_line("navigation", f"{_local_now_iso()} {level.upper()} navigation {message}")
 
     def _write_line(self, source: str, line: str) -> None:
         path = self.validate_source(source)
@@ -270,3 +275,13 @@ def write_job_log(message: str, level: str = "INFO", job_id: Optional[str] = Non
     except Exception:
         pass
     get_admin_log_service().write_job_log(message=message, level=level, job_id=job_id)
+
+
+def write_navigation_log(message: str, level: str = "INFO") -> None:
+    if not should_log(level):
+        return
+    try:
+        getattr(logger, level.lower(), logger.info)("navigation_log %s", message)
+    except Exception:
+        pass
+    get_admin_log_service().write_navigation_log(message=message, level=level)

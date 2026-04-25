@@ -17,15 +17,22 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from app.services.admin_hazard_service import AdminHazardService
-from app.services.admin_log_service import get_admin_log_service
+from app.services.admin_log_service import get_admin_log_service, write_navigation_log
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 _martin_url = os.getenv("MARTIN_INTERNAL_URL", "http://martin:3000")
 _service = AdminHazardService(martin_url=_martin_url)
 _log_service = get_admin_log_service()
+
+
+class NavigationLogRequest(BaseModel):
+    level: str = Field(default="INFO")
+    message: str
+    context: Optional[dict] = None
 
 
 @router.get("/hazards")
@@ -70,6 +77,24 @@ async def get_logs_status():
 @router.post("/logs/cleanup")
 async def cleanup_logs():
     return _log_service.cleanup_logs()
+
+
+@router.post("/logs/navigation")
+async def post_navigation_log(payload: NavigationLogRequest):
+    try:
+        level = str(payload.level or "INFO").upper()
+        context = payload.context if isinstance(payload.context, dict) else None
+        context_text = ""
+        if context:
+            compact_items = []
+            for key, value in context.items():
+                compact_items.append(f"{key}={value}")
+            if compact_items:
+                context_text = " " + " ".join(compact_items)
+        write_navigation_log(f"{payload.message}{context_text}", level=level)
+    except Exception:
+        return {"ok": False}
+    return {"ok": True}
 
 
 @router.get("/logs/stream")

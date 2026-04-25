@@ -38,6 +38,9 @@ const NAV_STATUS_BAR_THROTTLE  = 1000; // ステータスバー精度表示の�
 
 // ── ステータスバー更新スロットル ──────────────────────────────────────────
 let _statusBarLastUpdateAt = 0;
+let _navLogLastSentAt = 0;
+let _navLogLastSignature = '';
+let _navLogInFlight = false;
 
 // ── 逸脱デバウンスタイマー ────────────────────────────────────────────────
 const NAV_OFF_ROUTE_DEBOUNCE_MS = 3000; // 3秒待って誤検知を防ぐ
@@ -169,8 +172,53 @@ function _perfNowMs() {
     return Date.now();
 }
 
-function _navDebugLog(message) {
+function _getFrontendLogLevel() {
+    const level = String(getRuntimeConfigValue('logging.level', 'INFO') || 'INFO').toUpperCase();
+    return ['DEBUG', 'INFO', 'WARNING', 'ERROR'].includes(level) ? level : 'INFO';
+}
+
+function _shouldSendNavigationLog(level = 'INFO') {
+    const normalized = String(level || 'INFO').toUpperCase();
+    const rank = { DEBUG: 10, INFO: 20, WARNING: 30, ERROR: 40 };
+    const current = _getFrontendLogLevel();
+    return (rank[normalized] || rank.INFO) >= (rank[current] || rank.INFO);
+}
+
+function _sendNavigationLog(level, message, context = null) {
+    if (!_shouldSendNavigationLog(level)) return;
+    const now = Date.now();
+    const safeContext = context && typeof context === 'object' ? context : null;
+    const signature = JSON.stringify({
+        level: String(level || 'INFO').toUpperCase(),
+        message,
+        context: safeContext
+    });
+    if (signature === _navLogLastSignature) return;
+    if (now - _navLogLastSentAt < 1000) return;
+    if (_navLogInFlight) return;
+
+    _navLogLastSentAt = now;
+    _navLogLastSignature = signature;
+    _navLogInFlight = true;
+
+    fetch('/api/admin/logs/navigation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            level: String(level || 'INFO').toUpperCase(),
+            message,
+            context: safeContext
+        })
+    }).catch(() => {
+        // best-effort: logging failure must not affect navigation flow
+    }).finally(() => {
+        _navLogInFlight = false;
+    });
+}
+
+function _navDebugLog(message, context = null, level = 'INFO') {
     console.log(`[navigation] ${message}`);
+    _sendNavigationLog(level, message, context);
 }
 
 function _setNavRerouteInProgress(value, reason = '') {
@@ -242,9 +290,16 @@ function _distanceToRouteEndpoint(lat, lon) {
 function _completeReroute({ auto = false, success = false, reason = 'finished', startedAt = null } = {}) {
     const durationMs = startedAt === null ? null : Math.round(_perfNowMs() - startedAt);
     if (success) {
-        _navDebugLog(`reroute:success${durationMs === null ? '' : ` duration_ms=${durationMs}`}`);
+        _navDebugLog(
+            `reroute:success${durationMs === null ? '' : ` duration_ms=${durationMs}`}`,
+            durationMs === null ? null : { duration_ms: durationMs }
+        );
     } else {
-        _navDebugLog(`reroute:failed reason=${reason}${durationMs === null ? '' : ` duration_ms=${durationMs}`}`);
+        _navDebugLog(
+            `reroute:failed reason=${reason}${durationMs === null ? '' : ` duration_ms=${durationMs}`}`,
+            durationMs === null ? { reason } : { reason, duration_ms: durationMs },
+            reason === 'timeout' ? 'WARNING' : 'INFO'
+        );
     }
     if (auto) {
         _setNavAutoRerouteInProgress(false, reason);
@@ -1762,11 +1817,23 @@ function _onNavPosition(position) {
         _navDebugLog(
             `dist_to_goal=${distToGoal.toFixed(1)}m accuracy=${accuracy.toFixed(1)}m ` +
             `arrival_counter=${navArrivalConsecutiveCount} arrived=${arrived} ` +
-            `arrival_radius=${arrivalRequirement.radiusM} low_accuracy=${arrivalRequirement.lowAccuracy}`
+            `arrival_radius=${arrivalRequirement.radiusM} low_accuracy=${arrivalRequirement.lowAccuracy}`,
+            {
+                dist_to_goal: Number(distToGoal.toFixed(1)),
+                accuracy: Number(accuracy.toFixed(1)),
+                arrival_counter: navArrivalConsecutiveCount,
+                arrived,
+                arrival_radius: arrivalRequirement.radiusM,
+                low_accuracy: arrivalRequirement.lowAccuracy
+            }
         );
 
         if (arrived) {
-            _navDebugLog('arrival:confirmed');
+            _navDebugLog('arrival:confirmed', {
+                dist_to_goal: Number(distToGoal.toFixed(1)),
+                accuracy: Number(accuracy.toFixed(1)),
+                arrival_counter: navArrivalConsecutiveCount
+            });
             _onNavArrival();
             return;
         }
@@ -1863,7 +1930,14 @@ function _onNavPosition(position) {
         const offRoute = offsetM >= offRouteThresholdM;
         _navDebugLog(
             `off_route_distance=${offsetM.toFixed(1)}m threshold=${offRouteThresholdM}m ` +
-            `near_goal=${nearGoal} off_route=${offRoute} accuracy=${accuracy.toFixed(1)}m`
+            `near_goal=${nearGoal} off_route=${offRoute} accuracy=${accuracy.toFixed(1)}m`,
+            {
+                off_route_distance: Number(offsetM.toFixed(1)),
+                threshold: offRouteThresholdM,
+                near_goal: nearGoal,
+                off_route: offRoute,
+                accuracy: Number(accuracy.toFixed(1))
+            }
         );
         if (offRoute) {
             navOffRouteCount++;
@@ -1973,7 +2047,10 @@ function _tryAutoReroute(accuracy, context = {}) {
 
 function _executeAutoReroute(context = {}) {
     const rerouteStartedAt = _perfNowMs();
-    _navDebugLog(`reroute:start reason=${context.reason || 'auto'} near_goal=${!!context.nearGoal}`);
+    _navDebugLog(`reroute:start reason=${context.reason || 'auto'} near_goal=${!!context.nearGoal}`, {
+        reason: context.reason || 'auto',
+        near_goal: !!context.nearGoal
+    });
     _setNavAutoRerouteInProgress(true, 'auto-start');
     navAutoRerouteCount++;
     navLastAutoRerouteAt = Date.now();
