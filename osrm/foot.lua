@@ -10,9 +10,9 @@ find_access_tag = require("lib/access").find_access_tag
 -- ===== OnHighGround: 幹線道路コスト設定 =====
 -- この値は scripts/rebuild_osrm_walking.py によって自動更新されます
 -- 手動編集しないでください
-local OHG_TRUNK_PENALTY    = 0.15  -- trunk の速度係数（低いほど遅い=迂回優先）
-local OHG_PRIMARY_PENALTY  = 0.35  -- primary の速度係数
-local OHG_SECONDARY_FACTOR = 0.8  -- secondary の速度係数（基本維持）
+local OHG_TRUNK_PENALTY    = 1.0  -- trunk の速度係数（低いほど遅い=迂回優先）
+local OHG_PRIMARY_PENALTY  = 1.0  -- primary の速度係数
+local OHG_SECONDARY_FACTOR = 1.0  -- secondary の速度係数（基本維持）
 -- ==========================================
 
 function setup()
