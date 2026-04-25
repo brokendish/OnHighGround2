@@ -823,11 +823,26 @@ async function loadConfig() {
 function renderConfigTable() {
   const tbody = document.getElementById("config-tbody");
   if (!tbody) return;
-  if (_configItems.length === 0) {
+
+  const mainItems = _configItems.filter(item => item.category !== "osrm");
+  const osrmItems = _configItems.filter(item => item.category === "osrm");
+
+  if (mainItems.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">設定がありません</td></tr>`;
-    return;
+  } else {
+    tbody.innerHTML = mainItems.map(item => renderConfigRow(item)).join("");
   }
-  tbody.innerHTML = _configItems.map(item => renderConfigRow(item)).join("");
+
+  const osrmCard = document.getElementById("osrm-rebuild-card");
+  const osrmTbody = document.getElementById("osrm-config-tbody");
+  if (osrmCard && osrmTbody) {
+    if (osrmItems.length > 0) {
+      osrmCard.style.display = "";
+      osrmTbody.innerHTML = osrmItems.map(item => renderConfigRow(item)).join("");
+    } else {
+      osrmCard.style.display = "none";
+    }
+  }
 }
 
 function renderConfigRow(item) {
@@ -910,6 +925,28 @@ async function saveConfigValue(key) {
       status.className = "config-save-status error";
     }
     showNotice("error", "設定の保存に失敗しました: " + err.message);
+  }
+}
+
+async function triggerOsrmRebuild() {
+  const btn = document.getElementById("osrm-rebuild-btn");
+  const status = document.getElementById("osrm-rebuild-status");
+  if (btn) btn.disabled = true;
+  if (status) { status.textContent = "再ビルド中..."; status.style.color = "#f59e0b"; }
+
+  try {
+    const res = await fetch(`${API}/osrm/rebuild`, { method: "POST" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: "不明なエラー" }));
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    if (status) { status.textContent = "✅ 再ビルド完了"; status.style.color = "#16a34a"; }
+    showNotice("success", "OSRMの再ビルドが完了しました。");
+  } catch (err) {
+    if (status) { status.textContent = "❌ 失敗: " + err.message; status.style.color = "#b91c1c"; }
+    showNotice("error", "OSRM再ビルドに失敗しました: " + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

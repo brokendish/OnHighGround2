@@ -174,5 +174,44 @@
     "editable": true,
     "apply_mode": "reload",
     "ui_order": 50
+  },
+  {
+    "key": "osrm.trunk_penalty",
+    "category": "osrm",
+    "label": "幹線道路ペナルティ(trunk)",
+    "type": "float",
+    "default_value": 0.15,
+    "description": "trunk道路の速度係数。低いほど迂回優先。変更後はOSRM再ビルドが必要。",
+    "min": 0.05,
+    "max": 1.0,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 10
+  },
+  {
+    "key": "osrm.primary_penalty",
+    "category": "osrm",
+    "label": "幹線道路ペナルティ(primary)",
+    "type": "float",
+    "default_value": 0.25,
+    "description": "primary道路の速度係数。低いほど迂回優先。変更後はOSRM再ビルドが必要。",
+    "min": 0.05,
+    "max": 1.0,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 20
+  },
+  {
+    "key": "osrm.secondary_factor",
+    "category": "osrm",
+    "label": "補助幹線係数(secondary)",
+    "type": "float",
+    "default_value": 0.80,
+    "description": "secondary道路の速度係数。変更後はOSRM再ビルドが必要。",
+    "min": 0.3,
+    "max": 1.0,
+    "editable": true,
+    "apply_mode": "reload",
+    "ui_order": 30
   }
 ]

@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
+import ssl
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from app.services.admin_log_service import write_app_log
@@ -47,6 +50,25 @@ def _get_config_value(key: str, default: Any) -> Any:
         return default
 
 
+def _describe_exception(exc: Exception) -> str:
+    if isinstance(exc, TimeoutError):
+        return f"timeout:{exc}"
+    if isinstance(exc, socket.gaierror):
+        return f"dns_error:{exc}"
+    if isinstance(exc, ssl.SSLError):
+        return f"ssl_error:{exc}"
+    if isinstance(exc, HTTPError):
+        return f"http_error:{exc.code}"
+    if isinstance(exc, URLError):
+        reason = exc.reason
+        if isinstance(reason, socket.gaierror):
+            return f"dns_error:{reason}"
+        if isinstance(reason, TimeoutError):
+            return f"timeout:{reason}"
+        return f"url_error:{reason}"
+    return f"{exc.__class__.__name__}:{exc}"
+
+
 class ReverseGeocodeService:
     def __init__(self, cache_path: Optional[Path] = None) -> None:
         self._cache_path = cache_path or _CACHE_PATH
@@ -63,12 +85,26 @@ class ReverseGeocodeService:
         key = self._build_cache_key(rounded_lat, rounded_lon, precision)
 
         if not enabled:
+            self._safe_log_resolution(
+                rounded_lat,
+                rounded_lon,
+                source="disabled",
+                cache_hit=False,
+                provider=provider,
+            )
             return self._build_response(None, None, "disabled", rounded_lat, rounded_lon)
 
         with self._lock:
             cache = self._load_cache()
             entry = cache.get(key)
             if self._is_cache_fresh(entry):
+                self._safe_log_resolution(
+                    rounded_lat,
+                    rounded_lon,
+                    source="cache",
+                    cache_hit=True,
+                    provider=provider,
+                )
                 return self._build_response(
                     entry.get("address"),
                     entry.get("postcode"),
@@ -87,6 +123,13 @@ class ReverseGeocodeService:
                     "raw": result.get("raw"),
                 }
                 self._save_cache(cache)
+                self._safe_log_resolution(
+                    rounded_lat,
+                    rounded_lon,
+                    source="provider",
+                    cache_hit=False,
+                    provider=provider,
+                )
                 return self._build_response(
                     result.get("address"),
                     result.get("postcode"),
@@ -95,15 +138,27 @@ class ReverseGeocodeService:
                     rounded_lon,
                 )
             except Exception as exc:
-                logger.warning("reverse geocode provider failed: %s", exc)
+                error_detail = _describe_exception(exc)
+                logger.warning("reverse geocode provider failed: %s", error_detail)
                 try:
                     write_app_log(
-                        f"reverse geocode failed lat={rounded_lat} lon={rounded_lon} provider={provider} error={exc}",
+                        "reverse geocode failed "
+                        f"lat={rounded_lat} lon={rounded_lon} provider={provider} "
+                        f"cache_hit={bool(entry)} error={error_detail}",
                         level="WARNING",
                     )
                 except Exception:
                     pass
                 if entry:
+                    self._safe_log_resolution(
+                        rounded_lat,
+                        rounded_lon,
+                        source="cache",
+                        cache_hit=True,
+                        provider=provider,
+                        stale_cache=True,
+                        error_detail=error_detail,
+                    )
                     return self._build_response(
                         entry.get("address"),
                         entry.get("postcode"),
@@ -111,6 +166,14 @@ class ReverseGeocodeService:
                         rounded_lat,
                         rounded_lon,
                     )
+                self._safe_log_resolution(
+                    rounded_lat,
+                    rounded_lon,
+                    source="unknown",
+                    cache_hit=False,
+                    provider=provider,
+                    error_detail=error_detail,
+                )
                 return self._build_response(None, None, "unknown", rounded_lat, rounded_lon)
 
     def _fetch_from_provider(self, lat: float, lon: float, provider: str) -> Dict[str, Any]:
@@ -167,6 +230,31 @@ class ReverseGeocodeService:
     def _save_cache(self, cache: Dict[str, Any]) -> None:
         with self._cache_path.open("w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
+
+    def _safe_log_resolution(
+        self,
+        lat: float,
+        lon: float,
+        *,
+        source: str,
+        cache_hit: bool,
+        provider: str,
+        stale_cache: bool = False,
+        error_detail: Optional[str] = None,
+    ) -> None:
+        message = (
+            "reverse geocode resolved "
+            f"lat={lat} lon={lon} source={source} cache_hit={str(cache_hit).lower()} "
+            f"provider={provider}"
+        )
+        if stale_cache:
+            message += " stale_cache=true"
+        if error_detail:
+            message += f" error={error_detail}"
+        try:
+            write_app_log(message, level="INFO")
+        except Exception:
+            pass
 
     def _is_cache_fresh(self, entry: Optional[Dict[str, Any]]) -> bool:
         if not entry or not entry.get("fetched_at"):

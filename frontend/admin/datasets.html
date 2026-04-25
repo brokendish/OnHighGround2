@@ -151,6 +151,36 @@
         </table>
       </div>
     </div>
+
+    <!-- OSRM 再ビルドセクション -->
+    <div class="table-card" id="osrm-rebuild-card" style="margin-top:16px;display:none">
+      <div style="padding:16px 20px">
+        <h3 style="margin:0 0 10px;font-size:14px;color:#334155">OSRM ルーティング設定</h3>
+        <div class="warning-box" style="margin-bottom:14px">
+          ⚠️ 値を保存しても OSRM には即時反映されません。「OSRMに適用」ボタンで再ビルドが必要です（数分かかります）。
+        </div>
+        <table class="dataset-table config-table" style="margin-bottom:14px">
+          <thead>
+            <tr>
+              <th>設定名</th>
+              <th>キー</th>
+              <th>現在値</th>
+              <th>デフォルト</th>
+              <th>説明</th>
+              <th>最終更新</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="osrm-config-tbody"></tbody>
+        </table>
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="btn btn-warning" id="osrm-rebuild-btn" onclick="triggerOsrmRebuild()">
+            🔄 OSRMに適用（再ビルド実行）
+          </button>
+          <span id="osrm-rebuild-status" style="font-size:13px;color:#475569"></span>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section id="tab-panel-logs" class="admin-tab-panel">

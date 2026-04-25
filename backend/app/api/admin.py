@@ -1,17 +1,19 @@
 """
 admin.py — 管理 API エンドポイント
 
-GET /api/admin/hazards             ハザードレイヤー一覧
-GET /api/admin/hazards/{layer_key} レイヤー詳細
-GET /api/admin/runtime/summary     runtime 全体サマリー
-GET /api/admin/logs/sources        利用可能なログソース一覧
-GET /api/admin/logs                ログ末尾一覧
-GET /api/admin/logs/status         ログサイズ一覧
-POST /api/admin/logs/cleanup       ログクリーンアップ
-GET /api/admin/logs/stream         SSEログストリーム
+GET  /api/admin/hazards              ハザードレイヤー一覧
+GET  /api/admin/hazards/{layer_key}  レイヤー詳細
+GET  /api/admin/runtime/summary      runtime 全体サマリー
+GET  /api/admin/logs/sources         利用可能なログソース一覧
+GET  /api/admin/logs                 ログ末尾一覧
+GET  /api/admin/logs/status          ログサイズ一覧
+POST /api/admin/logs/cleanup         ログクリーンアップ
+GET  /api/admin/logs/stream          SSEログストリーム
+POST /api/admin/osrm/rebuild         foot.lua更新 + OSRM再ビルド
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Optional
 
@@ -95,6 +97,23 @@ async def post_navigation_log(payload: NavigationLogRequest):
     except Exception:
         return {"ok": False}
     return {"ok": True}
+
+
+@router.post("/osrm/rebuild")
+async def rebuild_osrm_walking():
+    """foot.lua を Config 値で更新し、OSRM ウォーキングエンジンを再ビルドする。"""
+    proc = await asyncio.create_subprocess_exec(
+        "python3", "/scripts/rebuild_osrm_walking.py",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=stderr.decode("utf-8", errors="replace"),
+        )
+    return {"status": "ok", "message": "再ビルド完了", "log": stdout.decode("utf-8", errors="replace")}
 
 
 @router.get("/logs/stream")

@@ -30,6 +30,7 @@ services:
       - "5501:5001"
     volumes:
       - ./data_lake:/data_lake
+      - ./osrm/foot.lua:/opt/foot.lua
     command: >
       sh -c "
       test -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
@@ -69,6 +70,8 @@ services:
       - ./scripts:/scripts:ro
       # 管理画面から OSRM コンテナを再起動するために Docker ソケットを共有
       - /var/run/docker.sock:/var/run/docker.sock
+      # foot.lua をバックエンドから更新可能にする（rebuild_osrm_walking.py が書き込む）
+      - ./osrm:/osrm
     environment:
       - DEM_FILE_PATH=/data_runtime/backend/elevation/elevation.tif
       - API_HOST=0.0.0.0

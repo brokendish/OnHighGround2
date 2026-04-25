@@ -45,6 +45,8 @@ def test_reverse_geocode_uses_cache_hit_without_provider_call(tmp_path, monkeypa
         raise AssertionError("provider should not be called on cache hit")
 
     monkeypatch.setattr(rgs, "urlopen", _unexpected_provider)
+    logged = []
+    monkeypatch.setattr(rgs, "write_app_log", lambda message, level="INFO": logged.append((level, message)))
 
     result = service.reverse_geocode(35.681236, 139.767125)
 
@@ -53,6 +55,9 @@ def test_reverse_geocode_uses_cache_hit_without_provider_call(tmp_path, monkeypa
     assert result["postcode"] == "100-0005"
     assert result["lat"] == 35.6812
     assert result["lon"] == 139.7671
+    assert logged == [
+        ("INFO", "reverse geocode resolved lat=35.6812 lon=139.7671 source=cache cache_hit=true provider=nominatim")
+    ]
 
 
 def test_reverse_geocode_fetches_provider_and_persists_cache(tmp_path, monkeypatch):
@@ -77,6 +82,8 @@ def test_reverse_geocode_fetches_provider_and_persists_cache(tmp_path, monkeypat
         })
 
     monkeypatch.setattr(rgs, "urlopen", _fake_urlopen)
+    logged = []
+    monkeypatch.setattr(rgs, "write_app_log", lambda message, level="INFO": logged.append((level, message)))
 
     result = service.reverse_geocode(35.447753, 139.642514)
 
@@ -86,6 +93,9 @@ def test_reverse_geocode_fetches_provider_and_persists_cache(tmp_path, monkeypat
     cache = json.loads(cache_path.read_text(encoding="utf-8"))
     assert cache["35.4478,139.6425"]["address"] == "神奈川県横浜市中区本町"
     assert cache["35.4478,139.6425"]["postcode"] == "231-0005"
+    assert logged == [
+        ("INFO", "reverse geocode resolved lat=35.4478 lon=139.6425 source=provider cache_hit=false provider=nominatim")
+    ]
 
 
 def test_reverse_geocode_returns_stale_cache_when_provider_fails(tmp_path, monkeypatch):
@@ -111,9 +121,44 @@ def test_reverse_geocode_returns_stale_cache_when_provider_fails(tmp_path, monke
         raise RuntimeError("provider down")
 
     monkeypatch.setattr(rgs, "urlopen", _failing_urlopen)
+    logged = []
+    monkeypatch.setattr(rgs, "write_app_log", lambda message, level="INFO": logged.append((level, message)))
 
     result = service.reverse_geocode(35.681236, 139.767125)
 
     assert result["source"] == "cache"
     assert result["address"] == "東京都千代田区丸の内"
     assert result["postcode"] == "100-0005"
+    assert logged == [
+        ("WARNING", "reverse geocode failed lat=35.6812 lon=139.7671 provider=nominatim cache_hit=True error=RuntimeError:provider down"),
+        ("INFO", "reverse geocode resolved lat=35.6812 lon=139.7671 source=cache cache_hit=true provider=nominatim stale_cache=true error=RuntimeError:provider down"),
+    ]
+
+
+def test_reverse_geocode_returns_unknown_and_logs_error_detail_without_cache(tmp_path, monkeypatch):
+    cache_path = tmp_path / "reverse_geocode_cache.json"
+    service = ReverseGeocodeService(cache_path=cache_path)
+
+    monkeypatch.setattr(rgs, "_get_config_value", lambda key, default: {
+        "geocode.enabled": True,
+        "geocode.coordinate_precision": 4,
+        "geocode.cache_ttl_hours": 1,
+        "geocode.provider": "nominatim",
+    }.get(key, default))
+
+    def _failing_urlopen(request, timeout=0):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(rgs, "urlopen", _failing_urlopen)
+    logged = []
+    monkeypatch.setattr(rgs, "write_app_log", lambda message, level="INFO": logged.append((level, message)))
+
+    result = service.reverse_geocode(35.681236, 139.767125)
+
+    assert result["source"] == "unknown"
+    assert result["address"] is None
+    assert result["postcode"] is None
+    assert logged == [
+        ("WARNING", "reverse geocode failed lat=35.6812 lon=139.7671 provider=nominatim cache_hit=False error=timeout:timed out"),
+        ("INFO", "reverse geocode resolved lat=35.6812 lon=139.7671 source=unknown cache_hit=false provider=nominatim error=timeout:timed out"),
+    ]
