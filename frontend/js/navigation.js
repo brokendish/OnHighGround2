@@ -221,6 +221,28 @@ function _navDebugLog(message, context = null, level = 'INFO') {
     _sendNavigationLog(level, message, context);
 }
 
+function _addNavigationDebugEvent(type, message, context = null, options = {}) {
+    try {
+        const lat = Number(
+            Number.isFinite(options.lat) ? options.lat : currentLocation?.lat
+        );
+        const lon = Number(
+            Number.isFinite(options.lon) ? options.lon : currentLocation?.lon
+        );
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        window.addNavigationDebugEvent?.({
+            type,
+            lat,
+            lon,
+            message,
+            level: String(options.level || 'INFO').toUpperCase(),
+            context: context && typeof context === 'object' ? context : {}
+        });
+    } catch (_) {
+        // debug visualization must never block navigation
+    }
+}
+
 function _setNavRerouteInProgress(value, reason = '') {
     navRerouteInProgress = value;
     _navDebugLog(`isRerouting=${value}${reason ? ` reason=${reason}` : ''}`);
@@ -290,6 +312,9 @@ function _distanceToRouteEndpoint(lat, lon) {
 function _completeReroute({ auto = false, success = false, reason = 'finished', startedAt = null } = {}) {
     const durationMs = startedAt === null ? null : Math.round(_perfNowMs() - startedAt);
     if (success) {
+        _addNavigationDebugEvent('reroute_success', 'reroute success', durationMs === null ? {} : {
+            duration_ms: durationMs
+        });
         _navDebugLog(
             `reroute:success${durationMs === null ? '' : ` duration_ms=${durationMs}`}`,
             durationMs === null ? null : { duration_ms: durationMs }
@@ -1719,6 +1744,10 @@ function rerouteToSameDestination() {
     }
 
     const rerouteStartedAt = _perfNowMs();
+    _addNavigationDebugEvent('reroute_start', 'reroute start', {
+        reason: 'manual_same_destination',
+        near_goal: false
+    });
     _navDebugLog('reroute:start reason=manual_same_destination near_goal=false');
     _setNavRerouteInProgress(true, 'manual-start');
     navLastRerouteAt     = Date.now();
@@ -1829,6 +1858,10 @@ function _onNavPosition(position) {
         );
 
         if (arrived) {
+            _addNavigationDebugEvent('arrival_detected', 'arrival detected', {
+                distance_to_goal: Number(distToGoal.toFixed(1)),
+                arrival_counter: navArrivalConsecutiveCount
+            }, { lat, lon });
             _navDebugLog('arrival:confirmed', {
                 dist_to_goal: Number(distToGoal.toFixed(1)),
                 accuracy: Number(accuracy.toFixed(1)),
@@ -1940,6 +1973,13 @@ function _onNavPosition(position) {
             }
         );
         if (offRoute) {
+            if (navOffRouteCount === 0) {
+                _addNavigationDebugEvent('offroute_detected', `offroute detected distance=${offsetM.toFixed(1)}m`, {
+                    off_route_distance: Number(offsetM.toFixed(1)),
+                    threshold: offRouteThresholdM,
+                    near_goal: nearGoal
+                }, { lat, lon });
+            }
             navOffRouteCount++;
             // ① 連続 N 回カウント判定（即時 warning 遷移用）
             if (navOffRouteCount >= NAV_CONSECUTIVE) {
@@ -2047,6 +2087,10 @@ function _tryAutoReroute(accuracy, context = {}) {
 
 function _executeAutoReroute(context = {}) {
     const rerouteStartedAt = _perfNowMs();
+    _addNavigationDebugEvent('reroute_start', 'reroute start', {
+        reason: context.reason || 'auto',
+        near_goal: !!context.nearGoal
+    });
     _navDebugLog(`reroute:start reason=${context.reason || 'auto'} near_goal=${!!context.nearGoal}`, {
         reason: context.reason || 'auto',
         near_goal: !!context.nearGoal
