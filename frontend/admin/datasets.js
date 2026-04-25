@@ -928,26 +928,84 @@ async function saveConfigValue(key) {
   }
 }
 
+const _OSRM_STEP_LABELS = {
+  accepted:         "受付済み",
+  osrm_extract:     "osrm-extract 実行中...",
+  osrm_partition:   "osrm-partition 実行中...",
+  osrm_customize:   "osrm-customize / コンテナ再起動中...",
+  completed:        "完了",
+  failed:           "失敗",
+};
+
 async function triggerOsrmRebuild() {
-  const btn = document.getElementById("osrm-rebuild-btn");
+  const btn    = document.getElementById("osrm-rebuild-btn");
   const status = document.getElementById("osrm-rebuild-status");
   if (btn) btn.disabled = true;
-  if (status) { status.textContent = "再ビルド中..."; status.style.color = "#f59e0b"; }
+  if (status) { status.textContent = "再ビルドを開始中..."; status.style.color = "#f59e0b"; }
 
+  let jobId = null;
   try {
     const res = await fetch(`${API}/osrm/rebuild`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 409) {
+      throw new Error(body.detail || "再ビルドが既に実行中です");
+    }
     if (!res.ok) {
-      const body = await res.json().catch(() => ({ detail: "不明なエラー" }));
       throw new Error(body.detail || `HTTP ${res.status}`);
     }
-    if (status) { status.textContent = "✅ 再ビルド完了"; status.style.color = "#16a34a"; }
-    showNotice("success", "OSRMの再ビルドが完了しました。");
+    jobId = body.job_id;
   } catch (err) {
-    if (status) { status.textContent = "❌ 失敗: " + err.message; status.style.color = "#b91c1c"; }
-    showNotice("error", "OSRM再ビルドに失敗しました: " + err.message);
-  } finally {
+    if (status) { status.textContent = "❌ " + err.message; status.style.color = "#b91c1c"; }
+    showNotice("error", "OSRM再ビルドの開始に失敗しました: " + err.message);
     if (btn) btn.disabled = false;
+    return;
   }
+
+  if (status) { status.textContent = "再ビルド中..."; status.style.color = "#f59e0b"; }
+  await _pollOsrmRebuildJob(jobId, btn, status);
+}
+
+async function _pollOsrmRebuildJob(jobId, btn, status) {
+  const MAX_POLLS = 360;   // 最大 30 分 (360 × 5s)
+  const INTERVAL  = 5000;
+
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, INTERVAL));
+
+    let job;
+    try {
+      job = await fetchJSON(`/api/admin/jobs/${jobId}`);
+    } catch (_) {
+      continue;  // ポーリング失敗は無視して継続
+    }
+
+    const stepLabel = _OSRM_STEP_LABELS[job.step] || job.progress_message || job.step;
+
+    if (job.status === "success") {
+      if (status) { status.textContent = "✅ 再ビルド完了"; status.style.color = "#16a34a"; }
+      if (btn) btn.disabled = false;
+      showNotice("success", "OSRMプロファイルの再ビルドが完了しました。");
+      return;
+    }
+
+    if (job.status === "failed") {
+      const msg = job.user_message || "再ビルドに失敗しました";
+      if (status) { status.textContent = "❌ " + msg; status.style.color = "#b91c1c"; }
+      if (btn) btn.disabled = false;
+      showNotice("error", "OSRM再ビルドに失敗しました: " + msg);
+      return;
+    }
+
+    if (status) {
+      status.textContent = stepLabel;
+      status.style.color = "#f59e0b";
+    }
+  }
+
+  // タイムアウト
+  if (status) { status.textContent = "タイムアウト（ジョブID: " + jobId + "）"; status.style.color = "#b91c1c"; }
+  if (btn) btn.disabled = false;
+  showNotice("error", "OSRM再ビルドの完了確認がタイムアウトしました。ジョブID: " + jobId);
 }
 
 async function openConfigHistoryModal() {

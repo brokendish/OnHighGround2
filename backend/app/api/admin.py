@@ -9,11 +9,10 @@ GET  /api/admin/logs                 ログ末尾一覧
 GET  /api/admin/logs/status          ログサイズ一覧
 POST /api/admin/logs/cleanup         ログクリーンアップ
 GET  /api/admin/logs/stream          SSEログストリーム
-POST /api/admin/osrm/rebuild         foot.lua更新 + OSRM再ビルド
+POST /api/admin/osrm/rebuild         foot.lua更新 + OSRM再ビルド（非同期ジョブ）
 """
 from __future__ import annotations
 
-import asyncio
 import os
 from typing import Optional
 
@@ -21,14 +20,20 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.models.admin_dataset import JobAccepted, JobType
 from app.services.admin_hazard_service import AdminHazardService
 from app.services.admin_log_service import get_admin_log_service, write_navigation_log
+from app.services.job_manager import get_job_manager
+from app.services import pipeline_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 _martin_url = os.getenv("MARTIN_INTERNAL_URL", "http://martin:3000")
 _service = AdminHazardService(martin_url=_martin_url)
 _log_service = get_admin_log_service()
+
+# プロファイル再ビルド専用の合成 dataset_id（実データセットと区別するため __ プレフィクス）
+_OSRM_PROFILE_DATASET_ID = "__osrm_walking_profile"
 
 
 class NavigationLogRequest(BaseModel):
@@ -99,21 +104,37 @@ async def post_navigation_log(payload: NavigationLogRequest):
     return {"ok": True}
 
 
-@router.post("/osrm/rebuild")
+@router.post("/osrm/rebuild", response_model=JobAccepted)
 async def rebuild_osrm_walking():
-    """foot.lua を Config 値で更新し、OSRM ウォーキングエンジンを再ビルドする。"""
-    proc = await asyncio.create_subprocess_exec(
-        "python3", "/scripts/rebuild_osrm_walking.py",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-    if proc.returncode != 0:
+    """
+    foot.lua を Config 値で更新し、OSRM ウォーキングエンジンを再ビルドする。
+    即座に job_id を返す。進捗は GET /api/admin/jobs/{job_id} で確認する。
+    実行中は 409 を返す（二重実行防止）。
+    """
+    jm = get_job_manager()
+
+    if jm.has_running_job(_OSRM_PROFILE_DATASET_ID):
         raise HTTPException(
-            status_code=500,
-            detail=stderr.decode("utf-8", errors="replace"),
+            status_code=409,
+            detail="OSRMプロファイルの再ビルドが既に実行中です。完了をお待ちください。",
         )
-    return {"status": "ok", "message": "再ビルド完了", "log": stdout.decode("utf-8", errors="replace")}
+
+    job = jm.create(_OSRM_PROFILE_DATASET_ID, JobType.osrm_rebuild, requested_by="ui")
+    jm.submit(job, pipeline_service.run_osrm_profile_rebuild(job, jm))
+
+    try:
+        from app.services.admin_log_service import write_app_log
+        write_app_log(
+            f"osrm profile rebuild accepted job_id={job.job_id}",
+            level="INFO",
+        )
+    except Exception:
+        pass
+
+    return JobAccepted(
+        job_id=job.job_id,
+        message="OSRMプロファイルの再ビルドを開始しました。完了まで数分かかります。",
+    )
 
 
 @router.get("/logs/stream")

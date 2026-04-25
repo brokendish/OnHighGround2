@@ -11,8 +11,8 @@ find_access_tag = require("lib/access").find_access_tag
 -- この値は scripts/rebuild_osrm_walking.py によって自動更新されます
 -- 手動編集しないでください
 local OHG_TRUNK_PENALTY    = 0.15  -- trunk の速度係数（低いほど遅い=迂回優先）
-local OHG_PRIMARY_PENALTY  = 0.25  -- primary の速度係数
-local OHG_SECONDARY_FACTOR = 0.80  -- secondary の速度係数（基本維持）
+local OHG_PRIMARY_PENALTY  = 0.5  -- primary の速度係数
+local OHG_SECONDARY_FACTOR = 0.8  -- secondary の速度係数（基本維持）
 -- ==========================================
 
 function setup()

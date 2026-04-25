@@ -10,7 +10,9 @@ ingest → normalize → validate → deploy → (osrm_rebuild)
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import shutil
 import tempfile
 import uuid
@@ -34,6 +36,8 @@ from app.models.admin_dataset import (
     TileBuildStatus,
     ValidationStatus,
 )
+from app.services.config_definition_service import get_config_definition_service
+from app.services.config_state_service import get_config_state_service
 from app.services.dataset_state_service import DatasetStateService
 from app.services.job_manager import JobManager
 
@@ -1091,3 +1095,163 @@ async def run_osrm_rebuild(
                progress_message="ルートエンジンの再構築が完了しました。",
                exit_code=0)
     jm.log(job, "=== osrm_rebuild completed ===")
+
+
+# ── osrm_profile_rebuild ──────────────────────────────────────────────────────
+
+_PROFILE_CONTAINER = "evacuation-navi-osrm-walking"
+_PROFILE_PBF       = "/data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf"
+_PROFILE_OSRM      = _PROFILE_PBF.replace(".osm.pbf", ".osrm")
+_PROFILE_STEM      = "tokyo-kanagawa-260214"
+
+
+def _read_osrm_profile_config() -> dict:
+    """Config サービス経由で osrm.* ペナルティ値を読む。定義が見つからない場合はデフォルト値を返す。"""
+    DEFAULTS = {
+        "osrm.trunk_penalty":    0.15,
+        "osrm.primary_penalty":  0.25,
+        "osrm.secondary_factor": 0.80,
+    }
+    try:
+        def_svc   = get_config_definition_service()
+        state_svc = get_config_state_service()
+        result = {}
+        for key, fallback in DEFAULTS.items():
+            defn = def_svc.get(key)
+            result[key] = float(state_svc.resolve_value(defn)) if defn else fallback
+        return result
+    except Exception as exc:
+        logger.warning("osrm profile config read failed, using defaults: %s", exc)
+        return dict(DEFAULTS)
+
+
+async def run_osrm_profile_rebuild(job: Job, jm: JobManager) -> None:
+    """
+    Config 値に基づいて foot.lua を更新し、OSRM ウォーキングエンジンを再ビルドする。
+
+    安全方針:
+    - foot.lua は更新前にメモリにバックアップし、失敗時に自動復元する
+    - osrm-extract/partition/customize は docker exec で実行（コンテナ停止なし）
+    - 全ステップ成功後のみ docker restart でリロード
+    - osrm-extract 失敗時は .osrm ファイルに触れないため既存ルート計算は継続できる
+    """
+    jm.update(job, status=JobStatus.running, step=JobStep.osrm_extract,
+               progress_message="OSRMプロファイル再ビルドを準備中...")
+    jm.log(job, "=== osrm_profile_rebuild start ===")
+
+    # ── Config 値取得 ─────────────────────────────────────────────────────────
+    cfg = _read_osrm_profile_config()
+    trunk    = cfg["osrm.trunk_penalty"]
+    primary  = cfg["osrm.primary_penalty"]
+    secondary = cfg["osrm.secondary_factor"]
+    jm.log(job, f"Config: trunk={trunk} primary={primary} secondary={secondary}")
+
+    # ── foot.lua 更新 ─────────────────────────────────────────────────────────
+    lua_path = _PROJECT_ROOT / "osrm" / "foot.lua"
+    if not lua_path.exists():
+        _fail(job, jm, "OSRM_REBUILD_FAILED",
+              "foot.lua が見つかりません。",
+              "docker-compose.yml の osrm マウントを確認してください。")
+        return
+
+    original_lua = lua_path.read_text(encoding="utf-8")
+
+    def restore_lua() -> None:
+        try:
+            lua_path.write_text(original_lua, encoding="utf-8")
+            jm.log(job, "foot.lua を元の内容に復元しました")
+        except Exception as exc:
+            jm.log(job, f"WARNING: foot.lua 復元失敗: {exc}")
+
+    updated = re.sub(r'local OHG_TRUNK_PENALTY\s*=\s*[\d.]+',
+                     f'local OHG_TRUNK_PENALTY    = {trunk}', original_lua)
+    updated = re.sub(r'local OHG_PRIMARY_PENALTY\s*=\s*[\d.]+',
+                     f'local OHG_PRIMARY_PENALTY  = {primary}', updated)
+    updated = re.sub(r'local OHG_SECONDARY_FACTOR\s*=\s*[\d.]+',
+                     f'local OHG_SECONDARY_FACTOR = {secondary}', updated)
+
+    if updated == original_lua:
+        jm.log(job, "WARNING: foot.lua に OHG_* 定数が見つかりません。テンプレートを確認してください。")
+
+    lua_path.write_text(updated, encoding="utf-8")
+    jm.log(job, "foot.lua 更新完了")
+
+    # ── osrm-extract ──────────────────────────────────────────────────────────
+    jm.update(job, step=JobStep.osrm_extract,
+               progress_message="osrm-extract を実行中（数分かかります）...")
+    ret = await _run_subprocess(
+        ["docker", "exec", _PROFILE_CONTAINER,
+         "osrm-extract", "--threads", "2", "-p", "/opt/foot.lua", _PROFILE_PBF],
+        job, jm,
+    )
+    if ret != 0:
+        restore_lua()
+        _fail(job, jm, "OSRM_REBUILD_FAILED",
+              "osrm-extract に失敗しました。既存のルートエンジンは変更されていません。",
+              "foot.lua の構文またはコンテナの状態を確認してください。",
+              exit_code=ret)
+        return
+
+    # ── osrm-partition ────────────────────────────────────────────────────────
+    jm.update(job, step=JobStep.osrm_partition,
+               progress_message="osrm-partition を実行中...")
+    ret = await _run_subprocess(
+        ["docker", "exec", _PROFILE_CONTAINER,
+         "osrm-partition", "--threads", "2", _PROFILE_OSRM],
+        job, jm,
+    )
+    if ret != 0:
+        restore_lua()
+        _fail(job, jm, "OSRM_REBUILD_FAILED",
+              "osrm-partition に失敗しました。",
+              "ログを確認してください。",
+              exit_code=ret)
+        return
+
+    # ── osrm-customize ────────────────────────────────────────────────────────
+    jm.update(job, step=JobStep.osrm_customize,
+               progress_message="osrm-customize を実行中...")
+    ret = await _run_subprocess(
+        ["docker", "exec", _PROFILE_CONTAINER,
+         "osrm-customize", "--threads", "2", _PROFILE_OSRM],
+        job, jm,
+    )
+    if ret != 0:
+        restore_lua()
+        _fail(job, jm, "OSRM_REBUILD_FAILED",
+              "osrm-customize に失敗しました。",
+              "ログを確認してください。",
+              exit_code=ret)
+        return
+
+    # ── docker restart（新 .osrm をリロード）──────────────────────────────────
+    jm.update(job, step=JobStep.osrm_customize,
+               progress_message="OSRMコンテナを再起動中...")
+    ret = await _run_subprocess(
+        ["docker", "restart", _PROFILE_CONTAINER],
+        job, jm,
+    )
+    if ret != 0:
+        _fail(job, jm, "OSRM_REBUILD_FAILED",
+              "OSRMコンテナの再起動に失敗しました。.osrm ファイルは更新済みです。",
+              "Docker の状態を確認し、手動で再起動してください。",
+              exit_code=ret)
+        return
+
+    # ── 成果物確認（restart 後に osrm-routed が起動するまで待機）────────────────
+    jm.update(job, step=JobStep.osrm_customize,
+               progress_message="OSRMコンテナの起動完了を確認中...")
+    mode_dir = _resolve_project_path(
+        "data_lake/validated/tokyo/osm/walking/tokyo-kanagawa"
+    )
+    ready = await _wait_for_osrm_artifacts(mode_dir, _PROFILE_STEM, job, jm, timeout_seconds=300)
+    if not ready:
+        _fail(job, jm, "OSRM_REBUILD_FAILED",
+              "OSRMコンテナの起動確認がタイムアウトしました。",
+              "コンテナログを確認してください。ルート計算は数分後に回復する可能性があります。")
+        return
+
+    jm.update(job, status=JobStatus.success, step=JobStep.completed,
+               progress_message="OSRMプロファイルの再ビルドが完了しました。",
+               exit_code=0)
+    jm.log(job, "=== osrm_profile_rebuild completed ===")
