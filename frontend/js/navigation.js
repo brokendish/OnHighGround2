@@ -6077,22 +6077,52 @@ function _safeCrossingIsMarked(point) {
         || _safeCrossingHasSignal(point);
 }
 
-function _findNearbySafeCrossingPoint(dangerousCrossing, context, radiusM = SAFE_CROSSING_SEARCH_RADIUS_M) {
+function _findNearbySafeCrossingPoint(dangerousCrossing, context, options = {}) {
+    const radiusM = Number(options.radiusM) || SAFE_CROSSING_SEARCH_RADIUS_M;
+    const origin = options.origin || null;
+    const destination = options.destination || null;
     const point = dangerousCrossing?.point;
     const crosswalks = Array.isArray(context?.crosswalks) ? context.crosswalks : [];
     if (!point || crosswalks.length === 0) return null;
-    return crosswalks
-        .map(crossing => ({
-            ...crossing,
-            distanceM: _segmentLengthMeters(point, crossing),
-            signalized: _safeCrossingHasSignal(crossing),
-            marked: _safeCrossingIsMarked(crossing)
-        }))
-        .filter(crossing => crossing.distanceM <= radiusM && (crossing.signalized || crossing.marked))
-        .sort((a, b) => {
-            if (a.signalized !== b.signalized) return a.signalized ? -1 : 1;
-            return a.distanceM - b.distanceM;
-        })[0] || null;
+
+    const MAX_DIST_M = 60;
+    const MAX_DETOUR_RATIO = 1.5;
+    const directDist = (origin && destination) ? _segmentLengthMeters(origin, destination) : null;
+
+    const candidates = crosswalks
+        .map(crossing => {
+            const distM = _segmentLengthMeters(point, crossing);
+            const signalized = _safeCrossingHasSignal(crossing);
+            const marked = _safeCrossingIsMarked(crossing);
+            let detourM = 0;
+            let detourRatio = null;
+            if (origin && destination && directDist > 0) {
+                const via = _segmentLengthMeters(origin, crossing) + _segmentLengthMeters(crossing, destination);
+                detourM = via - directDist;
+                detourRatio = via / directDist;
+            }
+            const score = -distM * 2
+                + (signalized ? 100 : 0)
+                + (marked ? 40 : 0)
+                - detourM * 0.5;
+            return { ...crossing, distanceM: distM, signalized, marked, detourM, detourRatio, score };
+        })
+        .filter(c =>
+            c.distanceM <= MAX_DIST_M &&
+            (c.signalized || c.marked) &&
+            (c.detourRatio === null || c.detourRatio <= MAX_DETOUR_RATIO)
+        )
+        .sort((a, b) => b.score - a.score);
+
+    if (candidates.length === 0) return null;
+
+    const best = candidates[0];
+    console.log(
+        `[crossing-select] candidates=${candidates.length} ` +
+        `best=${best.signalized ? 'signalized' : 'marked'} ` +
+        `dist=${Math.round(best.distanceM)}m detour=+${Math.round(best.detourM)}m`
+    );
+    return best;
 }
 
 async function _tryBuildSafeCrossingDetourCandidate(evaluatedCandidates, options = {}) {
@@ -6123,11 +6153,11 @@ async function _tryBuildSafeCrossingDetourCandidate(evaluatedCandidates, options
             ? contextResult
             : null
     );
-    const safeCrossing = _findNearbySafeCrossingPoint(
-        dangerousCrossing,
-        searchContext,
-        SAFE_CROSSING_SEARCH_RADIUS_M
-    );
+    const safeCrossing = _findNearbySafeCrossingPoint(dangerousCrossing, searchContext, {
+        radiusM: SAFE_CROSSING_SEARCH_RADIUS_M,
+        origin: options.origin,
+        destination: options.destination
+    });
     if (!safeCrossing) {
         console.log(
             `[route-candidates] safe_crossing_detour skipped reason=no_safe_crossing_nearby ` +
