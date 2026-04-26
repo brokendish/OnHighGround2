@@ -1385,7 +1385,9 @@ function detectCurrentPreset() {
   if (_configItems.length === 0) return null;
   const current = Object.fromEntries(_configItems.map(i => [i.key, i.current_value]));
   for (const [presetKey, preset] of Object.entries(CONFIG_PRESETS)) {
-    const match = Object.entries(preset.values).every(([key, val]) => {
+    const match = Object.entries(preset.values).every(([key, entry]) => {
+      if (entry !== null && typeof entry === "object" && entry.requiresBackend) return true;
+      const val = (entry !== null && typeof entry === "object") ? entry.value : entry;
       const c = current[key];
       return c !== undefined && Math.abs(parseFloat(c) - parseFloat(val)) < 0.0001;
     });
