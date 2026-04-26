@@ -77,6 +77,22 @@ const voiceNav = (() => {
         _selectJapaneseVoice(); // 同期で返る環境（Chrome等）向けに即実行
     }
 
+    // ── 音声ログ発行（BroadcastChannel + localStorage）────────────────────────
+    // 管理画面の Logs タブ Voice モードで受信・表示される。
+    function _emitVoiceLog(detail) {
+        try {
+            const ch = new BroadcastChannel('ohg-voice-log');
+            ch.postMessage(detail);
+            ch.close();
+        } catch (_) {}
+        try {
+            const stored = JSON.parse(localStorage.getItem('ohg_voice_log') || '[]');
+            stored.push(detail);
+            if (stored.length > 100) stored.splice(0, stored.length - 100);
+            localStorage.setItem('ohg_voice_log', JSON.stringify(stored));
+        } catch (_) {}
+    }
+
     // ── iOS Safari 音声ロック解除 ────────────────────────────────────────────
     // iOS では speechSynthesis.speak() がユーザー操作なしにブロックされる。
     // ナビ開始ボタン押下（ユーザー操作）のタイミングで呼ぶことで解除する。
@@ -306,6 +322,12 @@ const voiceNav = (() => {
             state.lastSpokenAt       = Date.now();
             state.lastCategory       = message.category || null;
             state.lastAnnouncedType  = message.msgType  || null;
+            _emitVoiceLog({
+                ts:       new Date().toISOString(),
+                type:     message.msgType  || 'voice',
+                text:     message.text,
+                priority: message.priority || 'normal',
+            });
             return true;
         },
 

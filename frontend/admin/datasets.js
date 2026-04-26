@@ -14,6 +14,9 @@ const POLL_INTERVAL_MS = 3000;
 const DETAIL_LOG_INTERVAL_MS = 3000;
 const LIST_AUTO_REFRESH_INTERVAL_MS = 5000;
 const LOGS_MAX_LINES = 1000;
+const VOICE_SOURCE_KEY = '__voice__';
+const VOICE_LOG_STORAGE_KEY = 'ohg_voice_log';
+const VOICE_LOG_MAX = 100;
 
 // ── グローバル状態 ─────────────────────────────────────
 let _allDatasets = [];           // 最新のDatasetSummary[]
@@ -42,6 +45,7 @@ let _logsSource = "app";
 let _logsLines = [];
 let _logsAutoScroll = true;
 let _logsEventSource = null;
+let _voiceChannel = null;
 let _logsStatus = { sources: [] };
 let _configChangeEventSource = null; // Logs用SSEとは独立した接続
 
@@ -1101,7 +1105,7 @@ async function loadLogSources() {
   if (select) {
     select.innerHTML = _logSources.map(source => `
       <option value="${escAttr(source.key)}">${escHtml(source.label)}</option>
-    `).join("");
+    `).join("") + `<option value="${VOICE_SOURCE_KEY}">Voice（音声ナビ）</option>`;
     select.value = _logsSource;
     select.disabled = false;
   }
@@ -1112,6 +1116,12 @@ async function reloadLogs() {
   if (viewer) viewer.textContent = "ログを読み込み中...";
 
   const source = getSelectedLogsSource();
+
+  if (source === VOICE_SOURCE_KEY) {
+    _reloadVoiceLogs();
+    return;
+  }
+
   await loadLogsStatus();
   const data = await fetchJSON(`${API}/logs?source=${encodeURIComponent(source)}&limit=200`);
   _logsSource = source;
@@ -1120,13 +1130,33 @@ async function reloadLogs() {
   updateLogsMeta();
 }
 
+function _reloadVoiceLogs() {
+  _logsSource = VOICE_SOURCE_KEY;
+  try {
+    const stored = JSON.parse(localStorage.getItem(VOICE_LOG_STORAGE_KEY) || '[]');
+    _logsLines = stored.slice(-VOICE_LOG_MAX).map(_formatVoiceLogLine);
+  } catch (_) {
+    _logsLines = [];
+  }
+  renderLogsViewer();
+  updateLogsMeta();
+}
+
+function _formatVoiceLogLine(entry) {
+  const t = new Date(entry.ts);
+  const hh = String(t.getHours()).padStart(2, '0');
+  const mm = String(t.getMinutes()).padStart(2, '0');
+  const ss = String(t.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}  [${entry.type || 'voice'}]  ${entry.text}`;
+}
+
 async function loadLogsStatus() {
   _logsStatus = await fetchJSON(`${API}/logs/status`);
   updateLogsMeta();
 }
 
 async function handleLogsSourceChange() {
-  const wasConnected = !!_logsEventSource;
+  const wasConnected = !!_logsEventSource || !!_voiceChannel;
   disconnectLogsStream({ preserveStatus: false });
   await reloadLogs();
   if (wasConnected) {
@@ -1138,6 +1168,11 @@ function connectLogsStream() {
   const source = getSelectedLogsSource();
   disconnectLogsStream({ preserveStatus: false });
   _logsSource = source;
+
+  if (source === VOICE_SOURCE_KEY) {
+    _connectVoiceChannel();
+    return;
+  }
 
   try {
     const es = new EventSource(`${API}/logs/stream?source=${encodeURIComponent(source)}`);
@@ -1176,10 +1211,32 @@ function connectLogsStream() {
   }
 }
 
+function _connectVoiceChannel() {
+  try {
+    _voiceChannel = new BroadcastChannel('ohg-voice-log');
+    setLogsConnectionStatus('connected', 'ライブ');
+    updateLogsControls();
+    _voiceChannel.onmessage = (event) => {
+      appendLogLine(_formatVoiceLogLine(event.data));
+    };
+    _voiceChannel.onmessageerror = () => {
+      setLogsConnectionStatus('error', '受信エラー');
+    };
+  } catch (err) {
+    _voiceChannel = null;
+    setLogsConnectionStatus('error', '接続失敗');
+    updateLogsControls();
+  }
+}
+
 function disconnectLogsStream(options = {}) {
   if (_logsEventSource) {
     _logsEventSource.close();
     _logsEventSource = null;
+  }
+  if (_voiceChannel) {
+    _voiceChannel.close();
+    _voiceChannel = null;
   }
   if (!options.preserveStatus) {
     setLogsConnectionStatus("disconnected", "未接続");
@@ -1189,6 +1246,9 @@ function disconnectLogsStream(options = {}) {
 
 function clearLogsViewer() {
   _logsLines = [];
+  if (getSelectedLogsSource() === VOICE_SOURCE_KEY) {
+    try { localStorage.removeItem(VOICE_LOG_STORAGE_KEY); } catch (_) {}
+  }
   renderLogsViewer();
   updateLogsMeta();
 }
@@ -1258,25 +1318,35 @@ function scrollLogsViewerToBottom() {
 
 function updateLogsMeta() {
   const sourceMeta = document.getElementById("logs-source-meta");
-  const lineCount = document.getElementById("logs-line-count");
-  const sizeMeta = document.getElementById("logs-size-meta");
+  const lineCount  = document.getElementById("logs-line-count");
+  const sizeMeta   = document.getElementById("logs-size-meta");
+  const isVoice    = getSelectedLogsSource() === VOICE_SOURCE_KEY;
   if (sourceMeta) {
-    sourceMeta.textContent = `source: ${_logsSource || "—"}`;
+    sourceMeta.textContent = `source: ${isVoice ? 'Voice（音声ナビ）' : (_logsSource || "—")}`;
   }
   if (lineCount) {
-    lineCount.textContent = `${_logsLines.length} / ${LOGS_MAX_LINES} lines`;
+    const maxLines = isVoice ? VOICE_LOG_MAX : LOGS_MAX_LINES;
+    lineCount.textContent = `${_logsLines.length} / ${maxLines} lines`;
   }
   if (sizeMeta) {
-    const source = (_logsStatus.sources || []).find(item => item.key === _logsSource);
-    sizeMeta.textContent = `size: ${formatBytes(source ? source.size_bytes : 0)}`;
+    if (isVoice) {
+      sizeMeta.textContent = "size: —";
+    } else {
+      const src = (_logsStatus.sources || []).find(item => item.key === _logsSource);
+      sizeMeta.textContent = `size: ${formatBytes(src ? src.size_bytes : 0)}`;
+    }
   }
 }
 
 function updateLogsControls() {
-  const connectBtn = document.getElementById("logs-connect-btn");
+  const connectBtn    = document.getElementById("logs-connect-btn");
   const disconnectBtn = document.getElementById("logs-disconnect-btn");
-  if (connectBtn) connectBtn.disabled = !!_logsEventSource;
-  if (disconnectBtn) disconnectBtn.disabled = !_logsEventSource;
+  const cleanupBtn    = document.getElementById("logs-cleanup-btn");
+  const isVoice       = getSelectedLogsSource() === VOICE_SOURCE_KEY;
+  const isConnected   = isVoice ? !!_voiceChannel : !!_logsEventSource;
+  if (connectBtn)    connectBtn.disabled    = isConnected;
+  if (disconnectBtn) disconnectBtn.disabled = !isConnected;
+  if (cleanupBtn)    cleanupBtn.style.display = isVoice ? 'none' : '';
 }
 
 function setLogsConnectionStatus(state, label) {
@@ -1365,6 +1435,15 @@ function detailRow(label, value) {
 
 function colorLogLine(line) {
   const esc = escHtml(line);
+  // Voice log: "HH:MM:SS  [type]  text" — type-based coloring
+  const vm = line.match(/^(\d{2}:\d{2}:\d{2})\s+\[([^\]]+)\]\s+(.+)$/);
+  if (vm) {
+    const type = vm[2];
+    let cls = 'log-line-voice';
+    if (/crossing/.test(type)) cls = 'log-line-voice-crossing';
+    else if (/turn|arrival/.test(type)) cls = 'log-line-voice-turn';
+    return `<span class="${cls}">${esc}</span>`;
+  }
   if (/ERROR|FAILED|error|failed/.test(line)) return `<span class="log-line-error">${esc}</span>`;
   if (/success|completed|SUCCESS/.test(line)) return `<span class="log-line-success">${esc}</span>`;
   if (/WARNING|WARN|warn/.test(line)) return `<span class="log-line-warn">${esc}</span>`;

@@ -275,6 +275,9 @@ table.dataset-table {
 .log-line-error   { color: #f87171; }
 .log-line-success { color: #4ade80; }
 .log-line-warn    { color: #fbbf24; }
+.log-line-voice          { color: #e2e8f0; }
+.log-line-voice-crossing { color: #67e8f9; }
+.log-line-voice-turn     { color: #fde68a; }
 
 /* ── モーダル ──────────────────────────────────────────── */
 .modal-overlay {
