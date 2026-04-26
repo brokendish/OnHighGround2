@@ -103,7 +103,7 @@ const voiceNav = (() => {
         window.speechSynthesis.cancel();
         const utter  = new SpeechSynthesisUtterance(text);
         utter.lang   = 'ja-JP';
-        utter.rate   = 1.05;
+        utter.rate   = 1.1;
         utter.pitch  = 1.0;
         utter.volume = 1.0;
         if (_selectedVoice) utter.voice = _selectedVoice;
@@ -135,10 +135,10 @@ const voiceNav = (() => {
 
     function _stepVoiceText(rawText) {
         const type = _stepType(rawText);
-        if (type === 'turn_right') return '次の交差点を右に曲がってください';
-        if (type === 'turn_left') return '次の交差点を左に曲がってください';
-        if (type === 'arrival') return 'まもなく目的地に到着します';
-        return 'そのまま直進してください';
+        if (type === 'turn_right') return '右です';
+        if (type === 'turn_left')  return '左です';
+        if (type === 'arrival')    return 'もうすぐ到着です';
+        return '直進です';
     }
 
     function _findUpcomingCrossing(position, route) {
@@ -161,13 +161,9 @@ const voiceNav = (() => {
         const classification = upcoming?.crossing?.classification || {};
         const signalized = !!classification.signalizedCrossing || classification.crossingType === 'signalized';
         const marked = !!classification.markedCrossing || !!classification.crosswalkNearby;
-        if (signalized) {
-            return { type: 'crossing', text: 'この先の信号で道路を渡ってください', signalized, marked };
-        }
-        if (marked) {
-            return { type: 'crossing', text: '横断歩道を渡ってください', signalized, marked };
-        }
-        return { type: 'crossing', text: 'この先で道路を横断します。周囲に注意してください', signalized, marked };
+        if (signalized) return { type: 'crossing', text: '信号を渡ります', signalized, marked };
+        if (marked)     return { type: 'crossing', text: '横断歩道を渡ります', signalized, marked };
+        return { type: 'crossing', text: 'ここで横断 注意', signalized, marked };
     }
 
     // 5m直前リマインド用テキスト（「この先」→「ここで」に変える）
@@ -175,15 +171,14 @@ const voiceNav = (() => {
         const cls = upcoming?.crossing?.classification || {};
         const signalized = !!cls.signalizedCrossing || cls.crossingType === 'signalized';
         const marked = !!cls.markedCrossing || !!cls.crosswalkNearby;
-        if (signalized) return 'ここで信号を渡ってください';
-        if (marked)     return 'ここで横断歩道を渡ってください';
-        return 'ここで道路を渡ってください。周囲に注意してください';
+        if (signalized || marked) return 'ここで渡ります';
+        return 'ここで横断 注意';
     }
 
     function _finalTurnText(rawText) {
         const type = _stepType(rawText);
-        if (type === 'turn_right') return 'ここを右です';
-        if (type === 'turn_left')  return 'ここを左です';
+        if (type === 'turn_right') return 'ここで右です';
+        if (type === 'turn_left')  return 'ここで左です';
         return null;
     }
 
@@ -310,7 +305,7 @@ const voiceNav = (() => {
             }
             const type = _stepType(rawText);
             const spokenText = _stepVoiceText(rawText);
-            console.log(`[voice] type=${type} dist=${Number.isFinite(distanceM) ? Math.round(distanceM) : 'unknown'}m`);
+            console.log(`[voice] text="${spokenText}" type=${type} dist=${Number.isFinite(distanceM) ? Math.round(distanceM) : 'unknown'}m`);
             this.announce({
                 id:          `step-${stepId}`,
                 text:        spokenText,
@@ -328,7 +323,7 @@ const voiceNav = (() => {
             if (isDestination) {
                 this.announce({
                     id:          `pre-${stepId}`,
-                    text:        'まもなく避難所に到着します',
+                    text:        'もうすぐ到着です',
                     displayText: 'まもなく目的地です',
                     category:    'maneuver',
                     priority:    'normal',
@@ -337,7 +332,7 @@ const voiceNav = (() => {
             }
             const type = _stepType(rawText);
             const voiceText = _stepVoiceText(rawText);
-            console.log(`[voice] type=${type} dist=${CONFIG.approachDistanceMeters}m`);
+            console.log(`[voice] text="${voiceText}" type=${type} dist=${CONFIG.approachDistanceMeters}m`);
             this.announce({
                 id:          `pre-${stepId}`,
                 text:        voiceText,
@@ -353,7 +348,7 @@ const voiceNav = (() => {
             const id = `crossing-${point.lat?.toFixed?.(6) || point.lat},${(point.lng ?? point.lon)?.toFixed?.(6) || (point.lng ?? point.lon)}`;
             if (state.lastCrossingId === id) return;
             const message = _crossingVoiceMessage(upcoming);
-            console.log(`[voice] type=crossing signalized=${message.signalized} dist=${Math.round(upcoming.distanceM)}m`);
+            console.log(`[voice] text="${message.text}" type=crossing signalized=${message.signalized} dist=${Math.round(upcoming.distanceM)}m`);
             const announced = this.announce({
                 id,
                 text: message.text,
@@ -378,7 +373,7 @@ const voiceNav = (() => {
                 const finalId = `final-crossing-${pt.lat?.toFixed?.(6)},${(pt.lng ?? pt.lon)?.toFixed?.(6)}`;
                 if (state.lastFinalReminderId !== finalId) {
                     const text = _finalCrossingText(crossingInstruction);
-                    console.log(`[voice] type=final_crossing dist=${crossingInstruction.distanceM.toFixed(1)}m`);
+                    console.log(`[voice] text="${text}" type=final_crossing dist=${crossingInstruction.distanceM.toFixed(1)}m`);
                     const ok = this.announce({ id: finalId, text, displayText: text, category: 'maneuver', priority: 'high' });
                     if (ok) state.lastFinalReminderId = finalId;
                 }
@@ -388,7 +383,7 @@ const voiceNav = (() => {
                 if (state.lastFinalReminderId !== finalId) {
                     const text = _finalTurnText(turnInstruction.rawText);
                     if (text) {
-                        console.log(`[voice] type=final_turn dist=${turnInstruction.distanceM.toFixed(1)}m`);
+                        console.log(`[voice] text="${text}" type=final_turn dist=${turnInstruction.distanceM.toFixed(1)}m`);
                         const ok = this.announce({ id: finalId, text, displayText: text, category: 'maneuver', priority: 'high' });
                         if (ok) state.lastFinalReminderId = finalId;
                     }
