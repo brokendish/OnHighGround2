@@ -285,6 +285,13 @@ function _resetNavArrivalTracking() {
     _navArrivalStallStartedAt = null;
 }
 
+function _resetNavigationStateOnReroute() {
+    _resetNavArrivalTracking();
+    if (typeof clearNavStepHighlight === 'function') clearNavStepHighlight();
+    if (typeof voiceNav !== 'undefined') voiceNav.clear();
+    _navDebugLog('reroute:reset navigation state');
+}
+
 function _getArrivalRequirement(accuracy) {
     const arrivalConsecutive = Number(getRuntimeConfigValue(
         'navigation.arrival_consecutive_count',
@@ -1830,7 +1837,15 @@ function rerouteToSameDestination() {
         drawRouteTo(navDestination.lat, navDestination.lon, {
             onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
                 if (!finishReroute()) return;
+                if (!routes || !routes[selectedRouteIndex]) {
+                    _navDebugLog('reroute:failed reason=invalid-route');
+                    _completeReroute({ auto: false, success: false, reason: 'manual-invalid-route', startedAt: rerouteStartedAt });
+                    return;
+                }
+                _resetNavigationStateOnReroute();
                 navActiveRoute       = routes[selectedRouteIndex];
+                const _stepCount = navActiveRoute?.legs?.[0]?.steps?.length ?? '?';
+                _navDebugLog(`reroute:new route applied steps=${_stepCount}`);
                 if (typeof onNavRouteSelected === 'function') {
                     onNavRouteSelected(routes[selectedRouteIndex], null, {
                         selectedRouteIndex,
@@ -2200,7 +2215,15 @@ function _executeAutoReroute(context = {}) {
         drawRouteTo(navDestination.lat, navDestination.lon, {
             onRoutesAvailable: ({ routes, selectedRouteIndex, routeColors, formatter, transportMode, selectRouteIndex }) => {
                 if (!finishReroute()) return;
+                if (!routes || !routes[selectedRouteIndex]) {
+                    _navDebugLog('reroute:failed reason=invalid-route');
+                    _completeReroute({ auto: true, success: false, reason: 'auto-invalid-route', startedAt: rerouteStartedAt });
+                    return;
+                }
+                _resetNavigationStateOnReroute();
                 navActiveRoute           = routes[selectedRouteIndex];
+                const _stepCount = navActiveRoute?.legs?.[0]?.steps?.length ?? '?';
+                _navDebugLog(`reroute:new route applied steps=${_stepCount}`);
                 if (typeof onNavRouteSelected === 'function') {
                     onNavRouteSelected(routes[selectedRouteIndex], null, {
                         selectedRouteIndex,

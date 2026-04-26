@@ -456,7 +456,7 @@ const voiceNav = (() => {
             },
         },
 
-        // ナビ停止時にリセット
+        // ナビ停止・再ルート時にリセット
         clear() {
             const bar = document.getElementById('nav-announcement-bar');
             if (bar) bar.style.display = 'none';
@@ -465,6 +465,7 @@ const voiceNav = (() => {
             if (_canVibrate()) navigator.vibrate(0);
             state.lastMessageId       = null;
             state.lastMessageText     = null;
+            state.lastSpokenAt        = 0;
             state.lastCategory        = null;
             state.lastAnnouncedType   = null;
             state.lastCrossingId      = null;
