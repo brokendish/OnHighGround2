@@ -250,6 +250,9 @@ function _lipRouteMetric(route, key) {
 }
 
 function _lipResolveRouteBadge(route, routeIndex, routes) {
+    if (route?.__displayLabel) {
+        return route.__displayLabel.replace('ルート', '');
+    }
     const routeList = Array.isArray(routes) ? routes : [];
     if (routeList.length === 0) return '候補';
     let shortestIndex = 0;

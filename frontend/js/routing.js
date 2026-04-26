@@ -422,6 +422,42 @@ function buildRouteInstructionItems(route, formatter) {
         .filter(Boolean);
 }
 
+function buildRouteCandidateSummary(route, routeIndex, formatter) {
+    const label = route?.__displayLabel || `候補${routeIndex + 1}`;
+    const reason = route?.__displayReason || '';
+    const risk = route?.__crossingRisk || {};
+    const score = Number(route?.__safetyScore);
+    const unsafe = Number(risk.unsafeMajorRoadCrossings || 0);
+    const distance = Number(route?.summary?.totalDistance ?? route?.totalDistance);
+    const duration = Number(route?.summary?.totalTime ?? route?.totalTime);
+    const distanceLabel = Number.isFinite(distance)
+        ? (formatter && typeof formatter.formatDistance === 'function'
+            ? formatter.formatDistance(distance)
+            : `${Math.round(distance)}m`)
+        : '-';
+    const durationLabel = Number.isFinite(duration) ? formatDurationText(duration) : '-';
+    const safetyLabel = unsafe > 0
+        ? '横断注意'
+        : (risk.worstSeverity === 'unknown' ? '確認中' : '安全優先');
+    return {
+        label,
+        reason,
+        scoreLabel: Number.isFinite(score) ? `安全スコア ${Math.round(score)}` : '',
+        safetyLabel,
+        metricLabel: `${distanceLabel} / ${durationLabel}`
+    };
+}
+
+function appendRouteSafetyNotice(panel, routes) {
+    const routeList = Array.isArray(routes) ? routes : [];
+    if (routeList.length === 0) return;
+    if (!routeList.every(route => route?.__crossingRisk?.hasUnsafeCrossing)) return;
+    const notice = document.createElement('div');
+    notice.className = 'route-safety-warning';
+    notice.textContent = '安全な横断を含む代替ルートが見つかりませんでした';
+    panel.appendChild(notice);
+}
+
 function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
     document.querySelectorAll('.destination-card').forEach((card, cardIndex) => {
         const panel = card.querySelector('[data-route-guidance]');
@@ -469,7 +505,7 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
         const buttons = document.createElement('div');
         buttons.className = 'route-option-buttons';
         if (routeList.length > 1) {
-            routeList.forEach((_, routeIndex) => {
+            routeList.forEach((candidateRoute, routeIndex) => {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'route-option-button';
@@ -477,7 +513,13 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
                     button.classList.add('active');
                 }
                 const color = routeColors[routeIndex] || getRouteColorByIndex(routeIndex);
-                button.innerHTML = `<span class="route-color-chip" style="background: ${color};"></span>候補${routeIndex + 1}`;
+                const routeSummary = buildRouteCandidateSummary(candidateRoute, routeIndex, formatter);
+                button.innerHTML = `
+                    <span class="route-color-chip" style="background: ${color};"></span>
+                    <span class="route-option-main">${routeSummary.label}</span>
+                    <span class="route-option-sub">${routeSummary.metricLabel} / ${routeSummary.safetyLabel}</span>
+                `;
+                button.title = [routeSummary.reason, routeSummary.scoreLabel].filter(Boolean).join(' / ');
                 button.addEventListener('click', (event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -522,6 +564,13 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
         panel.appendChild(title);
         panel.appendChild(selectedLabel);
         panel.appendChild(summaryEl);
+        if (route?.__displayReason) {
+            const reasonEl = document.createElement('div');
+            reasonEl.className = route?.__crossingRisk?.hasUnsafeCrossing ? 'route-safety-warning' : 'route-safety-reason';
+            reasonEl.textContent = route.__displayReason;
+            panel.appendChild(reasonEl);
+        }
+        appendRouteSafetyNotice(panel, routeList);
         if (routeList.length > 1) {
             panel.appendChild(buttons);
         }
@@ -588,7 +637,7 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
     const buttons = document.createElement('div');
     buttons.className = 'route-option-buttons';
     if (routeList.length > 1) {
-        routeList.forEach((_, routeIndex) => {
+        routeList.forEach((candidateRoute, routeIndex) => {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'route-option-button';
@@ -596,7 +645,13 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
                 button.classList.add('active');
             }
             const color = routeColors[routeIndex] || getRouteColorByIndex(routeIndex);
-            button.innerHTML = `<span class="route-color-chip" style="background: ${color};"></span>候補${routeIndex + 1}`;
+            const routeSummary = buildRouteCandidateSummary(candidateRoute, routeIndex, formatter);
+            button.innerHTML = `
+                <span class="route-color-chip" style="background: ${color};"></span>
+                <span class="route-option-main">${routeSummary.label}</span>
+                <span class="route-option-sub">${routeSummary.metricLabel} / ${routeSummary.safetyLabel}</span>
+            `;
+            button.title = [routeSummary.reason, routeSummary.scoreLabel].filter(Boolean).join(' / ');
             button.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -642,6 +697,13 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
         panel.appendChild(title);
         panel.appendChild(selectedLabel);
         panel.appendChild(summaryEl);
+        if (route?.__displayReason) {
+            const reasonEl = document.createElement('div');
+            reasonEl.className = route?.__crossingRisk?.hasUnsafeCrossing ? 'route-safety-warning' : 'route-safety-reason';
+            reasonEl.textContent = route.__displayReason;
+            panel.appendChild(reasonEl);
+        }
+        appendRouteSafetyNotice(panel, routeList);
         if (routeList.length > 1) {
             panel.appendChild(buttons);
         }
@@ -724,6 +786,24 @@ function clearNavStepHighlight() {
     document.querySelectorAll('li.nav-step-current').forEach(el => el.classList.remove('nav-step-current'));
 }
 
+function _createRouteFormatter() {
+    if (!(L.Routing && typeof L.Routing.Formatter === 'function')) {
+        return null;
+    }
+    const formatter = new L.Routing.Formatter({
+        language: 'ja',
+        units: 'metric'
+    });
+    if (typeof formatter.formatInstruction === 'function') {
+        const originalFormatInstruction = formatter.formatInstruction.bind(formatter);
+        formatter.formatInstruction = function(instruction, i) {
+            const message = originalFormatInstruction(instruction, i);
+            return translateInstructionToJapanese(message);
+        };
+    }
+    return formatter;
+}
+
 function drawRouteTo(lat, lon, options = {}) {
     if (!currentLocation) {
         alert('先に現在地を取得してください');
@@ -750,6 +830,62 @@ function drawRouteTo(lat, lon, options = {}) {
     clearRouteStepFocusMarker();
 
     const extraWps = (options.extraWaypoints || []).map(wp => L.latLng(wp.lat, wp.lng));
+    routeFormatter = _createRouteFormatter();
+
+    if (typeof options.onRoutesAvailable === 'function'
+            && extraWps.length === 0
+            && typeof fetchRouteCandidates === 'function') {
+        let latestRoutes = [];
+        let selectedRouteIndexState = 0;
+        const emitRouteState = (routeCandidates, selectedRouteIndex = selectedRouteIndexState) => {
+            latestRoutes = renderRouteCandidates(routeCandidates);
+            if (latestRoutes.length === 0) {
+                if (typeof options.onRouteError === 'function') options.onRouteError();
+                return;
+            }
+            selectedRouteIndexState = Math.max(0, Math.min(Number(selectedRouteIndex) || 0, latestRoutes.length - 1));
+            const routeColors = latestRoutes.map((route, idx) => getRouteColorByIndex(idx));
+            const selectedRoute = latestRoutes[selectedRouteIndexState];
+            const selectRouteIndex = (routeIndex) => emitRouteState(latestRoutes, routeIndex);
+
+            if (typeof options.onRouteSummary === 'function') {
+                options.onRouteSummary({
+                    distanceMeters: selectedRoute.summary?.totalDistance,
+                    durationSeconds: selectedRoute.summary?.totalTime,
+                    transportMode
+                });
+            }
+            if (typeof options.onRouteFound === 'function') {
+                options.onRouteFound({
+                    route: selectedRoute,
+                    formatter: routeFormatter,
+                    transportMode
+                });
+            }
+            options.onRoutesAvailable({
+                routes: latestRoutes,
+                selectedRouteIndex: selectedRouteIndexState,
+                selectedRouteColor: routeColors[selectedRouteIndexState] || getRouteColorByIndex(selectedRouteIndexState),
+                routeColors,
+                formatter: routeFormatter,
+                transportMode,
+                selectRouteIndex
+            });
+        };
+
+        fetchRouteCandidates(
+            { lat: currentLocation.lat, lon: currentLocation.lon },
+            { lat, lon },
+            { transportMode, maxCandidates: MAX_ROUTE_CANDIDATES }
+        ).then(routes => {
+            emitRouteState(routes, 0);
+        }).catch(error => {
+            console.warn('[route-candidates] route fetch/evaluation failed', error);
+            if (typeof options.onRouteError === 'function') options.onRouteError();
+        });
+        return true;
+    }
+
     const routingOptions = {
         waypoints: [
             L.latLng(currentLocation.lat, currentLocation.lon),
@@ -787,20 +923,8 @@ function drawRouteTo(lat, lon, options = {}) {
         }
     };
 
-    if (L.Routing && typeof L.Routing.Formatter === 'function') {
-        const formatter = new L.Routing.Formatter({
-            language: 'ja',
-            units: 'metric'
-        });
-        if (typeof formatter.formatInstruction === 'function') {
-            const originalFormatInstruction = formatter.formatInstruction.bind(formatter);
-            formatter.formatInstruction = function(instruction, i) {
-                const message = originalFormatInstruction(instruction, i);
-                return translateInstructionToJapanese(message);
-            };
-        }
-        routingOptions.formatter = formatter;
-        routeFormatter = formatter;
+    if (routeFormatter) {
+        routingOptions.formatter = routeFormatter;
     }
 
     try {

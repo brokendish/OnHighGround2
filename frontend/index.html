@@ -406,12 +406,17 @@
             border: 1px solid #ffcc80;
             background: #fff3e0;
             color: #e65100;
-            border-radius: 999px;
+            border-radius: 6px;
             font-size: 11px;
             font-weight: 700;
-            padding: 3px 8px;
+            padding: 5px 8px;
             cursor: pointer;
-            line-height: 1.3;
+            line-height: 1.35;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            max-width: 100%;
+            text-align: left;
         }
 
         .route-option-button .route-color-chip {
@@ -422,12 +427,49 @@
             margin-right: 6px;
             vertical-align: -1px;
             box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+            flex: 0 0 auto;
         }
 
         .route-option-button.active {
             background: #ff9800;
             border-color: #ff9800;
             color: #fff;
+        }
+
+        .route-option-main {
+            white-space: nowrap;
+        }
+
+        .route-option-sub {
+            color: #6d4c41;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .route-option-button.active .route-option-sub {
+            color: #fff8e1;
+        }
+
+        .route-safety-reason,
+        .route-safety-warning {
+            margin-bottom: 8px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
+        .route-safety-reason {
+            background: #e8f5e9;
+            color: #1b5e20;
+            border: 1px solid #a5d6a7;
+        }
+
+        .route-safety-warning {
+            background: #fff3e0;
+            color: #bf360c;
+            border: 1px solid #ffcc80;
+            font-weight: 700;
         }
 
         .route-guidance-steps {
