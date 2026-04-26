@@ -965,9 +965,6 @@ function renderConfigTable() {
   const container = document.getElementById("config-cards-container");
   if (!container) return;
 
-  initPresetBar();
-  updatePresetIndicator();
-
   const mainItems = _configItems.filter(item => item.category !== "osrm");
   const osrmItems = _configItems.filter(item => item.category === "osrm");
 
@@ -991,6 +988,12 @@ function renderConfigTable() {
     const sections = [];
     for (const cat of orderedCats) {
       const label = CONFIG_CATEGORY_LABELS[cat] || cat;
+      const topHtml = cat === 'navigation' ? `
+        <div class="config-preset-bar">
+          <div id="preset-buttons" class="preset-buttons"></div>
+          <div id="preset-indicator" class="preset-indicator"></div>
+        </div>
+        <div id="preset-warning-bar" class="preset-warning-bar" style="display:none"></div>` : '';
       const extraHtml = cat === 'navigation' ? `
         <div class="config-computed-banner">
           <span class="config-computed-icon">🎯</span>
@@ -1005,6 +1008,7 @@ function renderConfigTable() {
             <span class="config-section-dot cat-${escAttr(cat)}"></span>
             ${escHtml(label)}
           </div>
+          ${topHtml}
           <div class="config-cards-group">
             ${groups[cat].map(item => renderConfigCard(item)).join("")}
           </div>
@@ -1012,6 +1016,8 @@ function renderConfigTable() {
         </div>`);
     }
     container.innerHTML = sections.join("");
+    initPresetBar();
+    updatePresetIndicator();
     updateArrivalComputed();
   }
 
