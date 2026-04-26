@@ -9,8 +9,8 @@ const voiceNav = (() => {
 
     // ── 設定パラメータ ───────────────────────────────────────────────────────
     const CONFIG = {
-        approachDistanceMeters:    40,     // 接近予告を出す距離
-        duplicateSpeechCooldownMs: 5000,   // 通常の重複発話防止（ms）
+        approachDistanceMeters:    30,     // 接近予告を出す距離
+        duplicateSpeechCooldownMs: 10000,  // 通常の重複発話防止（ms）
         offRouteSpeechCooldownMs:  10000,  // 逸脱警告の再発話間隔（ms）
         textDisplayDurationMs:     5000,   // 通常案内の文字表示時間（ms）
     };
@@ -31,6 +31,8 @@ const voiceNav = (() => {
         lastMessageText: null,
         lastSpokenAt:    0,
         lastCategory:    null,
+        lastCrossingId:  null,
+        instructionContext: null,
         hideTimer:       null,
     };
 
@@ -81,63 +83,13 @@ const voiceNav = (() => {
         window.speechSynthesis.speak(utter);
     }
 
-    // ── routing.js の翻訳語 → 音声向け自然文 ────────────────────────────────
-    const VOICE_TEXT_MAP = {
-        '右折':                  '右に曲がります',
-        '左折':                  '左に曲がります',
-        '直進':                  'まっすぐ進みます',
-        'やや右へ':              'やや右へ進みます',
-        'やや左へ':              'やや左へ進みます',
-        '右側を進む':            '右側を進みます',
-        '左側を進む':            '左側を進みます',
-        '鋭く右折':              '鋭く右に曲がります',
-        '鋭く左折':              '鋭く左に曲がります',
-        'Uターン':               '少し戻って方向を変えます',
-        '合流':                  '合流します',
-        '目的地に到着しました':  '避難所に到着しました。お疲れ様でした',
-        '目的地は右側です':      '避難所は右側です',
-        '目的地は左側です':      '避難所は左側です',
-    };
-
-    // ── 直進系ステップ（発話スキップ対象）────────────────────────────────────
-    const STRAIGHT_STEPS = new Set([
-        '直進',
-        '右側を進む', '左側を進む',
-        '北へ進む', '南へ進む', '東へ進む', '西へ進む',
-        '北東へ進む', '南東へ進む', '南西へ進む', '北西へ進む',
-    ]);
-
-    function _toVoiceText(rawText) {
-        return VOICE_TEXT_MAP[rawText] || rawText;
-    }
-
-    function _isStraight(rawText) {
-        if (!rawText) return false;
-        if (STRAIGHT_STEPS.has(rawText)) return true;
-        if (/を進む$/.test(rawText) && !/(右|左|折)/.test(rawText)) return true;
-        return false;
-    }
-
-    // ── 距離プレフィックス生成 ───────────────────────────────────────────────
-    // distanceM が null/undefined なら空文字を返す
-    function _formatDistancePrefix(distanceM) {
-        if (distanceM == null || !Number.isFinite(distanceM)) return '';
-        const m = distanceM;
-        if (m < 50)          return 'まもなく';
-        if (m < 100)         return '約50m先を';
-        if (m < 200)         return '約100m先を';
-        if (m < 400)         return '約200m先を';
-        // 400m以上は100m単位で丸め
-        const rounded = Math.round(m / 100) * 100;
-        return `約${rounded}m先を`;
-    }
-
     // ── 重複発話チェック ─────────────────────────────────────────────────────
     function _shouldAnnounce(message) {
         if (state.lastMessageId === message.id) return false;
         const cooldown = message.category === 'warning'
             ? CONFIG.offRouteSpeechCooldownMs
             : CONFIG.duplicateSpeechCooldownMs;
+        if (message.priority !== 'high' && Date.now() - state.lastSpokenAt < cooldown) return false;
         if (state.lastMessageText === message.text &&
             Date.now() - state.lastSpokenAt < cooldown) return false;
         return true;
@@ -154,6 +106,89 @@ const voiceNav = (() => {
         utter.volume = 1.0;
         if (_selectedVoice) utter.voice = _selectedVoice;
         window.speechSynthesis.speak(utter);
+    }
+
+    function _distanceMeters(a, b) {
+        const lat1 = Number(a?.lat);
+        const lon1 = Number(a?.lng ?? a?.lon);
+        const lat2 = Number(b?.lat);
+        const lon2 = Number(b?.lng ?? b?.lon);
+        if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return Infinity;
+        const rad = Math.PI / 180;
+        const dLat = (lat2 - lat1) * rad;
+        const dLon = (lon2 - lon1) * rad;
+        const s1 = Math.sin(dLat / 2);
+        const s2 = Math.sin(dLon / 2);
+        const h = s1 * s1 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * s2 * s2;
+        return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    }
+
+    function _stepType(rawText) {
+        const text = String(rawText || '');
+        if (/右|right/i.test(text)) return 'turn_right';
+        if (/左|left/i.test(text)) return 'turn_left';
+        if (/目的地|到着/.test(text)) return 'arrival';
+        return 'straight';
+    }
+
+    function _stepVoiceText(rawText) {
+        const type = _stepType(rawText);
+        if (type === 'turn_right') return '次の交差点を右に曲がってください';
+        if (type === 'turn_left') return '次の交差点を左に曲がってください';
+        if (type === 'arrival') return 'まもなく目的地に到着します';
+        return 'そのまま直進してください';
+    }
+
+    function _findUpcomingCrossing(position, route) {
+        const crossings = Array.isArray(route?.__pedestrianSafety?.crossings)
+            ? route.__pedestrianSafety.crossings
+            : [];
+        let nearest = null;
+        for (const crossing of crossings) {
+            const point = crossing?.point;
+            const dist = _distanceMeters(position, point);
+            if (!Number.isFinite(dist) || dist > CONFIG.approachDistanceMeters) continue;
+            if (!nearest || dist < nearest.distanceM) {
+                nearest = { crossing, distanceM: dist };
+            }
+        }
+        return nearest;
+    }
+
+    function _crossingVoiceMessage(upcoming) {
+        const classification = upcoming?.crossing?.classification || {};
+        const signalized = !!classification.signalizedCrossing || classification.crossingType === 'signalized';
+        const marked = !!classification.markedCrossing || !!classification.crosswalkNearby;
+        if (signalized) {
+            return { type: 'crossing', text: 'この先の信号で道路を渡ってください', signalized, marked };
+        }
+        if (marked) {
+            return { type: 'crossing', text: '横断歩道を渡ってください', signalized, marked };
+        }
+        return { type: 'crossing', text: 'この先で道路を横断します。周囲に注意してください', signalized, marked };
+    }
+
+    function _getTurnInstruction(position) {
+        const stepEl = document.querySelector('li.nav-step-current[data-step-lat]');
+        if (!stepEl) return null;
+        const stepPoint = {
+            lat: parseFloat(stepEl.dataset.stepLat),
+            lng: parseFloat(stepEl.dataset.stepLon)
+        };
+        const distToStep = _distanceMeters(position, stepPoint);
+        if (distToStep > CONFIG.approachDistanceMeters) return null;
+        const rawText = stepEl.textContent.split('（')[0].trim();
+        return {
+            rawText,
+            stepId: `${stepEl.dataset.stepLat},${stepEl.dataset.stepLon}`,
+            distanceM: distToStep
+        };
+    }
+
+    function _hasPriorityCrossingInContext() {
+        const context = state.instructionContext;
+        if (!context || Date.now() - context.updatedAt > 1500) return false;
+        return !!_findUpcomingCrossing(context.position, context.route);
     }
 
     // ── 振動通知 ─────────────────────────────────────────────────────────────
@@ -221,10 +256,18 @@ const voiceNav = (() => {
         // iOS Safari 音声ロック解除（ナビ開始ボタン押下時に呼ぶ）
         unlockSpeech() { _unlockSpeechSynthesis(); },
 
+        setInstructionContext(position, route) {
+            state.instructionContext = {
+                position,
+                route,
+                updatedAt: Date.now()
+            };
+        },
+
         // 汎用アナウンス（ナビ開始・逸脱・到着など）
         announce(message) {
-            if (!message || !message.text) return;
-            if (!_shouldAnnounce(message)) return;
+            if (!message || !message.text) return false;
+            if (!_shouldAnnounce(message)) return false;
 
             _updateDisplay(message);
             if (state.enabled) _speak(message.text);
@@ -234,21 +277,21 @@ const voiceNav = (() => {
             state.lastMessageText = message.text;
             state.lastSpokenAt    = Date.now();
             state.lastCategory    = message.category || null;
+            return true;
         },
 
         // ステップ変化時（routing.js から呼ぶ）
         // distanceM: 現在地から次のステップまでの距離（メートル）、省略可
         announceStep(rawText, stepId, distanceM = null) {
             if (!rawText) return;
-            if (_isStraight(rawText)) return;
-            const voiceText = _toVoiceText(rawText);
-            const prefix    = _formatDistancePrefix(distanceM);
-            // 「まもなく」プレフィックスの場合は語尾を接続（「まもなく右に曲がります」）
-            const spokenText = prefix === 'まもなく'
-                ? `まもなく${voiceText}`
-                : prefix
-                    ? `${prefix}${voiceText}`
-                    : voiceText;
+            if (Number.isFinite(distanceM) && distanceM > CONFIG.approachDistanceMeters) return;
+            if (_hasPriorityCrossingInContext()) {
+                console.log('[voice] skip=turn priority=crossing');
+                return;
+            }
+            const type = _stepType(rawText);
+            const spokenText = _stepVoiceText(rawText);
+            console.log(`[voice] type=${type} dist=${Number.isFinite(distanceM) ? Math.round(distanceM) : 'unknown'}m`);
             this.announce({
                 id:          `step-${stepId}`,
                 text:        spokenText,
@@ -261,7 +304,6 @@ const voiceNav = (() => {
         // 接近予告（曲がり角の手前で "まもなく〇〇" と予告）
         announceApproach(rawText, stepId) {
             if (!rawText) return;
-            if (_isStraight(rawText)) return;
             // 目的地系ステップは専用の文言で予告する
             const isDestination = /目的地/.test(rawText);
             if (isDestination) {
@@ -274,14 +316,52 @@ const voiceNav = (() => {
                 });
                 return;
             }
-            const voiceText = _toVoiceText(rawText);
+            const type = _stepType(rawText);
+            const voiceText = _stepVoiceText(rawText);
+            console.log(`[voice] type=${type} dist=${CONFIG.approachDistanceMeters}m`);
             this.announce({
                 id:          `pre-${stepId}`,
-                text:        `まもなく${voiceText}`,
+                text:        voiceText,
                 displayText: `まもなく: ${rawText}`,
                 category:    'maneuver',
                 priority:    'normal',
             });
+        },
+
+        announceCrossing(upcoming) {
+            if (!upcoming?.crossing?.point) return;
+            const point = upcoming.crossing.point;
+            const id = `crossing-${point.lat?.toFixed?.(6) || point.lat},${(point.lng ?? point.lon)?.toFixed?.(6) || (point.lng ?? point.lon)}`;
+            if (state.lastCrossingId === id) return;
+            const message = _crossingVoiceMessage(upcoming);
+            console.log(`[voice] type=crossing signalized=${message.signalized} dist=${Math.round(upcoming.distanceM)}m`);
+            const announced = this.announce({
+                id,
+                text: message.text,
+                displayText: message.text,
+                category: 'maneuver',
+                priority: 'normal'
+            });
+            if (announced) state.lastCrossingId = id;
+        },
+
+        checkNextInstruction(position, route) {
+            if (!position || !route) return;
+            this.setInstructionContext(position, route);
+
+            const crossingInstruction = _findUpcomingCrossing(position, route);
+            const turnInstruction = _getTurnInstruction(position);
+
+            if (crossingInstruction) {
+                this.announceCrossing(crossingInstruction);
+            } else if (turnInstruction) {
+                this.announceStep(
+                    turnInstruction.rawText,
+                    turnInstruction.stepId,
+                    turnInstruction.distanceM
+                );
+                return;
+            }
         },
 
         // 音声ON/OFFトグル（文字案内は常に動作）
@@ -311,6 +391,8 @@ const voiceNav = (() => {
             state.lastMessageId   = null;
             state.lastMessageText = null;
             state.lastCategory    = null;
+            state.lastCrossingId  = null;
+            state.instructionContext = null;
         },
     };
 })();

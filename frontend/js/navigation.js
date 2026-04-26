@@ -1987,26 +1987,22 @@ function _onNavPosition(position) {
         map.setView([lat, lon], map.getZoom());
     }
 
+    // 音声優先順位用コンテキスト: 横断案内をターン案内より優先する
+    if (typeof voiceNav !== 'undefined' &&
+        (navigationMode === 'navigation_active' || navigationMode === 'navigation_warning')) {
+        voiceNav.setInstructionContext({ lat, lon }, navActiveRoute);
+    }
+
     // 経路ステップハイライト更新（精度に関わらず実施）
     if (typeof updateNavStepHighlight === 'function') {
         updateNavStepHighlight(lat, lon);
     }
 
-    // 接近通知: 次の曲がり角まで 40m 以内で予告（voiceNav があれば）
+    // 接近通知: 次の操作/横断を音声案内（voiceNav があれば）
     // navigation_warning（逸脱中）でも目的地接近は案内する
     if (typeof voiceNav !== 'undefined' &&
         (navigationMode === 'navigation_active' || navigationMode === 'navigation_warning')) {
-        const stepEl = document.querySelector('li.nav-step-current[data-step-lat]');
-        if (stepEl) {
-            const sLat   = parseFloat(stepEl.dataset.stepLat);
-            const sLon   = parseFloat(stepEl.dataset.stepLon);
-            const stepId = stepEl.dataset.stepLat + ',' + stepEl.dataset.stepLon;
-            const distToStep = _navHaversine(lat, lon, sLat, sLon);
-            if (distToStep <= 40) {
-                const rawText = stepEl.textContent.split('（')[0].trim();
-                voiceNav.announceApproach(rawText, stepId);
-            }
-        }
+        voiceNav.checkNextInstruction({ lat, lon }, navActiveRoute);
     }
 
     // 残距離・逸脱ステータス更新（共通関数）
