@@ -33,7 +33,7 @@ const NAV_REROUTE_WATCHDOG_MS = 15000; // callback 未達時も再ルート中�
 
 // ── ルート候補・安全横断優先ランキング ───────────────────────────────────
 const MAX_ROUTE_CANDIDATES = 3;
-const UNSAFE_MAJOR_ROAD_CROSSING_PENALTY = 300;
+const UNSAFE_MAJOR_ROAD_CROSSING_PENALTY = 200;
 const MAJOR_ROAD_CROSSING_WITH_SIGNAL_PENALTY = 10;
 const MAJOR_ROAD_CROSSING_WITH_MARKED_CROSSING_PENALTY = 5;
 const ROUTE_CANDIDATE_UNKNOWN_SOFT_PENALTY = 30;
@@ -6155,15 +6155,7 @@ function _buildRouteCandidateReason(crossingRisk, pedestrianSafety, conservative
 function rankRouteCandidates(candidates) {
     const ranked = (Array.isArray(candidates) ? candidates : [])
         .slice()
-        .sort((a, b) => {
-            // 危険横断数を最優先キーにする — スコア計算の誤差に依存しない
-            const au = Number(a.crossingRisk?.unsafeMajorRoadCrossings || 0);
-            const bu = Number(b.crossingRisk?.unsafeMajorRoadCrossings || 0);
-            if (au !== bu) return au - bu;
-            const scoreDiff = Number(b.safetyScore || 0) - Number(a.safetyScore || 0);
-            if (scoreDiff !== 0) return scoreDiff;
-            return Number(a.distance || 0) - Number(b.distance || 0);
-        });
+        .sort((a, b) => (b.safetyScore ?? 0) - (a.safetyScore ?? 0));
     ranked.forEach((candidate, rankIndex) => {
         candidate.route.__rankedRouteIndex = rankIndex;
         // ラベルはrank後に付け直す — OSRM返却順や事前ラベルに依存しない
