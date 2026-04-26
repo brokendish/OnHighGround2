@@ -33,10 +33,15 @@ const NAV_REROUTE_WATCHDOG_MS = 15000; // callback 未達時も再ルート中�
 
 // ── ルート候補・安全横断優先ランキング ───────────────────────────────────
 const MAX_ROUTE_CANDIDATES = 3;
-const UNSAFE_MAJOR_ROAD_CROSSING_PENALTY = 200;
-const MAJOR_ROAD_CROSSING_WITH_SIGNAL_PENALTY = 10;
-const MAJOR_ROAD_CROSSING_WITH_MARKED_CROSSING_PENALTY = 5;
-const ROUTE_CANDIDATE_UNKNOWN_SOFT_PENALTY = 30;
+// 道路種別ごとの危険横断ペナルティ（safetyScore から減算）
+const CROSSING_PENALTY_BY_HIGHWAY = {
+    motorway: 300, motorway_link: 300,
+    trunk: 200,    trunk_link: 200,
+    primary: 150,  primary_link: 150,
+    secondary: 80, secondary_link: 80,
+};
+const CROSSING_UNKNOWN_PENALTY = 30;
+const CROSSING_SAFE_BONUS = 20;
 
 // ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
 const NAV_ELEV_UPDATE_M        = 10;   // 標高再取得の移動距離しきい値（メートル）
@@ -6076,56 +6081,82 @@ async function evaluateRouteSafety(route, options = {}) {
 function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
     const crossings = Array.isArray(pedestrianSafety?.crossings) ? pedestrianSafety.crossings : [];
     const dangerousCrossings = Array.isArray(pedestrianSafety?.dangerousCrossings) ? pedestrianSafety.dangerousCrossings : [];
-    const majorRoadCrossings = crossings.filter(item => {
-        const highway = String(item?.road?.tags?.highway || '');
-        return PEDESTRIAN_SAFETY_MAJOR_HIGHWAYS.has(highway) || PEDESTRIAN_SAFETY_FORBIDDEN_HIGHWAYS.has(highway);
+    const conservativeHard = !!conservativeSafety?.conservativeRejectApplied;
+    const conservativeSoft = conservativeSafety?.conservativeDecision === 'soft-risk';
+
+    // 道路種別ごとに危険横断を分類
+    const unsafeMajorRoadCrossings = dangerousCrossings.filter(item => {
+        const hw = String(item?.road?.tags?.highway || '');
+        return ['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link'].includes(hw);
+    }).length + (conservativeHard ? 1 : 0);
+
+    const unsafeSecondaryCrossings = dangerousCrossings.filter(item => {
+        const hw = String(item?.road?.tags?.highway || '');
+        return hw === 'secondary' || hw === 'secondary_link';
+    }).length;
+
+    // 安全な横断（危険でない ＋ 横断歩道または信号あり）
+    const dangerousSet = new Set(dangerousCrossings);
+    const safeCrossings = crossings.filter(item =>
+        !dangerousSet.has(item) &&
+        (!!item?.classification?.crosswalkNearby ||
+         item?.road?.tags?.crossing === 'traffic_signals' ||
+         !!item?.road?.tags?.crossing)
+    ).length;
+
+    // 評価不能横断（conservative soft-risk）
+    const unknownCrossings = conservativeSoft ? 1 : 0;
+
+    // 危険横断ペナルティ合計（道路種別ごとに重み付け）
+    let crossingPenaltyTotal = 0;
+    dangerousCrossings.forEach(item => {
+        const hw = String(item?.road?.tags?.highway || '');
+        crossingPenaltyTotal += CROSSING_PENALTY_BY_HIGHWAY[hw] ?? CROSSING_UNKNOWN_PENALTY;
     });
+    if (conservativeHard) crossingPenaltyTotal += CROSSING_UNKNOWN_PENALTY;
+
+    const hasUnsafeCrossing = (unsafeMajorRoadCrossings + unsafeSecondaryCrossings) > 0;
+    const worstSeverity = hasUnsafeCrossing
+        ? 'unsafe'
+        : (unknownCrossings > 0 || pedestrianSafety?.status === 'unknown' ? 'unknown' : 'none');
+
+    // 後方互換のため majorRoadCrossings / signalizedCrossings / markedCrossings は維持
+    const majorRoadCrossings = crossings.filter(item => {
+        const hw = String(item?.road?.tags?.highway || '');
+        return PEDESTRIAN_SAFETY_MAJOR_HIGHWAYS.has(hw) || PEDESTRIAN_SAFETY_FORBIDDEN_HIGHWAYS.has(hw);
+    }).length;
     const signalizedCrossings = crossings.filter(item => {
         const tags = item?.road?.tags || {};
         return tags.crossing === 'traffic_signals' || tags.highway === 'traffic_signals';
-    });
-    const markedCrossings = crossings.filter(item => !!item?.classification?.crosswalkNearby || !!item?.road?.tags?.crossing).length;
-    const conservativeHard = conservativeSafety?.conservativeRejectApplied;
-    const conservativeSoft = conservativeSafety?.conservativeDecision === 'soft-risk';
-    const unsafeCount = dangerousCrossings.length + (conservativeHard ? 1 : 0);
-    const worstSeverity = unsafeCount > 0
-        ? 'unsafe'
-        : (conservativeSoft || pedestrianSafety?.status === 'unknown' ? 'unknown' : (majorRoadCrossings.length > 0 ? 'caution' : 'none'));
+    }).length;
+    const markedCrossings = crossings.filter(item =>
+        !!item?.classification?.crosswalkNearby || !!item?.road?.tags?.crossing
+    ).length;
 
     return {
-        majorRoadCrossings: majorRoadCrossings.length,
-        unsafeMajorRoadCrossings: unsafeCount,
-        signalizedCrossings: signalizedCrossings.length,
+        majorRoadCrossings,
+        unsafeMajorRoadCrossings,
+        unsafeSecondaryCrossings,
+        signalizedCrossings,
         markedCrossings,
-        hasUnsafeCrossing: unsafeCount > 0,
+        safeCrossings,
+        unknownCrossings,
+        crossingPenaltyTotal,
+        hasUnsafeCrossing,
         worstSeverity,
         contextUnavailable: !!pedestrianSafety?.contextUnavailable,
         conservativeDecision: conservativeSafety?.conservativeDecision || null,
-        conservativePenalty: Number(conservativeSafety?.conservativePenalty || 0)
     };
 }
 
 function _scoreRouteCandidate(candidate) {
-    const baseScore = 1000;
-    const distancePenalty = Number(candidate.distance || 0) / 40;
-    const durationPenalty = Number(candidate.duration || 0) / 12;
     const risk = candidate.crossingRisk || {};
-    const unsafePenalty = Number(risk.unsafeMajorRoadCrossings || 0) * UNSAFE_MAJOR_ROAD_CROSSING_PENALTY;
-    const signalPenalty = Number(risk.signalizedCrossings || 0) * MAJOR_ROAD_CROSSING_WITH_SIGNAL_PENALTY;
-    const markedPenalty = Number(risk.markedCrossings || 0) * MAJOR_ROAD_CROSSING_WITH_MARKED_CROSSING_PENALTY;
-    const unknownPenalty = risk.worstSeverity === 'unknown' ? ROUTE_CANDIDATE_UNKNOWN_SOFT_PENALTY : 0;
-    const safeCrossingBonus = !risk.hasUnsafeCrossing && Number(risk.markedCrossings || 0) > 0 ? 12 : 0;
-    const originalOrderBonus = Math.max(0, MAX_ROUTE_CANDIDATES - Number(candidate.index || 0));
-    return baseScore
-        - distancePenalty
-        - durationPenalty
-        - unsafePenalty
-        - signalPenalty
-        - markedPenalty
-        - unknownPenalty
-        - Number(risk.conservativePenalty || 0)
-        + safeCrossingBonus
-        + originalOrderBonus;
+    return 1000
+        - Number(candidate.distance || 0) / 40
+        - Number(candidate.duration || 0) / 12
+        - Number(risk.crossingPenaltyTotal || 0)
+        - Number(risk.unknownCrossings || 0) * CROSSING_UNKNOWN_PENALTY
+        + Number(risk.safeCrossings || 0) * CROSSING_SAFE_BONUS;
 }
 
 function _buildRouteCandidateLabel(index, crossingRisk, pedestrianSafety, conservativeSafety) {
@@ -6159,25 +6190,22 @@ function rankRouteCandidates(candidates) {
     ranked.forEach((candidate, rankIndex) => {
         candidate.route.__rankedRouteIndex = rankIndex;
         // ラベルはrank後に付け直す — OSRM返却順や事前ラベルに依存しない
-        if (rankIndex === 0 && !candidate.crossingRisk?.hasUnsafeCrossing) {
-            candidate.route.__displayLabel = '推奨ルート';
-        } else if (!candidate.crossingRisk?.hasUnsafeCrossing) {
-            candidate.route.__displayLabel = '安全優先ルート';
+        if (!candidate.crossingRisk?.hasUnsafeCrossing) {
+            candidate.route.__displayLabel = rankIndex === 0 ? '推奨ルート' : '安全優先';
         } else {
             candidate.route.__displayLabel = '注意ルート';
         }
+        const totalUnsafe = (candidate.crossingRisk?.unsafeMajorRoadCrossings ?? 0)
+            + (candidate.crossingRisk?.unsafeSecondaryCrossings ?? 0);
         console.log(
-            `[route-candidates] raw_index=${candidate.index} rank=${rankIndex} ` +
-            `distance=${Math.round(candidate.distance)} ` +
-            `unsafe=${candidate.crossingRisk?.unsafeMajorRoadCrossings ?? 0} ` +
-            `score=${Math.round(candidate.safetyScore)} ` +
-            `label=${candidate.route.__displayLabel}`
+            `[route-candidates] raw=${candidate.index} rank=${rankIndex} ` +
+            `unsafe=${totalUnsafe} score=${Math.round(candidate.safetyScore)}`
         );
     });
     const selected = ranked[0];
     if (selected) {
-        const reason = selected.crossingRisk?.hasUnsafeCrossing ? 'shortest_available_with_warning' : 'safe_crossing_priority';
-        console.log(`[route-candidates] selected_raw_index=${selected.index} selected_rank=0 reason=${reason}`);
+        const reason = selected.crossingRisk?.hasUnsafeCrossing ? 'least_unsafe' : 'safe_crossing_priority';
+        console.log(`[route-candidates] selected=raw${selected.index} reason=${reason}`);
     }
     if (ranked.length > 0 && ranked.every(candidate => candidate.crossingRisk?.hasUnsafeCrossing)) {
         console.warn('[route-candidates] warning=safe_alternative_not_found');
