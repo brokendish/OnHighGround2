@@ -824,6 +824,13 @@ async function loadConfig() {
   }
 }
 
+const CONFIG_CATEGORY_LABELS = {
+  navigation: 'Navigation — ナビゲーション',
+  voice:      'Voice — 音声',
+  system:     'System — システム',
+};
+const CONFIG_CATEGORY_ORDER = ['navigation', 'voice', 'system'];
+
 function renderConfigTable() {
   const tbody = document.getElementById("config-tbody");
   if (!tbody) return;
@@ -834,7 +841,22 @@ function renderConfigTable() {
   if (mainItems.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">設定がありません</td></tr>`;
   } else {
-    tbody.innerHTML = mainItems.map(item => renderConfigRow(item)).join("");
+    const groups = {};
+    for (const item of mainItems) {
+      if (!groups[item.category]) groups[item.category] = [];
+      groups[item.category].push(item);
+    }
+    const orderedCats = [
+      ...CONFIG_CATEGORY_ORDER.filter(c => groups[c]),
+      ...Object.keys(groups).filter(c => !CONFIG_CATEGORY_ORDER.includes(c)),
+    ];
+    const rows = [];
+    for (const cat of orderedCats) {
+      const label = CONFIG_CATEGORY_LABELS[cat] || cat;
+      rows.push(`<tr class="config-category-header"><td colspan="7">${escHtml(label)}</td></tr>`);
+      rows.push(...groups[cat].map(item => renderConfigRow(item)));
+    }
+    tbody.innerHTML = rows.join("");
   }
 
   const osrmCard = document.getElementById("osrm-rebuild-card");
