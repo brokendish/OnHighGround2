@@ -727,6 +727,12 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
     }
     panel.appendChild(list);
     panel.classList.add('active');
+
+    // パネル再描画後にナビ中なら保存済みステップを即時復元（開閉時のズレ防止）
+    const _navMode = (typeof navigationMode !== 'undefined') ? navigationMode : null;
+    if (_navMode === 'navigation_active' || _navMode === 'navigation_warning' || _navMode === 'navigation_paused') {
+        _applyStoredNavStep(panel);
+    }
 }
 
 function renderSelectedEmergencyShelterRouteGuidance(routes, selectedRouteIndex, formatter, transportMode, onSelectRouteIndex, routeColors = []) {
@@ -751,6 +757,23 @@ function rerenderUserDestFloatCard() {
 }
 
 // ── ナビ中ステップハイライト ───────────────────────────────────────────────
+
+// 保存済みステップキーをパネルに即時適用（パネル再描画後の復元用・音声なし）
+function _applyStoredNavStep(panelEl) {
+    const key = (typeof navCurrentStepKey !== 'undefined') ? navCurrentStepKey : null;
+    if (!panelEl || !key) return;
+    const items = panelEl.querySelectorAll('li[data-step-lat]');
+    let target = null;
+    items.forEach(item => {
+        if (`${item.dataset.stepLat},${item.dataset.stepLon}` === key) target = item;
+    });
+    if (!target) return;
+    items.forEach(el => el.classList.remove('nav-step-current'));
+    target.classList.add('nav-step-current');
+    target.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+    console.log(`[nav-sync] restored stepKey=${key}`);
+}
+
 function _highlightNavStepInPanel(panelEl, lat, lon) {
     if (!panelEl) return;
     const items = panelEl.querySelectorAll('li[data-step-lat]');
@@ -771,6 +794,12 @@ function _highlightNavStepInPanel(panelEl, lat, lon) {
     items.forEach(el => el.classList.remove('nav-step-current'));
     closestItem.classList.add('nav-step-current');
     closestItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // ステップ変化時に navCurrentStepKey を更新（パネル再描画後の同期用）
+    const newKey = `${closestItem.dataset.stepLat},${closestItem.dataset.stepLon}`;
+    if (typeof navCurrentStepKey !== 'undefined' && navCurrentStepKey !== newKey) {
+        navCurrentStepKey = newKey;
+        console.log(`[nav-sync] stepKey=${newKey} dist=${Number.isFinite(minDist) ? Math.round(minDist) : '?'}m`);
+    }
     // ステップ変化時に音声・テキスト案内（minDist を距離として渡す）
     if (typeof voiceNav !== 'undefined') {
         const rawText = closestItem.textContent.split('（')[0].trim();
@@ -801,6 +830,7 @@ function updateNavStepHighlight(lat, lon) {
 
 function clearNavStepHighlight() {
     document.querySelectorAll('li.nav-step-current').forEach(el => el.classList.remove('nav-step-current'));
+    if (typeof navCurrentStepKey !== 'undefined') navCurrentStepKey = null;
 }
 
 function _createRouteFormatter() {
