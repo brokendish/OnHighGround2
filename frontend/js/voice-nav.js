@@ -11,6 +11,7 @@ const voiceNav = (() => {
     const CONFIG = {
         approachDistanceMeters:    30,     // 接近予告を出す距離
         finalReminderDistanceM:    5,      // 直前リマインドを出す距離
+        stopGuardDistanceM:        3,      // 停止時の再発話を防ぐ最小距離
         duplicateSpeechCooldownMs: 10000,  // 通常の重複発話防止（ms）
         offRouteSpeechCooldownMs:  10000,  // 逸脱警告の再発話間隔（ms）
         textDisplayDurationMs:     5000,   // 通常案内の文字表示時間（ms）
@@ -31,7 +32,8 @@ const voiceNav = (() => {
         lastMessageId:   null,
         lastMessageText: null,
         lastSpokenAt:    0,
-        lastCategory:    null,
+        lastCategory:        null,
+        lastAnnouncedType:   null,
         lastCrossingId:     null,
         lastFinalReminderId: null,
         instructionContext: null,
@@ -83,6 +85,7 @@ const voiceNav = (() => {
         const utter = new SpeechSynthesisUtterance('');
         utter.volume = 0;
         window.speechSynthesis.speak(utter);
+        window.speechSynthesis.cancel();
     }
 
     // ── 重複発話チェック ─────────────────────────────────────────────────────
@@ -91,9 +94,14 @@ const voiceNav = (() => {
         const cooldown = message.category === 'warning'
             ? CONFIG.offRouteSpeechCooldownMs
             : CONFIG.duplicateSpeechCooldownMs;
-        if (message.priority !== 'high' && Date.now() - state.lastSpokenAt < cooldown) return false;
-        if (state.lastMessageText === message.text &&
-            Date.now() - state.lastSpokenAt < cooldown) return false;
+        const isHigh = message.priority === 'high';
+        const elapsed = Date.now() - state.lastSpokenAt;
+        if (!isHigh && elapsed < cooldown) return false;
+        // 同一テキスト（高優先でも）はクールダウン内に再発話しない
+        if (state.lastMessageText === message.text && elapsed < cooldown) return false;
+        // 同一タイプ（crossing/turn等）もクールダウン内に再発話しない（高優先は免除）
+        if (!isHigh && message.msgType && state.lastAnnouncedType === message.msgType &&
+            elapsed < cooldown) return false;
         return true;
     }
 
@@ -163,7 +171,7 @@ const voiceNav = (() => {
         const marked = !!classification.markedCrossing || !!classification.crosswalkNearby;
         if (signalized) return { type: 'crossing', text: '信号を渡ります', signalized, marked };
         if (marked)     return { type: 'crossing', text: '横断歩道を渡ります', signalized, marked };
-        return { type: 'crossing', text: 'ここで横断 注意', signalized, marked };
+        return { type: 'crossing', text: 'ここで横断、注意', signalized, marked };
     }
 
     // 5m直前リマインド用テキスト（「この先」→「ここで」に変える）
@@ -171,8 +179,9 @@ const voiceNav = (() => {
         const cls = upcoming?.crossing?.classification || {};
         const signalized = !!cls.signalizedCrossing || cls.crossingType === 'signalized';
         const marked = !!cls.markedCrossing || !!cls.crosswalkNearby;
-        if (signalized || marked) return 'ここで渡ります';
-        return 'ここで横断 注意';
+        if (signalized) return 'ここで信号を渡ります';
+        if (marked)     return 'ここで横断歩道を渡ります';
+        return 'ここで横断、注意';
     }
 
     function _finalTurnText(rawText) {
@@ -283,14 +292,20 @@ const voiceNav = (() => {
             if (!message || !message.text) return false;
             if (!_shouldAnnounce(message)) return false;
 
+            // 到着時は先行音声を即停止してから発話
+            if (message.category === 'arrival' && window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
+
             _updateDisplay(message);
             if (state.enabled) _speak(message.text);
             _vibrateForMessage(message);   // 音声ON/OFFに関わらず振動は独立動作
 
-            state.lastMessageId   = message.id;
-            state.lastMessageText = message.text;
-            state.lastSpokenAt    = Date.now();
-            state.lastCategory    = message.category || null;
+            state.lastMessageId      = message.id;
+            state.lastMessageText    = message.text;
+            state.lastSpokenAt       = Date.now();
+            state.lastCategory       = message.category || null;
+            state.lastAnnouncedType  = message.msgType  || null;
             return true;
         },
 
@@ -311,6 +326,7 @@ const voiceNav = (() => {
                 text:        spokenText,
                 displayText: rawText,
                 category:    'maneuver',
+                msgType:     type,
                 priority:    'normal',
             });
         },
@@ -326,6 +342,7 @@ const voiceNav = (() => {
                     text:        'もうすぐ到着です',
                     displayText: 'まもなく目的地です',
                     category:    'maneuver',
+                    msgType:     'arrival',
                     priority:    'normal',
                 });
                 return;
@@ -338,6 +355,7 @@ const voiceNav = (() => {
                 text:        voiceText,
                 displayText: `まもなく: ${rawText}`,
                 category:    'maneuver',
+                msgType:     type,
                 priority:    'normal',
             });
         },
@@ -351,10 +369,11 @@ const voiceNav = (() => {
             console.log(`[voice] text="${message.text}" type=crossing signalized=${message.signalized} dist=${Math.round(upcoming.distanceM)}m`);
             const announced = this.announce({
                 id,
-                text: message.text,
+                text:        message.text,
                 displayText: message.text,
-                category: 'maneuver',
-                priority: 'normal'
+                category:    'maneuver',
+                msgType:     'crossing',
+                priority:    'normal',
             });
             if (announced) state.lastCrossingId = id;
         },
@@ -366,6 +385,7 @@ const voiceNav = (() => {
             const crossingInstruction = _findUpcomingCrossing(position, route);
             const turnInstruction     = _getTurnInstruction(position);
             const finalDist           = CONFIG.finalReminderDistanceM;
+            const stopDist            = CONFIG.stopGuardDistanceM;
 
             if (crossingInstruction && crossingInstruction.distanceM <= finalDist) {
                 // ── 5m直前: 横断リマインド ──────────────────────────────────────
@@ -373,8 +393,8 @@ const voiceNav = (() => {
                 const finalId = `final-crossing-${pt.lat?.toFixed?.(6)},${(pt.lng ?? pt.lon)?.toFixed?.(6)}`;
                 if (state.lastFinalReminderId !== finalId) {
                     const text = _finalCrossingText(crossingInstruction);
-                    console.log(`[voice] text="${text}" type=final_crossing dist=${crossingInstruction.distanceM.toFixed(1)}m`);
-                    const ok = this.announce({ id: finalId, text, displayText: text, category: 'maneuver', priority: 'high' });
+                    console.log(`[voice] text="${text}" type=crossing_final dist=${crossingInstruction.distanceM.toFixed(1)}m`);
+                    const ok = this.announce({ id: finalId, text, displayText: text, category: 'maneuver', msgType: 'crossing_final', priority: 'high' });
                     if (ok) state.lastFinalReminderId = finalId;
                 }
             } else if (!crossingInstruction && turnInstruction && turnInstruction.distanceM <= finalDist) {
@@ -383,16 +403,16 @@ const voiceNav = (() => {
                 if (state.lastFinalReminderId !== finalId) {
                     const text = _finalTurnText(turnInstruction.rawText);
                     if (text) {
-                        console.log(`[voice] text="${text}" type=final_turn dist=${turnInstruction.distanceM.toFixed(1)}m`);
-                        const ok = this.announce({ id: finalId, text, displayText: text, category: 'maneuver', priority: 'high' });
+                        console.log(`[voice] text="${text}" type=turn_final dist=${turnInstruction.distanceM.toFixed(1)}m`);
+                        const ok = this.announce({ id: finalId, text, displayText: text, category: 'maneuver', msgType: 'turn_final', priority: 'high' });
                         if (ok) state.lastFinalReminderId = finalId;
                     }
                 }
-            } else if (crossingInstruction) {
-                // ── 通常接近: 横断予告 ───────────────────────────────────────────
+            } else if (crossingInstruction && crossingInstruction.distanceM >= stopDist) {
+                // ── 通常接近: 横断予告（3m以上のみ）────────────────────────────
                 this.announceCrossing(crossingInstruction);
-            } else if (turnInstruction) {
-                // ── 通常接近: 曲がり角予告 ──────────────────────────────────────
+            } else if (turnInstruction && turnInstruction.distanceM >= stopDist) {
+                // ── 通常接近: 曲がり角予告（3m以上のみ）────────────────────────
                 this.announceStep(turnInstruction.rawText, turnInstruction.stepId, turnInstruction.distanceM);
             }
         },
@@ -421,9 +441,10 @@ const voiceNav = (() => {
             if (state.hideTimer) { clearTimeout(state.hideTimer); state.hideTimer = null; }
             if (window.speechSynthesis) window.speechSynthesis.cancel();
             if (_canVibrate()) navigator.vibrate(0);
-            state.lastMessageId   = null;
-            state.lastMessageText = null;
-            state.lastCategory    = null;
+            state.lastMessageId       = null;
+            state.lastMessageText     = null;
+            state.lastCategory        = null;
+            state.lastAnnouncedType   = null;
             state.lastCrossingId      = null;
             state.lastFinalReminderId = null;
             state.instructionContext  = null;
