@@ -828,6 +828,12 @@ function clearDestinationMarkers() {
 }
 
 function clearSearchResults() {
+    // ナビ中にクリアされた場合はナビを停止する
+    if (typeof navigationMode !== 'undefined' && typeof stopNavigation === 'function' &&
+        (navigationMode === 'navigation_active' || navigationMode === 'navigation_warning' ||
+         navigationMode === 'navigation_paused')) {
+        stopNavigation();
+    }
     // 手動設定のゴールピン・ルートもクリア
     if (typeof clearUserDestination === 'function') clearUserDestination();
     clearDestinationMarkers();
