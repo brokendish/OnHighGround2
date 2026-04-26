@@ -10,6 +10,7 @@ const voiceNav = (() => {
     // ── 設定パラメータ ───────────────────────────────────────────────────────
     const CONFIG = {
         approachDistanceMeters:    30,     // 接近予告を出す距離
+        finalReminderDistanceM:    5,      // 直前リマインドを出す距離
         duplicateSpeechCooldownMs: 10000,  // 通常の重複発話防止（ms）
         offRouteSpeechCooldownMs:  10000,  // 逸脱警告の再発話間隔（ms）
         textDisplayDurationMs:     5000,   // 通常案内の文字表示時間（ms）
@@ -31,7 +32,8 @@ const voiceNav = (() => {
         lastMessageText: null,
         lastSpokenAt:    0,
         lastCategory:    null,
-        lastCrossingId:  null,
+        lastCrossingId:     null,
+        lastFinalReminderId: null,
         instructionContext: null,
         hideTimer:       null,
     };
@@ -166,6 +168,23 @@ const voiceNav = (() => {
             return { type: 'crossing', text: '横断歩道を渡ってください', signalized, marked };
         }
         return { type: 'crossing', text: 'この先で道路を横断します。周囲に注意してください', signalized, marked };
+    }
+
+    // 5m直前リマインド用テキスト（「この先」→「ここで」に変える）
+    function _finalCrossingText(upcoming) {
+        const cls = upcoming?.crossing?.classification || {};
+        const signalized = !!cls.signalizedCrossing || cls.crossingType === 'signalized';
+        const marked = !!cls.markedCrossing || !!cls.crosswalkNearby;
+        if (signalized) return 'ここで信号を渡ってください';
+        if (marked)     return 'ここで横断歩道を渡ってください';
+        return 'ここで道路を渡ってください。周囲に注意してください';
+    }
+
+    function _finalTurnText(rawText) {
+        const type = _stepType(rawText);
+        if (type === 'turn_right') return 'ここを右です';
+        if (type === 'turn_left')  return 'ここを左です';
+        return null;
     }
 
     function _getTurnInstruction(position) {
@@ -350,17 +369,36 @@ const voiceNav = (() => {
             this.setInstructionContext(position, route);
 
             const crossingInstruction = _findUpcomingCrossing(position, route);
-            const turnInstruction = _getTurnInstruction(position);
+            const turnInstruction     = _getTurnInstruction(position);
+            const finalDist           = CONFIG.finalReminderDistanceM;
 
-            if (crossingInstruction) {
+            if (crossingInstruction && crossingInstruction.distanceM <= finalDist) {
+                // ── 5m直前: 横断リマインド ──────────────────────────────────────
+                const pt = crossingInstruction.crossing.point;
+                const finalId = `final-crossing-${pt.lat?.toFixed?.(6)},${(pt.lng ?? pt.lon)?.toFixed?.(6)}`;
+                if (state.lastFinalReminderId !== finalId) {
+                    const text = _finalCrossingText(crossingInstruction);
+                    console.log(`[voice] type=final_crossing dist=${crossingInstruction.distanceM.toFixed(1)}m`);
+                    const ok = this.announce({ id: finalId, text, displayText: text, category: 'maneuver', priority: 'high' });
+                    if (ok) state.lastFinalReminderId = finalId;
+                }
+            } else if (!crossingInstruction && turnInstruction && turnInstruction.distanceM <= finalDist) {
+                // ── 5m直前: 曲がり角リマインド ──────────────────────────────────
+                const finalId = `final-turn-${turnInstruction.stepId}`;
+                if (state.lastFinalReminderId !== finalId) {
+                    const text = _finalTurnText(turnInstruction.rawText);
+                    if (text) {
+                        console.log(`[voice] type=final_turn dist=${turnInstruction.distanceM.toFixed(1)}m`);
+                        const ok = this.announce({ id: finalId, text, displayText: text, category: 'maneuver', priority: 'high' });
+                        if (ok) state.lastFinalReminderId = finalId;
+                    }
+                }
+            } else if (crossingInstruction) {
+                // ── 通常接近: 横断予告 ───────────────────────────────────────────
                 this.announceCrossing(crossingInstruction);
             } else if (turnInstruction) {
-                this.announceStep(
-                    turnInstruction.rawText,
-                    turnInstruction.stepId,
-                    turnInstruction.distanceM
-                );
-                return;
+                // ── 通常接近: 曲がり角予告 ──────────────────────────────────────
+                this.announceStep(turnInstruction.rawText, turnInstruction.stepId, turnInstruction.distanceM);
             }
         },
 
@@ -391,8 +429,9 @@ const voiceNav = (() => {
             state.lastMessageId   = null;
             state.lastMessageText = null;
             state.lastCategory    = null;
-            state.lastCrossingId  = null;
-            state.instructionContext = null;
+            state.lastCrossingId      = null;
+            state.lastFinalReminderId = null;
+            state.instructionContext  = null;
         },
     };
 })();
