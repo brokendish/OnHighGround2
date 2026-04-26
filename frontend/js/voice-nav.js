@@ -7,7 +7,7 @@
 
 const voiceNav = (() => {
 
-    // ── 設定パラメータ ───────────────────────────────────────────────────────
+    // ── 設定パラメータ（管理画面で上書き可能な値のフォールバック）────────────────
     const CONFIG = {
         approachDistanceMeters:    30,     // 接近予告を出す距離
         finalReminderDistanceM:    5,      // 直前リマインドを出す距離
@@ -15,7 +15,16 @@ const voiceNav = (() => {
         duplicateSpeechCooldownMs: 10000,  // 通常の重複発話防止（ms）
         offRouteSpeechCooldownMs:  10000,  // 逸脱警告の再発話間隔（ms）
         textDisplayDurationMs:     5000,   // 通常案内の文字表示時間（ms）
+        speechRate:                1.1,    // 読み上げ速度
     };
+
+    // getRuntimeConfigValue（config.js で定義）から数値設定を読む共通ヘルパー。
+    // config.js が先にロードされていない環境では fallback を使う。
+    function _voiceConfigNumber(key, fallback) {
+        if (typeof getRuntimeConfigValue !== 'function') return fallback;
+        const v = Number(getRuntimeConfigValue(key, fallback));
+        return Number.isFinite(v) && v > 0 ? v : fallback;
+    }
 
     // ── 振動パターン ─────────────────────────────────────────────────────────
     const HAPTIC_PATTERNS = {
@@ -108,8 +117,8 @@ const voiceNav = (() => {
     function _shouldAnnounce(message) {
         if (state.lastMessageId === message.id) return false;
         const cooldown = message.category === 'warning'
-            ? CONFIG.offRouteSpeechCooldownMs
-            : CONFIG.duplicateSpeechCooldownMs;
+            ? _voiceConfigNumber('voice.cooldown_ms', CONFIG.offRouteSpeechCooldownMs)
+            : _voiceConfigNumber('voice.cooldown_ms', CONFIG.duplicateSpeechCooldownMs);
         const isHigh = message.priority === 'high';
         const elapsed = Date.now() - state.lastSpokenAt;
         if (!isHigh && elapsed < cooldown) return false;
@@ -127,7 +136,7 @@ const voiceNav = (() => {
         window.speechSynthesis.cancel();
         const utter  = new SpeechSynthesisUtterance(text);
         utter.lang   = 'ja-JP';
-        utter.rate   = 1.1;
+        utter.rate   = _voiceConfigNumber('voice.rate', CONFIG.speechRate);
         utter.pitch  = 1.0;
         utter.volume = 1.0;
         if (_selectedVoice) utter.voice = _selectedVoice;
@@ -406,7 +415,7 @@ const voiceNav = (() => {
 
             const crossingInstruction = _findUpcomingCrossing(position, route);
             const turnInstruction     = _getTurnInstruction(position);
-            const finalDist           = CONFIG.finalReminderDistanceM;
+            const finalDist           = _voiceConfigNumber('navigation.final_reminder_distance', CONFIG.finalReminderDistanceM);
             const stopDist            = CONFIG.stopGuardDistanceM;
 
             if (crossingInstruction && crossingInstruction.distanceM <= finalDist) {

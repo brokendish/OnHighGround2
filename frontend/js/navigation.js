@@ -297,10 +297,10 @@ function _getArrivalRequirement(accuracy) {
         'navigation.arrival_consecutive_count',
         NAV_ARRIVAL_CONSECUTIVE
     ));
-    const dynamicRadius = Math.max(
-        NAV_ARRIVAL_RADIUS_MIN_M,
-        Math.min(NAV_ARRIVAL_RADIUS_MAX_M, Number(accuracy || 0) * NAV_ARRIVAL_ACCURACY_FACTOR)
-    );
+    const minR = _getNavigationConfigNumber('navigation.arrival_radius_min',          NAV_ARRIVAL_RADIUS_MIN_M);
+    const maxR = _getNavigationConfigNumber('navigation.arrival_radius_max',          NAV_ARRIVAL_RADIUS_MAX_M);
+    const mul  = _getNavigationConfigNumber('navigation.arrival_accuracy_multiplier', NAV_ARRIVAL_ACCURACY_FACTOR);
+    const dynamicRadius = Math.max(minR, Math.min(maxR, Number(accuracy || 0) * mul));
     return {
         radiusM: dynamicRadius,
         consecutive: Number.isFinite(arrivalConsecutive) ? arrivalConsecutive : NAV_ARRIVAL_CONSECUTIVE,
@@ -1926,7 +1926,7 @@ function _onNavPosition(position) {
         const endpointDist = _distanceToRouteEndpoint(lat, lon);
         distToGoal = endpointDist === null ? destinationDist : Math.min(destinationDist, endpointDist);
         nearGoal = distToGoal <= _getNearGoalDistanceM();
-        const nearArrival = distToGoal <= NAV_NEAR_ARRIVAL_M;
+        const nearArrival = distToGoal <= _getNavigationConfigNumber('navigation.near_arrival_distance', NAV_NEAR_ARRIVAL_M);
         if (nearArrival && !_navNearArrival) {
             _showNavBanner('まもなく到着です', 'info', 3000);
         }
