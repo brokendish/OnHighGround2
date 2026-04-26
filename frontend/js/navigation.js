@@ -16,9 +16,13 @@ const NAV_MAX_GPS_ACCURACY_M   = 50; // これ以上の誤差なら逸脱判定�
 const NAV_CONSECUTIVE      = 3;     // 連続 N 回外れたら warning
 const NAV_ARRIVAL_M        = 12;    // 到達判定しきい値（メートル）
 const NAV_ARRIVAL_CONSECUTIVE = 2;  // 到達判定に必要な連続成立回数
-const NAV_ARRIVAL_LOW_ACCURACY_M = 30; // これを超える精度では到着確定を保守的にする
-const NAV_ARRIVAL_LOW_ACCURACY_RADIUS_M = 8; // 低精度時の到着判定しきい値（メートル）
-const NAV_ARRIVAL_LOW_ACCURACY_CONSECUTIVE = 3; // 低精度時の連続成立回数
+const NAV_NEAR_ARRIVAL_M   = 20;    // まもなく到着表示を出す距離
+const NAV_ARRIVAL_RADIUS_MIN_M = 12;
+const NAV_ARRIVAL_RADIUS_MAX_M = 25;
+const NAV_ARRIVAL_ACCURACY_FACTOR = 0.8;
+const NAV_GPS_STALL_DISTANCE_EPS_M = 1;
+const NAV_GPS_STALL_DURATION_MS = 5000;
+const NAV_GPS_STALL_NEAR_GOAL_M = 30;
 const NAV_MIN_DELTA_M      = 8;     // 移動量がこれ以下なら更新スキップ
 const NAV_LOW_ACCURACY_M   = 50;    // GPS 精度がこれ以上なら精度警告
 const NAV_REROUTE_COOLDOWN = 10000; // 再ルート連打防止（ms）
@@ -59,6 +63,10 @@ let _navLogInFlight = false;
 // ── 逸脱デバウンスタイマー ────────────────────────────────────────────────
 const NAV_OFF_ROUTE_DEBOUNCE_MS = 3000; // 3秒待って誤検知を防ぐ
 let _offRouteDebounceTimer = null;
+let _navNearArrival = false;
+let _navGpsUnstable = false;
+let _navArrivalLastDistanceM = null;
+let _navArrivalStallStartedAt = null;
 
 // ── 前方ブロック再ルート定数 ──────────────────────────────────────────────
 const BLOCK_AHEAD_START_METERS  = 20;   // ブロック開始距離（現在地前方 m）
@@ -139,6 +147,7 @@ const PEDESTRIAN_SAFETY_BBOX_PADDING_M = 45;
 const PEDESTRIAN_SAFETY_COMPACT_BBOX_PADDING_M = 30;
 const PEDESTRIAN_SAFETY_EXPANDED_BBOX_PADDING_M = 80;
 const PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M = 20;
+const PEDESTRIAN_SAFETY_CROSSING_BIND_RADIUS_M = 20;
 const PEDESTRIAN_SAFETY_FETCH_TIMEOUT_MS = 800;
 const PEDESTRIAN_SAFETY_MAJOR_HIGHWAYS = new Set(['trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link']);
 const PEDESTRIAN_SAFETY_FORBIDDEN_HIGHWAYS = new Set(['motorway', 'motorway_link']);
@@ -270,29 +279,48 @@ function _setNavAutoRerouteInProgress(value, reason = '') {
 function _resetNavArrivalTracking() {
     navArrivalConsecutiveCount = 0;
     navHasArrived = false;
+    _navNearArrival = false;
+    _navGpsUnstable = false;
+    _navArrivalLastDistanceM = null;
+    _navArrivalStallStartedAt = null;
 }
 
 function _getArrivalRequirement(accuracy) {
-    const arrivalDistanceM = Number(getRuntimeConfigValue(
-        'navigation.arrival_distance_m',
-        NAV_ARRIVAL_M
-    ));
     const arrivalConsecutive = Number(getRuntimeConfigValue(
         'navigation.arrival_consecutive_count',
         NAV_ARRIVAL_CONSECUTIVE
     ));
-    if (accuracy > NAV_ARRIVAL_LOW_ACCURACY_M) {
-        return {
-            radiusM: NAV_ARRIVAL_LOW_ACCURACY_RADIUS_M,
-            consecutive: NAV_ARRIVAL_LOW_ACCURACY_CONSECUTIVE,
-            lowAccuracy: true
-        };
-    }
+    const dynamicRadius = Math.max(
+        NAV_ARRIVAL_RADIUS_MIN_M,
+        Math.min(NAV_ARRIVAL_RADIUS_MAX_M, Number(accuracy || 0) * NAV_ARRIVAL_ACCURACY_FACTOR)
+    );
     return {
-        radiusM: Number.isFinite(arrivalDistanceM) ? arrivalDistanceM : NAV_ARRIVAL_M,
+        radiusM: dynamicRadius,
         consecutive: Number.isFinite(arrivalConsecutive) ? arrivalConsecutive : NAV_ARRIVAL_CONSECUTIVE,
-        lowAccuracy: false
+        lowAccuracy: Number(accuracy || 0) > NAV_MAX_GPS_ACCURACY_M
     };
+}
+
+function _updateArrivalStability(distToGoal, accuracy) {
+    const now = Date.now();
+    const previousDistance = _navArrivalLastDistanceM;
+    const delta = Number.isFinite(previousDistance) ? Math.abs(distToGoal - previousDistance) : Infinity;
+    _navArrivalLastDistanceM = distToGoal;
+
+    if (distToGoal > NAV_GPS_STALL_NEAR_GOAL_M || delta >= NAV_GPS_STALL_DISTANCE_EPS_M) {
+        _navArrivalStallStartedAt = now;
+        _navGpsUnstable = false;
+        return false;
+    }
+    if (_navArrivalStallStartedAt === null) {
+        _navArrivalStallStartedAt = now;
+        return false;
+    }
+    _navGpsUnstable = (now - _navArrivalStallStartedAt) >= NAV_GPS_STALL_DURATION_MS;
+    if (_navGpsUnstable) {
+        console.log(`[arrival] gps_unstable=true dist=${Math.round(distToGoal)} accuracy=${Math.round(Number(accuracy || 0))}`);
+    }
+    return _navGpsUnstable;
 }
 
 function _getNavigationConfigNumber(key, fallback) {
@@ -1503,6 +1531,7 @@ function _updateHazardRow(isDanger, assessment) {
 // ── 距離フォーマット（ナビ用） ────────────────────────────────────────────
 function _fmtNavDist(meters) {
     if (!Number.isFinite(meters)) return '—';
+    if (meters < 30) return `${Math.round(meters)}m`;
     return meters < 1000
         ? `${Math.round(meters / 10) * 10}m`
         : `${(meters / 1000).toFixed(1)}km`;
@@ -1882,21 +1911,37 @@ function _onNavPosition(position) {
         const endpointDist = _distanceToRouteEndpoint(lat, lon);
         distToGoal = endpointDist === null ? destinationDist : Math.min(destinationDist, endpointDist);
         nearGoal = distToGoal <= _getNearGoalDistanceM();
+        const nearArrival = distToGoal <= NAV_NEAR_ARRIVAL_M;
+        if (nearArrival && !_navNearArrival) {
+            _showNavBanner('まもなく到着です', 'info', 3000);
+        }
+        _navNearArrival = nearArrival;
+        const gpsUnstable = _updateArrivalStability(distToGoal, accuracy);
+        if (gpsUnstable) {
+            _showNavBanner('位置精度が低い可能性があります', 'warning', 3000);
+        }
         const arrivalRequirement = _getArrivalRequirement(accuracy);
         const arrivalCandidate = distToGoal <= arrivalRequirement.radiusM;
         navArrivalConsecutiveCount = arrivalCandidate ? navArrivalConsecutiveCount + 1 : 0;
         const arrived = navArrivalConsecutiveCount >= arrivalRequirement.consecutive;
+        console.log(
+            `[arrival] dist=${Math.round(distToGoal)} accuracy=${Math.round(Number(accuracy || 0))} ` +
+            `radius=${Math.round(arrivalRequirement.radiusM)} near=${nearArrival} ` +
+            `counter=${navArrivalConsecutiveCount} arrived=${arrived} gpsUnstable=${gpsUnstable}`
+        );
         _navDebugLog(
             `dist_to_goal=${distToGoal.toFixed(1)}m accuracy=${accuracy.toFixed(1)}m ` +
-            `arrival_counter=${navArrivalConsecutiveCount} arrived=${arrived} ` +
+            `arrival_counter=${navArrivalConsecutiveCount} near_arrival=${nearArrival} arrived=${arrived} ` +
             `arrival_radius=${arrivalRequirement.radiusM} low_accuracy=${arrivalRequirement.lowAccuracy}`,
             {
                 dist_to_goal: Number(distToGoal.toFixed(1)),
                 accuracy: Number(accuracy.toFixed(1)),
                 arrival_counter: navArrivalConsecutiveCount,
+                near_arrival: nearArrival,
                 arrived,
                 arrival_radius: arrivalRequirement.radiusM,
-                low_accuracy: arrivalRequirement.lowAccuracy
+                low_accuracy: arrivalRequirement.lowAccuracy,
+                gps_unstable: gpsUnstable
             }
         );
 
@@ -1921,7 +1966,7 @@ function _onNavPosition(position) {
     // 微小移動は無視（到着判定の後でフィルタ）
     if (currentLocation) {
         const moved = _navHaversine(currentLocation.lat, currentLocation.lon, lat, lon);
-        if (moved < NAV_MIN_DELTA_M) return;
+        if (moved < NAV_MIN_DELTA_M && !_navNearArrival && !_navGpsUnstable) return;
     }
 
     _updateNavMarker(lat, lon, accuracy, heading);
@@ -4434,7 +4479,19 @@ function _findCrosswalkNearby(point, context, radiusM = PEDESTRIAN_SAFETY_CROSSW
     if (!found) return null;
     const tags = found.tags || {};
     const signalized = tags.crossing === 'traffic_signals' || tags.highway === 'traffic_signals';
-    return { type: signalized ? 'signalized' : 'marked', tags, distM: minDist };
+    const marked = tags.highway === 'crossing'
+        || tags.footway === 'crossing'
+        || tags.crossing === 'marked'
+        || tags.crossing === 'zebra'
+        || signalized;
+    return {
+        type: signalized ? 'signalized' : 'marked',
+        tags,
+        point: found,
+        distM: minDist,
+        signalized,
+        marked
+    };
 }
 
 function _parsePedestrianSafetyContext(data) {
@@ -4765,6 +4822,8 @@ function _classifyDangerousCrossing(crossing, context, options = {}) {
     const crosswalkResult = _findCrosswalkNearby(crossing?.point, context, PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M);
     const crosswalkNearby = !!crosswalkResult;               // 後方互換 bool
     const crossingType = crosswalkResult?.type || null;       // 'signalized' | 'marked' | null
+    const signalizedCrossing = !!crosswalkResult?.signalized;
+    const markedCrossing = !!crosswalkResult?.marked;
     const motorroad = _isTruthyTag(tags.motorroad);
     const footNo = String(tags.foot || '') === 'no';
     const divided = _isTruthyTag(tags.divided) || _isTruthyTag(tags.divider) || _isTruthyTag(tags.dual_carriageway);
@@ -4796,6 +4855,10 @@ function _classifyDangerousCrossing(crossing, context, options = {}) {
         lanes,
         crosswalkNearby,
         crossingType,
+        signalizedCrossing,
+        markedCrossing,
+        safeCrossingPoint: crosswalkResult?.point || null,
+        safeCrossingDistanceM: Number(crosswalkResult?.distM || 0),
         motorroad,
         footNo,
         divided
@@ -6294,7 +6357,9 @@ function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
     const dangerousSet = new Set(dangerousCrossings);
     const safeCrossings = crossings.filter(item =>
         !dangerousSet.has(item) &&
-        (!!item?.classification?.crosswalkNearby ||
+        (!!item?.classification?.signalizedCrossing ||
+         !!item?.classification?.markedCrossing ||
+         !!item?.classification?.crosswalkNearby ||
          item?.classification?.crossingType === 'signalized' ||
          item?.road?.tags?.crossing === 'traffic_signals' ||
          !!item?.road?.tags?.crossing)
@@ -6322,10 +6387,14 @@ function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
     }).length;
     const signalizedCrossings = crossings.filter(item => {
         const tags = item?.road?.tags || {};
-        return tags.crossing === 'traffic_signals' || tags.highway === 'traffic_signals';
+        return !!item?.classification?.signalizedCrossing
+            || tags.crossing === 'traffic_signals'
+            || tags.highway === 'traffic_signals';
     }).length;
     const markedCrossings = crossings.filter(item =>
-        !!item?.classification?.crosswalkNearby || !!item?.road?.tags?.crossing
+        !!item?.classification?.markedCrossing
+            || !!item?.classification?.crosswalkNearby
+            || !!item?.road?.tags?.crossing
     ).length;
 
     return {
