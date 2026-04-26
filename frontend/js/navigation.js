@@ -6189,11 +6189,13 @@ function rankRouteCandidates(candidates) {
         .sort((a, b) => (b.safetyScore ?? 0) - (a.safetyScore ?? 0));
     ranked.forEach((candidate, rankIndex) => {
         candidate.route.__rankedRouteIndex = rankIndex;
-        // ラベルはrank後に付け直す — OSRM返却順や事前ラベルに依存しない
-        if (!candidate.crossingRisk?.hasUnsafeCrossing) {
-            candidate.route.__displayLabel = rankIndex === 0 ? '推奨ルート' : '安全優先';
+        // ラベルはrank後に付け直す — 注意ラベルは除去（検出精度が安定するまで）
+        if (rankIndex === 0) {
+            candidate.route.__displayLabel = '推奨ルート';
         } else {
-            candidate.route.__displayLabel = '注意ルート';
+            candidate.route.__displayLabel = candidate.crossingRisk?.hasUnsafeCrossing
+                ? `候補${rankIndex + 1}`
+                : '安全優先';
         }
         const totalUnsafe = (candidate.crossingRisk?.unsafeMajorRoadCrossings ?? 0)
             + (candidate.crossingRisk?.unsafeSecondaryCrossings ?? 0);

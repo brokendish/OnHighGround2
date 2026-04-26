@@ -436,9 +436,8 @@ function buildRouteCandidateSummary(route, routeIndex, formatter) {
             : `${Math.round(distance)}m`)
         : '-';
     const durationLabel = Number.isFinite(duration) ? formatDurationText(duration) : '-';
-    const safetyLabel = unsafe > 0
-        ? '横断注意'
-        : (risk.worstSeverity === 'unknown' ? '確認中' : '安全優先');
+    // 注意ラベルは検出精度安定まで非表示（hasUnsafeCrossing は内部ランキングには使用）
+    const safetyLabel = unsafe === 0 && risk.worstSeverity !== 'unknown' ? '安全' : '';
     return {
         label,
         reason,
@@ -514,10 +513,11 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
                 }
                 const color = routeColors[routeIndex] || getRouteColorByIndex(routeIndex);
                 const routeSummary = buildRouteCandidateSummary(candidateRoute, routeIndex, formatter);
+                const subText = [routeSummary.metricLabel, routeSummary.safetyLabel].filter(Boolean).join(' / ');
                 button.innerHTML = `
                     <span class="route-color-chip" style="background: ${color};"></span>
                     <span class="route-option-main">${routeSummary.label}</span>
-                    <span class="route-option-sub">${routeSummary.metricLabel} / ${routeSummary.safetyLabel}</span>
+                    <span class="route-option-sub">${subText}</span>
                 `;
                 button.title = [routeSummary.reason, routeSummary.scoreLabel].filter(Boolean).join(' / ');
                 button.addEventListener('click', (event) => {
@@ -646,10 +646,11 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
             }
             const color = routeColors[routeIndex] || getRouteColorByIndex(routeIndex);
             const routeSummary = buildRouteCandidateSummary(candidateRoute, routeIndex, formatter);
+            const subText = [routeSummary.metricLabel, routeSummary.safetyLabel].filter(Boolean).join(' / ');
             button.innerHTML = `
                 <span class="route-color-chip" style="background: ${color};"></span>
                 <span class="route-option-main">${routeSummary.label}</span>
-                <span class="route-option-sub">${routeSummary.metricLabel} / ${routeSummary.safetyLabel}</span>
+                <span class="route-option-sub">${subText}</span>
             `;
             button.title = [routeSummary.reason, routeSummary.scoreLabel].filter(Boolean).join(' / ');
             button.addEventListener('click', (event) => {
