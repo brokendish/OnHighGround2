@@ -42,6 +42,8 @@ const CROSSING_PENALTY_BY_HIGHWAY = {
 };
 const CROSSING_UNKNOWN_PENALTY = 30;
 const CROSSING_SAFE_BONUS = 20;
+const SAFE_CROSSING_SEARCH_RADIUS_M = 50;
+const SAFE_CROSSING_DETOUR_MAX_RATIO = 1.5;
 
 // ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
 const NAV_ELEV_UPDATE_M        = 10;   // 標高再取得の移動距離しきい値（メートル）
@@ -136,7 +138,7 @@ const PEDESTRIAN_SAFETY_OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
 const PEDESTRIAN_SAFETY_BBOX_PADDING_M = 45;
 const PEDESTRIAN_SAFETY_COMPACT_BBOX_PADDING_M = 30;
 const PEDESTRIAN_SAFETY_EXPANDED_BBOX_PADDING_M = 80;
-const PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M = 25;
+const PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M = 20;
 const PEDESTRIAN_SAFETY_FETCH_TIMEOUT_MS = 800;
 const PEDESTRIAN_SAFETY_MAJOR_HIGHWAYS = new Set(['trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link']);
 const PEDESTRIAN_SAFETY_FORBIDDEN_HIGHWAYS = new Set(['motorway', 'motorway_link']);
@@ -4423,7 +4425,16 @@ function _isTruthyTag(value) {
 
 function _findCrosswalkNearby(point, context, radiusM = PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M) {
     const crosswalks = Array.isArray(context?.crosswalks) ? context.crosswalks : [];
-    return crosswalks.some(item => _segmentLengthMeters(point, item) <= radiusM);
+    let found = null;
+    let minDist = Infinity;
+    for (const item of crosswalks) {
+        const dist = _segmentLengthMeters(point, item);
+        if (dist <= radiusM && dist < minDist) { minDist = dist; found = item; }
+    }
+    if (!found) return null;
+    const tags = found.tags || {};
+    const signalized = tags.crossing === 'traffic_signals' || tags.highway === 'traffic_signals';
+    return { type: signalized ? 'signalized' : 'marked', tags, distM: minDist };
 }
 
 function _parsePedestrianSafetyContext(data) {
@@ -4751,7 +4762,9 @@ function _classifyDangerousCrossing(crossing, context, options = {}) {
     const tags = crossing?.road?.tags || {};
     const highway = String(tags.highway || '');
     const lanes = _parseNumericTag(tags.lanes, 0);
-    const crosswalkNearby = _findCrosswalkNearby(crossing?.point, context, PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M);
+    const crosswalkResult = _findCrosswalkNearby(crossing?.point, context, PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M);
+    const crosswalkNearby = !!crosswalkResult;               // 後方互換 bool
+    const crossingType = crosswalkResult?.type || null;       // 'signalized' | 'marked' | null
     const motorroad = _isTruthyTag(tags.motorroad);
     const footNo = String(tags.foot || '') === 'no';
     const divided = _isTruthyTag(tags.divided) || _isTruthyTag(tags.divider) || _isTruthyTag(tags.dual_carriageway);
@@ -4782,6 +4795,7 @@ function _classifyDangerousCrossing(crossing, context, options = {}) {
         highway,
         lanes,
         crosswalkNearby,
+        crossingType,
         motorroad,
         footNo,
         divided
@@ -4827,6 +4841,7 @@ function _evaluatePedestrianRouteAgainstContext(route, context, options = {}) {
     console.log(
         `[PedestrianSafety] status=unsafe crossingDetected=true dangerous=true roadType=${first.classification.highway || 'unknown'} ` +
         `lanes=${first.classification.lanes || 0} crosswalkNearby=${!!first.classification.crosswalkNearby} ` +
+        `crossingType=${first.classification.crossingType || 'none'} ` +
         `rejectReason=dangerous-crossing detail=${first.classification.reason || 'unknown'} failOpenApplied=false`
     );
     return _makePedestrianSafetyResult('unsafe', {
@@ -5997,13 +6012,19 @@ async function fetchRouteCandidates(origin, destination, options = {}) {
         }));
     if (routes.length === 0) return [];
 
+    const baseDistance = routes
+        .map(route => Number(route?.summary?.totalDistance ?? route?.totalDistance))
+        .filter(Number.isFinite)
+        .reduce((min, value) => Math.min(min, value), Infinity);
+
     const evaluated = await Promise.all(routes.map(async (route, index) => {
         const candidate = await evaluateRouteSafety(route, {
             ...options,
             index,
             origin: from,
             destination: to,
-            transportMode
+            transportMode,
+            baseDistance
         });
         console.log(
             `[route-candidates] candidate=${index} distance=${Math.round(candidate.distance)} ` +
@@ -6013,7 +6034,145 @@ async function fetchRouteCandidates(origin, destination, options = {}) {
         return candidate;
     }));
 
+    const safeCrossingRoute = await _tryBuildSafeCrossingDetourCandidate(evaluated, {
+        ...options,
+        origin: from,
+        destination: to,
+        transportMode,
+        baseDistance,
+        nextIndex: routes.length,
+        canAppend: routes.length < maxCandidates
+    });
+    if (safeCrossingRoute) {
+        const candidate = await evaluateRouteSafety(safeCrossingRoute, {
+            ...options,
+            index: routes.length,
+            origin: from,
+            destination: to,
+            transportMode,
+            baseDistance
+        });
+        console.log(
+            `[route-candidates] via_safe_crossing distance=${Math.round(candidate.distance)} ` +
+            `duration=${Math.round(candidate.duration)} unsafe_crossings=${candidate.crossingRisk.unsafeMajorRoadCrossings} ` +
+            `score=${Math.round(candidate.safetyScore)}`
+        );
+        evaluated.push(candidate);
+    }
+
     return rankRouteCandidates(evaluated);
+}
+
+function _safeCrossingHasSignal(point) {
+    const tags = point?.tags || {};
+    return tags.crossing === 'traffic_signals' || tags.highway === 'traffic_signals';
+}
+
+function _safeCrossingIsMarked(point) {
+    const tags = point?.tags || {};
+    return tags.highway === 'crossing'
+        || tags.footway === 'crossing'
+        || tags.crossing === 'marked'
+        || tags.crossing === 'zebra'
+        || _safeCrossingHasSignal(point);
+}
+
+function _findNearbySafeCrossingPoint(dangerousCrossing, context, radiusM = SAFE_CROSSING_SEARCH_RADIUS_M) {
+    const point = dangerousCrossing?.point;
+    const crosswalks = Array.isArray(context?.crosswalks) ? context.crosswalks : [];
+    if (!point || crosswalks.length === 0) return null;
+    return crosswalks
+        .map(crossing => ({
+            ...crossing,
+            distanceM: _segmentLengthMeters(point, crossing),
+            signalized: _safeCrossingHasSignal(crossing),
+            marked: _safeCrossingIsMarked(crossing)
+        }))
+        .filter(crossing => crossing.distanceM <= radiusM && (crossing.signalized || crossing.marked))
+        .sort((a, b) => {
+            if (a.signalized !== b.signalized) return a.signalized ? -1 : 1;
+            return a.distanceM - b.distanceM;
+        })[0] || null;
+}
+
+async function _tryBuildSafeCrossingDetourCandidate(evaluatedCandidates, options = {}) {
+    if (options.transportMode && options.transportMode !== 'walking') return null;
+    if (!options.canAppend) {
+        console.log('[route-candidates] safe_crossing_detour skipped reason=max_candidates_already_returned');
+        return null;
+    }
+    const candidates = Array.isArray(evaluatedCandidates) ? evaluatedCandidates : [];
+    const source = candidates.find(candidate => {
+        const dangerous = candidate.route?.__pedestrianSafety?.dangerousCrossings;
+        return Array.isArray(dangerous) && dangerous.length > 0;
+    });
+    const dangerousCrossing = source?.route?.__pedestrianSafety?.dangerousCrossings?.[0] || null;
+    if (!source || !dangerousCrossing?.point) return null;
+
+    const bbox = _buildPedestrianSafetyContextBBox({
+        points: [dangerousCrossing.point],
+        paddingM: SAFE_CROSSING_SEARCH_RADIUS_M
+    });
+    const contextResult = await _fetchPedestrianSafetyContextForBBox(bbox, {
+        contextLabel: 'route-candidate:safe-crossing-search',
+        sourceLabel: 'safe-crossing-search',
+        allowExtendedFetch: true
+    });
+    const searchContext = contextResult?.context || (
+        Array.isArray(contextResult?.crosswalks) || Array.isArray(contextResult?.roads)
+            ? contextResult
+            : null
+    );
+    const safeCrossing = _findNearbySafeCrossingPoint(
+        dangerousCrossing,
+        searchContext,
+        SAFE_CROSSING_SEARCH_RADIUS_M
+    );
+    if (!safeCrossing) {
+        console.log(
+            `[route-candidates] safe_crossing_detour skipped reason=no_safe_crossing_nearby ` +
+            `source_raw=${source.index} radius=${SAFE_CROSSING_SEARCH_RADIUS_M}`
+        );
+        return null;
+    }
+
+    const route = await _fetchOsrmRouteThroughWaypoints([
+        options.origin,
+        safeCrossing,
+        options.destination
+    ], 'route-candidate:safe-crossing-via');
+    if (!route) {
+        console.log('[route-candidates] safe_crossing_detour skipped reason=osrm_empty');
+        return null;
+    }
+
+    const baseDistance = Number(options.baseDistance);
+    const detourDistance = Number(route?.summary?.totalDistance ?? route?.totalDistance);
+    if (Number.isFinite(baseDistance) && Number.isFinite(detourDistance)
+            && detourDistance > baseDistance * SAFE_CROSSING_DETOUR_MAX_RATIO) {
+        console.log(
+            `[route-candidates] safe_crossing_detour skipped reason=too_long ` +
+            `distance=${Math.round(detourDistance)} base=${Math.round(baseDistance)} ratio=${SAFE_CROSSING_DETOUR_MAX_RATIO}`
+        );
+        return null;
+    }
+
+    route.__osrmOriginalIndex = options.nextIndex;
+    route.__viaSafeCrossing = {
+        lat: safeCrossing.lat,
+        lng: safeCrossing.lng ?? safeCrossing.lon,
+        distanceFromDangerM: safeCrossing.distanceM,
+        signalized: !!safeCrossing.signalized,
+        marked: !!safeCrossing.marked,
+        tags: safeCrossing.tags || {}
+    };
+    route.__candidateGeneratedBy = 'safe-crossing-via';
+    console.log(
+        `[route-candidates] safe_crossing_detour added source_raw=${source.index} ` +
+        `crossing_distance=${Math.round(safeCrossing.distanceM)}m ` +
+        `signalized=${!!safeCrossing.signalized} distance=${Math.round(detourDistance)}`
+    );
+    return route;
 }
 
 async function evaluateRouteSafety(route, options = {}) {
@@ -6055,6 +6214,10 @@ async function evaluateRouteSafety(route, options = {}) {
     route.__safetyScore = safetyScore;
     route.__displayLabel = displayLabel;
     route.__displayReason = reason;
+    route.__routeFeatures = _buildRouteCandidateFeatures(route, crossingRisk, {
+        distance,
+        baseDistance: options.baseDistance
+    });
     route.__pedestrianSafety = pedestrianSafety || {
         status: 'unknown',
         contextUnavailable: true,
@@ -6085,10 +6248,12 @@ function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
     const conservativeSoft = conservativeSafety?.conservativeDecision === 'soft-risk';
 
     // 道路種別ごとに危険横断を分類
+    // conservativeHard（Overpass失敗時の保守的判定）は unsafe カウントに含めない
+    // → crossingPoint が検出できた場合のみ unsafe とする
     const unsafeMajorRoadCrossings = dangerousCrossings.filter(item => {
         const hw = String(item?.road?.tags?.highway || '');
         return ['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link'].includes(hw);
-    }).length + (conservativeHard ? 1 : 0);
+    }).length;
 
     const unsafeSecondaryCrossings = dangerousCrossings.filter(item => {
         const hw = String(item?.road?.tags?.highway || '');
@@ -6100,12 +6265,13 @@ function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
     const safeCrossings = crossings.filter(item =>
         !dangerousSet.has(item) &&
         (!!item?.classification?.crosswalkNearby ||
+         item?.classification?.crossingType === 'signalized' ||
          item?.road?.tags?.crossing === 'traffic_signals' ||
          !!item?.road?.tags?.crossing)
     ).length;
 
-    // 評価不能横断（conservative soft-risk）
-    const unknownCrossings = conservativeSoft ? 1 : 0;
+    // 評価不能横断（conservative soft-risk or hard は小さなペナルティのみ）
+    const unknownCrossings = (conservativeSoft || conservativeHard) ? 1 : 0;
 
     // 危険横断ペナルティ合計（道路種別ごとに重み付け）
     let crossingPenaltyTotal = 0;
@@ -6113,7 +6279,6 @@ function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
         const hw = String(item?.road?.tags?.highway || '');
         crossingPenaltyTotal += CROSSING_PENALTY_BY_HIGHWAY[hw] ?? CROSSING_UNKNOWN_PENALTY;
     });
-    if (conservativeHard) crossingPenaltyTotal += CROSSING_UNKNOWN_PENALTY;
 
     const hasUnsafeCrossing = (unsafeMajorRoadCrossings + unsafeSecondaryCrossings) > 0;
     const worstSeverity = hasUnsafeCrossing
@@ -6146,6 +6311,25 @@ function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
         worstSeverity,
         contextUnavailable: !!pedestrianSafety?.contextUnavailable,
         conservativeDecision: conservativeSafety?.conservativeDecision || null,
+    };
+}
+
+function _buildRouteCandidateFeatures(route, crossingRisk, options = {}) {
+    const viaSafeCrossing = route?.__viaSafeCrossing || null;
+    const baseDistance = Number(options.baseDistance);
+    const distance = Number(options.distance ?? route?.summary?.totalDistance ?? route?.totalDistance);
+    const addedDistanceM = Number.isFinite(baseDistance) && Number.isFinite(distance)
+        ? Math.max(0, distance - baseDistance)
+        : 0;
+    const signalized = Number(crossingRisk?.signalizedCrossings || 0) > 0 || !!viaSafeCrossing?.signalized;
+    const marked = Number(crossingRisk?.markedCrossings || 0) > 0 || !!viaSafeCrossing?.marked;
+    return {
+        hasCrossing: Number(crossingRisk?.majorRoadCrossings || 0) > 0 || marked || signalized || !!viaSafeCrossing,
+        hasSignalizedCrossing: signalized,
+        hasMarkedCrossing: marked,
+        addedDistanceM,
+        viaSafeCrossing: !!viaSafeCrossing,
+        generatedBy: route?.__candidateGeneratedBy || null
     };
 }
 
@@ -6192,6 +6376,8 @@ function rankRouteCandidates(candidates) {
         // ラベルはrank後に付け直す — 注意ラベルは除去（検出精度が安定するまで）
         if (rankIndex === 0) {
             candidate.route.__displayLabel = '推奨ルート';
+        } else if (candidate.route?.__routeFeatures?.viaSafeCrossing) {
+            candidate.route.__displayLabel = '安全横断候補';
         } else {
             candidate.route.__displayLabel = candidate.crossingRisk?.hasUnsafeCrossing
                 ? `候補${rankIndex + 1}`
@@ -6200,14 +6386,14 @@ function rankRouteCandidates(candidates) {
         const totalUnsafe = (candidate.crossingRisk?.unsafeMajorRoadCrossings ?? 0)
             + (candidate.crossingRisk?.unsafeSecondaryCrossings ?? 0);
         console.log(
-            `[route-candidates] raw=${candidate.index} rank=${rankIndex} ` +
-            `unsafe=${totalUnsafe} score=${Math.round(candidate.safetyScore)}`
+            `[route-candidates] raw=${candidate.index} rank=${rankIndex} distance=${Math.round(candidate.distance)} ` +
+            `unsafe=${totalUnsafe} score=${Math.round(candidate.safetyScore)} label=${candidate.route.__displayLabel}`
         );
     });
     const selected = ranked[0];
     if (selected) {
         const reason = selected.crossingRisk?.hasUnsafeCrossing ? 'least_unsafe' : 'safe_crossing_priority';
-        console.log(`[route-candidates] selected=raw${selected.index} reason=${reason}`);
+        console.log(`[route-candidates] selected_raw_index=${selected.index} selected_rank=0 reason=${reason}`);
     }
     if (ranked.length > 0 && ranked.every(candidate => candidate.crossingRisk?.hasUnsafeCrossing)) {
         console.warn('[route-candidates] warning=safe_alternative_not_found');

@@ -425,9 +425,7 @@ function buildRouteInstructionItems(route, formatter) {
 function buildRouteCandidateSummary(route, routeIndex, formatter) {
     const label = route?.__displayLabel || `候補${routeIndex + 1}`;
     const reason = route?.__displayReason || '';
-    const risk = route?.__crossingRisk || {};
     const score = Number(route?.__safetyScore);
-    const unsafe = Number(risk.unsafeMajorRoadCrossings || 0);
     const distance = Number(route?.summary?.totalDistance ?? route?.totalDistance);
     const duration = Number(route?.summary?.totalTime ?? route?.totalTime);
     const distanceLabel = Number.isFinite(distance)
@@ -436,8 +434,8 @@ function buildRouteCandidateSummary(route, routeIndex, formatter) {
             : `${Math.round(distance)}m`)
         : '-';
     const durationLabel = Number.isFinite(duration) ? formatDurationText(duration) : '-';
-    // 注意ラベルは検出精度安定まで非表示（hasUnsafeCrossing は内部ランキングには使用）
-    const safetyLabel = unsafe === 0 && risk.worstSeverity !== 'unknown' ? '安全' : '';
+    const featureLabels = buildRouteFeatureLabels(route, formatter);
+    const safetyLabel = featureLabels.join(' / ');
     return {
         label,
         reason,
@@ -445,6 +443,24 @@ function buildRouteCandidateSummary(route, routeIndex, formatter) {
         safetyLabel,
         metricLabel: `${distanceLabel} / ${durationLabel}`
     };
+}
+
+function buildRouteFeatureLabels(route, formatter) {
+    const features = route?.__routeFeatures || {};
+    const labels = [];
+    if (features.hasCrossing) labels.push('横断あり');
+    if (features.hasSignalizedCrossing) {
+        labels.push('信号横断あり');
+    } else if (features.hasMarkedCrossing) {
+        labels.push('横断歩道あり');
+    }
+    const addedDistance = Number(features.addedDistanceM || 0);
+    if (addedDistance >= 15) {
+        labels.push(`+${formatter && typeof formatter.formatDistance === 'function'
+            ? formatter.formatDistance(addedDistance)
+            : `${Math.round(addedDistance)}m`}`);
+    }
+    return labels;
 }
 
 function appendRouteSafetyNotice(panel, routes) {
