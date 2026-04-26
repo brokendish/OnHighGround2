@@ -31,6 +31,13 @@ const NAV_AUTO_REROUTE_WINDOW_MS   = 180000;// 回数カウントウィンドウ
 const NAV_AUTO_REROUTE_SUSPEND_RESET_MS = 180000; // suspension 自動リセット（3分）
 const NAV_REROUTE_WATCHDOG_MS = 15000; // callback 未達時も再ルート中フラグを戻す
 
+// ── ルート候補・安全横断優先ランキング ───────────────────────────────────
+const MAX_ROUTE_CANDIDATES = 3;
+const UNSAFE_MAJOR_ROAD_CROSSING_PENALTY = 300;
+const MAJOR_ROAD_CROSSING_WITH_SIGNAL_PENALTY = 10;
+const MAJOR_ROAD_CROSSING_WITH_MARKED_CROSSING_PENALTY = 5;
+const ROUTE_CANDIDATE_UNKNOWN_SOFT_PENALTY = 30;
+
 // ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
 const NAV_ELEV_UPDATE_M        = 10;   // 標高再取得の移動距離しきい値（メートル）
 const NAV_HAZARD_UPDATE_M      = 10;   // ハザード再取得の移動距離しきい値（メートル）
@@ -126,7 +133,7 @@ const PEDESTRIAN_SAFETY_COMPACT_BBOX_PADDING_M = 30;
 const PEDESTRIAN_SAFETY_EXPANDED_BBOX_PADDING_M = 80;
 const PEDESTRIAN_SAFETY_CROSSWALK_RADIUS_M = 25;
 const PEDESTRIAN_SAFETY_FETCH_TIMEOUT_MS = 800;
-const PEDESTRIAN_SAFETY_MAJOR_HIGHWAYS = new Set(['trunk', 'trunk_link', 'primary', 'primary_link']);
+const PEDESTRIAN_SAFETY_MAJOR_HIGHWAYS = new Set(['trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link']);
 const PEDESTRIAN_SAFETY_FORBIDDEN_HIGHWAYS = new Set(['motorway', 'motorway_link']);
 const PEDESTRIAN_SAFETY_MIN_CROSSING_BEARING_DEG = 35;
 const PEDESTRIAN_SAFETY_SUCCESS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -4793,17 +4800,17 @@ function _makePedestrianSafetyResult(status, extra = {}) {
 
 function _evaluatePedestrianRouteAgainstContext(route, context, options = {}) {
     const crossings = _detectPedestrianCrossings(route, context);
-    const dangerousCrossings = crossings
+    const classifiedCrossings = crossings
         .map(crossing => ({
             ...crossing,
             classification: _classifyDangerousCrossing(crossing, context, options)
-        }))
-        .filter(item => item.classification.dangerous);
+        }));
+    const dangerousCrossings = classifiedCrossings.filter(item => item.classification.dangerous);
 
     if (dangerousCrossings.length === 0) {
         console.log('[PedestrianSafety] status=safe crossingDetected=false dangerous=false rejectReason=none failOpenApplied=false');
         return _makePedestrianSafetyResult('safe', {
-            crossings,
+            crossings: classifiedCrossings,
             dangerousCrossings: [],
             contextUnavailable: false,
             failOpenApplied: false,
@@ -4818,7 +4825,7 @@ function _evaluatePedestrianRouteAgainstContext(route, context, options = {}) {
         `rejectReason=dangerous-crossing detail=${first.classification.reason || 'unknown'} failOpenApplied=false`
     );
     return _makePedestrianSafetyResult('unsafe', {
-        crossings,
+        crossings: classifiedCrossings,
         dangerousCrossings,
         contextUnavailable: false,
         failOpenApplied: false,
@@ -5936,6 +5943,258 @@ async function _fetchOsrmAlternatives(from, to, maxAlts = 3, contextLabel = 'alt
         _recordBlockAheadTiming('osrmEval', durationMs);
         console.log(`[BlockAhead][timing] osrm alternatives ${Math.round(durationMs)}ms`);
     }
+}
+
+async function fetchRouteCandidates(origin, destination, options = {}) {
+    const transportMode = options.transportMode || document.getElementById('transportMode')?.value || 'walking';
+    const profile = transportMode === 'walking' ? 'walking' : 'driving';
+    const serviceUrl = OSRM_SERVICE_URLS[profile];
+    const maxCandidates = Math.max(1, Math.min(MAX_ROUTE_CANDIDATES, Number(options.maxCandidates) || MAX_ROUTE_CANDIDATES));
+    const from = { lat: Number(origin?.lat), lng: Number(origin?.lng ?? origin?.lon) };
+    const to = { lat: Number(destination?.lat), lng: Number(destination?.lng ?? destination?.lon) };
+    if (!Number.isFinite(from.lat) || !Number.isFinite(from.lng) || !Number.isFinite(to.lat) || !Number.isFinite(to.lng)) {
+        return [];
+    }
+
+    const coordStr = `${from.lng},${from.lat};${to.lng},${to.lat}`;
+    const buildUrl = (alternatives) => `${serviceUrl}/${profile}/${coordStr}?overview=full&geometries=geojson&alternatives=${alternatives}&steps=true`;
+    let data = null;
+    let usedFallback = false;
+
+    for (const alternatives of [String(maxCandidates), 'true']) {
+        try {
+            const res = await fetch(buildUrl(alternatives));
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            data = await res.json();
+            if (data?.code === 'Ok' && Array.isArray(data.routes)) break;
+            throw new Error(`OSRM ${data?.code || 'invalid-response'}`);
+        } catch (error) {
+            if (alternatives === 'true') {
+                console.warn(`[route-candidates] fetch failed alternatives=${alternatives}`, error);
+                data = null;
+            } else {
+                usedFallback = true;
+                console.warn(`[route-candidates] alternatives=${alternatives} failed; retrying alternatives=true`, error);
+            }
+        }
+    }
+
+    const rawRoutes = Array.isArray(data?.routes) ? data.routes : [];
+    console.log(
+        `[route-candidates] requested_alternatives=${MAX_ROUTE_CANDIDATES} returned=${rawRoutes.length}` +
+        (usedFallback ? ' fallback=alternatives=true' : '')
+    );
+    const routes = rawRoutes
+        .slice(0, maxCandidates)
+        .map((route, index) => _normalizeAlternativeRouteShape({
+            ..._fetchOsrmAlternativesResultToRoute(route),
+            __osrmOriginalIndex: index
+        }));
+    if (routes.length === 0) return [];
+
+    const evaluated = await Promise.all(routes.map(async (route, index) => {
+        const candidate = await evaluateRouteSafety(route, {
+            ...options,
+            index,
+            origin: from,
+            destination: to,
+            transportMode
+        });
+        console.log(
+            `[route-candidates] candidate=${index} distance=${Math.round(candidate.distance)} ` +
+            `duration=${Math.round(candidate.duration)} unsafe_crossings=${candidate.crossingRisk.unsafeMajorRoadCrossings} ` +
+            `score=${Math.round(candidate.safetyScore)}`
+        );
+        return candidate;
+    }));
+
+    return rankRouteCandidates(evaluated);
+}
+
+async function evaluateRouteSafety(route, options = {}) {
+    const index = Number(options.index) || 0;
+    const distance = Number(route?.summary?.totalDistance ?? route?.totalDistance ?? 0);
+    const duration = Number(route?.summary?.totalTime ?? route?.totalTime ?? 0);
+    let pedestrianSafety = null;
+    let conservativeSafety = null;
+
+    if ((options.transportMode || 'walking') === 'walking') {
+        pedestrianSafety = await _evaluatePedestrianRouteSafety(route, null, `route-candidate:${index}`, {
+            lessStrictMode: false
+        });
+        conservativeSafety = pedestrianSafety.status === 'unknown'
+            ? _evaluateConservativeUnknownPedestrianSafety(route, {
+                phase: 'route-candidate',
+                mode: 'route-candidate',
+                side: 'unknown',
+                label: `route-candidate:${index}`
+            })
+            : null;
+    }
+
+    const crossingRisk = _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety);
+    const safetyScore = _scoreRouteCandidate({
+        route,
+        index,
+        distance,
+        duration,
+        crossingRisk,
+        pedestrianSafety,
+        conservativeSafety
+    });
+    const displayLabel = _buildRouteCandidateLabel(index, crossingRisk, pedestrianSafety, conservativeSafety);
+    const reason = _buildRouteCandidateReason(crossingRisk, pedestrianSafety, conservativeSafety);
+
+    route.__routeCandidateIndex = index;
+    route.__crossingRisk = crossingRisk;
+    route.__safetyScore = safetyScore;
+    route.__displayLabel = displayLabel;
+    route.__displayReason = reason;
+    route.__pedestrianSafety = pedestrianSafety || {
+        status: 'unknown',
+        contextUnavailable: true,
+        dangerousCrossings: [],
+        crossings: []
+    };
+    if (conservativeSafety) {
+        route.__pedestrianSafety = { ...route.__pedestrianSafety, ...conservativeSafety };
+    }
+
+    return {
+        index,
+        distance,
+        duration,
+        geometry: route.geometry || null,
+        route,
+        crossingRisk,
+        safetyScore,
+        displayLabel,
+        reason
+    };
+}
+
+function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
+    const crossings = Array.isArray(pedestrianSafety?.crossings) ? pedestrianSafety.crossings : [];
+    const dangerousCrossings = Array.isArray(pedestrianSafety?.dangerousCrossings) ? pedestrianSafety.dangerousCrossings : [];
+    const majorRoadCrossings = crossings.filter(item => {
+        const highway = String(item?.road?.tags?.highway || '');
+        return PEDESTRIAN_SAFETY_MAJOR_HIGHWAYS.has(highway) || PEDESTRIAN_SAFETY_FORBIDDEN_HIGHWAYS.has(highway);
+    });
+    const signalizedCrossings = crossings.filter(item => {
+        const tags = item?.road?.tags || {};
+        return tags.crossing === 'traffic_signals' || tags.highway === 'traffic_signals';
+    });
+    const markedCrossings = crossings.filter(item => !!item?.classification?.crosswalkNearby || !!item?.road?.tags?.crossing).length;
+    const conservativeHard = conservativeSafety?.conservativeRejectApplied;
+    const conservativeSoft = conservativeSafety?.conservativeDecision === 'soft-risk';
+    const unsafeCount = dangerousCrossings.length + (conservativeHard ? 1 : 0);
+    const worstSeverity = unsafeCount > 0
+        ? 'unsafe'
+        : (conservativeSoft || pedestrianSafety?.status === 'unknown' ? 'unknown' : (majorRoadCrossings.length > 0 ? 'caution' : 'none'));
+
+    return {
+        majorRoadCrossings: majorRoadCrossings.length,
+        unsafeMajorRoadCrossings: unsafeCount,
+        signalizedCrossings: signalizedCrossings.length,
+        markedCrossings,
+        hasUnsafeCrossing: unsafeCount > 0,
+        worstSeverity,
+        contextUnavailable: !!pedestrianSafety?.contextUnavailable,
+        conservativeDecision: conservativeSafety?.conservativeDecision || null,
+        conservativePenalty: Number(conservativeSafety?.conservativePenalty || 0)
+    };
+}
+
+function _scoreRouteCandidate(candidate) {
+    const baseScore = 1000;
+    const distancePenalty = Number(candidate.distance || 0) / 40;
+    const durationPenalty = Number(candidate.duration || 0) / 12;
+    const risk = candidate.crossingRisk || {};
+    const unsafePenalty = Number(risk.unsafeMajorRoadCrossings || 0) * UNSAFE_MAJOR_ROAD_CROSSING_PENALTY;
+    const signalPenalty = Number(risk.signalizedCrossings || 0) * MAJOR_ROAD_CROSSING_WITH_SIGNAL_PENALTY;
+    const markedPenalty = Number(risk.markedCrossings || 0) * MAJOR_ROAD_CROSSING_WITH_MARKED_CROSSING_PENALTY;
+    const unknownPenalty = risk.worstSeverity === 'unknown' ? ROUTE_CANDIDATE_UNKNOWN_SOFT_PENALTY : 0;
+    const safeCrossingBonus = !risk.hasUnsafeCrossing && Number(risk.markedCrossings || 0) > 0 ? 12 : 0;
+    const originalOrderBonus = Math.max(0, MAX_ROUTE_CANDIDATES - Number(candidate.index || 0));
+    return baseScore
+        - distancePenalty
+        - durationPenalty
+        - unsafePenalty
+        - signalPenalty
+        - markedPenalty
+        - unknownPenalty
+        - Number(risk.conservativePenalty || 0)
+        + safeCrossingBonus
+        + originalOrderBonus;
+}
+
+function _buildRouteCandidateLabel(index, crossingRisk, pedestrianSafety, conservativeSafety) {
+    if (index === 0 && !crossingRisk?.hasUnsafeCrossing) return '推奨ルート';
+    if (!crossingRisk?.hasUnsafeCrossing && pedestrianSafety?.status === 'safe') return '安全優先ルート';
+    if (crossingRisk?.hasUnsafeCrossing) return '注意ルート';
+    if (conservativeSafety?.conservativeDecision === 'soft-risk') return '慎重確認ルート';
+    return index === 0 ? '推奨ルート' : `候補${index + 1}`;
+}
+
+function _buildRouteCandidateReason(crossingRisk, pedestrianSafety, conservativeSafety) {
+    if (crossingRisk?.hasUnsafeCrossing) {
+        return '横断歩道なしの幹線道路横断を含む可能性があります';
+    }
+    if (pedestrianSafety?.status === 'safe' && Number(crossingRisk?.majorRoadCrossings || 0) > 0) {
+        return '幹線道路横断は検出されましたが、横断歩道や信号の手掛かりがあります';
+    }
+    if (pedestrianSafety?.status === 'safe') {
+        return '横断歩道なしの幹線道路横断は検出されていません';
+    }
+    if (conservativeSafety?.conservativeDecision === 'soft-risk') {
+        return '安全情報が不足しているため慎重に確認してください';
+    }
+    return '安全横断情報を確認中です';
+}
+
+function rankRouteCandidates(candidates) {
+    const ranked = (Array.isArray(candidates) ? candidates : [])
+        .slice()
+        .sort((a, b) => {
+            // 危険横断数を最優先キーにする — スコア計算の誤差に依存しない
+            const au = Number(a.crossingRisk?.unsafeMajorRoadCrossings || 0);
+            const bu = Number(b.crossingRisk?.unsafeMajorRoadCrossings || 0);
+            if (au !== bu) return au - bu;
+            const scoreDiff = Number(b.safetyScore || 0) - Number(a.safetyScore || 0);
+            if (scoreDiff !== 0) return scoreDiff;
+            return Number(a.distance || 0) - Number(b.distance || 0);
+        });
+    ranked.forEach((candidate, rankIndex) => {
+        candidate.route.__rankedRouteIndex = rankIndex;
+        // ラベルはrank後に付け直す — OSRM返却順や事前ラベルに依存しない
+        if (rankIndex === 0 && !candidate.crossingRisk?.hasUnsafeCrossing) {
+            candidate.route.__displayLabel = '推奨ルート';
+        } else if (!candidate.crossingRisk?.hasUnsafeCrossing) {
+            candidate.route.__displayLabel = '安全優先ルート';
+        } else {
+            candidate.route.__displayLabel = '注意ルート';
+        }
+        console.log(
+            `[route-candidates] raw_index=${candidate.index} rank=${rankIndex} ` +
+            `distance=${Math.round(candidate.distance)} ` +
+            `unsafe=${candidate.crossingRisk?.unsafeMajorRoadCrossings ?? 0} ` +
+            `score=${Math.round(candidate.safetyScore)} ` +
+            `label=${candidate.route.__displayLabel}`
+        );
+    });
+    const selected = ranked[0];
+    if (selected) {
+        const reason = selected.crossingRisk?.hasUnsafeCrossing ? 'shortest_available_with_warning' : 'safe_crossing_priority';
+        console.log(`[route-candidates] selected_raw_index=${selected.index} selected_rank=0 reason=${reason}`);
+    }
+    if (ranked.length > 0 && ranked.every(candidate => candidate.crossingRisk?.hasUnsafeCrossing)) {
+        console.warn('[route-candidates] warning=safe_alternative_not_found');
+    }
+    return ranked.map(candidate => candidate.route).slice(0, MAX_ROUTE_CANDIDATES);
+}
+
+function renderRouteCandidates(candidates) {
+    return Array.isArray(candidates) ? candidates.slice(0, MAX_ROUTE_CANDIDATES) : [];
 }
 
 async function _fetchOsrmRouteThroughWaypoints(waypoints, contextLabel = 'route') {
