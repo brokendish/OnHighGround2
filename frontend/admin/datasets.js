@@ -17,6 +17,52 @@ const LOGS_MAX_LINES = 1000;
 const VOICE_SOURCE_KEY = '__voice__';
 const VOICE_LOG_STORAGE_KEY = 'ohg_voice_log';
 const VOICE_LOG_MAX = 100;
+const CONFIG_SOURCE_KEY = '__config__';
+const CONFIG_LOG_MAX = 100;
+
+const CONFIG_PRESETS = {
+  standard: {
+    label: "標準",
+    values: {
+      "navigation.arrival_radius_min":        12,
+      "navigation.arrival_radius_max":        25,
+      "navigation.arrival_accuracy_multiplier": 0.8,
+      "navigation.near_arrival_distance":     15,
+      "navigation.final_reminder_distance":   5,
+      "voice.cooldown_ms":                    10000,
+      "voice.rate":                           1.1,
+    },
+  },
+  safety: {
+    label: "安全重視",
+    values: {
+      "navigation.arrival_radius_min":          15,
+      "navigation.arrival_radius_max":          30,
+      "navigation.arrival_accuracy_multiplier": 1.0,
+      "navigation.near_arrival_distance":       20,
+      "navigation.final_reminder_distance":     6,
+      "voice.cooldown_ms":                      8000,
+      "voice.rate":                             1.05,
+    },
+  },
+  fastest: {
+    label: "最速最短",
+    warning: "このモードは安全性を考慮しません。危険なルートが含まれる可能性があります。",
+    values: {
+      "navigation.arrival_radius_min":             15,
+      "navigation.arrival_radius_max":             35,
+      "navigation.arrival_accuracy_multiplier":    1.2,
+      "navigation.near_arrival_distance":          25,
+      "navigation.final_reminder_distance":        4,
+      "navigation.off_route_distance_m":           40,
+      "navigation.near_goal_off_route_distance_m": 30,
+      "navigation.safe_crossing_search_radius":    { value: 0,   requiresBackend: true, label: "安全横断探索半径",   description: "安全な横断ポイントを探索する半径（m）。0で無効。" },
+      "navigation.safe_crossing_detour_ratio":     { value: 1.0, requiresBackend: true, label: "安全横断迂回許容係数", description: "最短距離に対して何倍まで迂回を許容するか。1.0で迂回しない。" },
+      "voice.cooldown_ms":                         12000,
+      "voice.rate":                                1.2,
+    },
+  },
+};
 
 // ── グローバル状態 ─────────────────────────────────────
 let _allDatasets = [];           // 最新のDatasetSummary[]
@@ -48,6 +94,9 @@ let _logsEventSource = null;
 let _voiceChannel = null;
 let _logsStatus = { sources: [] };
 let _configChangeEventSource = null; // Logs用SSEとは独立した接続
+let _configLogEntries = [];          // Config変更ログ（最大CONFIG_LOG_MAX件、セッション内）
+const _configApplyStatus = {};       // key → { state, at, applyMode }
+let _presetSkippedKeys = [];         // 直前のプリセット適用でスキップされたキー一覧
 
 // ── 初期化 ────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", async () => {
@@ -55,6 +104,20 @@ window.addEventListener("DOMContentLoaded", async () => {
   loadDatasets();
   _listRefreshTimer = setInterval(loadDatasets, LIST_AUTO_REFRESH_INTERVAL_MS);
   connectAdminConfigChangeSSE();
+});
+
+window.addEventListener("ohg:config-log", (e) => {
+  if (!e.detail) return;
+  const entry = e.detail;
+  if (!_configLogEntries.includes(entry)) {
+    _configLogEntries.push(entry);
+    if (_configLogEntries.length > CONFIG_LOG_MAX) {
+      _configLogEntries.splice(0, _configLogEntries.length - CONFIG_LOG_MAX);
+    }
+    if (getSelectedLogsSource() === CONFIG_SOURCE_KEY) {
+      appendLogLine(_formatConfigLogLine(entry));
+    }
+  }
 });
 
 function connectAdminConfigChangeSSE() {
@@ -808,17 +871,17 @@ function toggleLogAutoRefresh() {
 
 // ── Config 管理 ───────────────────────────────────────
 async function loadConfig() {
-  const tbody = document.getElementById("config-tbody");
-  if (tbody) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8"><div class="spinner"></div> 読み込み中...</td></tr>`;
+  const container = document.getElementById("config-cards-container");
+  if (container) {
+    container.innerHTML = `<div class="config-cards-placeholder"><div class="spinner"></div> 読み込み中...</div>`;
   }
   try {
     _configItems = await fetchJSON(`${API}/config`);
     _configLoaded = true;
     renderConfigTable();
   } catch (err) {
-    if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#b91c1c">設定の取得に失敗しました: ${escHtml(err.message)}</td></tr>`;
+    if (container) {
+      container.innerHTML = `<div class="config-cards-placeholder error">設定の取得に失敗しました: ${escHtml(err.message)}</div>`;
     }
     showNotice("error", "設定の取得に失敗しました: " + err.message);
   }
@@ -831,18 +894,93 @@ const CONFIG_CATEGORY_LABELS = {
 };
 const CONFIG_CATEGORY_ORDER = ['navigation', 'voice', 'system'];
 
+const CONFIG_META = {
+  'navigation.arrival_radius_min': {
+    purpose: '到着と判断する最小距離を決めます。GPS精度に関わらずこの値が下限になります。',
+    impact: ['小さくすると → 到着判定が遅れる（精度は上がる）', '大きくすると → 早く到着扱いになる（誤判定が増える）'],
+    recommended: '10〜15m',
+    caution: '5m未満は誤動作のリスクがあります。',
+    riskCheck: v => v < 5,
+  },
+  'navigation.arrival_radius_max': {
+    purpose: 'GPS誤差が大きいときの最大到着距離を決めます。この値を超えて判定半径が広がることはありません。',
+    impact: ['大きくすると → 誤判定が増える', '小さくすると → 到着しにくくなる'],
+    recommended: '20〜25m',
+  },
+  'navigation.arrival_accuracy_multiplier': {
+    purpose: 'GPS精度（accuracy値）にこの係数を掛けて到着判定半径を自動調整します。',
+    impact: ['大きくすると → 判定が緩くなる（精度悪いときも到着しやすい）', '小さくすると → 判定が厳しくなる'],
+    recommended: '0.7〜1.0',
+  },
+  'navigation.near_arrival_distance': {
+    purpose: '「まもなく到着」バナーを表示し始める距離です。',
+    impact: ['大きくすると → 早めに案内される', '小さくすると → ギリギリで表示される'],
+    recommended: '10〜20m',
+  },
+  'navigation.final_reminder_distance': {
+    purpose: '曲がり角や横断手前で直前音声を出す距離です。',
+    impact: ['大きくすると → 早めに案内', '小さくすると → ピンポイントになる'],
+    recommended: '4〜6m',
+  },
+  'navigation.arrival_distance_m': {
+    purpose: 'ルート終端からこの距離以内を到着候補とします。',
+    impact: ['大きくすると → 早く到着と判断', '小さくすると → より精確な到着判定'],
+    recommended: '10〜15m',
+  },
+  'navigation.arrival_consecutive_count': {
+    purpose: '到着候補が何回連続したら到着確定にするかです。ブレを防ぐ安定化パラメータです。',
+    impact: ['大きくすると → 誤判定が減る（到着が遅れる）', '小さくすると → 素早く到着確定'],
+    recommended: '2〜3回',
+  },
+  'navigation.off_route_distance_m': {
+    purpose: 'ルートからこの距離以上離れたら逸脱とみなします。',
+    impact: ['大きくすると → 逸脱しにくくなる', '小さくすると → 細い路地でも逸脱判定'],
+    recommended: '25〜35m',
+  },
+  'navigation.near_goal_off_route_distance_m': {
+    purpose: '目的地近くでの逸脱判定距離です。通常より厳しく設定します。',
+    impact: ['大きくすると → 近くで逸脱しにくい', '小さくすると → 精確なルート追従'],
+    recommended: '15〜20m',
+  },
+  'navigation.near_goal_distance_m': {
+    purpose: '目的地近傍として扱う距離の閾値です。この範囲内では逸脱判定が厳しくなります。',
+    impact: ['大きくすると → 広い範囲で近傍扱い', '小さくすると → 実際に近づいてから切り替わる'],
+    recommended: '25〜40m',
+  },
+  'voice.cooldown_ms': {
+    purpose: '音声案内の発話間隔です。同じ案内が連続して流れないよう制限します。',
+    impact: ['短くすると → うるさくなる可能性', '長くすると → 必要な案内が省略される'],
+    recommended: '8000〜12000ms',
+    caution: '3000ms未満は音声が頻繁に鳴りすぎます。',
+    riskCheck: v => v < 3000,
+  },
+  'voice.rate': {
+    purpose: '音声の話す速さを設定します（1.0=標準速度）。',
+    impact: ['速くすると → 聞き取りにくくなる', '遅くすると → テンポが悪くなる'],
+    recommended: '1.0〜1.2',
+  },
+};
+
 function renderConfigTable() {
-  const tbody = document.getElementById("config-tbody");
-  if (!tbody) return;
+  const container = document.getElementById("config-cards-container");
+  if (!container) return;
+
+  initPresetBar();
+  updatePresetIndicator();
 
   const mainItems = _configItems.filter(item => item.category !== "osrm");
   const osrmItems = _configItems.filter(item => item.category === "osrm");
 
   if (mainItems.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">設定がありません</td></tr>`;
+    container.innerHTML = `<div class="config-cards-placeholder">設定がありません</div>`;
   } else {
     const groups = {};
     for (const item of mainItems) {
+      if (!groups[item.category]) groups[item.category] = [];
+      groups[item.category].push(item);
+    }
+    for (const { key, entry } of getUnsupportedPresetKeys()) {
+      const item = _makeUnsupportedItem(key, entry);
       if (!groups[item.category]) groups[item.category] = [];
       groups[item.category].push(item);
     }
@@ -850,13 +988,31 @@ function renderConfigTable() {
       ...CONFIG_CATEGORY_ORDER.filter(c => groups[c]),
       ...Object.keys(groups).filter(c => !CONFIG_CATEGORY_ORDER.includes(c)),
     ];
-    const rows = [];
+    const sections = [];
     for (const cat of orderedCats) {
       const label = CONFIG_CATEGORY_LABELS[cat] || cat;
-      rows.push(`<tr class="config-category-header"><td colspan="7">${escHtml(label)}</td></tr>`);
-      rows.push(...groups[cat].map(item => renderConfigRow(item)));
+      const extraHtml = cat === 'navigation' ? `
+        <div class="config-computed-banner">
+          <span class="config-computed-icon">🎯</span>
+          <div>
+            <div class="config-computed-label">到着判定半径プレビュー（GPS精度 → 実際の判定半径）</div>
+            <div class="config-computed-value" id="config-arrival-computed">-</div>
+          </div>
+        </div>` : '';
+      sections.push(`
+        <div class="config-section">
+          <div class="config-section-title">
+            <span class="config-section-dot cat-${escAttr(cat)}"></span>
+            ${escHtml(label)}
+          </div>
+          <div class="config-cards-group">
+            ${groups[cat].map(item => renderConfigCard(item)).join("")}
+          </div>
+          ${extraHtml}
+        </div>`);
     }
-    tbody.innerHTML = rows.join("");
+    container.innerHTML = sections.join("");
+    updateArrivalComputed();
   }
 
   const osrmCard = document.getElementById("osrm-rebuild-card");
@@ -869,6 +1025,97 @@ function renderConfigTable() {
       osrmCard.style.display = "none";
     }
   }
+}
+
+function renderConfigCard(item) {
+  const isUnsupported = !!item._unsupported;
+  const meta  = CONFIG_META[item.key] || {};
+  const domId = configDomId(item.key);
+  const input = renderConfigInput(item);
+
+  const updatedAt = item.updated_at
+    ? `<span class="config-card-updated">${formatDate(item.updated_at)}</span>`
+    : `<span class="config-card-updated muted">—</span>`;
+
+  const range = (item.type === "integer" || item.type === "float") && (item.min != null || item.max != null)
+    ? `<div class="config-range">範囲: ${item.min ?? "—"}〜${item.max ?? "—"}</div>`
+    : "";
+
+  const initialValue = parseFloat(item.current_value);
+  const isRisky = meta.riskCheck ? meta.riskCheck(initialValue) : false;
+  const riskWarningHtml = (!isUnsupported && meta.riskCheck)
+    ? `<div class="config-card-warning" id="config-warning-${domId}"${isRisky ? "" : ' style="display:none"'}>
+         ⚠️ この設定は誤動作の可能性があります${meta.caution ? "（" + escHtml(meta.caution) + "）" : ""}
+       </div>`
+    : "";
+
+  const unsupportedBannerHtml = isUnsupported
+    ? `<div class="config-unsupported-banner">⚠ この設定は現在無効です（バックエンド未対応）</div>`
+    : "";
+
+  const metaHtml = (meta.purpose || meta.impact || meta.recommended)
+    ? `<div class="config-meta-section">
+        ${meta.purpose ? `<div class="config-meta-row">
+          <span class="config-meta-label">目的</span>
+          <span class="config-meta-text">${escHtml(meta.purpose)}</span>
+        </div>` : ""}
+        ${meta.impact ? `<div class="config-meta-row">
+          <span class="config-meta-label">影響</span>
+          <div class="config-meta-impact">${meta.impact.map(l => `<div class="config-impact-line">${escHtml(l)}</div>`).join("")}</div>
+        </div>` : ""}
+        ${meta.recommended ? `<div class="config-meta-row">
+          <span class="config-meta-label">推奨</span>
+          <span class="config-meta-text config-meta-recommended">${escHtml(meta.recommended)}</span>
+        </div>` : ""}
+      </div>`
+    : `<div class="config-meta-fallback">${escHtml(item.description || "—")}</div>`;
+
+  const readonlyBadge = !item.editable
+    ? `<span class="config-readonly-badge">${isUnsupported ? "未対応" : "読み取り専用"}</span>`
+    : "";
+
+  const initialApplyHtml = (() => {
+    if (isUnsupported) return "";
+    const s = _configApplyStatus[item.key];
+    if (s) {
+      const badge = s.state === "applied"
+        ? `<span class="apply-badge applied">${s.applyMode === "live" ? "反映中" : "保存済"}</span>`
+        : `<span class="apply-badge error">エラー</span>`;
+      return `${badge} <span class="apply-time">${s.at}</span>`;
+    }
+    return item.updated_at
+      ? `<span class="apply-time">${formatDate(item.updated_at)}</span>`
+      : "";
+  })();
+
+  return `<div class="config-card cat-${escAttr(item.category)}${isUnsupported ? " config-card-unsupported" : ""}" data-config-key="${escAttr(item.key)}">
+    <div class="config-card-header">
+      <div class="config-card-header-top">
+        <span class="config-cat-badge cat-${escAttr(item.category)}">${escHtml(item.category)}</span>
+        ${readonlyBadge}
+      </div>
+      <div class="config-card-title">${escHtml(item.label)}</div>
+      <div class="config-card-key">${escHtml(item.key)}</div>
+    </div>
+    <div class="config-card-body">
+      ${unsupportedBannerHtml}
+      <div class="config-card-value-row">
+        <label class="config-card-value-label">現在値</label>
+        ${input}
+        <span class="config-card-default">初期値: <code>${escHtml(formatConfigValue(item.default_value))}</code></span>
+      </div>
+      ${riskWarningHtml}
+      ${metaHtml}
+    </div>
+    <div class="config-card-footer">
+      <div class="config-footer-actions">
+        <button class="btn btn-primary" onclick="saveConfigValue('${escAttr(item.key)}')" ${item.editable ? "" : "disabled"}>保存</button>
+        <button class="btn btn-secondary btn-sm" onclick="onResetToDefault('${escAttr(item.key)}')" ${item.editable ? "" : "disabled"}>初期値に戻す</button>
+        <div class="config-save-status" id="config-status-${domId}"></div>
+      </div>
+      <div class="config-card-apply" id="config-apply-${domId}">${initialApplyHtml}</div>
+    </div>
+  </div>`;
 }
 
 function renderConfigRow(item) {
@@ -887,7 +1134,7 @@ function renderConfigRow(item) {
     </td>
     <td><span class="dataset-id">${escHtml(item.key)}</span></td>
     <td>${input}${range}<div class="config-save-status" id="config-status-${configDomId(item.key)}"></div></td>
-    <td><span class="config-default">${escHtml(formatConfigValue(item.default_value, item.type))}</span></td>
+    <td><span class="config-default">${escHtml(formatConfigValue(item.default_value))}</span></td>
     <td><span style="font-size:12px;color:#475569">${escHtml(item.description || "—")}</span></td>
     <td>${updatedAt}</td>
     <td>
@@ -898,23 +1145,60 @@ function renderConfigRow(item) {
 
 function renderConfigInput(item) {
   const id = `config-input-${configDomId(item.key)}`;
+  const onInput = `onConfigInputChange('${escAttr(item.key)}')`;
   if (item.type === "string" && Array.isArray(item.options) && item.options.length > 0) {
-    return `<select class="config-input" id="${id}" ${item.editable ? "" : "disabled"}>
+    return `<select class="config-input" id="${id}" onchange="${onInput}" ${item.editable ? "" : "disabled"}>
       ${item.options.map(option => `
         <option value="${escAttr(option)}" ${item.current_value === option ? "selected" : ""}>${escHtml(option)}</option>
       `).join("")}
     </select>`;
   }
   if (item.type === "boolean") {
-    return `<label class="config-checkbox"><input id="${id}" type="checkbox" ${item.current_value ? "checked" : ""} ${item.editable ? "" : "disabled"}> 有効</label>`;
+    return `<label class="config-checkbox"><input id="${id}" type="checkbox" onchange="${onInput}" ${item.current_value ? "checked" : ""} ${item.editable ? "" : "disabled"}> 有効</label>`;
   }
   if (item.type === "integer" || item.type === "float") {
     const step = item.type === "integer" ? "1" : "0.1";
     const min = item.min === null || item.min === undefined ? "" : ` min="${item.min}"`;
     const max = item.max === null || item.max === undefined ? "" : ` max="${item.max}"`;
-    return `<input class="config-input" id="${id}" type="number" step="${step}"${min}${max} value="${escAttr(item.current_value)}" ${item.editable ? "" : "disabled"}>`;
+    return `<input class="config-input" id="${id}" type="number" step="${step}"${min}${max} value="${escAttr(item.current_value)}" oninput="${onInput}" ${item.editable ? "" : "disabled"}>`;
   }
-  return `<input class="config-input" id="${id}" type="text" value="${escAttr(item.current_value)}" ${item.editable ? "" : "disabled"}>`;
+  return `<input class="config-input" id="${id}" type="text" value="${escAttr(item.current_value)}" oninput="${onInput}" ${item.editable ? "" : "disabled"}>`;
+}
+
+function onConfigInputChange(key) {
+  const meta = CONFIG_META[key];
+  const input = document.getElementById(`config-input-${configDomId(key)}`);
+  if (!input) return;
+  const value = input.type === "checkbox" ? (input.checked ? 1 : 0) : parseFloat(input.value);
+  if (meta && meta.riskCheck) {
+    const warningEl = document.getElementById(`config-warning-${configDomId(key)}`);
+    if (warningEl) warningEl.style.display = meta.riskCheck(value) ? "" : "none";
+  }
+  const ARRIVAL_KEYS = [
+    'navigation.arrival_radius_min',
+    'navigation.arrival_radius_max',
+    'navigation.arrival_accuracy_multiplier',
+  ];
+  if (ARRIVAL_KEYS.includes(key)) updateArrivalComputed();
+}
+
+function updateArrivalComputed() {
+  const getVal = (key, fallback) => {
+    const input = document.getElementById(`config-input-${configDomId(key)}`);
+    if (!input) return fallback;
+    const v = parseFloat(input.value);
+    return isNaN(v) ? fallback : v;
+  };
+  const minR = getVal('navigation.arrival_radius_min', 12);
+  const maxR = getVal('navigation.arrival_radius_max', 25);
+  const mult = getVal('navigation.arrival_accuracy_multiplier', 0.8);
+  const scenarios = [5, 10, 15, 20, 30];
+  const results = scenarios.map(acc => {
+    const r = Math.min(Math.max(acc * mult, minR), maxR);
+    return `GPS ${acc}m → <strong>${r.toFixed(0)}m</strong>`;
+  }).join("　");
+  const el = document.getElementById('config-arrival-computed');
+  if (el) el.innerHTML = results;
 }
 
 async function saveConfigValue(key) {
@@ -923,6 +1207,8 @@ async function saveConfigValue(key) {
   const input = document.getElementById(`config-input-${configDomId(key)}`);
   const status = document.getElementById(`config-status-${configDomId(key)}`);
   if (!input) return;
+
+  const oldValue = item.current_value;
 
   let value;
   if (item.type === "boolean") {
@@ -943,15 +1229,276 @@ async function saveConfigValue(key) {
     const updated = await putJSON(`${API}/config/${encodeURIComponent(key)}`, { value });
     const idx = _configItems.findIndex(config => config.key === key);
     if (idx >= 0) _configItems[idx] = updated.item;
+    _onConfigSaved(key, oldValue, value, updated.item.apply_mode);
     renderConfigTable();
-    showNotice("success", "設定を保存しました。反映には画面の再読み込みが必要です。");
   } catch (err) {
     if (status) {
       status.textContent = err.message;
       status.className = "config-save-status error";
     }
+    _onConfigSaveError(key);
     showNotice("error", "設定の保存に失敗しました: " + err.message);
   }
+}
+
+function onResetToDefault(key) {
+  const item = _configItems.find(c => c.key === key);
+  if (!item || !item.editable) return;
+  const input = document.getElementById(`config-input-${configDomId(key)}`);
+  if (!input) return;
+  if (item.type === "boolean") {
+    input.checked = !!item.default_value;
+  } else {
+    input.value = item.default_value;
+  }
+  onConfigInputChange(key);
+  saveConfigValue(key);
+}
+
+function _onConfigSaved(key, oldValue, newValue, applyMode) {
+  const at = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  _configApplyStatus[key] = { state: "applied", at, applyMode };
+  updateConfigApplyStatus(key);
+  _dispatchConfigLog(key, oldValue, newValue);
+  const notice = applyMode === "live"
+    ? "設定を保存しました。即時反映されます。"
+    : "設定を保存しました。反映には画面の再読み込みが必要です。";
+  showNotice("success", notice);
+}
+
+function _onConfigSaveError(key) {
+  const at = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  _configApplyStatus[key] = { state: "error", at };
+  updateConfigApplyStatus(key);
+}
+
+function updateConfigApplyStatus(key) {
+  const el = document.getElementById(`config-apply-${configDomId(key)}`);
+  if (!el) return;
+  const s = _configApplyStatus[key];
+  if (!s) { el.innerHTML = ""; return; }
+  const badge = s.state === "applied"
+    ? `<span class="apply-badge applied">${s.applyMode === "live" ? "反映中" : "保存済"}</span>`
+    : `<span class="apply-badge error">エラー</span>`;
+  el.innerHTML = `${badge} <span class="apply-time">${s.at}</span>`;
+}
+
+function _dispatchConfigLog(key, oldValue, newValue) {
+  const entry = { ts: new Date().toISOString(), key, oldValue, newValue };
+  _configLogEntries.push(entry);
+  if (_configLogEntries.length > CONFIG_LOG_MAX) {
+    _configLogEntries.splice(0, _configLogEntries.length - CONFIG_LOG_MAX);
+  }
+  try { window.dispatchEvent(new CustomEvent("ohg:config-log", { detail: entry })); } catch (_) {}
+  if (getSelectedLogsSource() === CONFIG_SOURCE_KEY) {
+    appendLogLine(_formatConfigLogLine(entry));
+  }
+}
+
+function _formatConfigLogLine(entry) {
+  const t = new Date(entry.ts);
+  const hh = String(t.getHours()).padStart(2, "0");
+  const mm = String(t.getMinutes()).padStart(2, "0");
+  const ss = String(t.getSeconds()).padStart(2, "0");
+  if (entry.key === "__preset__") {
+    const label = CONFIG_PRESETS[entry.newValue]?.label || entry.newValue;
+    return `${hh}:${mm}:${ss}  [config]  preset applied: ${entry.newValue}（${label}）`;
+  }
+  if (entry._type === "config_warning") {
+    return `${hh}:${mm}:${ss}  [config_warning]  ${entry._message || entry.newValue}`;
+  }
+  return `${hh}:${mm}:${ss}  [config]  ${entry.key}: ${entry.oldValue} → ${entry.newValue}`;
+}
+
+function _reloadConfigLogs() {
+  _logsSource = CONFIG_SOURCE_KEY;
+  _logsLines = _configLogEntries.map(_formatConfigLogLine);
+  renderLogsViewer();
+  updateLogsMeta();
+}
+
+function getUnsupportedPresetKeys() {
+  const defined = new Set(_configItems.map(i => i.key));
+  const seen    = new Set();
+  const result  = [];
+  for (const preset of Object.values(CONFIG_PRESETS)) {
+    for (const [key, entry] of Object.entries(preset.values)) {
+      if (!seen.has(key) && entry !== null && typeof entry === "object" && entry.requiresBackend && !defined.has(key)) {
+        seen.add(key);
+        result.push({ key, entry });
+      }
+    }
+  }
+  return result;
+}
+
+function _makeUnsupportedItem(key, entry) {
+  const category = key.split(".")[0];
+  return {
+    key,
+    category,
+    label:         entry.label       || key.split(".").pop().replace(/_/g, " "),
+    description:   entry.description || "",
+    type:          "float",
+    default_value: entry.value,
+    current_value: entry.value,
+    editable:      false,
+    apply_mode:    "live",
+    ui_order:      999,
+    updated_at:    null,
+    _unsupported:  true,
+  };
+}
+
+function _handleUndefinedKey(key, requiresBackend) {
+  const msg = requiresBackend
+    ? `未対応キー（バックエンド未定義）: ${key}`
+    : `未対応キー: ${key}`;
+  console.warn(`[config] ${msg}`);
+
+  const t  = new Date();
+  const hh = String(t.getHours()).padStart(2, "0");
+  const mm = String(t.getMinutes()).padStart(2, "0");
+  const ss = String(t.getSeconds()).padStart(2, "0");
+
+  const entry = { ts: t.toISOString(), key: "__warning__", oldValue: null, newValue: key, _type: "config_warning", _message: msg };
+  _configLogEntries.push(entry);
+  if (_configLogEntries.length > CONFIG_LOG_MAX) {
+    _configLogEntries.splice(0, _configLogEntries.length - CONFIG_LOG_MAX);
+  }
+  try { window.dispatchEvent(new CustomEvent("ohg:config-log", { detail: entry })); } catch (_) {}
+  if (getSelectedLogsSource() === CONFIG_SOURCE_KEY) {
+    appendLogLine(`${hh}:${mm}:${ss}  [config_warning]  ${msg}`);
+  }
+}
+
+// ── プリセット ─────────────────────────────────────────
+function initPresetBar() {
+  const container = document.getElementById("preset-buttons");
+  if (!container) return;
+  container.innerHTML = Object.entries(CONFIG_PRESETS).map(([key, preset]) =>
+    `<button class="preset-btn" id="preset-btn-${escAttr(key)}" onclick="applyPreset('${escAttr(key)}')">${escHtml(preset.label)}</button>`
+  ).join("");
+}
+
+function detectCurrentPreset() {
+  if (_configItems.length === 0) return null;
+  const current = Object.fromEntries(_configItems.map(i => [i.key, i.current_value]));
+  for (const [presetKey, preset] of Object.entries(CONFIG_PRESETS)) {
+    const match = Object.entries(preset.values).every(([key, val]) => {
+      const c = current[key];
+      return c !== undefined && Math.abs(parseFloat(c) - parseFloat(val)) < 0.0001;
+    });
+    if (match) return presetKey;
+  }
+  return "custom";
+}
+
+function updatePresetIndicator() {
+  const indicator  = document.getElementById("preset-indicator");
+  const warningBar = document.getElementById("preset-warning-bar");
+  if (!indicator) return;
+
+  const presetKey = detectCurrentPreset();
+  const preset    = presetKey ? CONFIG_PRESETS[presetKey] : null;
+
+  if (presetKey === null) {
+    indicator.innerHTML = `<span class="preset-current-label">現在: </span><span class="preset-badge preset-badge-loading">—</span>`;
+  } else if (presetKey === "custom") {
+    indicator.innerHTML = `<span class="preset-current-label">現在: </span><span class="preset-badge preset-badge-custom">カスタム</span>`;
+  } else if (presetKey === "fastest") {
+    indicator.innerHTML = `<span class="preset-current-label">現在: </span><span class="preset-badge preset-badge-fastest">⚡ ${escHtml(preset.label)}</span>`;
+  } else {
+    indicator.innerHTML = `<span class="preset-current-label">現在: </span><span class="preset-badge preset-badge-matched">${escHtml(preset.label)}</span>`;
+  }
+
+  if (warningBar) {
+    if (preset && preset.warning) {
+      let msg = `⚠ ${preset.warning}`;
+      if (_presetSkippedKeys.length > 0) {
+        const names = _presetSkippedKeys.map(k => k.split(".").pop()).join(", ");
+        msg += `　（未対応キー ${_presetSkippedKeys.length}件: ${names} — Logsに記録済み）`;
+      }
+      warningBar.textContent = msg;
+      warningBar.style.display = "";
+    } else {
+      warningBar.style.display = "none";
+    }
+  }
+
+  Object.keys(CONFIG_PRESETS).forEach(key => {
+    const btn = document.getElementById(`preset-btn-${key}`);
+    if (btn) btn.classList.toggle("active", key === presetKey);
+  });
+}
+
+function setPresetButtonsDisabled(disabled) {
+  Object.keys(CONFIG_PRESETS).forEach(key => {
+    const btn = document.getElementById(`preset-btn-${key}`);
+    if (btn) btn.disabled = disabled;
+  });
+}
+
+async function _applyConfigValueDirect(key, value, requiresBackend = false) {
+  const item = _configItems.find(c => c.key === key);
+  if (!item) {
+    _handleUndefinedKey(key, requiresBackend);
+    return { ok: true, skipped: true };
+  }
+  const oldValue = item.current_value;
+  try {
+    const updated = await putJSON(`${API}/config/${encodeURIComponent(key)}`, { value });
+    const idx = _configItems.findIndex(c => c.key === key);
+    if (idx >= 0) _configItems[idx] = updated.item;
+    _configApplyStatus[key] = {
+      state: "applied",
+      at: new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      applyMode: updated.item.apply_mode,
+    };
+    _dispatchConfigLog(key, oldValue, value);
+    return { ok: true };
+  } catch (err) {
+    _configApplyStatus[key] = {
+      state: "error",
+      at: new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    };
+    return { ok: false, error: err.message };
+  }
+}
+
+async function applyPreset(presetKey) {
+  const preset = CONFIG_PRESETS[presetKey];
+  if (!preset) return;
+
+  setPresetButtonsDisabled(true);
+  const indicator = document.getElementById("preset-indicator");
+  if (indicator) {
+    indicator.innerHTML = `<span class="preset-current-label">適用中... </span><div class="spinner"></div>`;
+  }
+
+  const errors  = [];
+  const skipped = [];
+  for (const [key, entry] of Object.entries(preset.values)) {
+    const value          = (entry !== null && typeof entry === "object") ? entry.value : entry;
+    const requiresBackend = (entry !== null && typeof entry === "object") && !!entry.requiresBackend;
+    const result = await _applyConfigValueDirect(key, value, requiresBackend);
+    if (!result.ok)      errors.push(`${key}: ${result.error}`);
+    if (result.skipped)  skipped.push(key);
+  }
+
+  _presetSkippedKeys = skipped;
+  _dispatchConfigLog("__preset__", null, presetKey);
+  renderConfigTable(); // updatePresetIndicator も内部で呼ぶ
+
+  if (errors.length > 0) {
+    showNotice("error", `「${preset.label}」の適用中にエラーが発生しました: ${errors.join(", ")}`);
+  } else if (skipped.length > 0) {
+    showNotice("success", `「${preset.label}」を適用しました（未対応キー ${skipped.length}件はスキップ — Logsに記録済み）`);
+  } else {
+    showNotice("success", `「${preset.label}」を適用しました`);
+  }
+
+  setPresetButtonsDisabled(false);
 }
 
 const _OSRM_PRESETS = {
@@ -1127,7 +1674,8 @@ async function loadLogSources() {
   if (select) {
     select.innerHTML = _logSources.map(source => `
       <option value="${escAttr(source.key)}">${escHtml(source.label)}</option>
-    `).join("") + `<option value="${VOICE_SOURCE_KEY}">Voice（音声ナビ）</option>`;
+    `).join("") + `<option value="${VOICE_SOURCE_KEY}">Voice（音声ナビ）</option>`
+      + `<option value="${CONFIG_SOURCE_KEY}">Config（設定変更）</option>`;
     select.value = _logsSource;
     select.disabled = false;
   }
@@ -1141,6 +1689,11 @@ async function reloadLogs() {
 
   if (source === VOICE_SOURCE_KEY) {
     _reloadVoiceLogs();
+    return;
+  }
+
+  if (source === CONFIG_SOURCE_KEY) {
+    _reloadConfigLogs();
     return;
   }
 
@@ -1193,6 +1746,13 @@ function connectLogsStream() {
 
   if (source === VOICE_SOURCE_KEY) {
     _connectVoiceChannel();
+    return;
+  }
+
+  if (source === CONFIG_SOURCE_KEY) {
+    _logsSource = CONFIG_SOURCE_KEY;
+    setLogsConnectionStatus("connected", "ライブ");
+    updateLogsControls();
     return;
   }
 
@@ -1343,15 +1903,17 @@ function updateLogsMeta() {
   const lineCount  = document.getElementById("logs-line-count");
   const sizeMeta   = document.getElementById("logs-size-meta");
   const isVoice    = getSelectedLogsSource() === VOICE_SOURCE_KEY;
+  const isConfig   = getSelectedLogsSource() === CONFIG_SOURCE_KEY;
   if (sourceMeta) {
-    sourceMeta.textContent = `source: ${isVoice ? 'Voice（音声ナビ）' : (_logsSource || "—")}`;
+    const label = isVoice ? "Voice（音声ナビ）" : (isConfig ? "Config（設定変更）" : (_logsSource || "—"));
+    sourceMeta.textContent = `source: ${label}`;
   }
   if (lineCount) {
-    const maxLines = isVoice ? VOICE_LOG_MAX : LOGS_MAX_LINES;
+    const maxLines = isVoice ? VOICE_LOG_MAX : (isConfig ? CONFIG_LOG_MAX : LOGS_MAX_LINES);
     lineCount.textContent = `${_logsLines.length} / ${maxLines} lines`;
   }
   if (sizeMeta) {
-    if (isVoice) {
+    if (isVoice || isConfig) {
       sizeMeta.textContent = "size: —";
     } else {
       const src = (_logsStatus.sources || []).find(item => item.key === _logsSource);
@@ -1365,10 +1927,11 @@ function updateLogsControls() {
   const disconnectBtn = document.getElementById("logs-disconnect-btn");
   const cleanupBtn    = document.getElementById("logs-cleanup-btn");
   const isVoice       = getSelectedLogsSource() === VOICE_SOURCE_KEY;
-  const isConnected   = isVoice ? !!_voiceChannel : !!_logsEventSource;
+  const isConfig      = getSelectedLogsSource() === CONFIG_SOURCE_KEY;
+  const isConnected   = isVoice ? !!_voiceChannel : (isConfig ? true : !!_logsEventSource);
   if (connectBtn)    connectBtn.disabled    = isConnected;
-  if (disconnectBtn) disconnectBtn.disabled = !isConnected;
-  if (cleanupBtn)    cleanupBtn.style.display = isVoice ? 'none' : '';
+  if (disconnectBtn) disconnectBtn.disabled = isConfig || !isConnected;
+  if (cleanupBtn)    cleanupBtn.style.display = (isVoice || isConfig) ? "none" : "";
 }
 
 function setLogsConnectionStatus(state, label) {
@@ -1461,9 +2024,11 @@ function colorLogLine(line) {
   const vm = line.match(/^(\d{2}:\d{2}:\d{2})\s+\[([^\]]+)\]\s+(.+)$/);
   if (vm) {
     const type = vm[2];
-    let cls = 'log-line-voice';
-    if (/crossing/.test(type)) cls = 'log-line-voice-crossing';
-    else if (/turn|arrival/.test(type)) cls = 'log-line-voice-turn';
+    if (type === "config")         return `<span class="log-line-config">${esc}</span>`;
+    if (type === "config_warning") return `<span class="log-line-config-warning">${esc}</span>`;
+    let cls = "log-line-voice";
+    if (/crossing/.test(type)) cls = "log-line-voice-crossing";
+    else if (/turn|arrival/.test(type)) cls = "log-line-voice-turn";
     return `<span class="${cls}">${esc}</span>`;
   }
   if (/ERROR|FAILED|error|failed/.test(line)) return `<span class="log-line-error">${esc}</span>`;

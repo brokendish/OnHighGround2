@@ -436,3 +436,208 @@ table.dataset-table {
 }
 .dot-pulse { width: 6px; height: 6px; border-radius: 50%; background: #22c55e;
   animation: pulse 1.5s infinite; }
+
+/* ── Config カードレイアウト ───────────────────────────── */
+.config-cards-container { display: flex; flex-direction: column; gap: 24px; }
+.config-cards-placeholder {
+  background: #fff; border-radius: 8px; padding: 30px;
+  text-align: center; color: #94a3b8; font-size: 13px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.config-cards-placeholder.error { color: #b91c1c; }
+
+.config-section { display: flex; flex-direction: column; gap: 12px; }
+.config-section-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700; color: #64748b;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  padding: 0 2px;
+}
+.config-section-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.config-section-dot.cat-navigation { background: #3b82f6; }
+.config-section-dot.cat-voice      { background: #8b5cf6; }
+.config-section-dot.cat-system     { background: #10b981; }
+.config-section-dot.cat-osrm       { background: #f59e0b; }
+
+.config-cards-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+/* ── 個別カード ──────────────────────────────────────────── */
+.config-card {
+  background: #fff; border-radius: 8px;
+  border: 1px solid #e2e8f0; border-left-width: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  display: flex; flex-direction: column;
+}
+.config-card.cat-navigation { border-left-color: #3b82f6; }
+.config-card.cat-voice      { border-left-color: #8b5cf6; }
+.config-card.cat-system     { border-left-color: #10b981; }
+
+.config-card-header {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.config-card-header-top {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+}
+.config-cat-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
+}
+.config-cat-badge.cat-navigation { background: #dbeafe; color: #1d4ed8; }
+.config-cat-badge.cat-voice      { background: #ede9fe; color: #6d28d9; }
+.config-cat-badge.cat-system     { background: #dcfce7; color: #166534; }
+.config-readonly-badge {
+  font-size: 10px; color: #94a3b8; padding: 2px 7px;
+  border: 1px solid #e2e8f0; border-radius: 999px;
+}
+.config-card-title {
+  font-size: 14px; font-weight: 600; color: #1e293b; line-height: 1.3;
+}
+.config-card-key {
+  font-size: 11px; color: #94a3b8; font-family: monospace; margin-top: 2px;
+}
+
+.config-card-body { padding: 12px 14px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+
+.config-card-value-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.config-card-value-label {
+  font-size: 11px; font-weight: 700; color: #64748b; white-space: nowrap;
+}
+.config-card-default {
+  font-size: 11px; color: #94a3b8; margin-left: auto; white-space: nowrap;
+}
+.config-card-default code {
+  font-family: monospace; color: #475569;
+}
+
+.config-card-warning {
+  background: #fff7ed; border: 1px solid #fed7aa;
+  color: #c2410c; font-size: 12px; border-radius: 5px; padding: 7px 10px;
+  line-height: 1.5;
+}
+.config-card-unsupported { opacity: 0.55; }
+.config-card-unsupported .config-card-header { background: #f8fafc; }
+.config-unsupported-banner {
+  background: #fff7ed; border-left: 3px solid #f97316;
+  color: #c2410c; font-size: 12px; font-weight: 600;
+  border-radius: 0 5px 5px 0; padding: 7px 10px; line-height: 1.5;
+}
+
+/* ── メタ情報ブロック ─────────────────────────────────── */
+.config-meta-section {
+  display: flex; flex-direction: column; gap: 6px;
+  background: #f8fafc; border-radius: 6px; padding: 10px 12px;
+}
+.config-meta-row { display: flex; gap: 8px; align-items: flex-start; }
+.config-meta-label {
+  font-size: 10px; font-weight: 700; color: #94a3b8;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  white-space: nowrap; padding-top: 2px; min-width: 32px;
+}
+.config-meta-text { font-size: 12px; color: #475569; line-height: 1.5; }
+.config-meta-impact { font-size: 12px; color: #475569; line-height: 1.6; }
+.config-impact-line { display: block; }
+.config-meta-recommended { color: #166534; font-weight: 600; }
+.config-meta-caution { color: #c2410c; }
+.config-meta-fallback { font-size: 12px; color: #64748b; }
+
+/* ── カードフッター ──────────────────────────────────── */
+.config-card-footer {
+  padding: 8px 14px; border-top: 1px solid #f1f5f9;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.config-footer-actions { display: flex; align-items: center; gap: 8px; }
+.config-card-updated { font-size: 11px; color: #94a3b8; white-space: nowrap; }
+.config-card-updated.muted { color: #cbd5e1; }
+
+/* ── 到着判定プレビューバナー ─────────────────────────── */
+.config-computed-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: #eff6ff; border: 1px solid #bfdbfe;
+  border-radius: 7px; padding: 10px 14px;
+}
+.config-computed-icon { font-size: 16px; flex-shrink: 0; }
+.config-computed-label {
+  font-size: 11px; font-weight: 700; color: #1d4ed8; margin-bottom: 4px;
+}
+.config-computed-value { font-size: 12px; color: #1e40af; font-family: monospace; }
+.config-computed-value strong { font-weight: 700; }
+
+@media (max-width: 800px) {
+  .config-cards-group { grid-template-columns: 1fr; }
+}
+
+/* ── プリセットバー ──────────────────────────────────── */
+.config-preset-bar {
+  background: #fff; border-radius: 8px; padding: 12px 18px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.preset-bar-title {
+  font-size: 12px; font-weight: 700; color: #64748b;
+  white-space: nowrap; letter-spacing: 0.03em;
+}
+.preset-buttons { display: flex; gap: 8px; }
+.preset-btn {
+  padding: 7px 18px; border: 1.5px solid #e2e8f0;
+  border-radius: 6px; background: #f8fafc; color: #475569;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: all 0.15s;
+}
+.preset-btn:hover { border-color: #6366f1; color: #6366f1; background: #eef2ff; }
+.preset-btn.active { border-color: #6366f1; background: #eef2ff; color: #4338ca; }
+.preset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.preset-indicator {
+  margin-left: auto; display: flex; align-items: center; gap: 6px;
+}
+.preset-current-label { font-size: 12px; color: #94a3b8; }
+.preset-badge {
+  font-size: 11px; font-weight: 700; padding: 3px 10px;
+  border-radius: 999px;
+}
+.preset-badge-matched  { background: #eef2ff; color: #4338ca; }
+.preset-badge-custom   { background: #f1f5f9; color: #64748b; }
+.preset-badge-loading  { background: #f1f5f9; color: #94a3b8; }
+.preset-badge-fastest  { background: #fff7ed; color: #c2410c; }
+
+.preset-btn-fastest { border-color: #fed7aa; color: #c2410c; background: #fff7ed; }
+.preset-btn-fastest:hover  { border-color: #f97316; background: #fff7ed; color: #9a3412; }
+.preset-btn-fastest.active { border-color: #f97316; background: #ffedd5; color: #9a3412; }
+
+.preset-warning-bar {
+  background: #fff7ed; border: 1px solid #fed7aa;
+  color: #c2410c; font-size: 13px; font-weight: 500;
+  border-radius: 8px; padding: 10px 16px;
+}
+
+/* ── 小ボタン ────────────────────────────────────────── */
+.btn-sm {
+  font-size: 11px !important; padding: 4px 10px !important;
+  white-space: nowrap;
+}
+
+/* ── 反映ステータス ───────────────────────────────────── */
+.config-footer-actions { flex-wrap: wrap; }
+.config-card-apply {
+  font-size: 11px; display: flex; align-items: center; gap: 5px;
+  white-space: nowrap;
+}
+.apply-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 7px;
+  border-radius: 999px; letter-spacing: 0.03em;
+}
+.apply-badge.applied { background: #dcfce7; color: #166534; }
+.apply-badge.error   { background: #fee2e2; color: #b91c1c; }
+.apply-time { color: #94a3b8; font-family: monospace; }
+
+/* ── Config ログ行 ───────────────────────────────────── */
+.log-line-config         { color: #7c3aed; }
+.log-line-config-warning { color: #c2410c; font-weight: 600; }

@@ -131,25 +131,18 @@
       <button class="refresh-btn" onclick="loadConfig()">設定を再読み込み</button>
       <button class="btn btn-secondary" onclick="openConfigHistoryModal()">履歴を見る</button>
     </div>
-    <div class="table-card">
-      <div class="table-scroll">
-        <table class="dataset-table config-table">
-          <thead>
-            <tr>
-              <th>設定名</th>
-              <th>キー</th>
-              <th>現在値</th>
-              <th>デフォルト</th>
-              <th>説明</th>
-              <th>最終更新</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="config-tbody">
-            <tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">Configタブを開くと読み込みます</td></tr>
-          </tbody>
-        </table>
+    <div class="config-preset-bar">
+      <span class="preset-bar-title">プリセット</span>
+      <div class="preset-buttons" id="preset-buttons"></div>
+      <div class="preset-indicator" id="preset-indicator">
+        <span class="preset-current-label">現在: </span>
+        <span class="preset-badge preset-badge-loading">—</span>
       </div>
+    </div>
+    <div id="preset-warning-bar" class="preset-warning-bar" style="display:none"></div>
+
+    <div id="config-cards-container" class="config-cards-container">
+      <div class="config-cards-placeholder">Configタブを開くと読み込みます</div>
     </div>
 
     <!-- OSRM 再ビルドセクション -->
