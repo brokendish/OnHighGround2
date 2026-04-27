@@ -26,6 +26,12 @@ const voiceNav = (() => {
         return Number.isFinite(v) && v > 0 ? v : fallback;
     }
 
+    function _safeCrossingEnabled() {
+        if (typeof getRuntimeConfigValue !== 'function') return true;
+        const radius = Number(getRuntimeConfigValue('navigation.safe_crossing_search_radius', 50));
+        return Number.isFinite(radius) ? radius > 0 : true;
+    }
+
     // ── 振動パターン ─────────────────────────────────────────────────────────
     const HAPTIC_PATTERNS = {
         start:       [80],               // ナビ開始: 短く1回
@@ -175,6 +181,7 @@ const voiceNav = (() => {
     }
 
     function _findUpcomingCrossing(position, route) {
+        if (!_safeCrossingEnabled()) return null;
         const crossings = Array.isArray(route?.__pedestrianSafety?.crossings)
             ? route.__pedestrianSafety.crossings
             : [];
@@ -392,6 +399,7 @@ const voiceNav = (() => {
         },
 
         announceCrossing(upcoming) {
+            if (!_safeCrossingEnabled()) return;
             if (!upcoming?.crossing?.point) return;
             const point = upcoming.crossing.point;
             const id = `crossing-${point.lat?.toFixed?.(6) || point.lat},${(point.lng ?? point.lon)?.toFixed?.(6) || (point.lng ?? point.lon)}`;

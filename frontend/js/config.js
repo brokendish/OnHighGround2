@@ -70,12 +70,19 @@ function initConfigChangeSSE() {
         _configChangeEventSource = es;
 
         es.addEventListener('config_updated', async (event) => {
+            let updatedKey = null;
             try {
                 const { key } = JSON.parse(event.data);
+                updatedKey = key;
                 console.info('[config] SSE config_updated key=' + key + '; reloading runtime config');
             } catch (_) { /* parse失敗は無視 */ }
             try {
                 await loadRuntimeConfig();
+                if (updatedKey) {
+                    window.dispatchEvent(new CustomEvent('ohg:runtime-config-updated', {
+                        detail: { key: updatedKey }
+                    }));
+                }
             } catch (err) {
                 console.warn('[config] runtime config reload failed; keeping existing values', err);
             }

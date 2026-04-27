@@ -9,9 +9,9 @@
  */
 
 // ── 定数 ──────────────────────────────────────────────────────────────────
-const NAV_OFF_ROUTE_M      = 28;    // 通常時の逸脱候補しきい値（メートル）
+const NAV_OFF_ROUTE_M      = 15;    // 通常時の逸脱候補しきい値（メートル）
 const NAV_OFF_ROUTE_NEAR_GOAL_M = 18; // 目的地近傍の逸脱候補しきい値（メートル）
-const NAV_NEAR_GOAL_M      = 30;    // 目的地近傍とみなす距離（メートル）
+const NAV_NEAR_GOAL_M      = 15;    // 目的地近傍とみなす距離（メートル）
 const NAV_MAX_GPS_ACCURACY_M   = 50; // これ以上の誤差なら逸脱判定を保留
 const NAV_CONSECUTIVE      = 3;     // 連続 N 回外れたら warning
 const NAV_ARRIVAL_M        = 12;    // 到達判定しきい値（メートル）
@@ -46,8 +46,8 @@ const CROSSING_PENALTY_BY_HIGHWAY = {
 };
 const CROSSING_UNKNOWN_PENALTY = 30;
 const CROSSING_SAFE_BONUS = 20;
-const SAFE_CROSSING_SEARCH_RADIUS_M = 50;
-const SAFE_CROSSING_DETOUR_MAX_RATIO = 1.5;
+const SAFE_CROSSING_SEARCH_RADIUS_FALLBACK_M = 50;
+const SAFE_CROSSING_DETOUR_RATIO_FALLBACK = 1.5;
 
 // ── 標高・表示更新定数（将来の設定画面から変更予定） ────────────────────────
 const NAV_ELEV_UPDATE_M        = 10;   // 標高再取得の移動距離しきい値（メートル）
@@ -59,6 +59,8 @@ let _statusBarLastUpdateAt = 0;
 let _navLogLastSentAt = 0;
 let _navLogLastSignature = '';
 let _navLogInFlight = false;
+let _lastSafeCrossingConfigSignature = null;
+let _lastSafeCrossingLogSignature = null;
 
 // ── 逸脱デバウンスタイマー ────────────────────────────────────────────────
 const NAV_OFF_ROUTE_DEBOUNCE_MS = 3000; // 3秒待って誤検知を防ぐ
@@ -331,8 +333,68 @@ function _updateArrivalStability(distToGoal, accuracy) {
 }
 
 function _getNavigationConfigNumber(key, fallback) {
-    const value = Number(getRuntimeConfigValue(key, fallback));
+    const raw = typeof getRuntimeConfigValue === 'function'
+        ? getRuntimeConfigValue(key, fallback)
+        : fallback;
+    const value = Number(raw);
     return Number.isFinite(value) ? value : fallback;
+}
+
+function _clearSafeCrossingCaches(reason = 'config-change') {
+    if (typeof _pedestrianSafetyContextCache !== 'undefined'
+            && _pedestrianSafetyContextCache
+            && typeof _pedestrianSafetyContextCache.clear === 'function') {
+        _pedestrianSafetyContextCache.clear();
+    }
+    console.log(`[crossing-config] cache_cleared reason=${reason}`);
+}
+
+function _getSafeCrossingRuntimeConfig(options = {}) {
+    const searchRadius = _getNavigationConfigNumber(
+        'navigation.safe_crossing_search_radius',
+        SAFE_CROSSING_SEARCH_RADIUS_FALLBACK_M
+    );
+    const detourRatio = _getNavigationConfigNumber(
+        'navigation.safe_crossing_detour_ratio',
+        SAFE_CROSSING_DETOUR_RATIO_FALLBACK
+    );
+    const radiusM = Math.max(0, searchRadius);
+    const maxDetourRatio = Math.max(1, detourRatio);
+    const enabled = radiusM > 0;
+    const signature = `${radiusM}:${maxDetourRatio}:${enabled}`;
+
+    if (_lastSafeCrossingConfigSignature !== null && _lastSafeCrossingConfigSignature !== signature) {
+        _clearSafeCrossingCaches('safe-crossing-config-change');
+    }
+    _lastSafeCrossingConfigSignature = signature;
+
+    if (options.log && _lastSafeCrossingLogSignature !== signature) {
+        console.log(enabled
+            ? `[crossing-config] radius=${radiusM} detour=${maxDetourRatio} enabled=true`
+            : `[crossing-config] radius=${radiusM} enabled=false`);
+        _lastSafeCrossingLogSignature = signature;
+    }
+
+    return {
+        searchRadius,
+        detourRatio,
+        radiusM,
+        maxDetourRatio,
+        enabled,
+        disableCrossingLogic: !enabled
+    };
+}
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('ohg:runtime-config-updated', (event) => {
+        const key = event?.detail?.key;
+        if (key === 'navigation.safe_crossing_search_radius'
+                || key === 'navigation.safe_crossing_detour_ratio') {
+            _lastSafeCrossingConfigSignature = null;
+            _lastSafeCrossingLogSignature = null;
+            _clearSafeCrossingCaches('runtime-config-updated');
+        }
+    });
 }
 
 function _getAutoRerouteCooldownMs() {
@@ -6051,7 +6113,9 @@ async function fetchRouteCandidates(origin, destination, options = {}) {
     const transportMode = options.transportMode || document.getElementById('transportMode')?.value || 'walking';
     const profile = transportMode === 'walking' ? 'walking' : 'driving';
     const serviceUrl = OSRM_SERVICE_URLS[profile];
-    const maxCandidates = Math.max(1, Math.min(MAX_ROUTE_CANDIDATES, Number(options.maxCandidates) || MAX_ROUTE_CANDIDATES));
+    const crossingConfig = _getSafeCrossingRuntimeConfig({ log: true });
+    const requestedMaxCandidates = Math.max(1, Math.min(MAX_ROUTE_CANDIDATES, Number(options.maxCandidates) || MAX_ROUTE_CANDIDATES));
+    const maxCandidates = crossingConfig.enabled ? requestedMaxCandidates : 1;
     const from = { lat: Number(origin?.lat), lng: Number(origin?.lng ?? origin?.lon) };
     const to = { lat: Number(destination?.lat), lng: Number(destination?.lng ?? destination?.lon) };
     if (!Number.isFinite(from.lat) || !Number.isFinite(from.lng) || !Number.isFinite(to.lat) || !Number.isFinite(to.lng)) {
@@ -6083,7 +6147,7 @@ async function fetchRouteCandidates(origin, destination, options = {}) {
 
     const rawRoutes = Array.isArray(data?.routes) ? data.routes : [];
     console.log(
-        `[route-candidates] requested_alternatives=${MAX_ROUTE_CANDIDATES} returned=${rawRoutes.length}` +
+        `[route-candidates] requested_alternatives=${maxCandidates} returned=${rawRoutes.length}` +
         (usedFallback ? ' fallback=alternatives=true' : '')
     );
     const routes = rawRoutes
@@ -6093,6 +6157,28 @@ async function fetchRouteCandidates(origin, destination, options = {}) {
             __osrmOriginalIndex: index
         }));
     if (routes.length === 0) return [];
+
+    if (crossingConfig.disableCrossingLogic) {
+        const route = routes[0];
+        route.__routeCandidateIndex = 0;
+        route.__crossingRisk = _buildDisabledCrossingRisk();
+        route.__safetyScore = null;
+        route.__displayLabel = '推奨ルート';
+        route.__displayReason = null;
+        route.__routeFeatures = _buildRouteCandidateFeatures(route, route.__crossingRisk, {
+            distance: Number(route?.summary?.totalDistance ?? route?.totalDistance),
+            baseDistance: Number(route?.summary?.totalDistance ?? route?.totalDistance),
+            safeCrossingEnabled: false
+        });
+        route.__pedestrianSafety = _makePedestrianSafetyResult('safe', {
+            crossings: [],
+            dangerousCrossings: [],
+            contextUnavailable: false,
+            failOpenApplied: false
+        });
+        console.log('[route-candidates] safe_crossing disabled; selected shortest route only');
+        return [route];
+    }
 
     const baseDistance = routes
         .map(route => Number(route?.summary?.totalDistance ?? route?.totalDistance))
@@ -6123,7 +6209,8 @@ async function fetchRouteCandidates(origin, destination, options = {}) {
         transportMode,
         baseDistance,
         nextIndex: routes.length,
-        canAppend: routes.length < maxCandidates
+        canAppend: routes.length < maxCandidates,
+        crossingConfig
     });
     if (safeCrossingRoute) {
         const candidate = await evaluateRouteSafety(safeCrossingRoute, {
@@ -6160,15 +6247,15 @@ function _safeCrossingIsMarked(point) {
 }
 
 function _findNearbySafeCrossingPoint(dangerousCrossing, context, options = {}) {
-    const radiusM = Number(options.radiusM) || SAFE_CROSSING_SEARCH_RADIUS_M;
+    const radiusM = Math.max(0, Number(options.radiusM) || 0);
+    const maxDetourRatio = Math.max(1, Number(options.maxDetourRatio) || SAFE_CROSSING_DETOUR_RATIO_FALLBACK);
     const origin = options.origin || null;
     const destination = options.destination || null;
     const point = dangerousCrossing?.point;
     const crosswalks = Array.isArray(context?.crosswalks) ? context.crosswalks : [];
+    if (radiusM <= 0) return null;
     if (!point || crosswalks.length === 0) return null;
 
-    const MAX_DIST_M = 60;
-    const MAX_DETOUR_RATIO = 1.5;
     const directDist = (origin && destination) ? _segmentLengthMeters(origin, destination) : null;
 
     const candidates = crosswalks
@@ -6190,9 +6277,9 @@ function _findNearbySafeCrossingPoint(dangerousCrossing, context, options = {}) 
             return { ...crossing, distanceM: distM, signalized, marked, detourM, detourRatio, score };
         })
         .filter(c =>
-            c.distanceM <= MAX_DIST_M &&
+            c.distanceM <= radiusM &&
             (c.signalized || c.marked) &&
-            (c.detourRatio === null || c.detourRatio <= MAX_DETOUR_RATIO)
+            (c.detourRatio === null || c.detourRatio <= maxDetourRatio)
         )
         .sort((a, b) => b.score - a.score);
 
@@ -6208,6 +6295,10 @@ function _findNearbySafeCrossingPoint(dangerousCrossing, context, options = {}) 
 }
 
 async function _tryBuildSafeCrossingDetourCandidate(evaluatedCandidates, options = {}) {
+    const crossingConfig = options.crossingConfig || _getSafeCrossingRuntimeConfig({ log: true });
+    if (crossingConfig.disableCrossingLogic) {
+        return null;
+    }
     if (options.transportMode && options.transportMode !== 'walking') return null;
     if (!options.canAppend) {
         console.log('[route-candidates] safe_crossing_detour skipped reason=max_candidates_already_returned');
@@ -6223,7 +6314,7 @@ async function _tryBuildSafeCrossingDetourCandidate(evaluatedCandidates, options
 
     const bbox = _buildPedestrianSafetyContextBBox({
         points: [dangerousCrossing.point],
-        paddingM: SAFE_CROSSING_SEARCH_RADIUS_M
+        paddingM: crossingConfig.radiusM
     });
     const contextResult = await _fetchPedestrianSafetyContextForBBox(bbox, {
         contextLabel: 'route-candidate:safe-crossing-search',
@@ -6236,14 +6327,15 @@ async function _tryBuildSafeCrossingDetourCandidate(evaluatedCandidates, options
             : null
     );
     const safeCrossing = _findNearbySafeCrossingPoint(dangerousCrossing, searchContext, {
-        radiusM: SAFE_CROSSING_SEARCH_RADIUS_M,
+        radiusM: crossingConfig.radiusM,
+        maxDetourRatio: crossingConfig.maxDetourRatio,
         origin: options.origin,
         destination: options.destination
     });
     if (!safeCrossing) {
         console.log(
             `[route-candidates] safe_crossing_detour skipped reason=no_safe_crossing_nearby ` +
-            `source_raw=${source.index} radius=${SAFE_CROSSING_SEARCH_RADIUS_M}`
+            `source_raw=${source.index} radius=${crossingConfig.radiusM}`
         );
         return null;
     }
@@ -6260,11 +6352,11 @@ async function _tryBuildSafeCrossingDetourCandidate(evaluatedCandidates, options
 
     const baseDistance = Number(options.baseDistance);
     const detourDistance = Number(route?.summary?.totalDistance ?? route?.totalDistance);
-    if (Number.isFinite(baseDistance) && Number.isFinite(detourDistance)
-            && detourDistance > baseDistance * SAFE_CROSSING_DETOUR_MAX_RATIO) {
+    if (Number.isFinite(baseDistance) && baseDistance > 0 && Number.isFinite(detourDistance)
+            && detourDistance / baseDistance > crossingConfig.maxDetourRatio) {
         console.log(
             `[route-candidates] safe_crossing_detour skipped reason=too_long ` +
-            `distance=${Math.round(detourDistance)} base=${Math.round(baseDistance)} ratio=${SAFE_CROSSING_DETOUR_MAX_RATIO}`
+            `distance=${Math.round(detourDistance)} base=${Math.round(baseDistance)} ratio=${crossingConfig.maxDetourRatio}`
         );
         return null;
     }
@@ -6432,7 +6524,35 @@ function _buildRouteCrossingRisk(pedestrianSafety, conservativeSafety) {
     };
 }
 
+function _buildDisabledCrossingRisk() {
+    return {
+        majorRoadCrossings: 0,
+        unsafeMajorRoadCrossings: 0,
+        unsafeSecondaryCrossings: 0,
+        signalizedCrossings: 0,
+        markedCrossings: 0,
+        safeCrossings: 0,
+        unknownCrossings: 0,
+        crossingPenaltyTotal: 0,
+        hasUnsafeCrossing: false,
+        worstSeverity: 'none',
+        contextUnavailable: false,
+        conservativeDecision: null,
+        disabled: true
+    };
+}
+
 function _buildRouteCandidateFeatures(route, crossingRisk, options = {}) {
+    if (options.safeCrossingEnabled === false || crossingRisk?.disabled) {
+        return {
+            hasCrossing: false,
+            hasSignalizedCrossing: false,
+            hasMarkedCrossing: false,
+            addedDistanceM: 0,
+            viaSafeCrossing: false,
+            generatedBy: null
+        };
+    }
     const viaSafeCrossing = route?.__viaSafeCrossing || null;
     const baseDistance = Number(options.baseDistance);
     const distance = Number(options.distance ?? route?.summary?.totalDistance ?? route?.totalDistance);

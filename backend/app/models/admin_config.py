@@ -20,6 +20,7 @@ class ConfigValueType(str, Enum):
 class ConfigApplyMode(str, Enum):
     reload = "reload"
     immediate = "immediate"
+    live = "live"
 
 
 class ConfigDefinition(BaseModel):

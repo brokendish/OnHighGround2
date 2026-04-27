@@ -41,6 +41,8 @@ const CONFIG_PRESETS = {
       "navigation.arrival_accuracy_multiplier": 1.0,
       "navigation.near_arrival_distance":       20,
       "navigation.final_reminder_distance":     6,
+      "navigation.safe_crossing_search_radius": 50,
+      "navigation.safe_crossing_detour_ratio":  1.5,
       "voice.cooldown_ms":                      8000,
       "voice.rate":                             1.05,
     },
@@ -56,8 +58,8 @@ const CONFIG_PRESETS = {
       "navigation.final_reminder_distance":        4,
       "navigation.off_route_distance_m":           40,
       "navigation.near_goal_off_route_distance_m": 30,
-      "navigation.safe_crossing_search_radius":    { value: 0,   requiresBackend: true, label: "安全横断探索半径",   description: "安全な横断ポイントを探索する半径（m）。0で無効。" },
-      "navigation.safe_crossing_detour_ratio":     { value: 1.0, requiresBackend: true, label: "安全横断迂回許容係数", description: "最短距離に対して何倍まで迂回を許容するか。1.0で迂回しない。" },
+      "navigation.safe_crossing_search_radius":    0,
+      "navigation.safe_crossing_detour_ratio":     1.0,
       "voice.cooldown_ms":                         12000,
       "voice.rate":                                1.2,
     },
@@ -935,7 +937,7 @@ const CONFIG_META = {
   'navigation.off_route_distance_m': {
     purpose: 'ルートからこの距離以上離れたら逸脱とみなします。',
     impact: ['大きくすると → 逸脱しにくくなる', '小さくすると → 細い路地でも逸脱判定'],
-    recommended: '25〜35m',
+    recommended: '15m',
   },
   'navigation.near_goal_off_route_distance_m': {
     purpose: '目的地近くでの逸脱判定距離です。通常より厳しく設定します。',
@@ -945,7 +947,23 @@ const CONFIG_META = {
   'navigation.near_goal_distance_m': {
     purpose: '目的地近傍として扱う距離の閾値です。この範囲内では逸脱判定が厳しくなります。',
     impact: ['大きくすると → 広い範囲で近傍扱い', '小さくすると → 実際に近づいてから切り替わる'],
-    recommended: '25〜40m',
+    recommended: '15m',
+  },
+  'navigation.safe_crossing_search_radius': {
+    label: '安全横断探索半径',
+    description: '安全に道路を渡れる地点を探す距離（m）。0で無効。',
+    effect: '大きいほど安全な横断ルートが増える',
+    purpose: '安全に道路を渡れる地点を探す距離です。0にすると安全横断ロジックを完全に無効化します。',
+    impact: ['大きくすると → 安全な横断ルートが増える', '0にすると → 最短ルート優先で横断誘導を出さない'],
+    recommended: '30〜80m',
+  },
+  'navigation.safe_crossing_detour_ratio': {
+    label: '安全横断迂回許容係数',
+    description: 'どれだけ遠回りして安全に渡るかの許容値',
+    effect: '大きいほど安全優先、小さいほど最短優先',
+    purpose: '安全な横断地点を使うために、最短距離からどれだけ遠回りを許容するかを決めます。',
+    impact: ['大きくすると → 安全優先の候補が増える', '小さくすると → 最短ルートに近い候補だけ残る'],
+    recommended: '1.2〜1.8',
   },
   'voice.cooldown_ms': {
     purpose: '音声案内の発話間隔です。同じ案内が連続して流れないよう制限します。',
@@ -1035,7 +1053,15 @@ function renderConfigTable() {
 
 function renderConfigCard(item) {
   const isUnsupported = !!item._unsupported;
-  const meta  = CONFIG_META[item.key] || {};
+  console.log("[config-render]", item.key);
+  const meta  = CONFIG_META[item.key] || {
+    label: item.label || item.key,
+    description: item.description || "",
+    effect: "",
+    purpose: item.description || "",
+    impact: [],
+    recommended: "",
+  };
   const domId = configDomId(item.key);
   const input = renderConfigInput(item);
 

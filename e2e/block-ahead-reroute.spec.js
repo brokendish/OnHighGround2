@@ -41,6 +41,21 @@ async function bootstrap(page) {
   await page.waitForFunction(() => typeof blockAheadAndReroute === 'function' && typeof map !== 'undefined');
 }
 
+async function bootstrapRouteCandidates(page) {
+  await page.route('/emergency-shelters**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ data: [], count: 0, total_count: 0 }),
+  }));
+  await page.route('/api/**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({}),
+  }));
+  await page.goto('/');
+  await page.waitForFunction(() => typeof fetchRouteCandidates === 'function' && typeof map !== 'undefined');
+}
+
 async function seedNav(page, { currentLocation = { lat: 35.0001, lon: 139.0, accuracyMeters: 5 } } = {}) {
   await page.evaluate(() => {
     window.__voiceCalls = [];
@@ -75,6 +90,158 @@ async function seedNav(page, { currentLocation = { lat: 35.0001, lon: 139.0, acc
     _updateRemainingDistanceDisplay(currentLocation.lat, currentLocation.lon, currentLocation.accuracyMeters);
   }, { baseRoute: BASE_ROUTE, currentLoc: currentLocation });
 }
+
+test.describe('safe crossing runtime config', () => {
+  test('radius=0 disables crossing search, scoring, UI features, and route expansion', async ({ page }) => {
+    await bootstrapRouteCandidates(page);
+    const result = await page.evaluate(async () => {
+      appRuntimeConfig = {
+        'navigation.safe_crossing_search_radius': 0,
+        'navigation.safe_crossing_detour_ratio': 1.5
+      };
+      let fetchCount = 0;
+      let safetyEvalCount = 0;
+      const originalFetch = window.fetch;
+      const originalDeps = window.__OHG_TEST_DEPS__;
+      window.fetch = async (url) => {
+        fetchCount += 1;
+        return new Response(JSON.stringify({
+          code: 'Ok',
+          routes: [
+            {
+              distance: 100,
+              duration: 60,
+              geometry: { coordinates: [[139.0, 35.0], [139.001, 35.001]] },
+              legs: []
+            },
+            {
+              distance: 140,
+              duration: 90,
+              geometry: { coordinates: [[139.0, 35.0], [139.002, 35.001]] },
+              legs: []
+            }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      };
+      window.__OHG_TEST_DEPS__ = {
+        evaluatePedestrianRouteSafety: async () => {
+          safetyEvalCount += 1;
+          return { status: 'unsafe', dangerousCrossings: [{ point: { lat: 35.0005, lng: 139.0005 } }] };
+        },
+        fetchPedestrianSafetyContext: async () => {
+          throw new Error('crossing context should not be fetched when disabled');
+        },
+        fetchOsrmRoute: async () => {
+          throw new Error('safe crossing detour should not be fetched when disabled');
+        }
+      };
+
+      const routes = await fetchRouteCandidates(
+        { lat: 35.0, lng: 139.0 },
+        { lat: 35.001, lng: 139.001 },
+        { transportMode: 'walking', maxCandidates: 3 }
+      );
+
+      window.fetch = originalFetch;
+      window.__OHG_TEST_DEPS__ = originalDeps;
+      return {
+        count: routes.length,
+        distance: routes[0]?.summary?.totalDistance,
+        fetchCount,
+        safetyEvalCount,
+        risk: routes[0]?.__crossingRisk,
+        features: routes[0]?.__routeFeatures,
+        displayReason: routes[0]?.__displayReason
+      };
+    });
+
+    expect(result.count).toBe(1);
+    expect(result.distance).toBe(100);
+    expect(result.fetchCount).toBe(1);
+    expect(result.safetyEvalCount).toBe(0);
+    expect(result.risk.disabled).toBe(true);
+    expect(result.features.hasCrossing).toBe(false);
+    expect(result.features.viaSafeCrossing).toBe(false);
+    expect(result.displayReason).toBeNull();
+  });
+
+  test('radius>0 enables safe crossing candidate generation and detour ratio control', async ({ page }) => {
+    await bootstrapRouteCandidates(page);
+    const result = await page.evaluate(async () => {
+      appRuntimeConfig = {
+        'navigation.safe_crossing_search_radius': 50,
+        'navigation.safe_crossing_detour_ratio': 1.5
+      };
+      const originalFetch = window.fetch;
+      const originalDeps = window.__OHG_TEST_DEPS__;
+      window.fetch = async () => new Response(JSON.stringify({
+        code: 'Ok',
+        routes: [{
+          distance: 100,
+          duration: 60,
+          geometry: { coordinates: [[139.0, 35.0], [139.001, 35.001]] },
+          legs: []
+        }]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      window.__OHG_TEST_DEPS__ = {
+        evaluatePedestrianRouteSafety: async (route, cached, label) => {
+          if (label === 'route-candidate:0') {
+            return {
+              status: 'unsafe',
+              crossings: [],
+              dangerousCrossings: [{
+                point: { lat: 35.0005, lng: 139.0005 },
+                road: { tags: { highway: 'primary' } },
+                classification: { dangerous: true, highway: 'primary' }
+              }],
+              rejectReason: 'dangerous-crossing'
+            };
+          }
+          return { status: 'safe', crossings: [], dangerousCrossings: [] };
+        },
+        fetchPedestrianSafetyContext: async () => ({
+          status: 'ready',
+          context: {
+            roads: [],
+            crosswalks: [{ lat: 35.00055, lng: 139.00055, tags: { highway: 'crossing' } }]
+          },
+          source: 'safe-crossing-search',
+          bbox: {},
+          fetchedAt: Date.now()
+        }),
+        fetchOsrmRoute: async () => ({
+          coordinates: [
+            { lat: 35.0, lng: 139.0 },
+            { lat: 35.00055, lng: 139.00055 },
+            { lat: 35.001, lng: 139.001 }
+          ],
+          summary: { totalDistance: 120, totalTime: 80 },
+          totalDistance: 120,
+          totalTime: 80,
+          instructions: []
+        })
+      };
+
+      const routes = await fetchRouteCandidates(
+        { lat: 35.0, lng: 139.0 },
+        { lat: 35.001, lng: 139.001 },
+        { transportMode: 'walking', maxCandidates: 3 }
+      );
+
+      window.fetch = originalFetch;
+      window.__OHG_TEST_DEPS__ = originalDeps;
+      return routes.map(route => ({
+        distance: route.summary.totalDistance,
+        viaSafeCrossing: route.__routeFeatures?.viaSafeCrossing,
+        generatedBy: route.__routeFeatures?.generatedBy,
+        hasCrossing: route.__routeFeatures?.hasCrossing
+      }));
+    });
+
+    expect(result.some(route => route.viaSafeCrossing && route.generatedBy === 'safe-crossing-via')).toBe(true);
+    expect(result.some(route => route.distance === 120 && route.hasCrossing)).toBe(true);
+  });
+});
 
 function makeBypassAlt(overrides = {}) {
   return {

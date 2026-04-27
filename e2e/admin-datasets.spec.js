@@ -306,6 +306,36 @@ const CONFIG_ITEMS = [
     ui_order: 40,
     updated_at: '2026-04-23T10:00:00Z',
   },
+  {
+    key: 'navigation.safe_crossing_search_radius',
+    category: 'navigation',
+    label: '安全横断探索半径',
+    type: 'float',
+    default_value: 50,
+    current_value: 50,
+    description: '安全な横断地点を探索する半径（m）。0で無効。',
+    min: 0,
+    max: 200,
+    editable: true,
+    apply_mode: 'live',
+    ui_order: 110,
+    updated_at: null,
+  },
+  {
+    key: 'navigation.safe_crossing_detour_ratio',
+    category: 'navigation',
+    label: '安全横断迂回許容比',
+    type: 'float',
+    default_value: 1.5,
+    current_value: 1.5,
+    description: '横断のための迂回許容比',
+    min: 1.0,
+    max: 3.0,
+    editable: true,
+    apply_mode: 'live',
+    ui_order: 120,
+    updated_at: null,
+  },
 ];
 
 const CONFIG_HISTORY = [
@@ -1181,8 +1211,25 @@ test.describe('11. Config タブ', () => {
     await page.locator('#tab-btn-config').click();
 
     await expect(page.locator('#tab-panel-config')).toHaveClass(/active/);
-    await expect(page.locator('#config-tbody')).toContainText('到着判定距離');
-    await expect(page.locator('#config-tbody')).toContainText('navigation.arrival_distance_m');
+    await expect(page.locator('#config-cards-container')).toContainText('到着判定距離');
+    await expect(page.locator('#config-cards-container')).toContainText('navigation.arrival_distance_m');
+  });
+
+  test('safe crossing 設定が Config タブに編集可能として表示される', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto(PAGE_URL);
+    await page.locator('#tab-btn-config').click();
+
+    const radiusCard = page.locator('[data-config-key="navigation.safe_crossing_search_radius"]');
+    const detourCard = page.locator('[data-config-key="navigation.safe_crossing_detour_ratio"]');
+    await expect(radiusCard).toBeVisible();
+    await expect(radiusCard).toContainText('安全横断探索半径');
+    await expect(detourCard).toBeVisible();
+    await expect(detourCard).toContainText('安全横断迂回許容比');
+    await expect(page.locator('#config-input-navigation-safe_crossing_search_radius')).toBeEditable();
+    await expect(page.locator('#config-input-navigation-safe_crossing_detour_ratio')).toBeEditable();
+    await expect(radiusCard).not.toContainText('未対応');
+    await expect(detourCard).not.toContainText('未対応');
   });
 
   test('Config を編集して保存できる', async ({ page }) => {
