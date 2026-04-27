@@ -79,6 +79,26 @@ const CONFIG_PRESETS = {
       "voice.rate":                                1.2,
     },
   },
+  urban_precision: {
+    label: "高精度",
+    warning: "高精度モードは判定が厳しめです。GPS精度が悪い場所では到着判定が遅れる場合があります。",
+    values: {
+      "navigation.arrival_distance_m":             8,
+      "navigation.arrival_consecutive_count":      3,
+      "navigation.off_route_distance_m":           20,
+      "navigation.near_goal_off_route_distance_m": 12,
+      "navigation.near_goal_distance_m":           30,
+      "navigation.arrival_radius_min":             8,
+      "navigation.arrival_radius_max":             18,
+      "navigation.arrival_accuracy_multiplier":    0.6,
+      "navigation.near_arrival_distance":          12,
+      "navigation.final_reminder_distance":        4,
+      "navigation.safe_crossing_search_radius":    40,
+      "navigation.safe_crossing_detour_ratio":     1.3,
+      "voice.cooldown_ms":                         9000,
+      "voice.rate":                                1.1,
+    },
+  },
 };
 
 // ── グローバル状態 ─────────────────────────────────────
@@ -1420,12 +1440,15 @@ function _handleUndefinedKey(key, requiresBackend) {
 }
 
 // ── プリセット ─────────────────────────────────────────
+const _PRESET_EXTRA_CLASS = { fastest: "preset-btn-fastest", urban_precision: "preset-btn-urban_precision" };
+
 function initPresetBar() {
   const container = document.getElementById("preset-buttons");
   if (!container) return;
-  container.innerHTML = Object.entries(CONFIG_PRESETS).map(([key, preset]) =>
-    `<button class="preset-btn" id="preset-btn-${escAttr(key)}" onclick="applyPreset('${escAttr(key)}')">${escHtml(preset.label)}</button>`
-  ).join("");
+  container.innerHTML = Object.entries(CONFIG_PRESETS).map(([key, preset]) => {
+    const extra = _PRESET_EXTRA_CLASS[key] ? ` ${_PRESET_EXTRA_CLASS[key]}` : "";
+    return `<button class="preset-btn${extra}" id="preset-btn-${escAttr(key)}" onclick="applyPreset('${escAttr(key)}')">${escHtml(preset.label)}</button>`;
+  }).join("");
 }
 
 function detectCurrentPreset() {
@@ -1457,6 +1480,8 @@ function updatePresetIndicator() {
     indicator.innerHTML = `<span class="preset-current-label">現在: </span><span class="preset-badge preset-badge-custom">カスタム</span>`;
   } else if (presetKey === "fastest") {
     indicator.innerHTML = `<span class="preset-current-label">現在: </span><span class="preset-badge preset-badge-fastest">⚡ ${escHtml(preset.label)}</span>`;
+  } else if (presetKey === "urban_precision") {
+    indicator.innerHTML = `<span class="preset-current-label">現在: </span><span class="preset-badge preset-badge-urban">🏙 ${escHtml(preset.label)}</span>`;
   } else {
     indicator.innerHTML = `<span class="preset-current-label">現在: </span><span class="preset-badge preset-badge-matched">${escHtml(preset.label)}</span>`;
   }

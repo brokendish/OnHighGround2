@@ -607,10 +607,15 @@ table.dataset-table {
 .preset-badge-custom   { background: #f1f5f9; color: #64748b; }
 .preset-badge-loading  { background: #f1f5f9; color: #94a3b8; }
 .preset-badge-fastest  { background: #fff7ed; color: #c2410c; }
+.preset-badge-urban    { background: #ecfdf5; color: #065f46; }
 
 .preset-btn-fastest { border-color: #fed7aa; color: #c2410c; background: #fff7ed; }
 .preset-btn-fastest:hover  { border-color: #f97316; background: #fff7ed; color: #9a3412; }
 .preset-btn-fastest.active { border-color: #f97316; background: #ffedd5; color: #9a3412; }
+
+.preset-btn-urban_precision { border-color: #a7f3d0; color: #065f46; background: #ecfdf5; }
+.preset-btn-urban_precision:hover  { border-color: #10b981; background: #ecfdf5; color: #064e3b; }
+.preset-btn-urban_precision.active { border-color: #10b981; background: #d1fae5; color: #064e3b; }
 
 .preset-warning-bar {
   background: #fff7ed; border: 1px solid #fed7aa;
