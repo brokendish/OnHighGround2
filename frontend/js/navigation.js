@@ -63,7 +63,8 @@ let _lastSafeCrossingConfigSignature = null;
 let _lastSafeCrossingLogSignature = null;
 
 // ── 逸脱デバウンスタイマー ────────────────────────────────────────────────
-const NAV_OFF_ROUTE_DEBOUNCE_MS = 1000; // 1秒待って誤検知を防ぐ
+const NAV_OFF_ROUTE_DEBOUNCE_MS    = 1000; // 1秒待って誤検知を防ぐ
+const NAV_START_GRACE_PERIOD_MS    = 6000; // ナビ開始直後の逸脱判定抑制期間（ms）
 let _offRouteDebounceTimer = null;
 let _navNearArrival = false;
 let _navGpsUnstable = false;
@@ -1724,7 +1725,7 @@ function startNavigation() {
     navAutoRerouteCount           = 0;
     navAutoRerouteWindowStartedAt = 0;
     navLastAutoRerouteAt          = 0;
-    navOffRouteSkipUntilMs        = 0;
+    navOffRouteSkipUntilMs        = Date.now() + NAV_START_GRACE_PERIOD_MS;
     // コンパス初期化（iOS はユーザー操作後でないと許可ダイアログが出ないためここで呼ぶ）
     if (typeof initOrientation === 'function') initOrientation();
     // 開始地点の標高を取得
