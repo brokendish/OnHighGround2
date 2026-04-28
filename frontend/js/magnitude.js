@@ -55,6 +55,7 @@
             _highlightTimers.push(t);
         } else {
             el.style.display = 'none';
+            el.textContent = '';
         }
     }
 
@@ -177,7 +178,10 @@
         _clearHighlightTimers();
 
         const newCount = document.getElementById('magnitude-new-count');
-        if (newCount) newCount.style.display = 'none';
+        if (newCount) {
+            newCount.style.display = 'none';
+            newCount.textContent = '';
+        }
 
         if (typeof clearEarthquakePins === 'function') clearEarthquakePins();
         if (typeof clearEarthquakeList === 'function') clearEarthquakeList();
