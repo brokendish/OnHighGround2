@@ -13,7 +13,7 @@ const NAV_OFF_ROUTE_M      = 15;    // 通常時の逸脱候補しきい値（�
 const NAV_OFF_ROUTE_NEAR_GOAL_M = 18; // 目的地近傍の逸脱候補しきい値（メートル）
 const NAV_NEAR_GOAL_M      = 15;    // 目的地近傍とみなす距離（メートル）
 const NAV_MAX_GPS_ACCURACY_M   = 50; // これ以上の誤差なら逸脱判定を保留
-const NAV_CONSECUTIVE      = 3;     // 連続 N 回外れたら warning
+const NAV_CONSECUTIVE      = 2;     // 連続 N 回外れたら warning
 const NAV_ARRIVAL_M        = 12;    // 到達判定しきい値（メートル）
 const NAV_ARRIVAL_CONSECUTIVE = 2;  // 到達判定に必要な連続成立回数
 const NAV_NEAR_ARRIVAL_M   = 20;    // まもなく到着表示を出す距離
@@ -23,12 +23,12 @@ const NAV_ARRIVAL_ACCURACY_FACTOR = 0.8;
 const NAV_GPS_STALL_DISTANCE_EPS_M = 1;
 const NAV_GPS_STALL_DURATION_MS = 5000;
 const NAV_GPS_STALL_NEAR_GOAL_M = 30;
-const NAV_MIN_DELTA_M      = 8;     // 移動量がこれ以下なら更新スキップ
+const NAV_MIN_DELTA_M      = 3;     // 移動量がこれ以下なら地図UI更新スキップ（逸脱判定・ステップ同期は除外）
 const NAV_LOW_ACCURACY_M   = 50;    // GPS 精度がこれ以上なら精度警告
 const NAV_REROUTE_COOLDOWN = 10000; // 再ルート連打防止（ms）
 
 // ── オート再ルート定数 ─────────────────────────────────────────────────────
-const NAV_AUTO_REROUTE_COOLDOWN_MS = 15000; // クールダウン（ms、デフォルト15秒）
+const NAV_AUTO_REROUTE_COOLDOWN_MS = 8000;  // クールダウン（ms、デフォルト8秒）
 const NAV_AUTO_REROUTE_ACCURACY_M  = 50;    // 精度ガード（50m以内なら実行）
 const NAV_AUTO_REROUTE_MAX_COUNT   = 5;     // ウィンドウ内最大回数
 const NAV_AUTO_REROUTE_WINDOW_MS   = 180000;// 回数カウントウィンドウ（ms）
@@ -63,7 +63,7 @@ let _lastSafeCrossingConfigSignature = null;
 let _lastSafeCrossingLogSignature = null;
 
 // ── 逸脱デバウンスタイマー ────────────────────────────────────────────────
-const NAV_OFF_ROUTE_DEBOUNCE_MS = 3000; // 3秒待って誤検知を防ぐ
+const NAV_OFF_ROUTE_DEBOUNCE_MS = 1000; // 1秒待って誤検知を防ぐ
 let _offRouteDebounceTimer = null;
 let _navNearArrival = false;
 let _navGpsUnstable = false;
@@ -2040,28 +2040,39 @@ function _onNavPosition(position) {
         nearGoal = distToGoal <= _getNearGoalDistanceM();
     }
 
-    // 微小移動は無視（到着判定の後でフィルタ）
+    // 微小移動フィルタ: 地図描画・重いUI更新は間引くが逸脱判定・ステップ同期は常に実行
+    let _doFullUpdate = true;
     if (currentLocation) {
         const moved = _navHaversine(currentLocation.lat, currentLocation.lon, lat, lon);
-        if (moved < NAV_MIN_DELTA_M && !_navNearArrival && !_navGpsUnstable) return;
+        console.log(`[gps] lat=${lat.toFixed(6)} lon=${lon.toFixed(6)} ts=${new Date().toISOString()} moved=${moved.toFixed(1)}m accuracy=${accuracy.toFixed(1)}m`);
+        if (moved < NAV_MIN_DELTA_M && !_navNearArrival && !_navGpsUnstable) {
+            console.log(`[gps] skip-ui moved=${moved.toFixed(1)}m < min_delta=${NAV_MIN_DELTA_M}m nearArrival=${_navNearArrival} gpsUnstable=${_navGpsUnstable}`);
+            _doFullUpdate = false;
+        }
+    } else {
+        console.log(`[gps] lat=${lat.toFixed(6)} lon=${lon.toFixed(6)} ts=${new Date().toISOString()} accuracy=${accuracy.toFixed(1)}m first_fix`);
     }
 
-    _updateNavMarker(lat, lon, accuracy, heading);
+    if (_doFullUpdate) {
+        _updateNavMarker(lat, lon, accuracy, heading);
+    }
 
     // 精度表示（1秒スロットル・テキスト差し替えのみ）
-    const _nowAcc = Date.now();
-    if (_nowAcc - _statusBarLastUpdateAt >= NAV_STATUS_BAR_THROTTLE) {
-        _statusBarLastUpdateAt = _nowAcc;
-        const _accEl = document.getElementById('mbc-current-accuracy');
-        if (_accEl) {
-            const _accLabel = _fmtAccuracy(accuracy);
-            const _newText = _accLabel ? `精度${_accLabel}` : '—';
-            if (_accEl.textContent !== _newText) _accEl.textContent = _newText;
+    if (_doFullUpdate) {
+        const _nowAcc = Date.now();
+        if (_nowAcc - _statusBarLastUpdateAt >= NAV_STATUS_BAR_THROTTLE) {
+            _statusBarLastUpdateAt = _nowAcc;
+            const _accEl = document.getElementById('mbc-current-accuracy');
+            if (_accEl) {
+                const _accLabel = _fmtAccuracy(accuracy);
+                const _newText = _accLabel ? `精度${_accLabel}` : '—';
+                if (_accEl.textContent !== _newText) _accEl.textContent = _newText;
+            }
         }
-    }
 
-    if (navIsAutoFollow) {
-        map.setView([lat, lon], map.getZoom());
+        if (navIsAutoFollow) {
+            map.setView([lat, lon], map.getZoom());
+        }
     }
 
     // 音声優先順位用コンテキスト: 横断案内をターン案内より優先する
@@ -2087,8 +2098,8 @@ function _onNavPosition(position) {
     const offsetEl    = document.getElementById('mbc-offset-status');
 
     // 現在標高更新（NAV_ELEV_UPDATE_M 以上移動した場合のみAPIを叩く）
-    if (!navLastElevFetchPos ||
-        _navHaversine(navLastElevFetchPos.lat, navLastElevFetchPos.lon, lat, lon) >= NAV_ELEV_UPDATE_M) {
+    if (_doFullUpdate && (!navLastElevFetchPos ||
+            _navHaversine(navLastElevFetchPos.lat, navLastElevFetchPos.lon, lat, lon) >= NAV_ELEV_UPDATE_M)) {
         navLastElevFetchPos = { lat, lon };
         _fetchElevation(lat, lon).then(elev => {
             if (elev === null) return;
@@ -2099,14 +2110,14 @@ function _onNavPosition(position) {
     }
 
     // 現在地ハザード更新（NAV_HAZARD_UPDATE_M 以上移動した場合のみAPIを叩く）
-    if (!navLastHazardFetchPos ||
-        _navHaversine(navLastHazardFetchPos.lat, navLastHazardFetchPos.lon, lat, lon) >= NAV_HAZARD_UPDATE_M) {
+    if (_doFullUpdate && (!navLastHazardFetchPos ||
+            _navHaversine(navLastHazardFetchPos.lat, navLastHazardFetchPos.lon, lat, lon) >= NAV_HAZARD_UPDATE_M)) {
         navLastHazardFetchPos = { lat, lon };
         _checkCurrentHazard(lat, lon);
     }
 
     // GPS 精度警告（バナー表示のみ、逸脱判定はスキップしない）
-    if (accuracy > NAV_LOW_ACCURACY_M) {
+    if (_doFullUpdate && accuracy > NAV_LOW_ACCURACY_M) {
         _showNavBanner('⚠ 位置情報の精度が低下しています（±' + Math.round(accuracy) + 'm）', 'warning');
     }
 
@@ -2122,6 +2133,7 @@ function _onNavPosition(position) {
         nearGoal = distToGoal !== null && distToGoal <= _getNearGoalDistanceM();
         const offRouteThresholdM = _getOffRouteThresholdM(nearGoal);
         const offRoute = offsetM >= offRouteThresholdM;
+        console.log(`[off-route] dist=${offsetM.toFixed(1)} threshold=${offRouteThresholdM} accuracy=${accuracy.toFixed(1)} effective_threshold=${offRouteThresholdM} off_route=${offRoute} count=${navOffRouteCount} nearGoal=${nearGoal}`);
         _navDebugLog(
             `off_route_distance=${offsetM.toFixed(1)}m threshold=${offRouteThresholdM}m ` +
             `near_goal=${nearGoal} off_route=${offRoute} accuracy=${accuracy.toFixed(1)}m`,
@@ -2142,6 +2154,7 @@ function _onNavPosition(position) {
                 }, { lat, lon });
             }
             navOffRouteCount++;
+            console.log(`[off-route] off_route=true count=${navOffRouteCount} required=${NAV_CONSECUTIVE}`);
             // ① 連続 N 回カウント判定（即時 warning 遷移用）
             if (navOffRouteCount >= NAV_CONSECUTIVE) {
                 if (navigationMode === 'navigation_active') {
@@ -2154,6 +2167,7 @@ function _onNavPosition(position) {
             }
             // ② デバウンス方式：3秒後もまだ逸脱していたら再ルートを実行
             if (offsetM >= offRouteThresholdM && _offRouteDebounceTimer === null) {
+                console.log(`[reroute] debounce_start debounce=${NAV_OFF_ROUTE_DEBOUNCE_MS}ms count=${navOffRouteCount}`);
                 const _capturedAccuracy = accuracy;
                 const _capturedNearGoal = nearGoal;
                 _offRouteDebounceTimer = setTimeout(() => {
@@ -2161,10 +2175,13 @@ function _onNavPosition(position) {
                     // 到着確定前なら目的地近傍でも再ルートを許可する
                     if (navOffRouteCount >= NAV_CONSECUTIVE &&
                             !navHasArrived && !navRerouteInProgress && !navAutoRerouteInProgress) {
+                        console.log(`[reroute] start reason=off_route count=${navOffRouteCount} nearGoal=${_capturedNearGoal}`);
                         _tryAutoReroute(_capturedAccuracy, {
                             reason: 'off_route',
                             nearGoal: _capturedNearGoal
                         });
+                    } else {
+                        console.log(`[reroute] debounce_skip count=${navOffRouteCount} required=${NAV_CONSECUTIVE} arrived=${navHasArrived} rerouting=${navRerouteInProgress} autoRerouting=${navAutoRerouteInProgress}`);
                     }
                 }, NAV_OFF_ROUTE_DEBOUNCE_MS);
             }
@@ -2186,22 +2203,31 @@ function _onNavPosition(position) {
                 }
             }
         }
+    } else if (navActiveRoute && !navHasArrived && routeResult != null) {
+        const _cooldownRemMs = Math.max(0, navOffRouteSkipUntilMs - Date.now());
+        console.log(`[off-route] guard rerouting=${navRerouteInProgress} autoRerouting=${navAutoRerouteInProgress} arrived=${navHasArrived} cooldown_remain=${_cooldownRemMs}ms`);
     }
 
 }
 
 // ── Phase 4-A: オート再ルート判定 ────────────────────────────────────────
 function _tryAutoReroute(accuracy, context = {}) {
-    if (!navAutoRerouteEnabled) return;
+    if (!navAutoRerouteEnabled) {
+        console.log('[reroute] skip reason=disabled');
+        return;
+    }
     if (navHasArrived) {
+        console.log('[reroute] skip reason=arrived');
         _navDebugLog('reroute:skip reason=arrived');
         return;
     }
     if (navAutoRerouteSuspended) {
+        console.log('[reroute] skip reason=suspended');
         _navDebugLog('reroute:skip reason=suspended');
         return;
     }
     if (navAutoRerouteInProgress || navRerouteInProgress) {
+        console.log(`[reroute] skip reason=in_progress autoRerouting=${navAutoRerouteInProgress} rerouting=${navRerouteInProgress}`);
         _navDebugLog('reroute:skip reason=in_progress');
         return;
     }
@@ -2210,11 +2236,15 @@ function _tryAutoReroute(accuracy, context = {}) {
 
     // クールダウン（config から取得、デフォルト15秒）
     if (now - navLastAutoRerouteAt < _getAutoRerouteCooldownMs()) {
+        const _cdRemMs = _getAutoRerouteCooldownMs() - (now - navLastAutoRerouteAt);
+        const _lastAt  = navLastAutoRerouteAt ? new Date(navLastAutoRerouteAt).toISOString() : 'never';
+        console.log(`[reroute] skip reason=cooldown remain=${Math.round(_cdRemMs / 1000)}s last=${_lastAt}`);
         _navDebugLog('reroute:skip reason=cooldown');
         return;
     }
 
     if (!navDestination) {
+        console.log('[reroute] skip reason=no_destination');
         _navDebugLog('reroute:skip reason=no_destination');
         return;
     }
