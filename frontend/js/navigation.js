@@ -1683,7 +1683,8 @@ function _updateRemainingDistanceDisplay(lat, lon, accuracy = 0) {
         const offRouteThresholdM = _getOffRouteThresholdM(isNearGoal);
         if (accuracy > NAV_MAX_GPS_ACCURACY_M) {
             offsetEl.textContent = '';
-        } else if (routeResult.routeOffsetMeters >= offRouteThresholdM) {
+        } else if (routeResult.routeOffsetMeters >= offRouteThresholdM
+                && navigationMode === 'navigation_warning') {
             offsetEl.textContent = '| 再ルートが必要です';
         } else {
             offsetEl.textContent = '';
