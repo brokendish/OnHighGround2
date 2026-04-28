@@ -4,7 +4,8 @@
  * 依存: Leaflet (map グローバル変数)
  */
 (function () {
-    const _pins = [];
+    const _pins  = [];
+    const _rings = []; // 新着ピンの外周リングマーカー
 
     function _escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -73,14 +74,18 @@
     window.clearEarthquakePins = function () {
         _pins.forEach(m => map.removeLayer(m));
         _pins.length = 0;
+        _rings.forEach(m => map.removeLayer(m));
+        _rings.length = 0;
     };
 
-    window.renderEarthquakePins = function (quakes, userPos) {
+    window.renderEarthquakePins = function (quakes, userPos, newEventIds = new Set()) {
         clearEarthquakePins();
         quakes.forEach(q => {
             if (q.lat == null || q.lng == null) return;
             const color  = _pinColor(q.occurred_at);
             const radius = _pinRadius(q.magnitude);
+            const isNew  = newEventIds.has(String(q.event_id));
+
             const marker = L.circleMarker([q.lat, q.lng], {
                 radius,
                 color: '#fff',
@@ -91,6 +96,19 @@
             marker.bindPopup(_popupHtml(q, userPos));
             marker._quakeId = String(q.event_id);
             _pins.push(marker);
+
+            // 新着ピンに外周パルスリングを追加
+            if (isNew) {
+                const ring = L.circleMarker([q.lat, q.lng], {
+                    radius: radius + 6,
+                    className: 'magnitude-ring-new',
+                    fill: false,
+                    color: '#ff5a3c',
+                    weight: 3,
+                    interactive: false,
+                }).addTo(map);
+                _rings.push(ring);
+            }
         });
     };
 
@@ -100,5 +118,13 @@
             map.setView(pin.getLatLng(), 8, { animate: true });
             pin.openPopup();
         }
+    };
+
+    // 新着ハイライト（リングとリストバッジ）を解除する
+    window.clearNewHighlights = function () {
+        _rings.forEach(m => map.removeLayer(m));
+        _rings.length = 0;
+        document.querySelectorAll('.mq-item-new').forEach(el => el.classList.remove('mq-item-new'));
+        document.querySelectorAll('.mq-new-badge').forEach(el => el.remove());
     };
 })();

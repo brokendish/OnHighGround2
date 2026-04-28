@@ -1751,6 +1751,55 @@
             border-bottom: 1px solid rgba(0,0,0,0.06);
             display: none;
         }
+        /* 新着件数バナー */
+        .mq-new-count {
+            font-size: 12px;
+            font-weight: 700;
+            color: #fff;
+            background: #ff5a3c;
+            padding: 5px 14px;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+            display: none;
+        }
+        /* NEWバッジ */
+        .mq-new-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 999px;
+            margin-right: 4px;
+            background: #ff5a3c;
+            color: #fff;
+            vertical-align: middle;
+            flex-shrink: 0;
+        }
+        .mq-item-new {
+            border-left: 3px solid #ff5a3c;
+            background: rgba(255, 90, 60, 0.07);
+        }
+        /* 更新ボタン */
+        #magnitude-refresh-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #555;
+            font-size: 16px;
+            line-height: 1;
+            padding: 0 6px;
+            margin-left: auto;
+            transition: color 0.15s;
+        }
+        #magnitude-refresh-btn:hover { color: #1565c0; }
+        #magnitude-refresh-btn:disabled { color: #ccc; cursor: not-allowed; }
+        /* 新着ピンの外周パルスリング（Leaflet CircleMarker の SVG path に適用） */
+        .magnitude-ring-new {
+            animation: magnitude-ring-pulse 1.5s ease-out infinite;
+        }
+        @keyframes magnitude-ring-pulse {
+            0%   { stroke-opacity: 0.85; stroke-width: 3; }
+            100% { stroke-opacity: 0;    stroke-width: 18; }
+        }
 
         /* ── 右上コントロール群 ──────────────────────────────── */
         #map-top-right-controls {
@@ -2825,9 +2874,11 @@
                 <div id="magnitude-panel">
                     <div id="magnitude-panel-header">
                         <span class="mq-title">地震情報</span>
+                        <button id="magnitude-refresh-btn" title="更新" onclick="magnitudeReload()">↻</button>
                         <button id="magnitude-panel-close" title="閉じる" onclick="toggleMagnitudeMode()">×</button>
                     </div>
-                    <div id="magnitude-layer-note" class="mq-layer-note">Magnitudeモード中は、地図を見やすくするため避難所レイヤーを一時非表示にしています。</div>
+                    <div id="magnitude-new-count" class="mq-new-count"></div>
+                    <div id="magnitude-layer-note" class="mq-layer-note">避難所レイヤーを一時非表示中</div>
                     <div id="magnitude-list"></div>
                 </div>
 

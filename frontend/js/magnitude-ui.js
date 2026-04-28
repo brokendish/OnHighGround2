@@ -53,7 +53,7 @@
         return '';
     }
 
-    window.renderEarthquakeList = function (quakes, userPos) {
+    window.renderEarthquakeList = function (quakes, userPos, newEventIds = new Set()) {
         const panel = document.getElementById('magnitude-list');
         if (!panel) return;
 
@@ -63,18 +63,21 @@
         }
 
         const html = quakes.map(q => {
+            const isNew    = newEventIds.has(String(q.event_id));
             const ageClass = _ageClass(q.occurred_at);
+            const newClass = isNew ? ' mq-item-new' : '';
             const timeStr  = _formatDate(q.occurred_at) + _formatTime(q.occurred_at);
             const mag      = q.magnitude != null ? `M${q.magnitude.toFixed(1)}` : 'M—';
             const eventId  = _escapeHtml(q.event_id);
+            const badge    = isNew ? '<span class="mq-new-badge">NEW</span>' : '';
             let distHtml   = '';
             if (userPos && q.lat != null && q.lng != null) {
                 const d = _distanceKm(userPos.lat, userPos.lon, q.lat, q.lng);
                 distHtml = `<span class="mq-dist">約${Math.round(d)}km</span>`;
             }
-            return `<div class="mq-item ${ageClass}" data-event-id="${eventId}">
+            return `<div class="mq-item ${ageClass}${newClass}" data-event-id="${eventId}">
                 <div class="mq-main">
-                    <span class="mq-time">${_escapeHtml(timeStr)}</span>
+                    ${badge}<span class="mq-time">${_escapeHtml(timeStr)}</span>
                     <span class="mq-name">${_escapeHtml(q.epicenter_name)}</span>
                     <span class="mq-scale">震度${_escapeHtml(q.max_intensity || '不明')}</span>
                     <span class="mq-mag">${_escapeHtml(mag)}</span>
