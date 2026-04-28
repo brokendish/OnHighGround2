@@ -330,5 +330,18 @@
     "editable": true,
     "apply_mode": "reload",
     "ui_order": 30
+  },
+  {
+    "key": "earthquake.display_days",
+    "category": "earthquake",
+    "label": "地震情報表示日数",
+    "type": "integer",
+    "default_value": 1,
+    "description": "地震情報モードで表示する過去N日間のデータ取得日数です（1〜7日）。",
+    "min": 1,
+    "max": 7,
+    "editable": true,
+    "apply_mode": "live",
+    "ui_order": 100
   }
 ]

@@ -26,6 +26,7 @@ from app.api.admin_config import router as admin_config_router
 from app.api.admin_datasets import router as admin_datasets_router
 from app.api.admin_datasets import jobs_router as admin_jobs_router
 from app.api.layer_types_api import router as layer_types_router
+from app.api.earthquakes import router as earthquakes_router
 from app.services.job_manager import get_job_manager
 from app.services.admin_log_service import write_app_log
 from app.services.reverse_geocode_service import get_reverse_geocode_service
@@ -176,6 +177,7 @@ app.include_router(admin_config_router)
 app.include_router(admin_datasets_router)
 app.include_router(admin_jobs_router)
 app.include_router(layer_types_router)
+app.include_router(earthquakes_router)
 
 
 @app.on_event("startup")

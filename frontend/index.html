@@ -1663,6 +1663,95 @@
             transform: translateY(0);
         }
 
+        /* ── Magnitude モード ────────────────────────────────── */
+        #magnitude-panel {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 280px;
+            max-height: 50vh;
+            background: rgba(255, 255, 255, 0.97);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 0 16px 0 0;
+            box-shadow: 2px -2px 16px rgba(0, 0, 0, 0.15);
+            display: none;
+            flex-direction: column;
+            z-index: 900;
+            overflow: hidden;
+        }
+        #magnitude-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px 8px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            flex-shrink: 0;
+        }
+        #magnitude-panel-header .mq-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #333;
+        }
+        #magnitude-panel-close {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #888;
+            font-size: 18px;
+            line-height: 1;
+            padding: 0 2px;
+        }
+        #magnitude-list {
+            overflow-y: auto;
+            flex: 1;
+        }
+        .mq-item {
+            padding: 8px 14px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .mq-item:hover {
+            background: rgba(0, 0, 0, 0.04);
+        }
+        .mq-item--selected {
+            background: rgba(21, 101, 192, 0.10);
+            box-shadow: inset 3px 0 0 #1565c0;
+        }
+        .mq-item--1h { border-left: 3px solid #e53935; }
+        .mq-item--3h { border-left: 3px solid #f57c00; }
+        .mq-item--6h { border-left: 3px solid #f9a825; }
+        .mq-main {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            font-size: 12px;
+        }
+        .mq-time  { color: #888; font-size: 11px; flex-shrink: 0; }
+        .mq-name  { font-weight: 600; color: #222; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mq-scale { color: #c62828; font-weight: 700; flex-shrink: 0; }
+        .mq-mag   { color: #555; flex-shrink: 0; }
+        .mq-sub   { font-size: 11px; color: #777; margin-top: 2px; }
+        .mq-dist  { color: #1565c0; }
+        .mq-loading, .mq-empty, .mq-error {
+            padding: 20px 14px;
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+        }
+        .mq-error { color: #c62828; }
+        .mq-layer-note {
+            font-size: 11px;
+            color: #888;
+            line-height: 1.5;
+            padding: 6px 14px;
+            background: #f5f5f5;
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+            display: none;
+        }
+
         /* ── 右上コントロール群 ──────────────────────────────── */
         #map-top-right-controls {
             position: absolute;
@@ -2714,6 +2803,14 @@
                         <span>クリア</span>
                     </button>
 
+                    <!-- 地震情報（Magnitudeモード） -->
+                    <button id="magnitude-btn" class="map-overlay-btn" title="地震情報を表示" onclick="toggleMagnitudeMode()">
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
+                        </svg>
+                        <span>地震</span>
+                    </button>
+
                     <!-- 現在地（センタリング） -->
                     <button id="locate-map-btn" class="map-overlay-btn" title="現在地に移動">
                         <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -2723,6 +2820,16 @@
                     </button>
 
                 </div><!-- /#map-top-right-controls -->
+
+                <!-- 地震情報パネル（Magnitudeモード） -->
+                <div id="magnitude-panel">
+                    <div id="magnitude-panel-header">
+                        <span class="mq-title">地震情報</span>
+                        <button id="magnitude-panel-close" title="閉じる" onclick="toggleMagnitudeMode()">×</button>
+                    </div>
+                    <div id="magnitude-layer-note" class="mq-layer-note">Magnitudeモード中は、地図を見やすくするため避難所レイヤーを一時非表示にしています。</div>
+                    <div id="magnitude-list"></div>
+                </div>
 
                 <!-- 下部: 現在地 / 検索 / ナビ / スライダ -->
                 <div id="map-bottom-controls">
@@ -3062,6 +3169,10 @@
     <script src="js/boundary-layers.js"></script>
     <!-- 地図オーバーレイUI -->
     <script src="js/map-overlay-ui.js"></script>
+    <!-- Magnitudeモード（地震情報） -->
+    <script src="js/magnitude-layer.js"></script>
+    <script src="js/magnitude-ui.js"></script>
+    <script src="js/magnitude.js"></script>
     <script>
         (function() {
             // サイドバー折りたたみトグル

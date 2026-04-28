@@ -109,7 +109,8 @@ function _isBrowseZoomVisible() {
 // ── 地図上のレイヤー表示切り替え ──────────────────────────────────────────
 function _applyBrowseMapVisibility() {
     if (!_browseClusterGroup) return;
-    const shouldShow = isShelterBrowseLayerVisible && _isBrowseZoomVisible();
+    const magnitudeActive = typeof isMagnitudeModeActive === 'function' && isMagnitudeModeActive();
+    const shouldShow = isShelterBrowseLayerVisible && !magnitudeActive && _isBrowseZoomVisible();
     if (shouldShow && !map.hasLayer(_browseClusterGroup)) {
         _browseClusterGroup.addTo(map);
     } else if (!shouldShow && map.hasLayer(_browseClusterGroup)) {
@@ -250,6 +251,10 @@ async function _fetchAllBrowseShelters() {
 async function refreshShelterBrowseLayer() {
     if (!isShelterBrowseLayerVisible) return;
     if (!_browseClusterGroup) return;
+    if (typeof isMagnitudeModeActive === 'function' && isMagnitudeModeActive()) {
+        _applyBrowseMapVisibility();
+        return;
+    }
 
     if (_browseFetchState !== 'loaded') {
         const data = await _fetchAllBrowseShelters();
@@ -284,6 +289,21 @@ async function setShelterBrowseLayerVisible(visible) {
     }
     await refreshShelterBrowseLayer();
     if (typeof scheduleEmergencyShelterRefresh === 'function') scheduleEmergencyShelterRefresh();
+}
+
+function hideShelterBrowseLayerForMagnitude() {
+    if (_browseClusterGroup && map.hasLayer(_browseClusterGroup)) {
+        map.removeLayer(_browseClusterGroup);
+    }
+    _updateBrowseStatusSummary();
+}
+
+function restoreShelterBrowseLayerAfterMagnitude() {
+    if (!isShelterBrowseLayerVisible) return;
+    _applyBrowseMapVisibility();
+    if (_browseFetchState === 'idle' || _browseFetchState === 'error') {
+        refreshShelterBrowseLayer();
+    }
 }
 
 // ── 公開: 都道府県フィルター変更時の再描画 ───────────────────────────────

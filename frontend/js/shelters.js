@@ -47,6 +47,7 @@ function scheduleEmergencyShelterRefresh() {
 }
 
 async function refreshEmergencyShelters() {
+    if (typeof isMagnitudeModeActive === 'function' && isMagnitudeModeActive()) return;
     if (_shouldHideEmergencyShelterCandidatesForBrowse()) {
         clearEmergencyShelterMarkers();
         setShelterStatus('近傍避難候補は広域ブラウズ中のため zoom 14以上で表示されます。');
@@ -69,6 +70,7 @@ async function refreshEmergencyShelters() {
         if (!response.ok) {
             throw new Error(data.detail || `HTTP ${response.status}`);
         }
+        if (typeof isMagnitudeModeActive === 'function' && isMagnitudeModeActive()) return;
 
         clearEmergencyShelterMarkers();
         let reopenMarker = null;
