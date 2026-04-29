@@ -400,3 +400,36 @@ PASS / FAIL
 ## 修正が必要な点
 - なし / あり
 ```
+
+---
+
+# Magnitude Phase2-4 検証結果
+
+## 結果
+PASS
+
+## 確認内容
+- 初期表示: PASS（震度フィルタUI表示、初期状態は全件）
+- フィルタ基本: PASS（全件 / 震度3以上 / 震度4以上 / 震度5弱以上 がリストとピンに反映）
+- 震度表記: PASS（5弱/5強/6弱/6強/7 と 5-/5+/6-/6+ を判定、null/不明は条件付きで非表示）
+- フィルタ後0件: PASS（空表示、ピン0件）
+- ソート連携: PASS（フィルタ後の対象だけを新しい順/近い順で並べ替え）
+- 新着ハイライト連携: PASS（表示対象のNEWのみバッジ、新着件数もフィルタ後件数に同期）
+- API再取得後の状態維持: PASS（フィルタ/ソート状態を保持する構造を確認、e2eで再描画維持を検証）
+- Phase2-1回帰: PASS（避難所一時非表示ガード維持、smoke/geolocation回帰確認）
+- 連続操作: PASS（フィルタ/ソート切替時にリストとピンを再描画、増殖なし）
+- XSS確認: PASS（フィルタ切替後も epicenter_name は文字列としてescape表示）
+- 既存機能回帰: PASS（smoke/geolocation e2e 10件通過）
+
+## 発見した問題
+- あり: 新着件数表示が全件ベースで、フィルタ外のNEWも数える可能性があった。
+
+## 修正が必要な点
+- 対応済み: フィルタ後に表示されているNEW件数を `magnitude-new-count` に反映するよう修正。
+- 対応済み: Phase2-4 の e2e 回帰テストを追加。
+
+## 実行コマンド
+- `docker compose ps`: backend healthy、frontend/nginx 起動を確認
+- `curl -s "http://127.0.0.1:8080/api/earthquakes?days=1"`: HTTP 200、`items` 配列、`event_id` 存在を確認
+- `npx playwright test e2e/magnitude-intensity-filter.spec.js`: 6 passed
+- `npx playwright test e2e/magnitude-sort.spec.js e2e/smoke.spec.js e2e/geolocation.spec.js`: 16 passed

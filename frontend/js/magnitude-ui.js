@@ -177,17 +177,22 @@
 
     function _renderList() {
         const panel = document.getElementById('magnitude-list');
-        if (!panel) return;
+        if (!panel) return 0;
 
         _updateFilterBar();
         _updateSortBar(_lastUserPos);
 
         // フィルタ適用
         const filtered = _lastQuakes.filter(q => _passesFilter(q, _filterMode));
+        const visibleNewCount = filtered.filter(q => _lastNewIds.has(String(q.event_id))).length;
 
         // ピンを同期（フィルタ済みitemsで更新）
         if (typeof renderEarthquakePins === 'function') {
             renderEarthquakePins(filtered, _lastUserPos, _lastNewIds);
+        }
+
+        if (typeof updateMagnitudeNewCount === 'function') {
+            updateMagnitudeNewCount(visibleNewCount);
         }
 
         if (!filtered.length) {
@@ -195,7 +200,7 @@
                 ? '条件に一致する地震情報はありません。'
                 : '地震情報なし';
             panel.innerHTML = `<div class="mq-empty">${msg}</div>`;
-            return;
+            return visibleNewCount;
         }
 
         // 現在地なし時に近い順が残っていたらneweastに戻す
@@ -243,6 +248,8 @@
                 if (typeof focusEarthquakePin === 'function') focusEarthquakePin(id);
             });
         });
+
+        return visibleNewCount;
     }
 
     // ── 公開API ───────────────────────────────────────────────────────────────
@@ -250,7 +257,7 @@
         _lastQuakes  = quakes;
         _lastUserPos = userPos;
         _lastNewIds  = newEventIds;
-        _renderList();
+        return _renderList();
     };
 
     window.magnitudeSortSet = function (mode) {

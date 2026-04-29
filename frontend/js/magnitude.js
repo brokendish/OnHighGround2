@@ -45,14 +45,16 @@
         _highlightTimers = [];
     }
 
-    function _showNewCount(count) {
+    function _showNewCount(count, scheduleHide = true) {
         const el = document.getElementById('magnitude-new-count');
         if (!el) return;
         if (count > 0) {
             el.textContent = `新着地震 ${count}件`;
             el.style.display = 'block';
-            const t = setTimeout(() => { el.style.display = 'none'; }, 20000);
-            _highlightTimers.push(t);
+            if (scheduleHide) {
+                const t = setTimeout(() => { el.style.display = 'none'; }, 20000);
+                _highlightTimers.push(t);
+            }
         } else {
             el.style.display = 'none';
             el.textContent = '';
@@ -82,9 +84,11 @@
 
             _clearHighlightTimers();
 
-            if (typeof renderEarthquakeList === 'function') renderEarthquakeList(quakes, userPos, newIds);
+            const visibleNewCount = (typeof renderEarthquakeList === 'function')
+                ? renderEarthquakeList(quakes, userPos, newIds)
+                : newIds.size;
 
-            _showNewCount(newIds.size);
+            _showNewCount(Number.isFinite(visibleNewCount) ? visibleNewCount : newIds.size);
 
             // 60秒後にピンのハイライトリングを解除
             if (newIds.size > 0) {
@@ -201,5 +205,9 @@
     window.magnitudeReload = function () {
         if (!_active) return;
         _load();
+    };
+
+    window.updateMagnitudeNewCount = function (count) {
+        _showNewCount(count, false);
     };
 })();
