@@ -131,7 +131,7 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
     if cache_key in _WEATHER_CACHE:
         result, fetched_at = _WEATHER_CACHE[cache_key]
         if now - fetched_at < _WEATHER_TTL:
-            logger.debug(
+            logger.info(
                 "weather: cache hit lat=%.2f lon=%.2f station=%s distance_km=%s freshness=%s",
                 lat_q, lon_q, result.get("station"), result.get("distance_km"), result.get("freshness"),
             )

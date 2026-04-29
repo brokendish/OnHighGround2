@@ -8,7 +8,8 @@
  *
  * キャッシュ: 60 秒間は同一座標のリクエストを再発行しない。
  *
- * 追加表示:
+ * 表示項目:
+ *   雨量 / 風速 / 気温 / 観測点（距離km）/ 更新（HH:MM・X分前）
  *   station_quality=far  → 「観測点が遠い」ノーティス
  *   freshness=stale      → 「観測データが古い」ノーティス
  */
@@ -39,6 +40,25 @@ function _weatherFmt(value, unit, decimals = 1) {
     return `${Number(value).toFixed(decimals)} ${unit}`;
 }
 
+function _weatherFmtStation(station, distance_km) {
+    const name = station || '--';
+    if (distance_km == null) return name;
+    return `${name}（${distance_km}km）`;
+}
+
+function _weatherFmtTime(observed_at, age_minutes) {
+    if (!observed_at) return '--';
+    let timeStr = '--';
+    try {
+        const dt = new Date(observed_at);
+        timeStr = dt.toLocaleTimeString('ja-JP', {
+            hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo',
+        });
+    } catch (_) {}
+    if (age_minutes == null) return timeStr;
+    return `${timeStr}（${Math.round(age_minutes)}分前）`;
+}
+
 function _weatherRender(data) {
     const section = document.getElementById('lip-weather-section');
     if (!section) return;
@@ -52,7 +72,8 @@ function _weatherRender(data) {
     set('lip-weather-rain',    _weatherFmt(data.rain, 'mm/h'));
     set('lip-weather-wind',    _weatherFmt(data.wind, 'm/s'));
     set('lip-weather-temp',    _weatherFmt(data.temperature, '℃'));
-    set('lip-weather-station', data.station || '--');
+    set('lip-weather-station', _weatherFmtStation(data.station, data.distance_km));
+    set('lip-weather-time',    _weatherFmtTime(data.observed_at, data.age_minutes));
 
     _weatherRenderNotice(data);
 }

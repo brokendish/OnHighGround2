@@ -1579,9 +1579,9 @@ async function _checkCurrentHazard(lat, lon) {
 function _updateHazardRow(isDanger, assessment) {
     const el = document.getElementById('mbc-current-hazard');
     if (!el) return;
+    el.className = 'mbc-status-cell mbc-status-hazard';
     if (!isDanger) {
-        el.textContent = '✅ 安全';
-        el.className = 'mbc-status-cell mbc-status-hazard mbc-hazard-safe';
+        el.innerHTML = '<span class="mbc-hazard-safe">✅ 安全</span>';
         return;
     }
     const dangerLabels = [];
@@ -1595,8 +1595,7 @@ function _updateHazardRow(isDanger, assessment) {
         }
     }
     const labelText = dangerLabels.length > 0 ? dangerLabels.join('/') : '危険';
-    el.textContent = `⚠ ${labelText}`;
-    el.className = 'mbc-status-cell mbc-status-hazard mbc-hazard-danger';
+    el.innerHTML = `<span class="mbc-hazard-danger">⚠ ${labelText}</span>`;
 }
 
 // ── 距離フォーマット（ナビ用） ────────────────────────────────────────────
