@@ -95,6 +95,7 @@ function switchMbcTab(tab) {
 
     // 地震タブ以外では高さ拡張クラスを解除
     controls.classList.remove('mbc-earthquake-active');
+    controls.classList.remove('mbc-earthquake-expanded');
 
     if (tab === 'info') {
         panelInfo.style.display = 'block';
@@ -113,6 +114,9 @@ function switchMbcTab(tab) {
         if (btnEarthquake)   btnEarthquake.classList.add('mbc-tab-btn--active');
         controls.classList.remove('mbc-collapsed');
         controls.classList.add('mbc-earthquake-active');
+        // 地震タブ表示時はヒントを通常状態に戻す
+        const expandHint = document.getElementById('mbc-expand-hint');
+        if (expandHint) expandHint.textContent = '一覧を広げる';
         // 地震モードが未起動なら起動する
         if (typeof isMagnitudeModeActive === 'function' && !isMagnitudeModeActive()) {
             if (typeof toggleMagnitudeMode === 'function') toggleMagnitudeMode();

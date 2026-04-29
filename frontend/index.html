@@ -1666,9 +1666,25 @@
         /* ── Magnitude モード（地震タブ） ───────────────────── */
         /* 地震タブ展開時にパネルを大きくする */
         #map-bottom-controls.mbc-earthquake-active #map-bottom-body {
-            height: 45vh;
-            max-height: 45vh;
+            height: min(46dvh, 420px);
+            max-height: min(46dvh, 420px);
             min-height: 0;
+            transition: height 0.22s ease, max-height 0.22s ease;
+        }
+        /* さらに拡張した状態 */
+        #map-bottom-controls.mbc-earthquake-active.mbc-earthquake-expanded #map-bottom-body {
+            height: min(84dvh, 760px);
+            max-height: min(84dvh, 760px);
+        }
+        /* 拡張ヒントテキスト */
+        .mbc-expand-hint {
+            display: none;
+            font-size: 10px;
+            color: rgba(0, 0, 0, 0.4);
+            margin-top: 1px;
+        }
+        #map-bottom-controls.mbc-earthquake-active .mbc-expand-hint {
+            display: block;
         }
         /* タブパネル本体 */
         #mbc-tab-panel-earthquake {
@@ -2215,6 +2231,19 @@
             font-size: 12px;
             color: #222;
             text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7);
+        }
+        .legend-section-sep {
+            border: none;
+            border-top: 1px solid rgba(0,0,0,0.1);
+            margin: 8px 0 6px;
+        }
+        .legend-section-title {
+            font-size: 10px;
+            font-weight: 700;
+            color: rgba(0,0,0,0.45);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            margin-bottom: 2px;
         }
 
         /* レイヤーパネル内 凡例 */
@@ -2983,6 +3012,7 @@
                         <svg class="mbc-handle-chevron" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
                         </svg>
+                        <span class="mbc-expand-hint" id="mbc-expand-hint">一覧を広げる</span>
                     </div>
                     <!-- コンテンツ（折りたたみ対象） -->
                     <div id="map-bottom-body">

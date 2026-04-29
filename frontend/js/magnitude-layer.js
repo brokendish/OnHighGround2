@@ -45,14 +45,21 @@
         return Number.isFinite(Number(q?.lat)) && Number.isFinite(Number(q?.lng));
     }
 
-    function _pinColor(occurredAt) {
-        if (!occurredAt) return '#757575';
-        const elapsed = Date.now() - new Date(occurredAt).getTime();
-        const h = elapsed / 3600000;
-        if (h < 1) return '#e53935'; // 赤（1時間以内）
-        if (h < 3) return '#f57c00'; // 橙（3時間以内）
-        if (h < 6) return '#f9a825'; // 黄（6時間以内）
-        return '#757575';             // 灰
+    // 震度ベースの色分け（気象庁カラーに準拠）
+    const _INTENSITY_COLORS = {
+        '1':   '#3c9be8',  // 青
+        '2':   '#39c468',  // 緑
+        '3':   '#f9c74f',  // 黄
+        '4':   '#f8961e',  // 橙
+        '5弱': '#f3722c',  // 濃橙
+        '5強': '#e53935',  // 赤
+        '6弱': '#b71c1c',  // 濃赤
+        '6強': '#880e4f',  // 赤紫
+        '7':   '#4a148c',  // 紫
+    };
+
+    function _pinColor(maxIntensity) {
+        return _INTENSITY_COLORS[maxIntensity] || '#9e9e9e'; // 不明=灰
     }
 
     function _pinRadius(magnitude) {
@@ -100,7 +107,7 @@
         clearEarthquakePins();
         quakes.forEach(q => {
             if (!_hasUsableQuakeLocation(q)) return;
-            const color  = _pinColor(q.occurred_at);
+            const color  = _pinColor(q.max_intensity);
             const radius = _pinRadius(q.magnitude);
             const isNew  = newEventIds.has(String(q.event_id));
 
@@ -113,6 +120,11 @@
             }).addTo(map);
             marker.bindPopup(_popupHtml(q, userPos));
             marker._quakeId = String(q.event_id);
+            marker.on('click', () => {
+                if (typeof selectEarthquakeListItem === 'function') {
+                    selectEarthquakeListItem(q.event_id);
+                }
+            });
             _pins.push(marker);
 
             // 新着ピンに外周パルスリングを追加

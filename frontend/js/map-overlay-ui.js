@@ -165,12 +165,46 @@ function bindBottomPanelToggle() {
     const controls = document.getElementById('map-bottom-controls');
     if (!handle || !controls) return;
 
+    function _isEarthquakeMode() {
+        return controls.classList.contains('mbc-earthquake-active');
+    }
+
+    // 地震モードの3段階: 'collapsed' | 'normal' | 'expanded'
+    function _getEqState() {
+        if (controls.classList.contains('mbc-collapsed')) return 'collapsed';
+        if (controls.classList.contains('mbc-earthquake-expanded')) return 'expanded';
+        return 'normal';
+    }
+
+    function _setEqState(state) {
+        controls.classList.remove('mbc-collapsed');
+        controls.classList.remove('mbc-earthquake-expanded');
+        if (state === 'collapsed') controls.classList.add('mbc-collapsed');
+        else if (state === 'expanded') controls.classList.add('mbc-earthquake-expanded');
+        _updateExpandHint();
+    }
+
+    function _updateExpandHint() {
+        const hint = document.getElementById('mbc-expand-hint');
+        if (!hint) return;
+        const labels = { collapsed: '一覧を開く', normal: '一覧を広げる', expanded: '一覧を縮める' };
+        hint.textContent = labels[_getEqState()] || '';
+    }
+
     // クリック（デスクトップ / 短タップ）
+    // 地震モード: collapsed → normal → expanded → collapsed のサイクル
     handle.addEventListener('click', () => {
-        controls.classList.toggle('mbc-collapsed');
+        if (_isEarthquakeMode()) {
+            const state = _getEqState();
+            if (state === 'collapsed') _setEqState('normal');
+            else if (state === 'normal')   _setEqState('expanded');
+            else                           _setEqState('collapsed');
+        } else {
+            controls.classList.toggle('mbc-collapsed');
+        }
     });
 
-    // スワイプジェスチャー（上 = 展開、下 = 折りたたみ）
+    // スワイプジェスチャー（上 = 拡張方向、下 = 縮小方向）
     const SWIPE_THRESHOLD = 50; // px
     let touchStartY = null;
 
@@ -186,12 +220,23 @@ function bindBottomPanelToggle() {
         if (touchStartY === null) return;
         const dy = touchStartY - e.changedTouches[0].clientY;
         if (Math.abs(dy) >= SWIPE_THRESHOLD) {
-            if (dy > 0) {
-                // 上スワイプ → 展開
-                controls.classList.remove('mbc-collapsed');
+            if (_isEarthquakeMode()) {
+                const state = _getEqState();
+                if (dy > 0) {
+                    // 上スワイプ → より大きく
+                    if (state === 'collapsed') _setEqState('normal');
+                    else if (state === 'normal') _setEqState('expanded');
+                } else {
+                    // 下スワイプ → より小さく
+                    if (state === 'expanded') _setEqState('normal');
+                    else if (state === 'normal') _setEqState('collapsed');
+                }
             } else {
-                // 下スワイプ → 折りたたみ
-                controls.classList.add('mbc-collapsed');
+                if (dy > 0) {
+                    controls.classList.remove('mbc-collapsed');
+                } else {
+                    controls.classList.add('mbc-collapsed');
+                }
             }
         }
         touchStartY = null;
@@ -679,6 +724,31 @@ function buildLegendPanel() {
         const clone = src.cloneNode(true);
         panel.appendChild(clone);
     }
+
+    // 地震震度凡例セクションを追加
+    const intensityEntries = [
+        ['#3c9be8', '震度1'],
+        ['#39c468', '震度2'],
+        ['#f9c74f', '震度3'],
+        ['#f8961e', '震度4'],
+        ['#f3722c', '震度5弱'],
+        ['#e53935', '震度5強'],
+        ['#b71c1c', '震度6弱'],
+        ['#880e4f', '震度6強'],
+        ['#4a148c', '震度7'],
+        ['#9e9e9e', '震度不明'],
+    ];
+    const eqSection = document.createElement('div');
+    eqSection.innerHTML = `
+        <hr class="legend-section-sep">
+        <div class="legend-section-title">地震マーカー（震度）</div>
+        ${intensityEntries.map(([color, label]) => `
+            <div class="legend-item">
+                <div class="legend-color" style="background:${color};"></div>
+                <span>${label}</span>
+            </div>`).join('')}
+    `;
+    panel.appendChild(eqSection);
 }
 
 // ── レイヤーパネル トグル ─────────────────────────────────────────────────

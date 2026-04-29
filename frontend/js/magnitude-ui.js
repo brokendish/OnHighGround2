@@ -282,4 +282,18 @@
         if (filterBar) filterBar.innerHTML = '';
     };
 
+    // マーカークリック → リストアイテム選択 + スクロール
+    window.selectEarthquakeListItem = function (eventId) {
+        const panel = document.getElementById('magnitude-list');
+        if (!panel) return;
+        panel.querySelectorAll('.mq-item--selected').forEach(el => {
+            el.classList.remove('mq-item--selected');
+        });
+        const target = panel.querySelector(`.mq-item[data-event-id="${CSS.escape(String(eventId))}"]`);
+        if (target) {
+            target.classList.add('mq-item--selected');
+            target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    };
+
 })();
