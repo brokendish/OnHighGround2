@@ -27,6 +27,9 @@ from app.api.admin_datasets import router as admin_datasets_router
 from app.api.admin_datasets import jobs_router as admin_jobs_router
 from app.api.layer_types_api import router as layer_types_router
 from app.api.earthquakes import router as earthquakes_router
+from app.api.earthquakes_stream import router as earthquakes_stream_router
+from app.api.earthquakes_stream import dev_router as earthquakes_dev_router
+from app.services.earthquake_realtime_service import get_realtime_service
 from app.services.job_manager import get_job_manager
 from app.services.admin_log_service import write_app_log
 from app.services.reverse_geocode_service import get_reverse_geocode_service
@@ -178,16 +181,22 @@ app.include_router(admin_datasets_router)
 app.include_router(admin_jobs_router)
 app.include_router(layer_types_router)
 app.include_router(earthquakes_router)
+app.include_router(earthquakes_stream_router)
+app.include_router(earthquakes_dev_router)
 
 
 @app.on_event("startup")
 async def _startup():
-    """起動時: queued/running のまま残った古いジョブを failed にリセットする。"""
+    """起動時: ジョブリセット + 地震リアルタイムサービス起動。"""
     try:
         write_app_log("backend startup")
     except Exception:
         pass
     get_job_manager().cleanup_stale_running()
+    try:
+        get_realtime_service().start()
+    except Exception as exc:
+        logger.error("EarthquakeRealtimeService start failed (non-fatal): %s", exc)
 
 
 @app.on_event("shutdown")
@@ -212,6 +221,10 @@ async def _shutdown():
         os.getpid(),
         _sys.version.split()[0],
     )
+    try:
+        await get_realtime_service().stop()
+    except Exception as exc:
+        logger.warning("EarthquakeRealtimeService stop failed: %s", exc)
     try:
         write_app_log("backend shutdown", level="WARNING")
     except Exception:

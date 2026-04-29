@@ -198,3 +198,46 @@ PASS / FAIL
 ## 修正内容
 - なし / あり
 ```
+
+---
+
+# Magnitude Phase3-2B 検証結果
+
+## 結果
+PASS
+
+## 確認内容
+- WSサービス起動: PASS（backend startupで `EarthquakeRealtimeService started`、`P2P WS connecting`、`P2P WS connected` を確認）
+- モック受信: PASS（`code=551` JSONを `P2PWebSocketClient._handle_message()` に流し、EarthquakeEvent形式のcallback呼び出しを確認）
+- 正規化: PASS（震源名、発生時刻JST ISO8601、lat/lng、深さ、M、最大震度、津波情報、`source=p2p_ws` を単体テストで確認）
+- 座標なし: PASS（P2Pの `latitude=-200` / `longitude=-200` は `lat/lng=null`、リスト表示可能なイベントとして正規化）
+- 重複排除: PASS（backend realtime serviceが同じ `event_id` を2回目以降publishせず、`duplicate skipped` ログを出すことを確認）
+- ポーリング重複: PASS（REST取得済みと同じ外部IDのWS/SSEイベントは同じ `event_id` でupsertされ、リスト/NEWが増殖しない）
+- 実P2P疎通: PASS（`wss://api.p2pquake.net/v2/ws` へ接続成功。検証中に実地震受信はなかったため受信はモックで代替）
+- frontend回帰: PASS（SSE反映、NEW、震度フィルタ、距離ソート、ポーリング回帰e2eが通過）
+- 異常系: PASS（不正JSON、未知code、正規化不能をskipし、backendは継続）
+
+## 発見した問題
+- あり: WS側event_idが `p2p-ws-{外部ID}`、REST側event_idが `{外部ID}` になっており、同じP2P地震がポーリングとWSで重複表示される余地があった。
+- あり: `duplicate skipped`、未知code、不正JSONのログがdebug中心で、通常ログレベルでは検証しづらかった。
+
+## 修正内容
+- あり: 外部IDがあるWSイベントはREST APIと同じ `event_id` を使うよう修正し、`source=p2p_ws` で由来を区別。
+- あり: backend重複排除ログをINFOへ引き上げ、不正JSONはWARNING、未知code/受信ログはINFOで記録。
+- あり: `tests/test_earthquake_source_p2p_ws.py` を追加し、正規化・座標なし・fingerprint・不正JSON・未知codeを検証。
+- あり: `tests/test_earthquake_realtime_service.py` を追加し、publish、重複skip、300件seen cache、stopを検証。
+- あり: `e2e/magnitude-sse.spec.js` にREST取得済みevent_idのSSE upsert回帰を追加。
+
+## 実行コマンド
+- `docker compose restart backend`: backend再起動、新規WSサービス反映
+- `docker compose ps`: backend healthy、frontend起動を確認
+- `docker logs --tail 160 evacuation-navi-backend`: `P2P WS connecting` / `P2P WS connected` を確認
+- `curl -s "http://127.0.0.1:8080/api/earthquakes?days=1"`: HTTP 200、`items` 配列を確認
+- `curl -i -N --max-time 3 "http://127.0.0.1:8080/api/earthquakes/stream"`: HTTP 200、`Content-Type: text/event-stream`、`: ping` を確認
+- `venv/bin/pytest tests/test_earthquake_source_p2p_ws.py tests/test_earthquake_realtime_service.py tests/test_earthquake_event_bus.py`: 11 passed
+- `npx playwright test e2e/magnitude-sse.spec.js`: 5 passed
+- `npx playwright test e2e/magnitude-polling.spec.js e2e/magnitude-intensity-filter.spec.js e2e/magnitude-sort.spec.js e2e/magnitude-sse.spec.js`: 24 passed
+
+## 参照
+- P2P WebSocket APIの公開・`code=551` 地震情報の構造確認: https://p2pquake.hatenablog.jp/entry/2020/09/02/003546
+- P2P JSON API v2 / WebSocket利用例確認: https://qiita.com/akikaki_san/items/d110ababd9687b7be6e7

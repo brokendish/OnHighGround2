@@ -1812,6 +1812,16 @@
         .mq-status-ok      { color: #888; }
         .mq-status-loading { color: #1565c0; }
         .mq-status-error   { color: #c62828; }
+        /* SSE接続状態バー */
+        .mq-sse-status {
+            font-size: 10px;
+            padding: 2px 14px;
+            min-height: 18px;
+            flex-shrink: 0;
+        }
+        .mq-sse-connected    { color: #2e7d32; }
+        .mq-sse-reconnecting { color: #e65100; }
+        .mq-sse-disconnected { color: #9e9e9e; }
         /* 震度フィルタバー */
         #magnitude-filter-bar {
             flex-shrink: 0;
@@ -3175,6 +3185,7 @@
                                 <button id="magnitude-refresh-btn" title="更新" onclick="magnitudeReload()">↻</button>
                             </div>
                             <div id="magnitude-status-bar" class="mq-status-bar"></div>
+                            <div id="magnitude-sse-status" class="mq-sse-status mq-sse-disconnected"></div>
                             <div id="magnitude-new-count" class="mq-new-count"></div>
                             <div id="magnitude-layer-note" class="mq-layer-note">Magnitudeモード中は、地図を見やすくするため避難所レイヤーを一時非表示にしています。</div>
                             <div id="magnitude-filter-bar"></div>

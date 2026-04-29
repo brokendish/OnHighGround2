@@ -7,3 +7,4 @@ pydantic==2.5.0
 shapely>=2.0,<3
 pyproj>=3.6,<4
 ijson>=3.2,<4
+websockets>=10.4

@@ -53,6 +53,11 @@ async function setupPage(page, routeHandler) {
     body: JSON.stringify({ config: [] }),
   }));
   await page.route('/api/earthquakes**', routeHandler);
+  await page.route('/api/earthquakes/stream', route => route.fulfill({
+    status: 200,
+    contentType: 'text/event-stream',
+    body: 'retry: 10000\n\n',
+  }));
   await page.route('/api/elevation**', route => route.fulfill({
     status: 200,
     contentType: 'application/json',

@@ -21,6 +21,11 @@
     let _firstLoadCompleted  = false;
     let _highlightTimers     = [];
 
+    // マスターアイテムリスト（ポーリング＋SSEのupsert先）
+    let _currentItems   = [];
+    // 累積NEWバッジ用ID（ポーリング＋SSE共通）
+    let _pendingNewIds  = new Set();
+
     // ── ポーリング状態 ────────────────────────────────────────────────────────
     let _pollTimer        = null;
     let _polling          = false;
@@ -34,6 +39,126 @@
         return Number.isFinite(override) && override >= 100
             ? override
             : DEFAULT_MAGNITUDE_POLL_INTERVAL_MS;
+    }
+
+    // ── SSE状態 ───────────────────────────────────────────────────────────────
+    let _magnitudeEventSource = null;
+
+    function _updateSseStatus(status) {
+        const el = document.getElementById('magnitude-sse-status');
+        if (!el) return;
+        const pollSec = Math.round(_pollIntervalMs() / 1000);
+        const labels = {
+            connected:    'リアルタイム: 接続中',
+            reconnecting: `リアルタイム: 再接続中（${pollSec}秒ごとに自動更新で継続）`,
+            disconnected: `リアルタイム: 切断中（${pollSec}秒ごとに自動更新）`,
+        };
+        el.textContent = labels[status] || '';
+        el.className = 'mq-sse-status mq-sse-' + status;
+    }
+
+    function _handleRealtimeStatus(data) {
+        if (!_active) return;
+        const state = data && data.state;
+        if (state === 'connected') {
+            _updateSseStatus('connected');
+        } else if (state === 'reconnecting' || state === 'connecting') {
+            _updateSseStatus('reconnecting');
+        } else if (state === 'disconnected' || state === 'failed') {
+            _updateSseStatus('disconnected');
+        }
+    }
+
+    function _startMagnitudeStream() {
+        _stopMagnitudeStream();
+        let es;
+        try {
+            es = new EventSource('/api/earthquakes/stream');
+        } catch (_e) {
+            _updateSseStatus('disconnected');
+            return;
+        }
+        _magnitudeEventSource = es;
+        es.onopen = () => {
+            if (_magnitudeEventSource !== es || !_active) return;
+            _updateSseStatus('connected');
+        };
+        es.addEventListener('earthquake', (event) => {
+            if (_magnitudeEventSource !== es || !_active) return;
+            try {
+                const item = JSON.parse(event.data);
+                _handleRealtimeEarthquake(item);
+            } catch (_e) {
+                // 不正JSONは無視
+            }
+        });
+        es.addEventListener('status', (event) => {
+            if (_magnitudeEventSource !== es || !_active) return;
+            try {
+                const data = JSON.parse(event.data);
+                _handleRealtimeStatus(data);
+            } catch (_e) {
+                // 不正JSONは無視
+            }
+        });
+        es.onerror = () => {
+            if (_magnitudeEventSource !== es || !_active) return;
+            _updateSseStatus('reconnecting');
+        };
+    }
+
+    function _stopMagnitudeStream() {
+        if (_magnitudeEventSource) {
+            _magnitudeEventSource.close();
+            _magnitudeEventSource = null;
+        }
+        _updateSseStatus('disconnected');
+    }
+
+    // ── SSEイベント受信処理 ───────────────────────────────────────────────────
+    function _handleRealtimeEarthquake(item) {
+        if (!item || !item.event_id) return;
+        if (!_active) return;
+
+        // lat/lng の検証
+        if (item.lat != null && !Number.isFinite(Number(item.lat))) item.lat = null;
+        if (item.lng != null && !Number.isFinite(Number(item.lng))) item.lng = null;
+
+        const id = String(item.event_id);
+
+        // _currentItems へ upsert
+        const existingIdx = _currentItems.findIndex(q => String(q.event_id) === id);
+        if (existingIdx >= 0) {
+            _currentItems[existingIdx] = item;
+        } else {
+            _currentItems.unshift(item);
+            // 初回ロード完了後かつ未知のIDのみ NEW扱い
+            if (_firstLoadCompleted && !_knownEventIds.has(id)) {
+                _pendingNewIds.add(id);
+            }
+            _knownEventIds.add(id);
+        }
+
+        const userPos = (typeof currentLocation !== 'undefined' && currentLocation)
+            ? { lat: currentLocation.lat, lon: currentLocation.lon }
+            : null;
+
+        _clearHighlightTimers();
+
+        const visibleNewCount = (typeof renderEarthquakeList === 'function')
+            ? renderEarthquakeList(_currentItems, userPos, _pendingNewIds)
+            : _pendingNewIds.size;
+
+        _showNewCount(Number.isFinite(visibleNewCount) ? visibleNewCount : _pendingNewIds.size);
+
+        if (_pendingNewIds.size > 0) {
+            const t = setTimeout(() => {
+                if (!_active) return;
+                _pendingNewIds.clear();
+                if (typeof clearNewHighlights === 'function') clearNewHighlights();
+            }, 60000);
+            _highlightTimers.push(t);
+        }
     }
 
     // ── ステータスバー ────────────────────────────────────────────────────────
@@ -129,7 +254,17 @@
             _lastUpdatedAt    = new Date();
             _updateStatusBar('ok');
 
+            // ポーリング結果を _currentItems へ upsert（SSE先着分を保持）
+            const idMap = new Map(_currentItems.map(q => [String(q.event_id), q]));
+            for (const q of quakes) {
+                if (q.event_id) idMap.set(String(q.event_id), q);
+            }
+            _currentItems = Array.from(idMap.values());
+
+            // 新着判定して _pendingNewIds に累積
             const newIds  = _detectNewQuakes(quakes);
+            newIds.forEach(id => _pendingNewIds.add(id));
+
             const userPos = (typeof currentLocation !== 'undefined' && currentLocation)
                 ? { lat: currentLocation.lat, lon: currentLocation.lon }
                 : null;
@@ -137,14 +272,15 @@
             _clearHighlightTimers();
 
             const visibleNewCount = (typeof renderEarthquakeList === 'function')
-                ? renderEarthquakeList(quakes, userPos, newIds)
-                : newIds.size;
+                ? renderEarthquakeList(_currentItems, userPos, _pendingNewIds)
+                : _pendingNewIds.size;
 
-            _showNewCount(Number.isFinite(visibleNewCount) ? visibleNewCount : newIds.size);
+            _showNewCount(Number.isFinite(visibleNewCount) ? visibleNewCount : _pendingNewIds.size);
 
-            if (newIds.size > 0) {
+            if (_pendingNewIds.size > 0) {
                 const t = setTimeout(() => {
                     if (!_active) return;
+                    _pendingNewIds.clear();
                     if (typeof clearNewHighlights === 'function') clearNewHighlights();
                 }, 60000);
                 _highlightTimers.push(t);
@@ -260,7 +396,12 @@
         const btn = document.getElementById('magnitude-btn');
         if (btn) btn.classList.add('map-overlay-btn--active');
 
-        _load().then(() => { if (_active) _startPolling(); });
+        _load().then(() => {
+            if (_active) {
+                _startPolling();
+                _startMagnitudeStream();
+            }
+        });
     }
 
     function _exit() {
@@ -268,6 +409,7 @@
         _active = false;
 
         _stopPolling();
+        _stopMagnitudeStream();
 
         if (_savedView) {
             map.setView(_savedView.center, _savedView.zoom, { animate: true });
@@ -281,6 +423,9 @@
 
         _loadSeq++;
         _clearHighlightTimers();
+
+        _currentItems  = [];
+        _pendingNewIds.clear();
 
         const newCount = document.getElementById('magnitude-new-count');
         if (newCount) {
