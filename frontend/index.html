@@ -1666,7 +1666,9 @@
         /* ── Magnitude モード（地震タブ） ───────────────────── */
         /* 地震タブ展開時にパネルを大きくする */
         #map-bottom-controls.mbc-earthquake-active #map-bottom-body {
+            height: 45vh;
             max-height: 45vh;
+            min-height: 0;
         }
         /* タブパネル本体 */
         #mbc-tab-panel-earthquake {
@@ -1674,12 +1676,14 @@
             flex-direction: column;
             overflow: hidden;
             flex: 1;
+            min-height: 0;
         }
         .earthquake-panel {
             display: flex;
             flex-direction: column;
             overflow: hidden;
             flex: 1;
+            min-height: 0;
             overscroll-behavior: contain;
             touch-action: pan-y;
         }
@@ -1708,6 +1712,8 @@
         #magnitude-list {
             overflow-y: auto;
             flex: 1;
+            min-height: 0;
+            overscroll-behavior: contain;
         }
         .mq-item {
             padding: 8px 14px;
