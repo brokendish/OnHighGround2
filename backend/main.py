@@ -29,6 +29,7 @@ from app.api.layer_types_api import router as layer_types_router
 from app.api.earthquakes import router as earthquakes_router
 from app.api.earthquakes_stream import router as earthquakes_stream_router
 from app.api.earthquakes_stream import dev_router as earthquakes_dev_router
+from app.api.weather import router as weather_router
 from app.services.earthquake_realtime_service import get_realtime_service
 from app.services.job_manager import get_job_manager
 from app.services.admin_log_service import write_app_log
@@ -183,6 +184,7 @@ app.include_router(layer_types_router)
 app.include_router(earthquakes_router)
 app.include_router(earthquakes_stream_router)
 app.include_router(earthquakes_dev_router)
+app.include_router(weather_router)
 
 
 @app.on_event("startup")

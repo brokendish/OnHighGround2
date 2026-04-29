@@ -1560,6 +1560,7 @@ function fetchCurrentLocInfo(lat, lon, elevation, accuracyMeters) {
         requestCurrentLocationReverseGeocode(lat, lon);
     }
     _checkCurrentHazard(lat, lon);
+    if (typeof _weatherUpdate === 'function') _weatherUpdate(lat, lon);
 }
 
 // ── 現在地ハザードチェック ──────────────────────────────────────────────────

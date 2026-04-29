@@ -1,0 +1,74 @@
+'use strict';
+
+/**
+ * weather.js — 現在地気象情報の取得とパネル表示
+ *
+ * 外部から呼ぶ:
+ *   _weatherUpdate(lat, lon)  — 位置更新時に呼ぶ（fetchCurrentLocInfo からフック）
+ *
+ * キャッシュ: 60 秒間は同一座標のリクエストを再発行しない。
+ */
+
+const _WEATHER_CACHE_TTL_MS = 60_000;
+let _weatherCache = null;  // { lat, lon, data, fetchedAt }
+
+async function _weatherFetch(lat, lon) {
+    const now = Date.now();
+    if (
+        _weatherCache &&
+        Math.abs(_weatherCache.lat - lat) < 0.01 &&
+        Math.abs(_weatherCache.lon - lon) < 0.01 &&
+        now - _weatherCache.fetchedAt < _WEATHER_CACHE_TTL_MS
+    ) {
+        return _weatherCache.data;
+    }
+
+    const res = await fetch(`/api/weather/current?lat=${lat}&lon=${lon}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    _weatherCache = { lat, lon, data, fetchedAt: now };
+    return data;
+}
+
+function _weatherFmt(value, unit, decimals = 1) {
+    if (value == null) return '--';
+    return `${Number(value).toFixed(decimals)} ${unit}`;
+}
+
+function _weatherRender(data) {
+    const section = document.getElementById('lip-weather-section');
+    if (!section) return;
+    section.style.display = '';
+
+    const set = (id, text) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+    };
+
+    set('lip-weather-rain',   _weatherFmt(data.rain, 'mm/h'));
+    set('lip-weather-wind',   _weatherFmt(data.wind, 'm/s'));
+    set('lip-weather-temp',   _weatherFmt(data.temperature, '℃'));
+    set('lip-weather-station', data.station || '--');
+}
+
+function _weatherRenderError() {
+    const section = document.getElementById('lip-weather-section');
+    if (section) section.style.display = 'none';
+}
+
+/**
+ * 位置更新時に外部から呼ぶエントリーポイント。
+ */
+async function _weatherUpdate(lat, lon) {
+    try {
+        const data = await _weatherFetch(lat, lon);
+        if (data) {
+            _weatherRender(data);
+        } else {
+            _weatherRenderError();
+        }
+    } catch (err) {
+        console.warn('[weather] fetch error:', err);
+        _weatherRenderError();
+    }
+}
