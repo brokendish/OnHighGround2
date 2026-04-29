@@ -1,288 +1,42 @@
 {
-  "totalEscapeCandidates": 93,
-  "escapeSnapEmptyCount": 5,
-  "nearestNullAfterRetryCount": 35,
-  "nearestNullAfterRetryRate": 0.3763440860215054,
-  "strategyStats": {
-    "point": {
-      "executed": 186,
-      "success": 0,
-      "nearestReturned": 60,
-      "nearestNull": 126,
-      "nodeBuildSuccess": 41,
-      "sideRoadContinuationDetected": 9,
-      "acceptedAsRescue": 0,
-      "rejectedAsMainlineOnly": 4,
-      "rejectedAsDuplicate": 0,
-      "rejectedAsInvalidBearing": 0
-    },
-    "escape-lateral-right-5": {
-      "executed": 104,
-      "success": 13,
-      "nearestReturned": 52,
-      "nearestNull": 52,
-      "nodeBuildSuccess": 6,
-      "sideRoadContinuationDetected": 11,
-      "acceptedAsRescue": 10,
-      "rejectedAsMainlineOnly": 3,
-      "rejectedAsDuplicate": 2,
-      "rejectedAsInvalidBearing": 1
-    },
-    "escape-right-forward-10": {
-      "executed": 52,
-      "success": 3,
-      "nearestReturned": 12,
-      "nearestNull": 40,
-      "nodeBuildSuccess": 3,
-      "sideRoadContinuationDetected": 3,
-      "acceptedAsRescue": 3,
-      "rejectedAsMainlineOnly": 0,
-      "rejectedAsDuplicate": 0,
-      "rejectedAsInvalidBearing": 0
-    },
-    "escape-right-backward-10": {
-      "executed": 36,
-      "success": 0,
-      "nearestReturned": 0,
-      "nearestNull": 36,
-      "nodeBuildSuccess": 0,
-      "sideRoadContinuationDetected": 0,
-      "acceptedAsRescue": 0,
-      "rejectedAsMainlineOnly": 0,
-      "rejectedAsDuplicate": 0,
-      "rejectedAsInvalidBearing": 0
-    },
-    "retry-exhausted": {
-      "executed": 0,
-      "success": 0,
-      "nearestReturned": 0,
-      "nearestNull": 0,
-      "nodeBuildSuccess": 0,
-      "sideRoadContinuationDetected": 0,
-      "acceptedAsRescue": 0,
-      "rejectedAsMainlineOnly": 0,
-      "rejectedAsDuplicate": 0,
-      "rejectedAsInvalidBearing": 0
-    },
-    "escape-right-forward-15": {
-      "executed": 6,
-      "success": 1,
-      "nearestReturned": 4,
-      "nearestNull": 2,
-      "nodeBuildSuccess": 1,
-      "sideRoadContinuationDetected": 1,
-      "acceptedAsRescue": 1,
-      "rejectedAsMainlineOnly": 0,
-      "rejectedAsDuplicate": 0,
-      "rejectedAsInvalidBearing": 0
-    },
-    "escape-forward-5": {
-      "executed": 2,
-      "success": 0,
-      "nearestReturned": 0,
-      "nearestNull": 2,
-      "nodeBuildSuccess": 0,
-      "sideRoadContinuationDetected": 0,
-      "acceptedAsRescue": 0,
-      "rejectedAsMainlineOnly": 0,
-      "rejectedAsDuplicate": 0,
-      "rejectedAsInvalidBearing": 0
-    },
-    "escape-forward-10": {
-      "executed": 2,
-      "success": 0,
-      "nearestReturned": 0,
-      "nearestNull": 2,
-      "nodeBuildSuccess": 0,
-      "sideRoadContinuationDetected": 0,
-      "acceptedAsRescue": 0,
-      "rejectedAsMainlineOnly": 0,
-      "rejectedAsDuplicate": 0,
-      "rejectedAsInvalidBearing": 0
-    }
-  },
-  "detailBreakdown": {
-    "nearest-null-after-retry:all-retry-points-null": 18,
-    "nearest-null-after-retry:retry-strategy-exhausted:nearest-returned-but-all-rejected": 12,
-    "nearest-null-after-retry:retry-node-build-failure": 1,
-    "nearest-null-after-retry:retry-strategy-exhausted:only-duplicate-candidates": 2,
-    "nearest-null-after-retry:retry-invalid-bearing": 1,
-    "nearest-null-after-retry:retry-strategy-exhausted:only-mainline-continuation": 1
-  },
-  "sideBreakdown": {
-    "back-right": 27,
-    "right": 8
-  },
-  "tierBreakdown": {
-    "30": 1,
-    "60": 1,
-    "90": 32,
-    "100": 1
-  },
-  "depthBreakdown": {
-    "deeper-30": 3,
-    "deeper-60": 3,
-    "deeper-90": 3,
-    "deeper-120": 3,
-    "entrance": 23
-  },
-  "positionCategoryBreakdown": {
-    "unknown": 18,
-    "backward-entry": 14,
-    "slit-body": 2,
-    "open-side-entry": 1
-  },
-  "bearingBucketBreakdown": {
-    "unknown": 18,
-    "60-90": 14,
-    "0-30": 3
-  },
-  "corridorLengthBucketBreakdown": {
-    "unknown": 18,
-    "60-90": 14,
-    "0-15": 3
-  },
-  "snapDistanceBucketBreakdown": {
-    "unknown": 18,
-    "5-10": 3,
-    "0-5": 14
-  },
-  "acceptedAfterRetryCount": 10,
+  "totalEscapeCandidates": 0,
+  "escapeSnapEmptyCount": 0,
+  "nearestNullAfterRetryCount": 0,
+  "nearestNullAfterRetryRate": 0,
+  "strategyStats": {},
+  "detailBreakdown": {},
+  "sideBreakdown": {},
+  "tierBreakdown": {},
+  "depthBreakdown": {},
+  "positionCategoryBreakdown": {},
+  "bearingBucketBreakdown": {},
+  "corridorLengthBucketBreakdown": {},
+  "snapDistanceBucketBreakdown": {},
+  "acceptedAfterRetryCount": 0,
   "acceptedAfterAdjustmentCount": 0,
-  "acceptedAsRescueCount": 14,
-  "rejectedAsMainlineOnlyCount": 7,
-  "rejectedAsDuplicateOnlyCount": 2,
-  "rejectedAsInvalidBearingCount": 1,
-  "strategyOrderUsed": [
-    "escape-lateral-right-5",
-    "escape-right-forward-10",
-    "escape-right-forward-15",
-    "escape-right-backward-10",
-    "escape-forward-5",
-    "escape-forward-10",
-    "escape-backward-5",
-    "escape-lateral-left-5",
-    "escape-left-forward-10",
-    "escape-left-backward-10"
-  ],
-  "prunedStrategies": [
-    "escape-right-forward-15",
-    "escape-forward-5",
-    "escape-forward-10",
-    "escape-backward-5",
-    "escape-lateral-left-5",
-    "escape-left-forward-10",
-    "escape-left-backward-10",
-    "escape-lateral-right-5",
-    "escape-right-forward-10",
-    "escape-right-backward-10"
-  ],
-  "enabledStrategies": [
-    "escape-lateral-right-5",
-    "escape-right-forward-10",
-    "escape-right-backward-10",
-    "escape-right-forward-15",
-    "escape-forward-5",
-    "escape-forward-10"
-  ],
-  "disabledStrategies": [
-    "escape-right-forward-15",
-    "escape-forward-5",
-    "escape-forward-10",
-    "escape-backward-5",
-    "escape-lateral-left-5",
-    "escape-left-forward-10",
-    "escape-left-backward-10",
-    "escape-lateral-right-5",
-    "escape-right-forward-10",
-    "escape-right-backward-10"
-  ],
-  "strategySkipReasons": {
-    "escape-right-forward-15": "pruned-low-value-strategy",
-    "escape-forward-5": "pruned-low-value-strategy",
-    "escape-forward-10": "pruned-low-value-strategy",
-    "escape-backward-5": "pruned-low-value-strategy",
-    "escape-lateral-left-5": "pruned-back-right-policy",
-    "escape-left-forward-10": "pruned-back-right-policy",
-    "escape-left-backward-10": "pruned-back-right-policy",
-    "escape-lateral-right-5": "pruned-non-right-dominant",
-    "escape-right-forward-10": "pruned-non-right-dominant",
-    "escape-right-backward-10": "pruned-non-right-dominant"
-  },
-  "acceptedAfterRetryByStrategy": {
-    "escape-lateral-right-5": 13,
-    "escape-right-forward-10": 3,
-    "escape-right-forward-15": 1
-  },
-  "firstWinningStrategyBreakdown": {
-    "escape-lateral-right-5": 13,
-    "escape-right-forward-10": 3,
-    "escape-right-forward-15": 1
-  },
-  "nearestReturnedByStrategy": {
-    "escape-lateral-right-5": 13,
-    "escape-right-forward-10": 3,
-    "escape-right-forward-15": 1
-  },
-  "allNullByStrategy": {
-    "escape-lateral-right-5": 29
-  },
-  "firstWinningStrategy": "escape-lateral-right-5",
-  "firstWinningStrategyStats": {
-    "escape-lateral-right-5": {
-      "acceptedAfterRetry": 13
-    }
-  },
-  "retryStrategyExhaustedDetails": {
-    "nearest-null-after-retry:retry-strategy-exhausted:nearest-returned-but-all-rejected": 12,
-    "nearest-null-after-retry:retry-strategy-exhausted:only-duplicate-candidates": 2,
-    "nearest-null-after-retry:retry-strategy-exhausted:only-mainline-continuation": 1
-  },
-  "nearestReturnedButRejectedBreakdown": {
-    "node-build-failure": 1,
-    "duplicate": 2,
-    "invalid-bearing": 1,
-    "no-side-road": 2,
-    "mainline-only": 1
-  },
-  "nearestReturnedButRejectedAsMainlineOnly": 1,
-  "nearestReturnedButRejectedAsNoSideRoad": 2,
-  "nearestReturnedButRejectedAsDuplicate": 2,
-  "backRightEntranceBreakdown": {
-    "nearest-null-after-retry:retry-strategy-exhausted:nearest-returned-but-all-rejected": 9,
-    "nearest-null-after-retry:retry-node-build-failure": 1,
-    "nearest-null-after-retry:retry-strategy-exhausted:only-duplicate-candidates": 2,
-    "nearest-null-after-retry:retry-invalid-bearing": 1,
-    "nearest-null-after-retry:all-retry-points-null": 1,
-    "nearest-null-after-retry:retry-strategy-exhausted:only-mainline-continuation": 1
-  },
-  "strategyOrderProfiles": {
-    "back-right-entrance": 20,
-    "default": 26,
-    "right-entrance": 15
-  },
-  "topFailureCombos": [
-    {
-      "combo": "nearest-null-after-retry:retry-strategy-exhausted:nearest-returned-but-all-rejected|back-right|90|entrance|backward-entry",
-      "count": 9
-    },
-    {
-      "combo": "nearest-null-after-retry:all-retry-points-null|back-right|90|deeper-30|unknown",
-      "count": 3
-    },
-    {
-      "combo": "nearest-null-after-retry:all-retry-points-null|back-right|90|deeper-60|unknown",
-      "count": 3
-    },
-    {
-      "combo": "nearest-null-after-retry:all-retry-points-null|back-right|90|deeper-90|unknown",
-      "count": 3
-    },
-    {
-      "combo": "nearest-null-after-retry:all-retry-points-null|back-right|90|deeper-120|unknown",
-      "count": 3
-    }
-  ],
-  "dominantFailureCombo": "nearest-null-after-retry:retry-strategy-exhausted:nearest-returned-but-all-rejected|back-right|90|entrance|backward-entry",
+  "acceptedAsRescueCount": 0,
+  "rejectedAsMainlineOnlyCount": 0,
+  "rejectedAsDuplicateOnlyCount": 0,
+  "rejectedAsInvalidBearingCount": 0,
+  "strategyOrderUsed": [],
+  "prunedStrategies": [],
+  "enabledStrategies": [],
+  "disabledStrategies": [],
+  "strategySkipReasons": {},
+  "acceptedAfterRetryByStrategy": {},
+  "firstWinningStrategyBreakdown": {},
+  "nearestReturnedByStrategy": {},
+  "allNullByStrategy": {},
+  "firstWinningStrategy": "none",
+  "firstWinningStrategyStats": {},
+  "retryStrategyExhaustedDetails": {},
+  "nearestReturnedButRejectedBreakdown": {},
+  "nearestReturnedButRejectedAsMainlineOnly": 0,
+  "nearestReturnedButRejectedAsNoSideRoad": 0,
+  "nearestReturnedButRejectedAsDuplicate": 0,
+  "backRightEntranceBreakdown": {},
+  "strategyOrderProfiles": {},
+  "topFailureCombos": [],
+  "dominantFailureCombo": "none",
   "recommendation": "retry-order-tuning"
 }
