@@ -1792,6 +1792,44 @@
         }
         #magnitude-refresh-btn:hover { color: #1565c0; }
         #magnitude-refresh-btn:disabled { color: #ccc; cursor: not-allowed; }
+        /* ソート切替バー */
+        #magnitude-sort-bar {
+            flex-shrink: 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        }
+        .mq-sort-tabs {
+            display: flex;
+            gap: 0;
+            padding: 6px 14px;
+        }
+        .mq-sort-button {
+            flex: 1;
+            padding: 4px 0;
+            font-size: 11px;
+            font-weight: 600;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            cursor: pointer;
+            color: #666;
+            transition: background 0.15s, color 0.15s;
+        }
+        .mq-sort-button:first-child { border-radius: 4px 0 0 4px; }
+        .mq-sort-button:last-child  { border-radius: 0 4px 4px 0; border-left: none; }
+        .mq-sort-button.active {
+            background: #1565c0;
+            color: #fff;
+            border-color: #1565c0;
+        }
+        .mq-sort-button:disabled {
+            color: #bbb;
+            cursor: not-allowed;
+            background: #f8f8f8;
+        }
+        .mq-sort-hint {
+            font-size: 10px;
+            color: #aaa;
+            padding: 0 14px 6px;
+        }
         /* 新着ピンの外周パルスリング（Leaflet CircleMarker の SVG path に適用） */
         .magnitude-ring-new {
             animation: magnitude-ring-pulse 1.5s ease-out infinite;
@@ -2879,6 +2917,7 @@
                     </div>
                     <div id="magnitude-new-count" class="mq-new-count"></div>
                     <div id="magnitude-layer-note" class="mq-layer-note">Magnitudeモード中は、地図を見やすくするため避難所レイヤーを一時非表示にしています。</div>
+                    <div id="magnitude-sort-bar"></div>
                     <div id="magnitude-list"></div>
                 </div>
 

@@ -18,6 +18,12 @@
     }
 
     function _distanceKm(lat1, lng1, lat2, lng2) {
+        lat1 = Number(lat1);
+        lng1 = Number(lng1);
+        lat2 = Number(lat2);
+        lng2 = Number(lng2);
+        if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return null;
+
         const R = 6371;
         const dLat = (lat2 - lat1) * Math.PI / 180;
         const dLng = (lng2 - lng1) * Math.PI / 180;
@@ -27,6 +33,16 @@
             Math.cos(lat2 * Math.PI / 180) *
             Math.sin(dLng / 2) ** 2;
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function _hasUsableLocation(pos) {
+        if (pos?.lat == null || pos?.lon == null) return false;
+        return !!pos && Number.isFinite(Number(pos.lat)) && Number.isFinite(Number(pos.lon));
+    }
+
+    function _hasUsableQuakeLocation(q) {
+        if (q?.lat == null || q?.lng == null) return false;
+        return Number.isFinite(Number(q?.lat)) && Number.isFinite(Number(q?.lng));
     }
 
     function _pinColor(occurredAt) {
@@ -40,11 +56,12 @@
     }
 
     function _pinRadius(magnitude) {
-        if (magnitude == null) return 8;
-        if (magnitude >= 7)   return 20;
-        if (magnitude >= 6)   return 16;
-        if (magnitude >= 5)   return 13;
-        if (magnitude >= 4)   return 10;
+        const value = Number(magnitude);
+        if (!Number.isFinite(value)) return 8;
+        if (value >= 7)   return 20;
+        if (value >= 6)   return 16;
+        if (value >= 5)   return 13;
+        if (value >= 4)   return 10;
         return 8;
     }
 
@@ -52,13 +69,14 @@
         const time = q.occurred_at
             ? new Date(q.occurred_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
             : '—';
-        const mag  = q.magnitude != null ? `M${q.magnitude.toFixed(1)}` : 'M—';
+        const magValue = Number(q.magnitude);
+        const mag  = Number.isFinite(magValue) ? `M${magValue.toFixed(1)}` : 'M—';
         const dep  = q.depth_km  != null ? `${q.depth_km}km` : '不明';
         const tsunamiInfo = q.tsunami_info || 'なし';
         const tsun = tsunamiInfo !== 'なし'
             ? `<div style="color:#c62828;font-weight:600;">津波: ${_escapeHtml(tsunamiInfo)}</div>`
             : `<div>津波: ${_escapeHtml(tsunamiInfo)}</div>`;
-        const dist = userPos && q.lat != null && q.lng != null
+        const dist = _hasUsableLocation(userPos) && _hasUsableQuakeLocation(q)
             ? `<div>距離: 約${Math.round(_distanceKm(userPos.lat, userPos.lon, q.lat, q.lng))}km</div>`
             : '<div>距離: 未取得</div>';
         return `<div style="font-size:13px;line-height:1.7;min-width:160px;">
@@ -81,12 +99,12 @@
     window.renderEarthquakePins = function (quakes, userPos, newEventIds = new Set()) {
         clearEarthquakePins();
         quakes.forEach(q => {
-            if (q.lat == null || q.lng == null) return;
+            if (!_hasUsableQuakeLocation(q)) return;
             const color  = _pinColor(q.occurred_at);
             const radius = _pinRadius(q.magnitude);
             const isNew  = newEventIds.has(String(q.event_id));
 
-            const marker = L.circleMarker([q.lat, q.lng], {
+            const marker = L.circleMarker([Number(q.lat), Number(q.lng)], {
                 radius,
                 color: '#fff',
                 weight: 1.5,
@@ -99,7 +117,7 @@
 
             // 新着ピンに外周パルスリングを追加
             if (isNew) {
-                const ring = L.circleMarker([q.lat, q.lng], {
+                const ring = L.circleMarker([Number(q.lat), Number(q.lng)], {
                     radius: radius + 6,
                     className: 'magnitude-ring-new',
                     fill: false,
