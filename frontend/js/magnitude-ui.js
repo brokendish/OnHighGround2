@@ -1,14 +1,50 @@
 /**
  * magnitude-ui.js — 地震情報リストパネル
  *
- * 依存: magnitude-layer.js (focusEarthquakePin)
+ * 依存: magnitude-layer.js (renderEarthquakePins, focusEarthquakePin)
  */
 (function () {
-    let _sortMode    = 'newest';
+    let _sortMode   = 'newest';
+    let _filterMode = 'all';
+
     let _lastQuakes  = [];
     let _lastUserPos = null;
     let _lastNewIds  = new Set();
 
+    // ── 震度ランクテーブル ────────────────────────────────────────────────────
+    const INTENSITY_RANK = {
+        '1': 10,
+        '2': 20,
+        '3': 30,
+        '4': 40,
+        '5弱': 50,
+        '5-': 50,
+        '5強': 55,
+        '5+': 55,
+        '6弱': 60,
+        '6-': 60,
+        '6強': 65,
+        '6+': 65,
+        '7': 70,
+    };
+
+    function _getIntensityRank(value) {
+        if (value == null) return null;
+        const s = String(value).trim();
+        return INTENSITY_RANK[s] ?? null;
+    }
+
+    function _passesFilter(q, mode) {
+        if (mode === 'all') return true;
+        const rank = _getIntensityRank(q.max_intensity);
+        if (rank == null) return false;
+        if (mode === '3')  return rank >= 30;
+        if (mode === '4')  return rank >= 40;
+        if (mode === '5-') return rank >= 50;
+        return true;
+    }
+
+    // ── XSS対策 ──────────────────────────────────────────────────────────────
     function _escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, ch => ({
             '&': '&amp;',
@@ -19,6 +55,7 @@
         }[ch]));
     }
 
+    // ── 距離計算 ──────────────────────────────────────────────────────────────
     function _distanceKm(lat1, lng1, lat2, lng2) {
         lat1 = Number(lat1);
         lng1 = Number(lng1);
@@ -47,6 +84,7 @@
         return Number.isFinite(Number(q?.lat)) && Number.isFinite(Number(q?.lng));
     }
 
+    // ── ソート ────────────────────────────────────────────────────────────────
     function _getQuakeDistance(q, userPos) {
         if (!_hasUsableLocation(userPos) || !_hasUsableQuakeLocation(q)) return null;
         return _distanceKm(userPos.lat, userPos.lon, q.lat, q.lng);
@@ -76,6 +114,7 @@
         return arr.sort(_compareByNewest);
     }
 
+    // ── フォーマット ──────────────────────────────────────────────────────────
     function _formatTime(isoStr) {
         if (!isoStr) return '—';
         try {
@@ -103,6 +142,25 @@
         return '';
     }
 
+    // ── UI描画 ────────────────────────────────────────────────────────────────
+    function _updateFilterBar() {
+        const bar = document.getElementById('magnitude-filter-bar');
+        if (!bar) return;
+        const filters = [
+            { mode: 'all',  label: '全件' },
+            { mode: '3',    label: '震度3以上' },
+            { mode: '4',    label: '震度4以上' },
+            { mode: '5-',   label: '震度5弱以上' },
+        ];
+        bar.innerHTML =
+            `<div class="mq-filter-tabs">` +
+            filters.map(f =>
+                `<button class="mq-filter-button${_filterMode === f.mode ? ' active' : ''}" ` +
+                `onclick="magnitudeFilterSet('${f.mode}')">${f.label}</button>`
+            ).join('') +
+            `</div>`;
+    }
+
     function _updateSortBar(userPos) {
         const bar = document.getElementById('magnitude-sort-bar');
         if (!bar) return;
@@ -121,19 +179,32 @@
         const panel = document.getElementById('magnitude-list');
         if (!panel) return;
 
+        _updateFilterBar();
         _updateSortBar(_lastUserPos);
 
-        if (!_lastQuakes.length) {
-            panel.innerHTML = '<div class="mq-empty">地震情報なし</div>';
+        // フィルタ適用
+        const filtered = _lastQuakes.filter(q => _passesFilter(q, _filterMode));
+
+        // ピンを同期（フィルタ済みitemsで更新）
+        if (typeof renderEarthquakePins === 'function') {
+            renderEarthquakePins(filtered, _lastUserPos, _lastNewIds);
+        }
+
+        if (!filtered.length) {
+            const msg = _lastQuakes.length > 0
+                ? '条件に一致する地震情報はありません。'
+                : '地震情報なし';
+            panel.innerHTML = `<div class="mq-empty">${msg}</div>`;
             return;
         }
 
+        // 現在地なし時に近い順が残っていたらneweastに戻す
         if (_sortMode === 'nearest' && !_hasUsableLocation(_lastUserPos)) {
             _sortMode = 'newest';
             _updateSortBar(_lastUserPos);
         }
 
-        const sorted = _sortItems(_lastQuakes, _sortMode, _lastUserPos);
+        const sorted = _sortItems(filtered, _sortMode, _lastUserPos);
 
         const html = sorted.map(q => {
             const isNew    = _lastNewIds.has(String(q.event_id));
@@ -174,6 +245,7 @@
         });
     }
 
+    // ── 公開API ───────────────────────────────────────────────────────────────
     window.renderEarthquakeList = function (quakes, userPos, newEventIds = new Set()) {
         _lastQuakes  = quakes;
         _lastUserPos = userPos;
@@ -188,11 +260,19 @@
         _renderList();
     };
 
+    window.magnitudeFilterSet = function (mode) {
+        if (!['all', '3', '4', '5-'].includes(mode)) return;
+        _filterMode = mode;
+        _renderList();
+    };
+
     window.clearEarthquakeList = function () {
         const panel = document.getElementById('magnitude-list');
         if (panel) panel.innerHTML = '';
-        const bar = document.getElementById('magnitude-sort-bar');
-        if (bar) bar.innerHTML = '';
+        const sortBar = document.getElementById('magnitude-sort-bar');
+        if (sortBar) sortBar.innerHTML = '';
+        const filterBar = document.getElementById('magnitude-filter-bar');
+        if (filterBar) filterBar.innerHTML = '';
     };
 
 })();

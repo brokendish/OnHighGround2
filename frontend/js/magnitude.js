@@ -82,7 +82,6 @@
 
             _clearHighlightTimers();
 
-            if (typeof renderEarthquakePins === 'function') renderEarthquakePins(quakes, userPos, newIds);
             if (typeof renderEarthquakeList === 'function') renderEarthquakeList(quakes, userPos, newIds);
 
             _showNewCount(newIds.size);

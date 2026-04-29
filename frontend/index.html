@@ -1792,6 +1792,35 @@
         }
         #magnitude-refresh-btn:hover { color: #1565c0; }
         #magnitude-refresh-btn:disabled { color: #ccc; cursor: not-allowed; }
+        /* 震度フィルタバー */
+        #magnitude-filter-bar {
+            flex-shrink: 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        }
+        .mq-filter-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            padding: 6px 14px;
+        }
+        .mq-filter-button {
+            flex: 1 0 auto;
+            padding: 3px 6px;
+            font-size: 10px;
+            font-weight: 600;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #666;
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+        }
+        .mq-filter-button.active {
+            background: #37474f;
+            color: #fff;
+            border-color: #37474f;
+        }
         /* ソート切替バー */
         #magnitude-sort-bar {
             flex-shrink: 0;
@@ -2917,6 +2946,7 @@
                     </div>
                     <div id="magnitude-new-count" class="mq-new-count"></div>
                     <div id="magnitude-layer-note" class="mq-layer-note">Magnitudeモード中は、地図を見やすくするため避難所レイヤーを一時非表示にしています。</div>
+                    <div id="magnitude-filter-bar"></div>
                     <div id="magnitude-sort-bar"></div>
                     <div id="magnitude-list"></div>
                 </div>
