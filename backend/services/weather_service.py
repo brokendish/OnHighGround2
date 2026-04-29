@@ -5,6 +5,15 @@
   - 観測点テーブル: amedas_client 内で 24h キャッシュ
   - map データ:     amedas_client 内で 60s キャッシュ
   - weather 結果:   本モジュールで 60s キャッシュ（lat/lon 0.01 度丸め共有）
+
+レスポンスフィールド:
+  station, station_id, station_lat, station_lon
+  rain, wind, temperature       — 欠損時は None
+  observed_at                   — JST ISO8601 or None
+  distance_km                   — ユーザー座標から観測点までの距離（km）
+  station_quality               — near(<10km) / medium(<30km) / far(>=30km)
+  age_minutes                   — observed_at から現在までの経過分 or None
+  freshness                     — fresh(<30min) / stale(>=30min) / unknown
 """
 import math
 import time
@@ -78,10 +87,31 @@ def _utc_str_to_jst_iso(utc_str: str) -> Optional[str]:
     """UTC タイムスタンプ文字列を JST ISO8601 文字列に変換する。"""
     try:
         dt_utc = datetime.strptime(utc_str, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
-        dt_jst = dt_utc.astimezone(_JST)
-        return dt_jst.isoformat()
+        return dt_utc.astimezone(_JST).isoformat()
     except Exception:
         return None
+
+
+def _calc_station_quality(distance_km: float) -> str:
+    if distance_km < 10.0:
+        return "near"
+    if distance_km < 30.0:
+        return "medium"
+    return "far"
+
+
+def _calc_freshness(observed_at: Optional[str]) -> tuple[Optional[float], str]:
+    """Returns (age_minutes, freshness_label)."""
+    if not observed_at:
+        return None, "unknown"
+    try:
+        obs_dt = datetime.fromisoformat(observed_at)
+        age_sec = (datetime.now(timezone.utc) - obs_dt.astimezone(timezone.utc)).total_seconds()
+        age_min = round(age_sec / 60.0, 1)
+        freshness = "fresh" if age_min < 30.0 else "stale"
+        return age_min, freshness
+    except Exception:
+        return None, "unknown"
 
 
 def get_current_weather(lat: float, lon: float) -> Optional[dict]:
@@ -89,8 +119,9 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
     現在地の最寄り観測点の気象データを返す。
 
     Returns:
-        {station, station_id, station_lat, station_lon, rain, wind, temperature, observed_at}
-        or None on error
+        dict with station / rain / wind / temperature / observed_at /
+        distance_km / station_quality / age_minutes / freshness
+        — or None on unrecoverable error
     """
     lat_q = round(lat, 2)
     lon_q = round(lon, 2)
@@ -100,6 +131,10 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
     if cache_key in _WEATHER_CACHE:
         result, fetched_at = _WEATHER_CACHE[cache_key]
         if now - fetched_at < _WEATHER_TTL:
+            logger.debug(
+                "weather: cache hit lat=%.2f lon=%.2f station=%s distance_km=%s freshness=%s",
+                lat_q, lon_q, result.get("station"), result.get("distance_km"), result.get("freshness"),
+            )
             return result
 
     station_table = fetch_station_table()
@@ -113,25 +148,22 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
         return None
 
     # 気温・風速は全観測点データを持つ観測点（タイプA相当）から最寄りを選ぶ。
-    # タイプC（雨量専用）は temp/wind を持たないため別途検索する。
     full_station = get_nearest_station_with_keys(
         lat, lon, station_table, map_data, ["temp", "wind"]
     )
-    # 絶対最寄り（雨量のみ観測点も含む）
     nearest = get_nearest_station(lat, lon, station_table)
     if not nearest:
         return None
 
-    # 気温・風速は full_station から取得、なければ nearest にフォールバック
     primary = full_station or nearest
     primary_obs = map_data.get(primary["station_id"]) or {}
     nearest_obs = map_data.get(nearest["station_id"]) or {}
 
-    rain = extract_value(nearest_obs, "precipitation1h")
-    wind = extract_value(primary_obs, "wind")
+    rain        = extract_value(nearest_obs, "precipitation1h")
+    wind        = extract_value(primary_obs, "wind")
     temperature = extract_value(primary_obs, "temp")
 
-    # 表示観測点名: 雨量は nearest、気温/風速は full_station（異なる場合のみ補記）
+    # 表示観測点: 気温/風速の取得元を優先表示
     station_name = nearest["station_name"]
     if full_station and full_station["station_id"] != nearest["station_id"]:
         station_name = full_station["station_name"]
@@ -142,22 +174,41 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
 
     sid = primary["station_id"]
 
+    # 距離・品質
+    dist_m = _haversine(lat, lon, primary["lat"], primary["lon"])
+    distance_km = round(dist_m / 1000.0, 1)
+    station_quality = _calc_station_quality(distance_km)
+
+    # 観測時刻・鮮度
     ts_utc = fetch_latest_time_utc()
     observed_at = _utc_str_to_jst_iso(ts_utc) if ts_utc else None
+    age_minutes, freshness = _calc_freshness(observed_at)
+
+    # 欠損フィールドのログ
+    missing = [k for k, v in [("rain", rain), ("wind", wind), ("temperature", temperature)] if v is None]
+    if missing:
+        logger.info("weather: missing fields=%s station=%s", missing, station_name)
+
+    logger.info(
+        "weather: cache miss — station=%s(%s) distance_km=%.1f quality=%s "
+        "rain=%s wind=%s temp=%s freshness=%s age_min=%s",
+        station_name, sid, distance_km, station_quality,
+        rain, wind, temperature, freshness, age_minutes,
+    )
 
     result = {
-        "station": station_name,
-        "station_id": sid,
-        "station_lat": primary["lat"],
-        "station_lon": primary["lon"],
-        "rain": rain,
-        "wind": wind,
-        "temperature": temperature,
-        "observed_at": observed_at,
+        "station":         station_name,
+        "station_id":      sid,
+        "station_lat":     primary["lat"],
+        "station_lon":     primary["lon"],
+        "rain":            rain,
+        "wind":            wind,
+        "temperature":     temperature,
+        "observed_at":     observed_at,
+        "distance_km":     distance_km,
+        "station_quality": station_quality,
+        "age_minutes":     age_minutes,
+        "freshness":       freshness,
     }
     _WEATHER_CACHE[cache_key] = (result, now)
-    logger.info(
-        "weather: station=%s rain=%s wind=%s temp=%s ts=%s",
-        nearest["station_name"], rain, wind, temperature, observed_at,
-    )
     return result

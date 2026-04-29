@@ -74,6 +74,7 @@ def fetch_station_table() -> dict:
     global _STATION_TABLE_CACHE, _STATION_TABLE_FETCHED_AT
     now = time.monotonic()
     if _STATION_TABLE_CACHE and now - _STATION_TABLE_FETCHED_AT < _STATION_TABLE_TTL:
+        logger.debug("amedas station table: cache hit (%d stations)", len(_STATION_TABLE_CACHE))
         return _STATION_TABLE_CACHE
 
     try:
@@ -92,7 +93,7 @@ def fetch_station_table() -> dict:
                 continue
         _STATION_TABLE_CACHE = table
         _STATION_TABLE_FETCHED_AT = now
-        logger.info("amedas station table loaded: %d stations", len(table))
+        logger.info("amedas station table: cache miss — loaded %d stations", len(table))
         return table
     except Exception as exc:
         logger.warning("amedas station table fetch failed: %s", exc)
@@ -125,6 +126,8 @@ def fetch_map_data() -> Optional[dict]:
     global _MAP_CACHE, _MAP_TIMESTAMP, _MAP_FETCHED_AT
     now = time.monotonic()
     if _MAP_CACHE and now - _MAP_FETCHED_AT < _MAP_TTL:
+        age_s = now - _MAP_FETCHED_AT
+        logger.debug("amedas map: cache hit ts=%s age=%.0fs stations=%d", _MAP_TIMESTAMP, age_s, len(_MAP_CACHE))
         return _MAP_CACHE
 
     ts = fetch_latest_time_utc()
@@ -138,7 +141,7 @@ def fetch_map_data() -> Optional[dict]:
         _MAP_CACHE = data
         _MAP_TIMESTAMP = ts
         _MAP_FETCHED_AT = now
-        logger.info("amedas map loaded: %d stations ts=%s", len(data), ts)
+        logger.info("amedas map: cache miss — loaded %d stations ts=%s", len(data), ts)
         return data
     except Exception as exc:
         logger.warning("amedas map fetch failed ts=%s: %s", ts, exc)

@@ -1,12 +1,16 @@
 'use strict';
 
 /**
- * weather.js — 現在地気象情報の取得とパネル表示
+ * weather.js — 現在地気象情報の取得とパネル表示（Phase1.5）
  *
  * 外部から呼ぶ:
  *   _weatherUpdate(lat, lon)  — 位置更新時に呼ぶ（fetchCurrentLocInfo からフック）
  *
  * キャッシュ: 60 秒間は同一座標のリクエストを再発行しない。
+ *
+ * 追加表示:
+ *   station_quality=far  → 「観測点が遠い」ノーティス
+ *   freshness=stale      → 「観測データが古い」ノーティス
  */
 
 const _WEATHER_CACHE_TTL_MS = 60_000;
@@ -45,10 +49,35 @@ function _weatherRender(data) {
         if (el) el.textContent = text;
     };
 
-    set('lip-weather-rain',   _weatherFmt(data.rain, 'mm/h'));
-    set('lip-weather-wind',   _weatherFmt(data.wind, 'm/s'));
-    set('lip-weather-temp',   _weatherFmt(data.temperature, '℃'));
+    set('lip-weather-rain',    _weatherFmt(data.rain, 'mm/h'));
+    set('lip-weather-wind',    _weatherFmt(data.wind, 'm/s'));
+    set('lip-weather-temp',    _weatherFmt(data.temperature, '℃'));
     set('lip-weather-station', data.station || '--');
+
+    _weatherRenderNotice(data);
+}
+
+function _weatherRenderNotice(data) {
+    const el = document.getElementById('lip-weather-notice');
+    if (!el) return;
+
+    const notes = [];
+    if (data.station_quality === 'far') {
+        const km = data.distance_km != null ? `${data.distance_km}km` : '';
+        notes.push(`⚠ 観測点が遠い${km ? `（${km}）` : ''}`);
+    }
+    if (data.freshness === 'stale') {
+        const min = data.age_minutes != null ? `${Math.round(data.age_minutes)}分前` : '';
+        notes.push(`⚠ 観測データが古い${min ? `（${min}）` : ''}`);
+    }
+
+    if (notes.length > 0) {
+        el.textContent = notes.join('　');
+        el.style.display = '';
+    } else {
+        el.textContent = '';
+        el.style.display = 'none';
+    }
 }
 
 function _weatherRenderError() {
