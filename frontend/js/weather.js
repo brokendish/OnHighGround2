@@ -147,7 +147,7 @@ function _warningRender(data) {
 
     const active = data.warnings.filter(w => w.level === '警報' || w.level === '注意報');
     if (active.length === 0) {
-        el.textContent = 'なし';
+        el.textContent = '警報・注意報なし';
         el.style.cssText = _warningLevelStyle('なし');
         return;
     }

@@ -62,13 +62,21 @@ def _http_get(url: str, timeout: int = 10) -> bytes:
         return resp.read()
 
 
+def is_warning_cached(office_code: str) -> bool:
+    """警報キャッシュが有効かどうかを返す（cache hit 判定用）。"""
+    now = time.monotonic()
+    if office_code in _WARNING_CACHE:
+        _, fetched_at = _WARNING_CACHE[office_code]
+        return now - fetched_at < _WARNING_TTL
+    return False
+
+
 def fetch_warning_data(office_code: str) -> Optional[dict]:
     """警報・注意報 JSON を返す（120s キャッシュ）。"""
     now = time.monotonic()
     if office_code in _WARNING_CACHE:
         data, fetched_at = _WARNING_CACHE[office_code]
         if now - fetched_at < _WARNING_TTL:
-            logger.debug("jma warning: cache hit office=%s", office_code)
             return data
 
     url = _JMA_WARNING_URL.format(office_code=office_code)

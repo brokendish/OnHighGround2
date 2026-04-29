@@ -10,7 +10,7 @@ import logging
 from typing import Optional
 
 from services.jma_area_client import find_office_and_area
-from services.jma_warning_client import fetch_warning_data, parse_area_warnings, get_highest_level
+from services.jma_warning_client import fetch_warning_data, parse_area_warnings, get_highest_level, is_warning_cached
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +58,11 @@ def get_current_warnings(lat: float, lon: float) -> Optional[dict]:
     match_type   = area_info["match_type"]
 
     # 警報 JSON 取得
+    cache_hit = is_warning_cached(office_code)
     warning_data = fetch_warning_data(office_code)
     if warning_data is None:
         logger.warning(
-            "warning: data unavailable office=%s area=%s", office_code, area_name
+            "jma warning: data unavailable office_code=%s area_name=%s", office_code, area_name
         )
         return None
 
@@ -70,9 +71,10 @@ def get_current_warnings(lat: float, lon: float) -> Optional[dict]:
     highest_level = get_highest_level(warnings)
     updated_at = warning_data.get("reportDatetime")
 
+    hit_miss = "cache hit" if cache_hit else "cache miss"
     logger.info(
-        "warning: office=%s(%s) area=%s(%s) match=%s warning_count=%d highest=%s",
-        office_code, office_name, class10_code, area_name,
+        "jma warning: %s office_code=%s office_name=%s area_code=%s area_name=%s match=%s warning_count=%d highest_level=%s",
+        hit_miss, office_code, office_name, class10_code, area_name,
         match_type, len(warnings), highest_level,
     )
 
