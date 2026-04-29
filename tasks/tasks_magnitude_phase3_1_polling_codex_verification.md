@@ -379,3 +379,41 @@ PASS / FAIL
 ## 修正が必要な点
 - なし / あり
 ```
+
+---
+
+# Magnitude Phase3-1 検証結果
+
+## 結果
+PASS
+
+## 確認内容
+- 初期表示: PASS（地震タブ、地震リスト、地震ピン、最終更新/自動更新ステータス表示）
+- 自動更新: PASS（Magnitude ON中のみ `/api/earthquakes` を定期再取得）
+- OFF時停止: PASS（OFF後に追加取得なし、リスト/ピン消去）
+- ON/OFF連続: PASS（連続操作後もポーリング多重化なし、DOM増殖なし）
+- 手動更新競合: PASS（全取得共通のin-flightガードで同時リクエスト増殖なし）
+- 新着差分: PASS（ポーリングで新規event_idのみNEW、初回全件NEWなし）
+- 震度フィルタ連携: PASS（更新後も震度4以上を維持、フィルタ後NEW件数に同期）
+- ソート連携: PASS（更新後も近い順を維持、距離順表示）
+- API失敗時: PASS（既存表示維持、エラー表示、次回正常取得で復帰）
+- API遅延/非同期競合: PASS（遅延中に次取得を重ねない、OFF後描画ガード維持）
+- visibilitychange: PASS（hidden中は取得抑制、visible復帰で即時更新）
+- 地震タブUI回帰: PASS（内部スクロール、地図干渉なし、スマホ表示、クリック連動）
+- Phase2回帰: PASS（避難所一時非表示、新着、距離順、震度フィルタ、XSS）
+- 既存機能回帰: PASS（smoke/geolocation e2e 通過）
+
+## 発見した問題
+- あり: 検証時にポーリング間隔を短縮できる入口がなく、自動更新を安定してe2e検証しづらかった。
+- あり: 手動更新とポーリングが近接した場合、全取得共通のin-flightガードがなく、重複リクエストの余地があった。
+
+## 修正が必要な点
+- 対応済み: `window.__MAGNITUDE_POLL_INTERVAL_MS` による検証用間隔上書きに対応。
+- 対応済み: `_loadInFlight` を追加し、手動更新/ポーリング/visibility更新の取得重複を抑制。
+- 対応済み: Phase3-1 の e2e 回帰テストを追加。
+
+## 実行コマンド
+- `docker compose ps`: backend healthy、frontend/nginx 起動を確認
+- `curl -s "http://127.0.0.1:8080/api/earthquakes?days=1"`: HTTP 200、`items` 配列、`event_id` 存在を確認
+- `npx playwright test e2e/magnitude-polling.spec.js`: 7 passed
+- `npx playwright test e2e/magnitude-tab-ui.spec.js e2e/magnitude-sort.spec.js e2e/magnitude-intensity-filter.spec.js e2e/smoke.spec.js e2e/geolocation.spec.js`: 28 passed

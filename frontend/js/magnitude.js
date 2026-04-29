@@ -4,7 +4,7 @@
  * 依存: magnitude-layer.js, magnitude-ui.js, Leaflet (map)
  */
 (function () {
-    const MAGNITUDE_POLL_INTERVAL_MS = 60_000;
+    const DEFAULT_MAGNITUDE_POLL_INTERVAL_MS = 60_000;
 
     let _active    = false;
     let _savedView = null;
@@ -25,8 +25,16 @@
     let _pollTimer        = null;
     let _polling          = false;
     let _pollInFlight     = false;
+    let _loadInFlight     = false;
     let _pollFailureCount = 0;
     let _lastUpdatedAt    = null;
+
+    function _pollIntervalMs() {
+        const override = Number(window.__MAGNITUDE_POLL_INTERVAL_MS);
+        return Number.isFinite(override) && override >= 100
+            ? override
+            : DEFAULT_MAGNITUDE_POLL_INTERVAL_MS;
+    }
 
     // ── ステータスバー ────────────────────────────────────────────────────────
     function _updateStatusBar(state) {
@@ -39,7 +47,7 @@
             const t = _lastUpdatedAt
                 ? _lastUpdatedAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
                 : '—';
-            const sec = Math.round(MAGNITUDE_POLL_INTERVAL_MS / 1000);
+            const sec = Math.round(_pollIntervalMs() / 1000);
             el.textContent = `最終更新: ${t} · ${sec}秒ごとに自動更新`;
             el.className = 'mq-status-bar mq-status-ok';
         } else if (state === 'error') {
@@ -96,6 +104,8 @@
     // silent=true: バックグラウンドポーリング（リストをクリアしない）
     // silent=false: 初回/手動（読み込み中スピナーを表示）
     async function _load({ silent = false } = {}) {
+        if (_loadInFlight) return null;
+        _loadInFlight = true;
         const seq = ++_loadSeq;
 
         if (!silent) {
@@ -149,6 +159,7 @@
                 if (list2) list2.innerHTML = '<div class="mq-error">データを取得できませんでした</div>';
             }
         } finally {
+            _loadInFlight = false;
             if (_active && refreshBtn) refreshBtn.disabled = false;
         }
     }
@@ -168,9 +179,11 @@
         }
     }
 
-    function _scheduleNextPoll(delayMs = MAGNITUDE_POLL_INTERVAL_MS) {
+    function _scheduleNextPoll(delayMs = _pollIntervalMs()) {
         if (!_polling) return;
+        if (_pollTimer) clearTimeout(_pollTimer);
         _pollTimer = setTimeout(async () => {
+            _pollTimer = null;
             await _runPoll();
             _scheduleNextPoll();
         }, delayMs);
@@ -295,7 +308,7 @@
     // 手動更新ボタン：ポーリングサイクルをリセットして即時取得
     window.magnitudeReload = function () {
         if (!_active) return;
-        if (_pollInFlight) return;
+        if (_pollInFlight || _loadInFlight) return;
         _stopPolling();
         _load().then(() => { if (_active) _startPolling(); });
     };
