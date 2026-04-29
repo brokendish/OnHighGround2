@@ -47,6 +47,33 @@ def get_nearest_station(lat: float, lon: float, station_table: dict) -> Optional
     return best
 
 
+def get_nearest_station_with_keys(
+    lat: float,
+    lon: float,
+    station_table: dict,
+    map_data: dict,
+    required_keys: list[str],
+) -> Optional[dict]:
+    """
+    map_data 内で required_keys の値が全て非 null な観測点のうち最寄りを返す。
+    タイプC（雨量専用）観測点は temp / wind を持たないため、
+    気温・風速取得時はこの関数で絞り込む。
+    """
+    best = None
+    best_dist = float("inf")
+    for sid, obs in map_data.items():
+        if not all(extract_value(obs, k) is not None for k in required_keys):
+            continue
+        info = station_table.get(sid)
+        if not info:
+            continue
+        dist = _haversine(lat, lon, info["lat"], info["lon"])
+        if dist < best_dist:
+            best_dist = dist
+            best = info
+    return best
+
+
 def _utc_str_to_jst_iso(utc_str: str) -> Optional[str]:
     """UTC タイムスタンプ文字列を JST ISO8601 文字列に変換する。"""
     try:
@@ -80,33 +107,49 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
         logger.warning("weather: station table empty")
         return None
 
-    nearest = get_nearest_station(lat, lon, station_table)
-    if not nearest:
-        return None
-
     map_data = fetch_map_data()
     if not map_data:
         logger.warning("weather: map data unavailable")
         return None
 
-    sid = nearest["station_id"]
-    obs = map_data.get(sid)
-    if not obs:
-        logger.warning("weather: station %s not in map data", sid)
+    # 気温・風速は全観測点データを持つ観測点（タイプA相当）から最寄りを選ぶ。
+    # タイプC（雨量専用）は temp/wind を持たないため別途検索する。
+    full_station = get_nearest_station_with_keys(
+        lat, lon, station_table, map_data, ["temp", "wind"]
+    )
+    # 絶対最寄り（雨量のみ観測点も含む）
+    nearest = get_nearest_station(lat, lon, station_table)
+    if not nearest:
         return None
 
-    rain = extract_value(obs, "precipitation1h")
-    wind = extract_value(obs, "wind")
-    temperature = extract_value(obs, "temp")
+    # 気温・風速は full_station から取得、なければ nearest にフォールバック
+    primary = full_station or nearest
+    primary_obs = map_data.get(primary["station_id"]) or {}
+    nearest_obs = map_data.get(nearest["station_id"]) or {}
+
+    rain = extract_value(nearest_obs, "precipitation1h")
+    wind = extract_value(primary_obs, "wind")
+    temperature = extract_value(primary_obs, "temp")
+
+    # 表示観測点名: 雨量は nearest、気温/風速は full_station（異なる場合のみ補記）
+    station_name = nearest["station_name"]
+    if full_station and full_station["station_id"] != nearest["station_id"]:
+        station_name = full_station["station_name"]
+        logger.info(
+            "weather: rain from %s, wind/temp from %s",
+            nearest["station_name"], full_station["station_name"],
+        )
+
+    sid = primary["station_id"]
 
     ts_utc = fetch_latest_time_utc()
     observed_at = _utc_str_to_jst_iso(ts_utc) if ts_utc else None
 
     result = {
-        "station": nearest["station_name"],
+        "station": station_name,
         "station_id": sid,
-        "station_lat": nearest["lat"],
-        "station_lon": nearest["lon"],
+        "station_lat": primary["lat"],
+        "station_lon": primary["lon"],
         "rain": rain,
         "wind": wind,
         "temperature": temperature,
