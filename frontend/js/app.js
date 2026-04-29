@@ -68,26 +68,33 @@ autoRefreshOnManualUpdateCheckbox.addEventListener('change', (event) => {
 
 // ── 下部パネル タブ切り替え ───────────────────────────────────────────────
 function switchMbcTab(tab) {
-    const controls     = document.getElementById('map-bottom-controls');
-    const panelAct     = document.getElementById('mbc-tab-panel-action');
-    const panelInfo    = document.getElementById('mbc-tab-panel-info');
-    const panelLayer   = document.getElementById('mbc-tab-panel-layer');
-    const panelLegend  = document.getElementById('mbc-tab-panel-legend');
-    const btnAct       = document.getElementById('mbc-tab-btn-action');
-    const btnInfo      = document.getElementById('mbc-tab-btn-info');
-    const btnLayer     = document.getElementById('mbc-tab-btn-layer');
-    const btnLegend    = document.getElementById('mbc-tab-btn-legend');
+    const controls        = document.getElementById('map-bottom-controls');
+    const panelAct        = document.getElementById('mbc-tab-panel-action');
+    const panelInfo       = document.getElementById('mbc-tab-panel-info');
+    const panelLayer      = document.getElementById('mbc-tab-panel-layer');
+    const panelLegend     = document.getElementById('mbc-tab-panel-legend');
+    const panelEarthquake = document.getElementById('mbc-tab-panel-earthquake');
+    const btnAct          = document.getElementById('mbc-tab-btn-action');
+    const btnInfo         = document.getElementById('mbc-tab-btn-info');
+    const btnLayer        = document.getElementById('mbc-tab-btn-layer');
+    const btnLegend       = document.getElementById('mbc-tab-btn-legend');
+    const btnEarthquake   = document.getElementById('mbc-tab-btn-earthquake');
     if (!controls || !panelAct || !panelInfo) return;
 
     // すべて非表示・非アクティブにリセット
     panelAct.style.display  = 'none';
     panelInfo.style.display = 'none';
-    if (panelLayer)  panelLayer.style.display  = 'none';
-    if (panelLegend) panelLegend.style.display = 'none';
+    if (panelLayer)      panelLayer.style.display      = 'none';
+    if (panelLegend)     panelLegend.style.display     = 'none';
+    if (panelEarthquake) panelEarthquake.style.display = 'none';
     btnAct.classList.remove('mbc-tab-btn--active');
     btnInfo.classList.remove('mbc-tab-btn--active');
-    if (btnLayer)  btnLayer.classList.remove('mbc-tab-btn--active');
-    if (btnLegend) btnLegend.classList.remove('mbc-tab-btn--active');
+    if (btnLayer)      btnLayer.classList.remove('mbc-tab-btn--active');
+    if (btnLegend)     btnLegend.classList.remove('mbc-tab-btn--active');
+    if (btnEarthquake) btnEarthquake.classList.remove('mbc-tab-btn--active');
+
+    // 地震タブ以外では高さ拡張クラスを解除
+    controls.classList.remove('mbc-earthquake-active');
 
     if (tab === 'info') {
         panelInfo.style.display = 'block';
@@ -101,6 +108,15 @@ function switchMbcTab(tab) {
         if (panelLegend) panelLegend.style.display = 'block';
         if (btnLegend)   btnLegend.classList.add('mbc-tab-btn--active');
         controls.classList.remove('mbc-collapsed');
+    } else if (tab === 'earthquake') {
+        if (panelEarthquake) panelEarthquake.style.display = 'flex';
+        if (btnEarthquake)   btnEarthquake.classList.add('mbc-tab-btn--active');
+        controls.classList.remove('mbc-collapsed');
+        controls.classList.add('mbc-earthquake-active');
+        // 地震モードが未起動なら起動する
+        if (typeof isMagnitudeModeActive === 'function' && !isMagnitudeModeActive()) {
+            if (typeof toggleMagnitudeMode === 'function') toggleMagnitudeMode();
+        }
     } else {
         // action（デフォルト）
         panelAct.style.display = 'block';
@@ -113,9 +129,10 @@ document.getElementById('mbc-tab-btn-action').addEventListener('click', () => sw
 document.getElementById('mbc-tab-btn-info').addEventListener('click',   () => switchMbcTab('info'));
 document.getElementById('mbc-tab-btn-layer')?.addEventListener('click',  () => switchMbcTab('layer'));
 document.getElementById('mbc-tab-btn-legend')?.addEventListener('click', () => switchMbcTab('legend'));
+document.getElementById('mbc-tab-btn-earthquake')?.addEventListener('click', () => switchMbcTab('earthquake'));
 
 // タブ内スクロールが地図パンに伝播しないようにする
-['mbc-tab-panel-info', 'mbc-tab-panel-layer', 'mbc-tab-panel-legend'].forEach(id => {
+['mbc-tab-panel-info', 'mbc-tab-panel-layer', 'mbc-tab-panel-legend', 'mbc-tab-panel-earthquake'].forEach(id => {
     const el = document.getElementById(id);
     if (el && typeof L !== 'undefined') L.DomEvent.disableScrollPropagation(el);
 });

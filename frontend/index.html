@@ -1663,22 +1663,25 @@
             transform: translateY(0);
         }
 
-        /* ── Magnitude モード ────────────────────────────────── */
-        #magnitude-panel {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 280px;
-            max-height: 50vh;
-            background: rgba(255, 255, 255, 0.97);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-radius: 0 16px 0 0;
-            box-shadow: 2px -2px 16px rgba(0, 0, 0, 0.15);
-            display: none;
+        /* ── Magnitude モード（地震タブ） ───────────────────── */
+        /* 地震タブ展開時にパネルを大きくする */
+        #map-bottom-controls.mbc-earthquake-active #map-bottom-body {
+            max-height: 45vh;
+        }
+        /* タブパネル本体 */
+        #mbc-tab-panel-earthquake {
+            display: flex;
             flex-direction: column;
-            z-index: 900;
             overflow: hidden;
+            flex: 1;
+        }
+        .earthquake-panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex: 1;
+            overscroll-behavior: contain;
+            touch-action: pan-y;
         }
         #magnitude-panel-header {
             display: flex;
@@ -2937,20 +2940,6 @@
 
                 </div><!-- /#map-top-right-controls -->
 
-                <!-- 地震情報パネル（Magnitudeモード） -->
-                <div id="magnitude-panel">
-                    <div id="magnitude-panel-header">
-                        <span class="mq-title">地震情報</span>
-                        <button id="magnitude-refresh-btn" title="更新" onclick="magnitudeReload()">↻</button>
-                        <button id="magnitude-panel-close" title="閉じる" onclick="toggleMagnitudeMode()">×</button>
-                    </div>
-                    <div id="magnitude-new-count" class="mq-new-count"></div>
-                    <div id="magnitude-layer-note" class="mq-layer-note">Magnitudeモード中は、地図を見やすくするため避難所レイヤーを一時非表示にしています。</div>
-                    <div id="magnitude-filter-bar"></div>
-                    <div id="magnitude-sort-bar"></div>
-                    <div id="magnitude-list"></div>
-                </div>
-
                 <!-- 下部: 現在地 / 検索 / ナビ / スライダ -->
                 <div id="map-bottom-controls">
                     <!-- 折りたたみハンドル -->
@@ -2987,6 +2976,10 @@
                         <button id="mbc-tab-btn-legend" class="mbc-tab-btn">
                             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
                             凡例
+                        </button>
+                        <button id="mbc-tab-btn-earthquake" class="mbc-tab-btn">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                            地震
                         </button>
                     </div>
                     <!-- 操作タブ -->
@@ -3157,6 +3150,20 @@
                             <!-- JS で buildLegendPanel() により生成 -->
                         </div>
                     </div><!-- /#mbc-tab-panel-legend -->
+                    <!-- 地震タブ -->
+                    <div id="mbc-tab-panel-earthquake" style="display:none;">
+                        <div class="earthquake-panel">
+                            <div id="magnitude-panel-header">
+                                <span class="mq-title">地震情報</span>
+                                <button id="magnitude-refresh-btn" title="更新" onclick="magnitudeReload()">↻</button>
+                            </div>
+                            <div id="magnitude-new-count" class="mq-new-count"></div>
+                            <div id="magnitude-layer-note" class="mq-layer-note">Magnitudeモード中は、地図を見やすくするため避難所レイヤーを一時非表示にしています。</div>
+                            <div id="magnitude-filter-bar"></div>
+                            <div id="magnitude-sort-bar"></div>
+                            <div id="magnitude-list"></div>
+                        </div>
+                    </div><!-- /#mbc-tab-panel-earthquake -->
                     </div><!-- /#map-bottom-body -->
                 </div><!-- /#map-bottom-controls -->
 

@@ -153,8 +153,7 @@
         _savedView = { center: map.getCenter(), zoom: map.getZoom() };
         map.setView([36.2048, 138.2529], 5, { animate: true });
 
-        const panel = document.getElementById('magnitude-panel');
-        if (panel) panel.style.display = 'flex';
+        if (typeof switchMbcTab === 'function') switchMbcTab('earthquake');
 
         const btn = document.getElementById('magnitude-btn');
         if (btn) btn.classList.add('map-overlay-btn--active');
@@ -171,8 +170,7 @@
             _savedView = null;
         }
 
-        const panel = document.getElementById('magnitude-panel');
-        if (panel) panel.style.display = 'none';
+        if (typeof switchMbcTab === 'function') switchMbcTab('action');
 
         const btn = document.getElementById('magnitude-btn');
         if (btn) btn.classList.remove('map-overlay-btn--active');
