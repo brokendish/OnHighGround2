@@ -159,17 +159,19 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
     primary_obs = map_data.get(primary["station_id"]) or {}
     nearest_obs = map_data.get(nearest["station_id"]) or {}
 
-    rain        = extract_value(nearest_obs, "precipitation1h")
-    wind        = extract_value(primary_obs, "wind")
-    temperature = extract_value(primary_obs, "temp")
+    # 雨量: タイプA観測点（full_station）を優先し、未取得なら最寄りにフォールバック
+    rain_primary = extract_value(primary_obs, "precipitation1h")
+    rain         = rain_primary if rain_primary is not None else extract_value(nearest_obs, "precipitation1h")
+    wind         = extract_value(primary_obs, "wind")
+    temperature  = extract_value(primary_obs, "temp")
 
-    # 表示観測点: 気温/風速の取得元を優先表示
+    # 表示観測点: 気温/風速/雨量の取得元を優先表示
     station_name = nearest["station_name"]
     if full_station and full_station["station_id"] != nearest["station_id"]:
         station_name = full_station["station_name"]
         logger.info(
-            "weather: rain from %s, wind/temp from %s",
-            nearest["station_name"], full_station["station_name"],
+            "weather: rain/wind/temp from %s (full station); nearest=%s",
+            full_station["station_name"], nearest["station_name"],
         )
 
     sid = primary["station_id"]
@@ -191,9 +193,10 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
 
     logger.info(
         "weather: cache miss — station=%s(%s) distance_km=%.1f quality=%s "
-        "rain=%s wind=%s temp=%s freshness=%s age_min=%s",
+        "rain=%s(src=%s) wind=%s temp=%s freshness=%s age_min=%s",
         station_name, sid, distance_km, station_quality,
-        rain, wind, temperature, freshness, age_minutes,
+        rain, "primary" if rain_primary is not None else "nearest",
+        wind, temperature, freshness, age_minutes,
     )
 
     result = {
