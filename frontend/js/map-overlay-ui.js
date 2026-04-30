@@ -749,6 +749,16 @@ function buildLegendPanel() {
             </div>`).join('')}
     `;
     panel.appendChild(eqSection);
+
+    // 雨量レーダー凡例スロット（rain-layer.js が内容を管理）
+    const rainSep = document.createElement('hr');
+    rainSep.className = 'legend-section-sep';
+    panel.appendChild(rainSep);
+
+    const rainLegendEl = document.createElement('div');
+    rainLegendEl.id = 'rain-legend';
+    rainLegendEl.style.display = 'none';
+    panel.appendChild(rainLegendEl);
 }
 
 // ── レイヤーパネル トグル ─────────────────────────────────────────────────

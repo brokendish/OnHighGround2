@@ -48,6 +48,16 @@ function scheduleEmergencyShelterRefresh() {
 
 async function refreshEmergencyShelters() {
     if (typeof isMagnitudeModeActive === 'function' && isMagnitudeModeActive()) return;
+
+    // zoom が広域すぎる場合はマーカーを表示しない
+    // shelter-browse-layer の ZOOM_SHOW_MIN（11）に合わせ、それ未満では非表示
+    const _zoomMin = typeof SHELTER_BROWSE_CONFIG !== 'undefined'
+        ? SHELTER_BROWSE_CONFIG.ZOOM_SHOW_MIN : 11;
+    if (map.getZoom() < _zoomMin) {
+        clearEmergencyShelterMarkers();
+        return;
+    }
+
     if (_shouldHideEmergencyShelterCandidatesForBrowse()) {
         clearEmergencyShelterMarkers();
         setShelterStatus('近傍避難候補は広域ブラウズ中のため zoom 14以上で表示されます。');

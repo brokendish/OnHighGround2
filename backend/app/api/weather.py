@@ -1,11 +1,12 @@
 """
-気象API — 現在地の最寄りアメダス観測点データ / 警報・注意報を返す。
+気象API — 現在地の最寄りアメダス観測点データ / 警報・注意報 / 雨量レーダータイルを返す。
 """
 import logging
 from fastapi import APIRouter, Query, HTTPException
 
 from services.weather_service import get_current_weather
 from services.weather_warning_service import get_current_warnings
+from services.jma_rain_tile_service import get_rain_tile_latest
 
 logger = logging.getLogger(__name__)
 
@@ -90,4 +91,34 @@ async def get_weather_warnings_current(
         raise
     except Exception as exc:
         logger.exception("weather warnings endpoint error: %s", exc)
+        raise HTTPException(status_code=500, detail={"error": "internal_error"})
+
+
+@router.get("/api/weather/rain/tile/latest")
+async def get_rain_tile_latest_endpoint():
+    """
+    JMA 降水ナウキャストの最新タイル情報を返す（Phase2B）。
+
+    気象庁の降水ナウキャスト targetTimes から最新の basetime/validtime を取得し、
+    Leaflet 用タイル URL テンプレートを返す。応答は 120 秒キャッシュされる。
+    """
+    try:
+        data = get_rain_tile_latest()
+        if data is None:
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "rain_tile_unavailable", "message": "雨量タイル情報を取得できませんでした"},
+            )
+        return {
+            "source":            data["source"],
+            "basetime":          data["basetime"],
+            "validtime":         data["validtime"],
+            "tile_url_template": data["tile_url_template"],
+            "updated_at":        data["updated_at"],
+            "ttl_seconds":       data["ttl_seconds"],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("rain tile endpoint error: %s", exc)
         raise HTTPException(status_code=500, detail={"error": "internal_error"})
