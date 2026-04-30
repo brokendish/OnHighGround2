@@ -8,6 +8,25 @@ jma_quake_client.py — 気象庁Web地震情報JSONクライアント（Phase2C
 キャッシュ:
   list.json:  60秒
   個別JSON: 300秒
+
+JSON実構造（VXSE5k「震源・震度情報」）:
+  Head.ReportDateTime        → report_time
+  Head.Headline.Text         → headline
+  Body.Earthquake.OriginTime → origin_time
+  Body.Earthquake.Magnitude  → magnitude
+  Body.Earthquake.Hypocenter.Area.Name       → hypocenter_name
+  Body.Earthquake.Hypocenter.Area.Coordinate → "+lat+lon+depth_m/"
+  Body.Intensity.Observation.MaxInt  → max_intensity
+  Body.Intensity.Observation.Pref[]  → intensity_areas
+  Body.Comments.ForecastComment.Text → domestic_tsunami (テキスト判定)
+
+list.json エントリ（個別JSON取得不要の主要フィールド）:
+  anm  → hypocenter_name
+  cod  → coordinate "+lat+lon+depth_m/"
+  mag  → magnitude
+  maxi → max_intensity (直接文字列: "1","2","3","4","5-","5+","6-","6+","7")
+  at   → origin_time
+  rdt  → report_time
 """
 from __future__ import annotations
 
@@ -28,27 +47,25 @@ _LIST_TTL = 60
 _ITEM_TTL = 300
 _JST = timezone(timedelta(hours=9))
 
-# list.json の maxi フィールド（整数コード）→ 震度ラベル
-_MAXI_CODE_MAP: Dict[str, str] = {
-    "10": "1", "20": "2", "30": "3", "40": "4",
-    "45": "5弱", "50": "5強", "55": "6弱", "60": "6強", "70": "7",
-}
-
-# 個別JSON の MaxInt フィールド（文字列コード）→ 震度ラベル
-_MAXINT_STR_MAP: Dict[str, str] = {
-    "1": "1", "2": "2", "3": "3", "4": "4",
-    "5-": "5弱", "5+": "5強", "6-": "6弱", "6+": "6強", "7": "7",
-    "5弱": "5弱", "5強": "5強", "6弱": "6弱", "6強": "6強",
-    "-1": "1未満", "0": "なし",
-}
-
-_TSUNAMI_MAP: Dict[str, str] = {
-    "None": "なし",
-    "Unknown": "不明",
-    "Checking": "確認中",
-    "NonEffective": "若干の海面変動あり",
-    "Watch": "津波注意報",
-    "Warning": "津波警報",
+# list.json / 個別JSON の MaxInt フィールド（直接文字列コード）→ 震度ラベル
+# list.json の maxi と Body.Intensity.Observation.MaxInt は同じ形式
+_INTENSITY_LABEL_MAP: Dict[str, str] = {
+    "1":  "1",
+    "2":  "2",
+    "3":  "3",
+    "4":  "4",
+    "5-": "5弱",
+    "5+": "5強",
+    "6-": "6弱",
+    "6+": "6強",
+    "7":  "7",
+    # 日本語表記も念のため
+    "5弱": "5弱",
+    "5強": "5強",
+    "6弱": "6弱",
+    "6強": "6強",
+    "-1": "1未満",
+    "0":  "なし",
 }
 
 _list_cache: Optional[Dict[str, Any]] = None
@@ -118,17 +135,14 @@ def _parse_iso(s: Any) -> Optional[str]:
         return None
 
 
-def _maxi_code_label(code: Any) -> str:
-    if code is None:
-        return "unknown"
-    return _MAXI_CODE_MAP.get(str(code), "unknown")
-
-
-def _maxint_label(value: Any) -> str:
+def _intensity_label(value: Any) -> str:
+    """震度文字列コード → 表示用震度ラベル。不明は "unknown"。"""
     if value is None:
         return "unknown"
     s = str(value).strip()
-    return _MAXINT_STR_MAP.get(s, "unknown")
+    if not s:
+        return "unknown"
+    return _INTENSITY_LABEL_MAP.get(s, "unknown")
 
 
 _ISO6709_PAT = re.compile(
@@ -138,7 +152,10 @@ _ISO6709_PAT = re.compile(
 
 def _parse_coordinate(coord: Any) -> Tuple[Optional[float], Optional[float], Optional[int]]:
     """
-    ISO 6709 座標文字列または dict をパースして (lat, lon, depth_km) を返す。
+    ISO 6709 座標文字列をパースして (lat, lon, depth_km) を返す。
+
+    JMA形式: "+36.6+137.9-10000/" (第3成分は深さ、単位はメートル)
+    深さは絶対値を1000で割ってkmに変換する。
     不明・sentinel値は None。
     """
     if isinstance(coord, dict):
@@ -146,6 +163,8 @@ def _parse_coordinate(coord: Any) -> Tuple[Optional[float], Optional[float], Opt
     if not isinstance(coord, str):
         return None, None, None
     coord = coord.strip().rstrip("/")
+    if not coord:
+        return None, None, None
     m = _ISO6709_PAT.match(coord)
     if not m:
         return None, None, None
@@ -153,7 +172,11 @@ def _parse_coordinate(coord: Any) -> Tuple[Optional[float], Optional[float], Opt
         lat = float(m.group(1))
         lon = float(m.group(2))
         depth_raw = m.group(3)
-        depth_km = abs(int(float(depth_raw))) if depth_raw else None
+        # 深さは m 単位 → km 変換（JMA 標準）
+        depth_km: Optional[int] = None
+        if depth_raw:
+            depth_m = abs(int(float(depth_raw)))
+            depth_km = depth_m // 1000
         if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
             return None, None, None
         if lat == 0.0 and lon == 0.0:
@@ -163,96 +186,148 @@ def _parse_coordinate(coord: Any) -> Tuple[Optional[float], Optional[float], Opt
         return None, None, None
 
 
-def _extract_scalar(value: Any) -> Any:
-    """JMA JSON の "@value" ラッパーから値を取り出す。"""
-    if isinstance(value, dict):
-        return value.get("@value") or value.get("value") or value.get("$")
-    return value
+def _parse_float(value: Any) -> Optional[float]:
+    """文字列または数値を float へ変換。変換不能は None。"""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+        return f if f > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _tsunami_from_comment(comments: Dict[str, Any]) -> str:
+    """
+    Body.Comments.ForecastComment からテキスト判定で津波情報を返す。
+    JMA ForecastComment.Code の例:
+      0215 → 津波の心配なし
+      0201 → 注意報/警報レベル（テキストで細分判定）
+    """
+    forecast = comments.get("ForecastComment") or {}
+    text = str(forecast.get("Text") or "")
+    if "津波の心配はありません" in text or "津波なし" in text:
+        return "なし"
+    if "若干の海面変動" in text:
+        return "若干の海面変動あり"
+    if "津波警報" in text:
+        return "津波警報"
+    if "津波注意報" in text:
+        return "津波注意報"
+    if text:
+        return "確認中"
+    return "不明"
 
 
 def _normalize_item(
     entry: Dict[str, Any],
     item_json: Optional[Any],
 ) -> Dict[str, Any]:
-    """list.json 1エントリ + 個別JSON から正規化イベントを生成する。"""
+    """
+    list.json 1エントリ + 個別JSON から正規化イベントを生成する。
+
+    list.json のフィールド（anm/cod/mag/maxi）を一次ソースとして使用し、
+    個別JSON（Body.Earthquake / Body.Intensity.Observation）で補完・精緻化する。
+    """
     json_file = entry.get("json", "")
     event_id = json_file.split("/")[-1].replace(".json", "")
     title = entry.get("ttl") or ""
-    report_time = _parse_iso(entry.get("at") or entry.get("rdt"))
-    max_intensity = _maxi_code_label(entry.get("maxi"))
 
-    origin_time: Optional[str] = report_time
-    hypocenter_name = "不明"
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    depth_km: Optional[int] = None
-    magnitude: Optional[float] = None
+    # ── list.json から基本情報を取得 ────────────────────────────────────────
+    report_time = _parse_iso(entry.get("rdt") or entry.get("at"))
+    origin_time = _parse_iso(entry.get("at")) or report_time
+
+    # 震源名: list.json anm フィールド
+    hypocenter_name = str(entry.get("anm") or "不明").strip() or "不明"
+
+    # 座標: list.json cod フィールド (+lat+lon+depth_m/)
+    lat, lon, depth_km = _parse_coordinate(entry.get("cod"))
+
+    # マグニチュード: list.json mag フィールド
+    magnitude = _parse_float(entry.get("mag"))
+
+    # 最大震度: list.json maxi フィールド（直接文字列 "1"〜"7", "5-", "5+" 等）
+    max_intensity = _intensity_label(entry.get("maxi"))
+
     domestic_tsunami = "不明"
     headline = ""
     intensity_areas: List[Dict[str, str]] = []
 
+    # ── 個別JSON による補完・精緻化 ──────────────────────────────────────────
     if item_json is not None:
         try:
-            # 配列の場合は最初の要素を使う
             root = item_json[0] if isinstance(item_json, list) else item_json
-            props = root.get("properties") or root
+            head = root.get("Head") or {}
+            body = root.get("Body") or {}
 
-            headline = str(props.get("Headline") or "")
-            domestic_tsunami = _TSUNAMI_MAP.get(
-                str(props.get("Tsunami") or ""), "不明"
-            )
+            # headline: Head.Headline.Text
+            head_headline = head.get("Headline") or {}
+            headline = str(head_headline.get("Text") or "").strip()
 
-            # report_time を個別JSONで上書き
-            report_time = _parse_iso(props.get("AnnouncedTime") or props.get("ReportDatetime")) or report_time
+            # report_time: Head.ReportDateTime
+            report_time = _parse_iso(head.get("ReportDateTime")) or report_time
 
-            # 地震情報
-            eq = props.get("Earthquake") or {}
-            origin_time = _parse_iso(
-                eq.get("OriginTime") or props.get("OriginTime")
-            ) or origin_time
+            # Earthquake ブロック
+            eq = body.get("Earthquake") or {}
 
-            hypo = eq.get("HypoCenter") or eq.get("Hypocenter") or {}
-            hypocenter_name = str(_extract_scalar(hypo.get("Name")) or "不明")
-            lat, lon, depth_km = _parse_coordinate(hypo.get("Coordinate"))
+            # origin_time: Body.Earthquake.OriginTime
+            origin_time = _parse_iso(eq.get("OriginTime")) or origin_time
 
-            mag_raw = _extract_scalar(hypo.get("Magnitude") or eq.get("Magnitude"))
-            try:
-                magnitude = float(mag_raw) if mag_raw is not None else None
-            except (TypeError, ValueError):
-                magnitude = None
+            # 震源エリア: Body.Earthquake.Hypocenter.Area
+            hypo_area = (eq.get("Hypocenter") or {}).get("Area") or {}
 
-            # 震度分布
-            intensity_block = props.get("Intensity") or {}
-            # MaxInt の上書き（個別JSONの方が詳細）
-            item_maxint = intensity_block.get("MaxInt") or props.get("MaxInt")
-            if item_maxint:
-                max_intensity = _maxint_label(item_maxint)
+            if hypo_area.get("Name"):
+                hypocenter_name = str(hypo_area["Name"]).strip() or hypocenter_name
 
-            prefs = intensity_block.get("Prefs") or intensity_block.get("Pref") or []
+            # 座標の精緻化（個別JSON の方が精度が高い場合あり）
+            coord_str = hypo_area.get("Coordinate")
+            if coord_str:
+                lat_new, lon_new, depth_new = _parse_coordinate(coord_str)
+                if lat_new is not None:
+                    lat, lon, depth_km = lat_new, lon_new, depth_new
+
+            # magnitude: Body.Earthquake.Magnitude
+            mag_from_item = _parse_float(eq.get("Magnitude"))
+            if mag_from_item is not None:
+                magnitude = mag_from_item
+
+            # Intensity.Observation ブロック
+            obs = (body.get("Intensity") or {}).get("Observation") or {}
+
+            # max_intensity: Body.Intensity.Observation.MaxInt
+            if obs.get("MaxInt"):
+                max_intensity = _intensity_label(obs["MaxInt"])
+
+            # intensity_areas: Body.Intensity.Observation.Pref[].Area[]
+            prefs = obs.get("Pref") or []
             if isinstance(prefs, dict):
                 prefs = [prefs]
             for pref in prefs:
-                pref_name = str(_extract_scalar(pref.get("Name")) or "")
-                pref_int = _maxint_label(pref.get("MaxInt"))
+                pref_name = str(pref.get("Name") or "").strip()
+                pref_int = _intensity_label(pref.get("MaxInt"))
                 intensity_areas.append({"name": pref_name, "intensity": pref_int})
-                areas = pref.get("Areas") or pref.get("Area") or []
+                areas = pref.get("Area") or []
                 if isinstance(areas, dict):
                     areas = [areas]
                 for area in areas:
-                    intensity_areas.append({
-                        "name": str(_extract_scalar(area.get("Name")) or ""),
-                        "intensity": _maxint_label(area.get("MaxInt")),
-                    })
+                    area_name = str(area.get("Name") or "").strip()
+                    area_int = _intensity_label(area.get("MaxInt"))
+                    intensity_areas.append({"name": area_name, "intensity": area_int})
+
+            # domestic_tsunami: Body.Comments.ForecastComment.Text 判定
+            comments = body.get("Comments") or {}
+            domestic_tsunami = _tsunami_from_comment(comments)
 
         except Exception as exc:
             logger.debug("jma_quake item parse error (event_id=%s): %s", event_id, exc)
 
-    if not intensity_areas and max_intensity not in ("unknown", "なし"):
+    # intensity_areas フォールバック
+    if not intensity_areas and max_intensity not in ("unknown", "なし", "1未満"):
         intensity_areas = [{"name": hypocenter_name, "intensity": max_intensity}]
 
     logger.info(
-        "jma_quake event: event_id=%s report_time=%s max_intensity=%s hypocenter_name=%s",
-        event_id, report_time, max_intensity, hypocenter_name,
+        "jma_quake event: event_id=%s hypocenter_name=%s lat=%s lon=%s magnitude=%s max_intensity=%s",
+        event_id, hypocenter_name, lat, lon, magnitude, max_intensity,
     )
     return {
         "event_id":         event_id,
