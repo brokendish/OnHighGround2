@@ -141,6 +141,7 @@ function stopRainRadarAnimation() {
         rainRadar.animationTimer = null;
     }
     _rainAnimBtnUpdate(false);
+    setRainRadarOffset(0);   // 停止時は現在（offset=0）に戻す
 }
 
 // ── ON / OFF 切替（外部エントリポイント） ────────────────────────────────────
