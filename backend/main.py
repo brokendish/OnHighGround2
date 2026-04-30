@@ -27,6 +27,7 @@ from app.api.admin_datasets import router as admin_datasets_router
 from app.api.admin_datasets import jobs_router as admin_jobs_router
 from app.api.layer_types_api import router as layer_types_router
 from app.api.earthquakes import router as earthquakes_router
+from app.api.earthquakes_recent import router as earthquakes_recent_router
 from app.api.earthquakes_stream import router as earthquakes_stream_router
 from app.api.earthquakes_stream import dev_router as earthquakes_dev_router
 from app.api.weather import router as weather_router
@@ -182,6 +183,7 @@ app.include_router(admin_datasets_router)
 app.include_router(admin_jobs_router)
 app.include_router(layer_types_router)
 app.include_router(earthquakes_router)
+app.include_router(earthquakes_recent_router)
 app.include_router(earthquakes_stream_router)
 app.include_router(earthquakes_dev_router)
 app.include_router(weather_router)

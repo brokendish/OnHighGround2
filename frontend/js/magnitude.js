@@ -225,6 +225,45 @@
         }
     }
 
+    // ── フィールド正規化 ──────────────────────────────────────────────────────
+    // Phase2C (JMA) と既存P2P の両フォーマットを統一する。
+    // 既存UIは occurred_at / epicenter_name / lng / tsunami_info を参照するため、
+    // Phase2C フィールド (origin_time / hypocenter_name / lon / domestic_tsunami) を補完する。
+    function _normalizeEvent(e) {
+        const n = Object.assign({}, e);
+        if (!n.occurred_at) n.occurred_at = n.origin_time || n.report_time || null;
+        if (!n.epicenter_name) n.epicenter_name = n.hypocenter_name || '不明';
+        if (n.lng == null && n.lon != null) n.lng = n.lon;
+        if (!n.tsunami_info) n.tsunami_info = n.domestic_tsunami || '不明';
+        return n;
+    }
+
+    // ── データ取得（フォールバック付き） ──────────────────────────────────────
+    // 1. /api/earthquakes/recent (JMA Phase2C) を試みる
+    //    - events[] が返れば正規化して使用
+    //    - items[] が返れば（テストモック等）そのまま使用（フォールバックなし）
+    // 2. 失敗時のみ /api/earthquakes (既存P2P) へフォールバック
+    // 3. 両方失敗した場合は例外を投げる
+    async function _fetchEarthquakes() {
+        try {
+            const resp = await fetch('/api/earthquakes/recent');
+            if (resp.ok) {
+                const data = await resp.json();
+                if (Array.isArray(data.events)) {
+                    return data.events.map(_normalizeEvent);
+                }
+                if (Array.isArray(data.items)) {
+                    return data.items;
+                }
+            }
+        } catch (_e) { /* fall through to legacy endpoint */ }
+
+        const resp = await fetch('/api/earthquakes');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        return Array.isArray(data.items) ? data.items : [];
+    }
+
     // ── 取得・描画 ────────────────────────────────────────────────────────────
     // silent=true: バックグラウンドポーリング（リストをクリアしない）
     // silent=false: 初回/手動（読み込み中スピナーを表示）
@@ -244,10 +283,7 @@
         if (refreshBtn) refreshBtn.disabled = true;
 
         try {
-            const resp = await fetch('/api/earthquakes');
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data   = await resp.json();
-            const quakes = data.items || [];
+            const quakes = await _fetchEarthquakes();
             if (!_active || seq !== _loadSeq) return;
 
             _pollFailureCount = 0;
@@ -293,6 +329,9 @@
             if (!silent) {
                 const list2 = document.getElementById('magnitude-list');
                 if (list2) list2.innerHTML = '<div class="mq-error">データを取得できませんでした</div>';
+                if (typeof showMapToast === 'function') {
+                    showMapToast('地震情報取得不可', { warn: true });
+                }
             }
         } finally {
             _loadInFlight = false;

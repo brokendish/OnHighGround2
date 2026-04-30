@@ -204,10 +204,11 @@ test.describe('Magnitude Phase3-1: polling', () => {
     let calls = 0;
     await setupPage(page, route => {
       calls += 1;
-      if (calls === 2) {
+      // Poll 1: /recent (call 2) と fallback /earthquakes (call 3) の両方を503にする
+      if (calls === 2 || calls === 3) {
         return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'busy' }) });
       }
-      const items = calls >= 3 ? withNewItems() : baseItems();
+      const items = calls >= 4 ? withNewItems() : baseItems();
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -216,11 +217,13 @@ test.describe('Magnitude Phase3-1: polling', () => {
     });
 
     await openMagnitude(page);
-    await expect.poll(() => calls).toBeGreaterThanOrEqual(2);
+    // /recent と fallback の両リクエスト(call 2, 3)完了後にエラー状態を確認する
+    await expect.poll(() => calls).toBeGreaterThanOrEqual(3);
     await expect(page.locator('#magnitude-status-bar')).toContainText('更新に失敗');
     await expect(page.locator('#magnitude-list .mq-item')).toHaveCount(2);
 
-    await expect.poll(() => calls).toBeGreaterThanOrEqual(3);
+    // Poll 2 で復帰する
+    await expect.poll(() => calls).toBeGreaterThanOrEqual(4);
     await expect(page.locator('#magnitude-status-bar')).toContainText('最終更新');
     await expect(page.locator('#magnitude-list .mq-item')).toHaveCount(4);
   });
