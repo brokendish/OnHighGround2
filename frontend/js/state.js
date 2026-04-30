@@ -101,3 +101,12 @@ let navLastHazardFetchPos         = null;  // 最後に現在地ハザード取�
 // ── 前方ブロック再ルート ───────────────────────────────────────────────────
 let navBlockAheadInProgress = false; // 前方回避再ルート処理中フラグ
 let navCurrentStepKey = null;       // 現在の案内ステップ識別キー "lat,lon"（UI同期用）
+
+// ── 雨量レーダー ──────────────────────────────────────────────────────────────
+const rainRadar = {
+    enabled:       false,
+    baseTime:      null,   // 最新 basetime 文字列（"20250430120000"）
+    offset:        0,      // 現在選択中のオフセット（分）
+    timer:         null,   // 自動更新 setInterval ID
+    animationTimer: null,  // アニメーション setInterval ID
+};

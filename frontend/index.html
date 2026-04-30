@@ -2021,6 +2021,67 @@
             margin-top: 4px;
         }
 
+        /* ── 雨量レーダー予測コントロール（情報タブ内） ──────────────── */
+        .lip-rain-ctrl {
+            padding: 2px 0 0;
+        }
+        .lip-rain-slider-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .lip-rain-slider {
+            flex: 1;
+            height: 4px;
+            accent-color: #1565c0;
+            cursor: pointer;
+        }
+        .lip-rain-slider:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+        .lip-rain-offset-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #1565c0;
+            min-width: 36px;
+            text-align: right;
+            white-space: nowrap;
+        }
+        .lip-rain-time-and-btn {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .lip-rain-time-text {
+            font-size: 11px;
+            color: #64748b;
+            flex: 1;
+        }
+        .lip-rain-anim-btn {
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: inherit;
+            background: rgba(21,101,192,0.08);
+            border: 1px solid rgba(21,101,192,0.25);
+            border-radius: 6px;
+            color: #1565c0;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .lip-rain-anim-btn:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+        .lip-rain-anim-btn--playing {
+            background: rgba(21,101,192,0.18);
+            border-color: rgba(21,101,192,0.5);
+        }
+
         /* ── 情報タブ内: 音声・振動設定ボタン ──────────────── */
         .mbc-settings-row {
             display: flex;
@@ -3187,6 +3248,21 @@
                                 <div class="lip-row"><span class="lip-row-label">更新</span><span class="lip-row-value" id="lip-weather-time">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">警報・注意報</span><span class="lip-row-value" id="lip-weather-warning">--</span></div>
                                 <div id="lip-weather-notice" style="display:none;font-size:11px;color:#92400e;padding:2px 0 0 0;"></div>
+                            </div>
+                            <!-- E: 雨量レーダー予測コントロール（rain-layer.js が表示制御） -->
+                            <div class="lip-section" id="lip-rain-radar-ctrl-section" style="display:none;">
+                                <div class="lip-section-title">🌧 雨量レーダー予測</div>
+                                <div class="lip-rain-ctrl">
+                                    <div class="lip-rain-slider-row">
+                                        <input type="range" id="lip-rain-slider" class="lip-rain-slider"
+                                               min="-60" max="60" step="5" value="0" disabled>
+                                        <span id="lip-rain-offset-label" class="lip-rain-offset-label">現在</span>
+                                    </div>
+                                    <div class="lip-rain-time-and-btn">
+                                        <span id="lip-rain-time-text" class="lip-rain-time-text"></span>
+                                        <button id="lip-rain-anim-btn" class="lip-rain-anim-btn" disabled>▶ 再生</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div id="loc-info-route" style="display:none;">

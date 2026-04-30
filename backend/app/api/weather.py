@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, HTTPException
 
 from services.weather_service import get_current_weather
 from services.weather_warning_service import get_current_warnings
-from services.jma_rain_tile_service import get_rain_tile_latest
+from services.jma_rain_tile_service import get_rain_tile_latest, get_rain_tile_times
 
 logger = logging.getLogger(__name__)
 
@@ -121,4 +121,26 @@ async def get_rain_tile_latest_endpoint():
         raise
     except Exception as exc:
         logger.exception("rain tile endpoint error: %s", exc)
+        raise HTTPException(status_code=500, detail={"error": "internal_error"})
+
+
+@router.get("/api/weather/rain/tile/times")
+async def get_rain_tile_times_endpoint():
+    """
+    JMA 降水ナウキャストの最新 basetime に対する全 validtime 一覧を返す。
+
+    スライダー・アニメーション用。各エントリに offset_minutes（basetime からの分差）を付与する。
+    """
+    try:
+        data = get_rain_tile_times()
+        if data is None:
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "rain_tile_times_unavailable", "message": "雨量タイル時刻一覧を取得できませんでした"},
+            )
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("rain tile times endpoint error: %s", exc)
         raise HTTPException(status_code=500, detail={"error": "internal_error"})
