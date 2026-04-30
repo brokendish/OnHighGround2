@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * weather.js — 現在地気象情報の取得とパネル表示（Phase1.5 / Phase2A）
+ * weather.js — 現在地気象情報の取得とパネル表示
  *
  * 外部から呼ぶ:
  *   _weatherUpdate(lat, lon)  — 位置更新時に呼ぶ（fetchCurrentLocInfo からフック）
@@ -9,8 +9,7 @@
  * キャッシュ: 60 秒間は同一座標のリクエストを再発行しない。
  *
  * 表示項目:
- *   雨量 / 風速 / 気温 / 観測点（距離km）/ 更新（HH:MM・X分前）
- *   警報・注意報（Phase2A）
+ *   雨量 / 風速 / 気温 / 観測点（データ種別付き）/ 更新（HH:MM・X分前）
  *   station_quality=far  → 「観測点が遠い」ノーティス
  *   freshness=stale      → 「観測データが古い」ノーティス
  */
@@ -41,10 +40,12 @@ function _weatherFmt(value, unit, decimals = 1) {
     return `${Number(value).toFixed(decimals)} ${unit}`;
 }
 
-function _weatherFmtStation(station, distance_km) {
-    const name = station || '--';
-    if (distance_km == null) return name;
-    return `${name}（${distance_km}km）`;
+function _weatherFmtStation(data) {
+    const desc = data.station_desc || data.station || '--';
+    if (data.distance_km == null) return desc;
+    // 2局表示時（/ を含む）は距離を付加しない
+    if (desc.includes(' / ')) return desc;
+    return `${desc}（${data.distance_km}km）`;
 }
 
 function _weatherFmtTime(observed_at, age_minutes) {
@@ -73,7 +74,7 @@ function _weatherRender(data) {
     set('lip-weather-rain',    _weatherFmt(data.rain, 'mm/h'));
     set('lip-weather-wind',    _weatherFmt(data.wind, 'm/s'));
     set('lip-weather-temp',    _weatherFmt(data.temperature, '℃'));
-    set('lip-weather-station', _weatherFmtStation(data.station, data.distance_km));
+    set('lip-weather-station', _weatherFmtStation(data));
     set('lip-weather-time',    _weatherFmtTime(data.observed_at, data.age_minutes));
 
     _weatherRenderNotice(data);
@@ -107,78 +108,6 @@ function _weatherRenderError() {
     if (section) section.style.display = 'none';
 }
 
-// ── Phase2A: 警報・注意報 ───────────────────────────────────────────────────
-
-const _WARNING_CACHE_TTL_MS = 120_000;  // 2 分
-let _warningCache = null;  // { lat, lon, data, fetchedAt }
-
-async function _warningFetch(lat, lon) {
-    const now = Date.now();
-    if (
-        _warningCache &&
-        Math.abs(_warningCache.lat - lat) < 0.05 &&
-        Math.abs(_warningCache.lon - lon) < 0.05 &&
-        now - _warningCache.fetchedAt < _WARNING_CACHE_TTL_MS
-    ) {
-        return _warningCache.data;
-    }
-    const res = await fetch(`/api/weather/warnings/current?lat=${lat}&lon=${lon}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    _warningCache = { lat, lon, data, fetchedAt: now };
-    return data;
-}
-
-function _warningLevelStyle(level) {
-    if (level === '警報')  return 'color:#c62828;font-weight:700;';
-    if (level === '注意報') return 'color:#e65100;font-weight:600;';
-    return 'color:#2e7d32;';
-}
-
-function _warningRender(data) {
-    const el = document.getElementById('lip-weather-warning');
-    if (!el) return;
-
-    if (!data || data.warnings == null) {
-        el.textContent = '--';
-        el.removeAttribute('style');
-        return;
-    }
-
-    const active = data.warnings.filter(w => w.level === '警報' || w.level === '注意報');
-    if (active.length === 0) {
-        el.textContent = '警報・注意報なし';
-        el.style.cssText = _warningLevelStyle('なし');
-        return;
-    }
-
-    const names = active.map(w => w.name).join('・');
-    el.textContent = names;
-    el.style.cssText = _warningLevelStyle(data.highest_level);
-}
-
-function _warningRenderError() {
-    const el = document.getElementById('lip-weather-warning');
-    if (el) {
-        el.textContent = '取得不可';
-        el.style.cssText = 'color:#94a3b8;';
-    }
-}
-
-async function _weatherWarningUpdate(lat, lon) {
-    try {
-        const data = await _warningFetch(lat, lon);
-        if (data) {
-            _warningRender(data);
-        } else {
-            _warningRenderError();
-        }
-    } catch (err) {
-        console.warn('[weather] warning fetch error:', err);
-        _warningRenderError();
-    }
-}
-
 // ── エントリーポイント ──────────────────────────────────────────────────────
 
 /**
@@ -196,6 +125,4 @@ async function _weatherUpdate(lat, lon) {
         console.warn('[weather] fetch error:', err);
         _weatherRenderError();
     }
-    // 警報・注意報は独立して取得（失敗しても気象表示には影響しない）
-    _weatherWarningUpdate(lat, lon);
 }

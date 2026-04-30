@@ -167,12 +167,27 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
 
     # 表示観測点: 気温/風速/雨量の取得元を優先表示
     station_name = nearest["station_name"]
-    if full_station and full_station["station_id"] != nearest["station_id"]:
+    primary_is_distinct = (
+        full_station is not None
+        and full_station["station_id"] != nearest["station_id"]
+    )
+    if primary_is_distinct:
         station_name = full_station["station_name"]
         logger.info(
             "weather: rain/wind/temp from %s (full station); nearest=%s",
             full_station["station_name"], nearest["station_name"],
         )
+
+    # 観測点説明ラベル（提供データの種別を明示）
+    if primary_is_distinct and rain_primary is not None:
+        station_desc = f"{station_name}（気温・風・雨量）"
+    elif primary_is_distinct:
+        station_desc = (
+            f"{station_name}（気温・風）"
+            f" / {nearest['station_name']}（雨量のみ参考）"
+        )
+    else:
+        station_desc = station_name
 
     sid = primary["station_id"]
 
@@ -201,6 +216,7 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
 
     result = {
         "station":         station_name,
+        "station_desc":    station_desc,
         "station_id":      sid,
         "station_lat":     primary["lat"],
         "station_lon":     primary["lon"],
