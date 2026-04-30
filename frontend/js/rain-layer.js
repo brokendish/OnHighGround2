@@ -248,9 +248,18 @@ function _rainTimeDisplay(entry) {
 
     let timeStr = '';
     if (vt.length >= 12) {
-        const hour = vt.substring(8, 10);
-        const min  = vt.substring(10, 12);
-        timeStr = `${hour}:${min} JST`;
+        try {
+            const d = new Date(Date.UTC(
+                parseInt(vt.slice(0, 4), 10),
+                parseInt(vt.slice(4, 6), 10) - 1,
+                parseInt(vt.slice(6, 8), 10),
+                parseInt(vt.slice(8, 10), 10),
+                parseInt(vt.slice(10, 12), 10),
+            ));
+            timeStr = d.toLocaleTimeString('ja-JP', {
+                hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo',
+            }) + ' JST';
+        } catch (_) {}
     }
 
     // offset は 0=最新観測、負値=過去、正値=予測
