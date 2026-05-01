@@ -135,13 +135,18 @@ function startRainRadarAnimation() {
     }, 1000);
 }
 
-function stopRainRadarAnimation() {
+// タイマーを止めるだけ（offset はリセットしない）。スライダー手動操作用。
+function _stopAnimationTimer() {
     if (rainRadar.animationTimer) {
         clearInterval(rainRadar.animationTimer);
         rainRadar.animationTimer = null;
     }
     _rainAnimBtnUpdate(false);
-    setRainRadarOffset(0);   // 停止時は現在（offset=0）に戻す
+}
+
+function stopRainRadarAnimation() {
+    _stopAnimationTimer();
+    setRainRadarOffset(0);   // 停止ボタン・現在ボタン押下時は offset=0 に戻す
 }
 
 // ── ON / OFF 切替（外部エントリポイント） ────────────────────────────────────
@@ -212,6 +217,7 @@ function _rainInfoCtrlHide() {
 function _rainInfoCtrlUpdate(data) {
     const slider  = document.getElementById('lip-rain-slider');
     const animBtn = document.getElementById('lip-rain-anim-btn');
+    const nowBtn  = document.getElementById('lip-rain-now-btn');
     if (!slider || !data || !data.times) return;
 
     const offsets   = data.times.map(t => t.offset_minutes).sort((a, b) => a - b);
@@ -225,6 +231,7 @@ function _rainInfoCtrlUpdate(data) {
     slider.disabled = !hasRange;
 
     if (animBtn) animBtn.disabled = !hasRange;
+    if (nowBtn)  nowBtn.disabled  = !hasRange;
 
     _rainSliderSync();
 }
@@ -355,11 +362,22 @@ window.addEventListener('load', () => {
     }
 
     // 情報タブ: 予測スライダー
+    // 注意: stopRainRadarAnimation() は setRainRadarOffset(0) を呼ぶため
+    // 先に値を取得してから _stopAnimationTimer() を呼ぶ必要がある。
     const slider = document.getElementById('lip-rain-slider');
     if (slider) {
         slider.addEventListener('input', () => {
-            stopRainRadarAnimation();
-            setRainRadarOffset(parseInt(slider.value, 10));
+            const val = parseInt(slider.value, 10);  // 値を先に取得
+            _stopAnimationTimer();                   // offset リセットなしで停止
+            setRainRadarOffset(val);
+        });
+    }
+
+    // 情報タブ: 現在ボタン（offset=0 に戻す）
+    const nowBtn = document.getElementById('lip-rain-now-btn');
+    if (nowBtn) {
+        nowBtn.addEventListener('click', () => {
+            stopRainRadarAnimation();  // 停止 + offset=0 リセット
         });
     }
 
