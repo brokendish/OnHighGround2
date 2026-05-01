@@ -577,7 +577,7 @@ function openUpdateModal(datasetId) {
     }
 
     // タブ構築
-    buildInputTabs(defn.accepted_input_modes);
+    buildInputTabs(defn.accepted_input_modes, defn.source_type);
   }).catch(err => {
     showNotice("error", "定義情報の取得に失敗しました");
   });
@@ -585,15 +585,27 @@ function openUpdateModal(datasetId) {
   document.getElementById("update-modal").classList.add("open");
 }
 
-function buildInputTabs(modes) {
+function buildInputTabs(modes, sourceType) {
   const tabsEl = document.getElementById("input-tabs");
+
+  // source_type="generated": ファイル入力不要の自動生成タブを表示
+  if (sourceType === "generated") {
+    tabsEl.innerHTML = `<button class="tab-btn" id="tab-btn-generate" onclick="switchInputTab('generate')">⚙️ 自動生成</button>`;
+    ["upload", "fetch_url", "fetch_official"].forEach(m => {
+      const p = document.getElementById(`tab-${m}`);
+      if (p) p.classList.remove("active");
+    });
+    switchInputTab("generate");
+    return;
+  }
+
   const labels = { upload: "📁 ファイル選択", fetch_url: "🔗 URL指定取得", fetch_official: "🌐 公式サイトから取得" };
   tabsEl.innerHTML = modes.map(m =>
     `<button class="tab-btn" id="tab-btn-${m}" onclick="switchInputTab('${m}')">${labels[m] || m}</button>`
   ).join("");
 
   // 全パネル非表示
-  ["upload", "fetch_url", "fetch_official"].forEach(m => {
+  ["upload", "fetch_url", "fetch_official", "generate"].forEach(m => {
     const p = document.getElementById(`tab-${m}`);
     if (p) p.classList.remove("active");
   });
@@ -604,7 +616,7 @@ function buildInputTabs(modes) {
 
 function switchInputTab(mode) {
   _activeInputTab = mode;
-  ["upload", "fetch_url", "fetch_official"].forEach(m => {
+  ["upload", "fetch_url", "fetch_official", "generate"].forEach(m => {
     const btn = document.getElementById(`tab-btn-${m}`);
     const panel = document.getElementById(`tab-${m}`);
     if (btn) btn.classList.toggle("active", m === mode);
@@ -694,6 +706,11 @@ async function executeUpdate() {
     } else if (_activeInputTab === "fetch_official") {
       const json = await postJSON(`${API}/datasets/${d.dataset_id}/fetch-official`, {});
       if (!json.accepted) throw new Error(json.user_message || "取得に失敗しました");
+      job_id = json.job_id;
+
+    } else if (_activeInputTab === "generate") {
+      const json = await postJSON(`${API}/datasets/${d.dataset_id}/generate`, {});
+      if (!json.accepted) throw new Error(json.user_message || "生成に失敗しました");
       job_id = json.job_id;
     }
 
@@ -2145,7 +2162,7 @@ function layerTypeLabel(lt) {
 
 function operationLabel(op) {
   const map = {
-    ingest: "取り込み", normalize: "整形", validate: "内容確認",
+    ingest: "取り込み", normalize: "整形", validate: "内容確認", generate: "自動生成",
     deploy: "反映", rollback: "ロールバック", osrm_rebuild: "OSRM再構築"
   };
   return map[op] || op;
@@ -2155,7 +2172,8 @@ function jobTypeLabel(t) {
   const map = {
     ingest_upload: "ファイル取り込み", ingest_fetch_url: "URL取得",
     ingest_fetch_official: "公式取得", normalize: "整形処理",
-    validate: "内容確認", deploy: "反映", rollback: "ロールバック", osrm_rebuild: "OSRM再構築"
+    validate: "内容確認", generate: "自動生成", deploy: "反映",
+    rollback: "ロールバック", osrm_rebuild: "OSRM再構築"
   };
   return map[t] || t;
 }

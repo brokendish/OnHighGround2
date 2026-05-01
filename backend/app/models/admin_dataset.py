@@ -109,6 +109,7 @@ class OperationType(str, Enum):
     ingest = "ingest"
     normalize = "normalize"
     validate = "validate"
+    generate = "generate"
     deploy = "deploy"
     rollback = "rollback"
     osrm_rebuild = "osrm_rebuild"
@@ -146,6 +147,7 @@ class DatasetDefinition(BaseModel):
 
     transformer_name: Optional[str] = None
     validator_name: Optional[str] = None
+    source_type: Optional[str] = None
 
     # "replace_dir": runtime_path ディレクトリ全体を差し替え（デフォルト）
     # "copy_file"  : runtime_path ディレクトリ内に単一ファイルをコピー（他ファイルを保持）

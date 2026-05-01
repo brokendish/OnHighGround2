@@ -580,6 +580,127 @@ async def _do_validate(
     return True
 
 
+# ── generate（source_type="generated" 専用） ──────────────────────────────────
+
+async def run_generate(
+    job: Job,
+    defn: DatasetDefinition,
+    state: DatasetState,
+    jm: JobManager,
+    ss: DatasetStateService,
+) -> None:
+    """
+    生成データセット（source_type="generated"）のパイプライン。
+    scripts/derive/{transformer_name}.py を実行してファイルを生成し、
+    requires_validation が True の場合は続けて validate を実行する。
+    """
+    jm.update(job, status=JobStatus.running, step=JobStep.normalize,
+               progress_message="データを生成中...")
+    jm.log(job, f"=== generate start: {defn.dataset_id} ===")
+
+    if not defn.transformer_name:
+        _fail(job, jm, "GENERATE_FAILED",
+              "生成スクリプトが指定されていません。",
+              "dataset_definitions.json の transformer_name を確認してください。")
+        return
+
+    script_path = _SCRIPTS_DIR / "derive" / f"{defn.transformer_name}.py"
+    if not script_path.exists():
+        _fail(job, jm, "GENERATE_FAILED",
+              "生成スクリプトが見つかりませんでした。",
+              f"scripts/derive/{defn.transformer_name}.py が存在するか確認してください。")
+        return
+
+    # 出力先: validated_storage_path / "{transformer_name から generate_ を除いた名前}.geojson"
+    out_dir_str = defn.validated_storage_path or defn.raw_storage_path
+    out_dir = (_PROJECT_ROOT / out_dir_str).resolve()
+    _ensure_dir(out_dir)
+    stem = defn.transformer_name.replace("generate_", "", 1)
+    out_file = out_dir / f"{stem}.geojson"
+
+    cmd = ["python3", "-u", str(script_path), "--output", str(out_file)]
+    ret = await _run_subprocess(cmd, job, jm, timeout=3600)
+
+    if ret != 0:
+        _fail(job, jm, "GENERATE_FAILED",
+              "データの生成処理に失敗しました。",
+              "DEMデータが存在するか確認してください。詳細はログを参照してください。",
+              exit_code=ret)
+        return
+
+    if not out_file.exists():
+        _fail(job, jm, "GENERATE_FAILED",
+              "生成ファイルが見つかりませんでした。",
+              "スクリプトの出力先を確認してください。")
+        return
+
+    state.storage_status = StorageStatus.stored
+    state.normalize_status = NormalizeStatus.not_required
+    state.current_raw_path = str(out_file)
+    state.current_normalized_path = str(out_file)
+    state.current_file_name = out_file.name
+    state.current_file_size = out_file.stat().st_size
+    state.updated_at = datetime.utcnow()
+    state.last_job_id = job.job_id
+    ss.save(state)
+
+    _append_history(ss, defn.dataset_id, OperationType.generate, job,
+                    artifact_path=str(out_file))
+
+    # validate: 生成スクリプトは出力ファイルを書かないため current_validated_path = out_file として扱う
+    if defn.requires_validation and defn.validator_name:
+        jm.update(job, step=JobStep.validate, progress_message="データの内容を確認中...")
+        jm.log(job, f"--- validate: {defn.validator_name} ---")
+
+        state.validation_status = ValidationStatus.running
+        ss.save(state)
+
+        val_script = _SCRIPTS_DIR / "validate" / f"{defn.validator_name}.py"
+        if not val_script.exists():
+            _fail(job, jm, "VALIDATION_FAILED",
+                  "確認スクリプトが見つかりませんでした。",
+                  f"scripts/validate/{defn.validator_name}.py が存在するか確認してください。")
+            state.validation_status = ValidationStatus.failed
+            ss.save(state)
+            return
+
+        val_ret = await _run_subprocess(
+            ["python3", str(val_script), "--input", str(out_file)],
+            job, jm, timeout=600,
+        )
+
+        if val_ret != 0:
+            _fail(job, jm, "VALIDATION_FAILED",
+                  "データの内容確認に失敗しました。",
+                  "生成されたデータに問題がある可能性があります。ログを確認してください。",
+                  exit_code=val_ret)
+            state.validation_status = ValidationStatus.failed
+            ss.save(state)
+            _append_history(ss, defn.dataset_id, OperationType.validate, job, result="failed")
+            return
+
+        state.validation_status = ValidationStatus.passed
+        state.current_validated_path = str(out_file)
+        ss.save(state)
+        _append_history(ss, defn.dataset_id, OperationType.validate, job,
+                        artifact_path=str(out_file))
+        jm.log(job, f"validate success: {out_file}")
+
+    # 完了
+    if state.deploy_status == DeployStatus.deploying:
+        state.deploy_status = DeployStatus.not_deployed
+        jm.log(job, "deploy_status was stuck at 'deploying', reset to 'not_deployed'")
+
+    ss.update_deployable(state, defn)
+    state.last_job_id = job.job_id
+    ss.save(state)
+
+    jm.update(job, status=JobStatus.success, step=JobStep.completed,
+               progress_message="生成が完了しました。反映ボタンから実行環境への反映が可能です。",
+               exit_code=0)
+    jm.log(job, "=== generate completed successfully ===")
+
+
 # ── deploy ────────────────────────────────────────────────────────────────────
 
 async def run_deploy(

@@ -392,6 +392,42 @@ async def fetch_official_dataset(dataset_id: str):
     return JobAccepted(job_id=job.job_id, message="公式サイトからの取得を受け付けました。バックグラウンドで処理を開始します。")
 
 
+# ── POST /datasets/{dataset_id}/generate ─────────────────────────────────────
+
+@router.post("/{dataset_id}/generate", response_model=JobAccepted)
+async def generate_dataset(dataset_id: str):
+    """
+    自動生成データセット（source_type="generated"）の生成を実行する。
+    ファイル入力は不要。scripts/derive/{transformer_name}.py を実行する。
+    """
+    ds_svc = get_definition_service()
+    ss = get_state_service()
+    jm = get_job_manager()
+
+    defn = ds_svc.get(dataset_id)
+    if defn is None:
+        return _not_found(dataset_id)
+
+    if not defn.transformer_name:
+        return _error_response("INVALID_INPUT_MODE",
+                                detail="このデータセットには生成スクリプトが設定されていません")
+
+    if guard := _check_running_job(dataset_id):
+        return guard
+
+    state = ss.init_from_definition(defn)
+    job = jm.create(dataset_id, JobType.generate)
+    state.last_job_id = job.job_id
+    ss.save(state)
+
+    jm.submit(job, pipeline_service.run_generate(job, defn, state, jm, ss))
+    _safe_write_app_log(
+        f"dataset request accepted action=generate dataset_id={dataset_id} job_id={job.job_id}"
+    )
+
+    return JobAccepted(job_id=job.job_id, message="データの生成を受け付けました。バックグラウンドで処理を開始します。")
+
+
 # ── POST /datasets/{dataset_id}/deploy ───────────────────────────────────────
 
 @router.post("/{dataset_id}/deploy", response_model=JobAccepted)
