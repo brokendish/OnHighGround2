@@ -716,6 +716,13 @@
             flex-shrink: 0;
         }
 
+        .hazard-legend-note {
+            font-size: 10px;
+            color: #888;
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+
         .selected-shelter-info {
             background: #e8f5e9;
             border-left: 4px solid #2e7d32;
@@ -2937,6 +2944,20 @@
                     </div>
                 </details>
                 <div class="shelter-status" id="landslideStatus">土砂災害レイヤー: OFF</div>
+                <details class="hazard-group">
+                    <summary class="hazard-group-summary">低地・内水リスク（推定）</summary>
+                    <label class="manual-location-toggle" for="showPseudoInlandFloodTokyo">
+                        <input type="checkbox" id="showPseudoInlandFloodTokyo">
+                        東京都
+                    </label>
+                    <div id="pseudoInlandFloodLegend" class="hazard-legend" style="display:none;">
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#e53935;"></span>高</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#fbc02d;"></span>中</div>
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#4fc3f7;"></span>低</div>
+                        <div class="hazard-legend-note">※標高・地形から推定した参考リスクです。公式の内水氾濫想定区域ではありません。</div>
+                    </div>
+                </details>
+                <div class="shelter-status" id="pseudoInlandFloodStatus">低地・内水リスク（推定）レイヤー: OFF</div>
                 <details class="hazard-group">
                     <summary class="hazard-group-summary">行政界</summary>
                     <label class="manual-location-toggle" for="showBoundaryTokyo">

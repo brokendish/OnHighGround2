@@ -84,6 +84,16 @@ DEFAULT_PROFILES: dict[str, list[str]] = {
     "drop": ["--drop-densest-as-needed"],
 }
 
+HAZARD_OUTPUT_DIR_NAMES = {
+    "flood",
+    "tsunami",
+    "storm_surge",
+    "urban_flood",
+    "inland_flood",
+    "landslide",
+    "pseudo_inland_flood",
+}
+
 
 def find_geojson_files(input_dir: Path) -> list[Path]:
     return sorted(input_dir.rglob("*.geojson"))
@@ -104,6 +114,8 @@ def build_tiles(
 ) -> bool:
     dataset = geojson_path.stem
     relative_parent = geojson_path.parent.relative_to(input_dir)
+    if str(relative_parent) == "." and input_dir.name in HAZARD_OUTPUT_DIR_NAMES:
+        relative_parent = Path(input_dir.name)
     output_path = output_dir / relative_parent / f"{dataset}.mbtiles"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

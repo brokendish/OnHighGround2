@@ -10,7 +10,14 @@ from app.services.dataset_state_service import get_state_service
 class HazardDatasetService:
     """Provide active hazard datasets resolved from the admin dataset foundation."""
 
-    HAZARD_LAYER_TYPES = {"tsunami", "flood", "storm_surge", "inland_flood", "landslide"}
+    HAZARD_LAYER_TYPES = {
+        "tsunami",
+        "flood",
+        "storm_surge",
+        "inland_flood",
+        "landslide",
+        "pseudo_inland_flood",
+    }
 
     def _load_json(self, path: Path) -> Dict[str, Any]:
         try:

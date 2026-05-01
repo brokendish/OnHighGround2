@@ -74,6 +74,7 @@ class JobType(str, Enum):
     ingest_fetch_official = "ingest_fetch_official"
     normalize = "normalize"
     validate = "validate"
+    generate = "generate"
     deploy = "deploy"
     rollback = "rollback"
     osrm_rebuild = "osrm_rebuild"
