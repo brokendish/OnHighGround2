@@ -775,8 +775,12 @@ function bindLayerPanelToggle() {
         panel.style.display = mapUiState.layerPanelOpen ? 'block' : 'none';
         btn.classList.toggle('map-overlay-btn--active', mapUiState.layerPanelOpen);
 
-        // 凡例パネルを閉じる
         if (mapUiState.layerPanelOpen) {
+            // ハザードトグル遅延初期化（初回パネル open 時のみ実行）
+            if (typeof _ensureHazardTogglesInitialized === 'function') {
+                _ensureHazardTogglesInitialized();
+            }
+            // 凡例パネルを閉じる
             if (mapUiState.legendPanelOpen) {
                 mapUiState.legendPanelOpen = false;
                 legendPanel.style.display = 'none';

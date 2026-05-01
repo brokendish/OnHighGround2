@@ -15,49 +15,69 @@
  *     INLAND_FLOOD_BORDER
  */
 
+// ── ズーム制御定数 ───────────────────────────────────────────────────────────
+// zoom < HAZARD_MIN_ZOOM ではハザードレイヤーを地図から外す（描画負荷対策）
+const HAZARD_MIN_ZOOM = 11;
+
 // ── VECTOR_TILE_SOURCES 依存定数（宣言順制約: このブロックを下へ移動しないこと）─
-const FLOOD_RANK_COLORS = { 1: '#ffe082', 2: '#ffca28', 3: '#ff8f00', 4: '#f4511e', 5: '#b71c1c' };
-const FLOOD_UNKNOWN_COLOR = '#ffe0b2';
+// flood: 青系（tsunami の赤系と区別）
+const FLOOD_RANK_COLORS = { 1: '#e3f2fd', 2: '#90caf9', 3: '#42a5f5', 4: '#1565c0', 5: '#0d47a1' };
+const FLOOD_UNKNOWN_COLOR = '#e3f2fd';
 function getFloodRankColor(rank) { return FLOOD_RANK_COLORS[rank] || FLOOD_UNKNOWN_COLOR; }
-const FLOOD_BORDER = { color: '#b71c1c', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
+const FLOOD_BORDER = { color: '#1565c0', weight: 1.0, opacity: 0.6 };
+// storm_surge: 紫系
 const STORM_SURGE_RANK_COLORS = {
-    1: '#b3e5fc', 2: '#4fc3f7', 3: '#0288d1', 4: '#01579b',
-    5: '#7b1fa2', 6: '#4a148c', 7: '#1a0033',
+    1: '#f3e5f5', 2: '#ce93d8', 3: '#ba68c8', 4: '#9c27b0',
+    5: '#7b1fa2', 6: '#6a1b9a', 7: '#4a148c',
 };
-const STORM_SURGE_UNKNOWN_COLOR = '#e1f5fe';
-const STORM_SURGE_BORDER = { color: '#01579b', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
+const STORM_SURGE_UNKNOWN_COLOR = '#f3e5f5';
+const STORM_SURGE_BORDER = { color: '#6a1b9a', weight: 1.0, opacity: 0.6 };
+// inland_flood: シアン・ティール系
 // INLAND_FLOOD_BORDER: VECTOR_TILE_SOURCES の borderStyle から直接参照するため
 // ここに置く必要がある（TDZ 回避）。スタイル関数は下部に定義。
-const INLAND_FLOOD_BORDER = { color: '#0277bd', weight: 0.4, opacity: 0.35, dashArray: '4,4' };
+const INLAND_FLOOD_BORDER = { color: '#006064', weight: 1.0, opacity: 0.6 };
+// tsunami: 赤系ボーダー（fill色はスタイル関数内で定義）
+const TSUNAMI_BORDER = { color: '#c62828', weight: 1.0, opacity: 0.6 };
+const TSUNAMI_UNKNOWN_COLOR = '#ffcdd2';
+// pseudo_inland_flood: DEM 推定レイヤー（low=水色 / medium=黄 / high=赤系）
+const PSEUDO_INLAND_FLOOD_COLORS = { low: '#4fc3f7', medium: '#fbc02d', high: '#e53935' };
+const PSEUDO_INLAND_FLOOD_OPACITY = { low: 0.18, medium: 0.28, high: 0.38 };
+const PSEUDO_INLAND_FLOOD_BORDER = { color: '#0277bd', weight: 0.8, opacity: 0.5, dashArray: '3,5' };
+function getPseudoInlandFloodColor(risk_level) {
+    return PSEUDO_INLAND_FLOOD_COLORS[risk_level] || PSEUDO_INLAND_FLOOD_COLORS.low;
+}
+function getPseudoInlandFloodOpacity(risk_level) {
+    return PSEUDO_INLAND_FLOOD_OPACITY[risk_level] || PSEUDO_INLAND_FLOOD_OPACITY.low;
+}
 const HAZARD_REGION_ORDER = ['tokyo', 'kanagawa', 'chiba'];
 const HAZARD_CATEGORY_CONFIG = {
     tsunami: {
         label: '津波浸水想定',
         legend: [
-            { color: '#ffe082', label: '〜0.5m' },
-            { color: '#ffca28', label: '0.5〜1m' },
-            { color: '#ff8f00', label: '1〜3m' },
-            { color: '#f4511e', label: '3〜5m' },
+            { color: '#ffcdd2', label: '〜0.5m' },
+            { color: '#ef9a9a', label: '0.5〜1m' },
+            { color: '#e57373', label: '1〜3m' },
+            { color: '#ef5350', label: '3〜5m' },
             { color: '#b71c1c', label: '5m超' },
         ]
     },
     flood: {
         label: '洪水浸水想定',
         legend: [
-            { color: '#ffe082', label: '0.5m未満' },
-            { color: '#ffca28', label: '0.5〜3m' },
-            { color: '#ff8f00', label: '3〜5m' },
-            { color: '#f4511e', label: '5〜10m' },
-            { color: '#b71c1c', label: '10m以上' },
+            { color: '#e3f2fd', label: '0.5m未満' },
+            { color: '#90caf9', label: '0.5〜3m' },
+            { color: '#42a5f5', label: '3〜5m' },
+            { color: '#1565c0', label: '5〜10m' },
+            { color: '#0d47a1', label: '10m以上' },
         ]
     },
     storm_surge: {
         label: '高潮浸水想定',
         legend: [
-            { color: '#b3e5fc', label: '0.3m未満' },
-            { color: '#4fc3f7', label: '0.3〜0.5m' },
-            { color: '#0288d1', label: '0.5〜1m' },
-            { color: '#01579b', label: '1〜3m' },
+            { color: '#f3e5f5', label: '0.3m未満' },
+            { color: '#ce93d8', label: '0.3〜0.5m' },
+            { color: '#ba68c8', label: '0.5〜1m' },
+            { color: '#9c27b0', label: '1〜3m' },
             { color: '#7b1fa2', label: '3〜5m' },
             { color: '#4a148c', label: '5m超' },
         ]
@@ -65,10 +85,10 @@ const HAZARD_CATEGORY_CONFIG = {
     inland_flood: {
         label: '内水氾濫',
         legend: [
-            { color: '#b3e5fc', label: '不明・安全' },
-            { color: '#29b6f6', label: '0〜1m' },
-            { color: '#f4511e', label: '1〜3m' },
-            { color: '#b71c1c', label: '3m以上' },
+            { color: '#b2ebf2', label: '不明・安全' },
+            { color: '#26c6da', label: '0〜1m' },
+            { color: '#0097a7', label: '1〜3m' },
+            { color: '#006064', label: '3m以上' },
         ]
     },
     landslide: {
@@ -76,6 +96,15 @@ const HAZARD_CATEGORY_CONFIG = {
         legend: [
             { color: '#b71c1c', label: '特別警戒区域' },
             { color: '#e65100', label: '警戒区域' },
+        ]
+    },
+    pseudo_inland_flood: {
+        label: '低地・内水リスク（推定）',
+        note: '※標高・地形から推定した参考リスクです。公式の内水氾濫想定区域ではありません。',
+        legend: [
+            { color: '#e53935', label: '高' },
+            { color: '#fbc02d', label: '中' },
+            { color: '#4fc3f7', label: '低' },
         ]
     }
 };
@@ -284,6 +313,21 @@ const HAZARD_LAYERS = {
         datasetState: 'ready',
         availabilityState: 'uninitialized',
         type: 'landslide'
+    },
+    pseudo_inland_flood_tokyo: {
+        name: "低地・内水リスク（推定）",
+        menuLabel: '東京都',
+        region: 'tokyo',
+        regionLabel: '東京都',
+        checkboxId: "showPseudoInlandFloodTokyo",
+        layer: null,
+        loaded: false,
+        visible: false,    // 初期 OFF（推定データのため公式と混同させない）
+        rawData: null,
+        lastError: null,
+        datasetState: 'ready',
+        availabilityState: 'uninitialized',
+        type: 'pseudo_inland_flood'
     }
 };
 
@@ -355,6 +399,16 @@ const VECTOR_TILE_SOURCES = {
             colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
             borderStyle: STORM_SURGE_BORDER,
             maxNativeZoom: 16
+        }
+    ],
+    pseudo_inland_flood_tokyo: [
+        {
+            tilesetId: 'pseudo_inland_flood',
+            sourceLayer: 'pseudo_inland_flood',
+            colorFn: (props) => getPseudoInlandFloodColor(props['risk_level']),
+            opacityFn: (props) => getPseudoInlandFloodOpacity(props['risk_level']),
+            borderStyle: PSEUDO_INLAND_FLOOD_BORDER,
+            maxNativeZoom: 14
         }
     ]
 };
@@ -622,23 +676,24 @@ function parseDepthValue(rawValue) {
 
 // ── カラースタイル定義 ────────────────────────────────────────────────────
 
+// 津波浸水深 → 赤系グラデーション
 function getDepthColor(depthMeters) {
-    if (depthMeters <= 0.5) return '#ffe082';
-    if (depthMeters <= 1.0) return '#ffca28';
-    if (depthMeters <= 3.0) return '#ff8f00';
-    if (depthMeters <= 5.0) return '#f4511e';
+    if (depthMeters <= 0.5) return '#ffcdd2';
+    if (depthMeters <= 1.0) return '#ef9a9a';
+    if (depthMeters <= 3.0) return '#e57373';
+    if (depthMeters <= 5.0) return '#ef5350';
     return '#b71c1c';
 }
 
-// 内水氾濫スタイル（深度ベース青系グラデーション）
+// 内水氾濫スタイル（深度ベース シアン・ティール系グラデーション）
 // level: safe → caution → danger → critical
 // INLAND_FLOOD_BORDER は VECTOR_TILE_SOURCES より前（ファイル冒頭）に定義済み。
 
 function getInlandFloodDepthColor(depthM) {
-    if (depthM >= 3.0) return '#b71c1c';   // critical — 濃赤（3m以上）
-    if (depthM >= 1.0) return '#f4511e';   // danger   — オレンジ（1〜3m）
-    if (depthM > 0)    return '#29b6f6';   // caution  — 水色（0〜1m）
-    return '#b3e5fc';                      // safe/不明 — 薄水色
+    if (depthM >= 3.0) return '#006064';   // critical — 深ティール（3m以上）
+    if (depthM >= 1.0) return '#0097a7';   // danger   — ティール（1〜3m）
+    if (depthM > 0)    return '#26c6da';   // caution  — シアン（0〜1m）
+    return '#b2ebf2';                      // safe/不明 — 薄シアン
 }
 
 function getInlandFloodFeatureStyle(feature) {
@@ -646,7 +701,7 @@ function getInlandFloodFeatureStyle(feature) {
     return {
         ...INLAND_FLOOD_BORDER,
         fillColor: getInlandFloodDepthColor(depthM),
-        fillOpacity: 0.45
+        fillOpacity: 0.35
     };
 }
 
@@ -689,7 +744,7 @@ function getStormSurgeFeatureStyle(feature) {
     return {
         ...STORM_SURGE_BORDER,
         fillColor,
-        fillOpacity: 0.38
+        fillOpacity: 0.30
     };
 }
 
@@ -699,18 +754,15 @@ function getFloodFeatureStyle(feature) {
     return {
         ...FLOOD_BORDER,
         fillColor,
-        fillOpacity: 0.38
+        fillOpacity: 0.30
     };
 }
 
 function getTsunamiFeatureStyle(feature, depthKey) {
     const defaultStyle = {
-        color: '#1565c0',
-        weight: 0.4,
-        opacity: 0.35,
-        dashArray: '4,4',
-        fillColor: '#42a5f5',
-        fillOpacity: 0.32
+        ...TSUNAMI_BORDER,
+        fillColor: TSUNAMI_UNKNOWN_COLOR,
+        fillOpacity: 0.30
     };
 
     if (!depthKey) {
@@ -724,12 +776,9 @@ function getTsunamiFeatureStyle(feature, depthKey) {
     }
 
     return {
-        color: '#1565c0',
-        weight: 0.4,
-        opacity: 0.35,
-        dashArray: '4,4',
+        ...TSUNAMI_BORDER,
         fillColor: getDepthColor(depthMeters),
-        fillOpacity: 0.38
+        fillOpacity: 0.30
     };
 }
 
@@ -745,11 +794,12 @@ async function checkMartinAvailable() {
 }
 
 // Martin ベクタータイル用の L.vectorGrid.protobuf レイヤーを生成する
-// colorFn: (properties) => colorString  省略時は津波デフォルト（深度テキスト解析）
-function createVectorTileLayer(tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom = 14) {
+// colorFn:   (properties) => colorString  省略時は津波デフォルト（深度テキスト解析）
+// opacityFn: (properties) => number       省略時は固定値 0.30
+function createVectorTileLayer(tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom = 14, opacityFn = null) {
     const url = `/tiles/${tilesetId}/{z}/{x}/{y}`;
     const depthKeys = ['a40_003', 'A40_003', 'depth', 'rank', 'level'];
-    const border = borderStyle || FLOOD_BORDER;
+    const border = borderStyle || TSUNAMI_BORDER;
     return L.vectorGrid.protobuf(url, {
         vectorTileLayerStyles: {
             [sourceLayer]: function(properties) {
@@ -757,7 +807,7 @@ function createVectorTileLayer(tilesetId, sourceLayer, colorFn, borderStyle, max
                 if (colorFn) {
                     depthColor = colorFn(properties);
                 } else {
-                    depthColor = FLOOD_UNKNOWN_COLOR;
+                    depthColor = TSUNAMI_UNKNOWN_COLOR;
                     for (const key of depthKeys) {
                         const val = parseDepthValue(properties[key]);
                         if (val !== null) {
@@ -766,18 +816,20 @@ function createVectorTileLayer(tilesetId, sourceLayer, colorFn, borderStyle, max
                         }
                     }
                 }
+                const fillOpacity = opacityFn ? opacityFn(properties) : 0.30;
                 return {
                     fill: true,
                     fillColor: depthColor,
-                    fillOpacity: 0.38,
+                    fillOpacity,
                     weight: border.weight,
                     color: border.color,
                     opacity: border.opacity,
-                    dashArray: border.dashArray
+                    dashArray: border.dashArray || null
                 };
             }
         },
         interactive: false,
+        minZoom: HAZARD_MIN_ZOOM,  // zoom < 11 ではタイル非表示（描画負荷対策）
         maxNativeZoom  // 指定ズームまでタイル取得し、それ以上はオーバーズーム描画
     });
 }
@@ -802,10 +854,11 @@ async function loadHazardLayer(layerKey) {
     }
 
     if (shouldUseVectorTiles(layerKey, hazard)) {
-        const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom }) =>
-            createVectorTileLayer(hazard._activeTilesetId || tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom)
+        const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom, opacityFn }) =>
+            createVectorTileLayer(hazard._activeTilesetId || tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom, opacityFn)
         );
         hazard.layer = L.layerGroup(vtLayers);
+        hazard._isVectorTile = true;  // opacity で show/hide（タイルキャッシュ保持）
         hazard.loaded = true;
         return hazard.layer;
     }
@@ -832,11 +885,83 @@ async function loadHazardLayer(layerKey) {
         : hazard.type === 'landslide'
         ? (feature) => getLandslideFeatureStyle(feature)
         : (feature) => getTsunamiFeatureStyle(feature, depthKey);
+    hazard._styleFn = styleFn;  // zoom band 変化時の setStyle 用に保存
     hazard.layer = L.geoJSON(featureCollection, {
         style: styleFn
     });
     hazard.loaded = true;
     return hazard.layer;
+}
+
+// ── ズームバンド管理 ──────────────────────────────────────────────────────
+// off  : zoom < 11  → 完全非表示（フル OFF）
+// low  : zoom 11-13 → 低精度表示（opacity 0.4 / フェード）
+// high : zoom >= 14 → 高精度表示（フル opacity）
+
+function _getHazardZoomBand(zoom) {
+    if (zoom < HAZARD_MIN_ZOOM) return 'off';
+    if (zoom < 14) return 'low';
+    return 'high';
+}
+
+let _currentHazardZoomBand = null;
+
+// VectorGrid の LayerGroup 内全サブレイヤーに opacity を適用する
+function _setVectorLayerGroupOpacity(layerGroup, opacity) {
+    layerGroup.eachLayer((sub) => {
+        if (typeof sub.setOpacity === 'function') sub.setOpacity(opacity);
+    });
+}
+
+// 可視フラグとズームバンドに応じてレイヤーを地図に反映する
+// - VectorGrid: removeLayer を使わず opacity で show/hide（タイルキャッシュ保持）
+// - GeoJSON   : remove/add + setStyle で opacity 更新
+function _applyZoomBandToLayer(hazard, band) {
+    if (!hazard.layer || !hazard.visible) return;
+
+    if (hazard._isVectorTile) {
+        // VectorGrid は一度 addTo したら remove しない（キャッシュ保持のため）
+        if (!map.hasLayer(hazard.layer)) {
+            hazard.layer.addTo(map);
+        }
+        const opacity = band === 'off' ? 0 : band === 'low' ? 0.4 : 1.0;
+        _setVectorLayerGroupOpacity(hazard.layer, opacity);
+    } else {
+        // GeoJSON: zoom off では地図から外す、low/high では add + style 更新
+        const onMap = map.hasLayer(hazard.layer);
+        if (band === 'off') {
+            if (onMap) map.removeLayer(hazard.layer);
+            return;
+        }
+        if (!onMap) {
+            hazard.layer.addTo(map);
+            if (typeof hazard.layer.bringToFront === 'function') {
+                hazard.layer.bringToFront();
+            }
+        }
+        // zoom band に応じて fillOpacity を調整（低ズームは薄く表示）
+        if (hazard._styleFn) {
+            const factor = band === 'low' ? 0.4 : 1.0;
+            hazard.layer.setStyle((feature) => {
+                const s = hazard._styleFn(feature);
+                return { ...s, fillOpacity: (s.fillOpacity || 0.30) * factor };
+            });
+        }
+    }
+}
+
+function _onHazardZoomChange() {
+    const zoom = map.getZoom();
+    const band = _getHazardZoomBand(zoom);
+    const prevBand = _currentHazardZoomBand;
+    _currentHazardZoomBand = band;
+
+    if (band === prevBand) return; // バンド変化なし → 何もしない
+
+    Object.values(HAZARD_LAYERS).forEach((hazard) => {
+        if (!hazard.visible || !hazard.layer) return;
+        _applyZoomBandToLayer(hazard, band);
+    });
 }
 
 async function setHazardLayerVisibility(layerKey, visible) {
@@ -847,8 +972,13 @@ async function setHazardLayerVisibility(layerKey, visible) {
     hazard.visible = visible;
 
     if (!visible) {
-        if (hazard.layer && map.hasLayer(hazard.layer)) {
-            map.removeLayer(hazard.layer);
+        if (hazard.layer) {
+            if (hazard._isVectorTile) {
+                // VectorGrid: removeLayer せず opacity 0 でキャッシュ保持
+                _setVectorLayerGroupOpacity(hazard.layer, 0);
+            } else if (map.hasLayer(hazard.layer)) {
+                map.removeLayer(hazard.layer);
+            }
         }
         updateHazardStatusSummary();
         return;
@@ -858,12 +988,8 @@ async function setHazardLayerVisibility(layerKey, visible) {
     if (!layer || typeof layer.addTo !== 'function') {
         throw new Error(`${hazard.name}レイヤーの生成結果が Leaflet Layer ではありません`);
     }
-    if (!map.hasLayer(layer)) {
-        layer.addTo(map);
-    }
-    if (typeof layer.bringToFront === 'function') {
-        layer.bringToFront();
-    }
+    const band = _currentHazardZoomBand || _getHazardZoomBand(map.getZoom());
+    _applyZoomBandToLayer(hazard, band);
     updateHazardStatusSummary();
 }
 
@@ -1008,6 +1134,12 @@ async function _initializeHazardTogglesImpl() {
     }
     updateHazardStatusSummary();
     broadcastHazardLayerStateChange();
+
+    // 現在のズームバンドを初期化し、zoomend ハンドラを登録（二重登録防止）
+    _currentHazardZoomBand = _getHazardZoomBand(map.getZoom());
+    map.off('zoomend', _onHazardZoomChange);
+    map.on('zoomend', _onHazardZoomChange);
+
     if (enabledLayers.length === 0) {
         return;
     }
@@ -1074,6 +1206,19 @@ function updateHazardStatusSummary() {
         if (landslideStatusEl) landslideStatusEl.textContent = `土砂災害レイヤー: ON（${landslideVisible.join(' / ')}）`;
         if (landslideLegend) landslideLegend.style.display = 'block';
     }
+
+    const pseudoInlandFloodVisible = Object.values(HAZARD_LAYERS)
+        .filter((h) => h.type === 'pseudo_inland_flood' && h.visible)
+        .map((h) => h.name);
+    const pseudoInlandFloodStatusEl = document.getElementById('pseudoInlandFloodStatus');
+    const pseudoInlandFloodLegend = document.getElementById('pseudoInlandFloodLegend');
+    if (pseudoInlandFloodVisible.length === 0) {
+        if (pseudoInlandFloodStatusEl) pseudoInlandFloodStatusEl.textContent = '低地・内水リスク（推定）レイヤー: OFF';
+        if (pseudoInlandFloodLegend) pseudoInlandFloodLegend.style.display = 'none';
+    } else {
+        if (pseudoInlandFloodStatusEl) pseudoInlandFloodStatusEl.textContent = `低地・内水リスク（推定）レイヤー: ON`;
+        if (pseudoInlandFloodLegend) pseudoInlandFloodLegend.style.display = 'block';
+    }
 }
 
 function setInlandFloodStatus(msg) {
@@ -1095,6 +1240,11 @@ function setLandslideStatus(msg) {
         FLOOD_BORDER,
         STORM_SURGE_RANK_COLORS,
         STORM_SURGE_BORDER,
+        TSUNAMI_BORDER,
+        TSUNAMI_UNKNOWN_COLOR,
+        INLAND_FLOOD_BORDER,
+        PSEUDO_INLAND_FLOOD_COLORS,
+        PSEUDO_INLAND_FLOOD_BORDER,
         VECTOR_TILE_SOURCES,
         HAZARD_LAYERS,
     };

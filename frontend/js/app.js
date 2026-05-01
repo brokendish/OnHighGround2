@@ -105,6 +105,7 @@ function switchMbcTab(tab) {
         if (panelLayer) panelLayer.style.display = 'block';
         if (btnLayer)   btnLayer.classList.add('mbc-tab-btn--active');
         controls.classList.remove('mbc-collapsed');
+        _ensureHazardTogglesInitialized();
     } else if (tab === 'legend') {
         if (panelLegend) panelLegend.style.display = 'block';
         if (btnLegend)   btnLegend.classList.add('mbc-tab-btn--active');
@@ -235,8 +236,19 @@ document.getElementById('clearMap').addEventListener('click', () => {
 
 // ── 起動時の初期化 ────────────────────────────────────────────────────────
 
+// ハザードトグル初期化は遅延実行（初回パネル開時）
+// initializeHazardToggles() を起動時に呼ぶと /tiles/catalog や meta HEAD が
+// 即時発行されるため、パネルを開くまで defer する。
+let _hazardTogglesInitialized = false;
+async function _ensureHazardTogglesInitialized() {
+    if (_hazardTogglesInitialized) return;
+    _hazardTogglesInitialized = true;
+    if (typeof initializeHazardToggles === 'function') {
+        await initializeHazardToggles();
+    }
+}
+
 scheduleEmergencyShelterRefresh();
-initializeHazardToggles();
 if (typeof loadRuntimeConfig === 'function') {
     loadRuntimeConfig();
 }
