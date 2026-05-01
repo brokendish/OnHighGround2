@@ -403,7 +403,7 @@ const VECTOR_TILE_SOURCES = {
     ],
     pseudo_inland_flood_tokyo: [
         {
-            tilesetId: 'pseudo_inland_flood',
+            tilesetId: 'tokyo_pseudo_inland_flood_001',
             sourceLayer: 'pseudo_inland_flood',
             colorFn: (props) => getPseudoInlandFloodColor(props['risk_level']),
             opacityFn: (props) => getPseudoInlandFloodOpacity(props['risk_level']),

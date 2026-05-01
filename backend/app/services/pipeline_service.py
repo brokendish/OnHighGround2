@@ -57,6 +57,7 @@ _OSRM_CONTAINER_NAMES = {
     "driving": "evacuation-navi-osrm-driving",
     "walking": "evacuation-navi-osrm-walking",
 }
+_MARTIN_CONTAINER_NAME = "evacuation-navi-martin"
 
 
 # ── 共通ユーティリティ ─────────────────────────────────────────────────────────
@@ -1002,6 +1003,18 @@ async def _do_tile_build(
     state.current_tile_path = str(tile_path)
     ss.save(state)
     jm.log(job, f"tile build 完了: {tile_path}")
+
+    # 新 MBTiles を Martin に認識させるためコンテナを再起動する
+    jm.log(job, f"--- Martin コンテナを再起動中: {_MARTIN_CONTAINER_NAME} ---")
+    ret_martin = await _run_subprocess(
+        ["docker", "restart", _MARTIN_CONTAINER_NAME],
+        job, jm,
+    )
+    if ret_martin != 0:
+        jm.log(job, f"WARN: Martin コンテナの再起動に失敗しました (exit={ret_martin})。"
+                    "タイルが即時反映されない場合は手動で再起動してください。")
+    else:
+        jm.log(job, "Martin コンテナの再起動完了。タイルが反映されました。")
 
 
 # ── rollback ──────────────────────────────────────────────────────────────────
