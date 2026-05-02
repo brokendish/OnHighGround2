@@ -26,6 +26,7 @@ from services.amedas_client import (
     fetch_map_data,
     fetch_latest_time_utc,
     extract_value,
+    extract_temperature,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,80 @@ def get_nearest_station_with_keys(
             best_dist = dist
             best = info
     return best
+
+
+def _get_n_nearest_with_keys(
+    lat: float,
+    lon: float,
+    station_table: dict,
+    map_data: dict,
+    required_keys: list[str],
+    n: int = 3,
+) -> list[dict]:
+    """required_keys を全て持つ観測点を近い順に最大 n 件返す（distance_m 付き）。"""
+    candidates = []
+    for sid, obs in map_data.items():
+        if not all(extract_value(obs, k) is not None for k in required_keys):
+            continue
+        info = station_table.get(sid)
+        if not info:
+            continue
+        dist_m = _haversine(lat, lon, info["lat"], info["lon"])
+        candidates.append({**info, "distance_m": dist_m})
+    candidates.sort(key=lambda x: x["distance_m"])
+    return candidates[:n]
+
+
+def _select_temperature(
+    stations: list[dict], map_data: dict
+) -> tuple[Optional[float], str]:
+    """
+    複数観測点から最適な気温を選択する。
+
+    差が 5℃ 以上の場合は 2 点平均を採用し、信頼度を下げる。
+    Returns (temperature, confidence): confidence = "high" / "medium" / "low"
+    """
+    valid = []
+    for s in stations:
+        temp = extract_temperature(map_data.get(s["station_id"]) or {})
+        if temp is None:
+            continue
+        valid.append({"temp": temp, "distance_km": s["distance_m"] / 1000.0})
+
+    if not valid:
+        return None, "low"
+
+    primary = valid[0]
+
+    averaged = False
+    if len(valid) > 1:
+        secondary = valid[1]
+        diff = abs(primary["temp"] - secondary["temp"])
+        if diff >= 5.0:
+            final_temp = round((primary["temp"] + secondary["temp"]) / 2, 1)
+            logger.warning(
+                "weather temp_diff_large primary=%.1f secondary=%.1f avg=%.1f",
+                primary["temp"], secondary["temp"], final_temp,
+            )
+            averaged = True
+        else:
+            final_temp = primary["temp"]
+    else:
+        final_temp = primary["temp"]
+
+    dist_km = primary["distance_km"]
+    if dist_km < 10.0:
+        confidence = "high"
+    elif dist_km < 20.0:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    if averaged and confidence == "high":
+        confidence = "medium"
+
+    logger.info("weather final_temp=%.1f confidence=%s", final_temp, confidence)
+    return final_temp, confidence
 
 
 def _utc_str_to_jst_iso(utc_str: str) -> Optional[str]:
@@ -147,10 +222,11 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
         logger.warning("weather: map data unavailable")
         return None
 
-    # 気温・風速は全観測点データを持つ観測点（タイプA相当）から最寄りを選ぶ。
-    full_station = get_nearest_station_with_keys(
-        lat, lon, station_table, map_data, ["temp", "wind"]
+    # 気温・風速: タイプA観測点（full station）上位3件から選定
+    full_stations = _get_n_nearest_with_keys(
+        lat, lon, station_table, map_data, ["temp", "wind"], n=3
     )
+    full_station = full_stations[0] if full_stations else None
     nearest = get_nearest_station(lat, lon, station_table)
     if not nearest:
         return None
@@ -163,7 +239,9 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
     rain_primary = extract_value(primary_obs, "precipitation1h")
     rain         = rain_primary if rain_primary is not None else extract_value(nearest_obs, "precipitation1h")
     wind         = extract_value(primary_obs, "wind")
-    temperature  = extract_value(primary_obs, "temp")
+
+    # 気温: 複数観測点クロスチェック＋正規化
+    temperature, temp_confidence = _select_temperature(full_stations, map_data)
 
     # 表示観測点: 気温/風速/雨量の取得元を優先表示
     station_name = nearest["station_name"]
@@ -228,6 +306,7 @@ def get_current_weather(lat: float, lon: float) -> Optional[dict]:
         "station_quality": station_quality,
         "age_minutes":     age_minutes,
         "freshness":       freshness,
+        "confidence":      temp_confidence,
     }
     _WEATHER_CACHE[cache_key] = (result, now)
     return result

@@ -158,3 +158,31 @@ def extract_value(obs: dict, key: str) -> Optional[float]:
         except (TypeError, ValueError):
             return None
     return None
+
+
+def normalize_temperature(value: float) -> float:
+    """JMAデータの温度値を正規化する（10倍値: 例 117 → 11.7℃）。"""
+    if value > 60:
+        normalized = value / 10.0
+        logger.info("weather raw_temp=%.1f normalized=%.1f", value, normalized)
+        return normalized
+    return float(value)
+
+
+def is_valid_temperature(temp) -> bool:
+    """日本の現実範囲（-20〜45℃）チェック。"""
+    if temp is None:
+        return False
+    return -20.0 <= temp <= 45.0
+
+
+def extract_temperature(obs: dict) -> Optional[float]:
+    """観測データから気温を取り出し、正規化・検証する。"""
+    raw = extract_value(obs, "temp")
+    if raw is None:
+        return None
+    normalized = normalize_temperature(raw)
+    if not is_valid_temperature(normalized):
+        logger.warning("weather temp_out_of_range value=%.1f — discarded", normalized)
+        return None
+    return normalized

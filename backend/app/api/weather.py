@@ -51,6 +51,7 @@ async def get_weather_current(
             "station_quality": data["station_quality"],
             "age_minutes":     data["age_minutes"],
             "freshness":       data["freshness"],
+            "confidence":      data["confidence"],
         }
     except HTTPException:
         raise

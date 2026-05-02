@@ -45,7 +45,8 @@ function _weatherFmtStation(data) {
     if (data.distance_km == null) return desc;
     // 2局表示時（/ を含む）は距離を付加しない
     if (desc.includes(' / ')) return desc;
-    return `${desc}（${data.distance_km}km）`;
+    const ref = (data.confidence === 'medium' || data.confidence === 'low') ? '・参考' : '';
+    return `${desc}（${data.distance_km}km${ref}）`;
 }
 
 function _weatherFmtTime(observed_at, age_minutes) {
