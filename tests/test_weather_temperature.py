@@ -58,28 +58,51 @@ class TestIsValidTemperature:
 
 
 # ── extract_temperature ────────────────────────────────────────────────────────
+# extract_temperature は obs["temp"] の生値（raw）を直接受け取る
 
 class TestExtractTemperature:
-    def test_normal_value(self):
-        obs = {"temp": [22.5, 0]}
-        assert extract_temperature(obs) == pytest.approx(22.5)
+    # --- list 形式（JMA 標準: [value, quality_flag]）---
+    def test_list_normal(self):
+        assert extract_temperature([22.5, 0]) == pytest.approx(22.5)
 
-    def test_10x_value(self):
-        # 117 → 11.7℃
-        obs = {"temp": [117, 0]}
-        assert extract_temperature(obs) == pytest.approx(11.7)
+    def test_list_negative(self):
+        assert extract_temperature([-3.2, 0]) == pytest.approx(-3.2)
 
-    def test_missing_key(self):
-        assert extract_temperature({}) is None
+    def test_list_integer_value(self):
+        # 整数そのまま（11 → 11.0℃）
+        assert extract_temperature([11, 0]) == pytest.approx(11.0)
 
-    def test_out_of_range_discarded(self):
-        obs = {"temp": [-9999, 0]}
-        assert extract_temperature(obs) is None
+    def test_list_10x_encoded(self):
+        # 10倍値: 117 → 11.7℃（> 60 判定）
+        assert extract_temperature([117, 0]) == pytest.approx(11.7)
 
-    def test_extreme_heat_discarded(self):
+    def test_list_empty(self):
+        assert extract_temperature([]) is None
+
+    def test_list_out_of_range(self):
+        assert extract_temperature([-9999, 0]) is None
+
+    def test_list_extreme_heat_discarded(self):
         # 460 → 46.0℃（> 45）→ 破棄
-        obs = {"temp": [460, 0]}
-        assert extract_temperature(obs) is None
+        assert extract_temperature([460, 0]) is None
+
+    # --- dict 形式（{"value": v} 構造）---
+    def test_dict_with_value_key(self):
+        assert extract_temperature({"value": 18.6}) == pytest.approx(18.6)
+
+    def test_dict_without_value_key(self):
+        assert extract_temperature({"v": 18.6}) is None
+
+    # --- scalar 形式 ---
+    def test_scalar_float(self):
+        assert extract_temperature(20.0) == pytest.approx(20.0)
+
+    def test_scalar_int(self):
+        assert extract_temperature(15) == pytest.approx(15.0)
+
+    # --- None ---
+    def test_none(self):
+        assert extract_temperature(None) is None
 
 
 # ── _select_temperature ────────────────────────────────────────────────────────

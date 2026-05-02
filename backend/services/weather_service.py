@@ -117,10 +117,16 @@ def _select_temperature(
     """
     valid = []
     for s in stations:
-        temp = extract_temperature(map_data.get(s["station_id"]) or {})
-        if temp is None:
+        obs = map_data.get(s["station_id"]) or {}
+        raw_temp = obs.get("temp")
+        parsed = extract_temperature(raw_temp)
+        logger.info(
+            "weather temp_raw station=%s code=%s raw=%s parsed=%s",
+            s.get("station_name"), s["station_id"], raw_temp, parsed,
+        )
+        if parsed is None:
             continue
-        valid.append({"temp": temp, "distance_km": s["distance_m"] / 1000.0})
+        valid.append({"temp": parsed, "distance_km": s["distance_m"] / 1000.0})
 
     if not valid:
         return None, "low"
@@ -154,7 +160,13 @@ def _select_temperature(
     if averaged and confidence == "high":
         confidence = "medium"
 
-    logger.info("weather final_temp=%.1f confidence=%s", final_temp, confidence)
+    primary_station = stations[0] if stations else {}
+    logger.info(
+        "weather final_temp=%.1f confidence=%s averaged=%s primary_station=%s(%s) dist_km=%.1f",
+        final_temp, confidence, averaged,
+        primary_station.get("station_name"), primary_station.get("station_id"),
+        primary_station.get("distance_m", 0) / 1000.0,
+    )
     return final_temp, confidence
 
 

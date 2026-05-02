@@ -176,13 +176,41 @@ def is_valid_temperature(temp) -> bool:
     return -20.0 <= temp <= 45.0
 
 
-def extract_temperature(obs: dict) -> Optional[float]:
-    """観測データから気温を取り出し、正規化・検証する。"""
-    raw = extract_value(obs, "temp")
+def extract_temperature(raw) -> Optional[float]:
+    """
+    JMA obs["temp"] の生値（list / dict / scalar）から気温を取り出す。
+
+    JMA AMeDAS は通常 [value, quality_flag] の配列を返す。
+    先頭要素をそのまま採用し、60 超の場合のみ 10 倍補正を疑う。
+    文字列結合・置換による変換は行わない。
+    """
     if raw is None:
         return None
-    normalized = normalize_temperature(raw)
+    if isinstance(raw, (list, tuple)):
+        if len(raw) == 0:
+            return None
+        try:
+            val = float(raw[0])
+        except (TypeError, ValueError):
+            return None
+        if math.isnan(val):
+            return None
+        parsed = val
+    elif isinstance(raw, dict):
+        if "value" not in raw:
+            return None
+        try:
+            parsed = float(raw["value"])
+        except (TypeError, ValueError):
+            return None
+    else:
+        try:
+            parsed = float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    normalized = normalize_temperature(parsed)
     if not is_valid_temperature(normalized):
-        logger.warning("weather temp_out_of_range value=%.1f — discarded", normalized)
+        logger.warning("weather temp_out_of_range parsed=%.1f normalized=%.1f — discarded", parsed, normalized)
         return None
     return normalized
