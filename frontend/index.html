@@ -3259,16 +3259,7 @@
                                 <div class="lip-section-title">🏃 周辺の安全情報</div>
                                 <div class="lip-row"><span class="lip-row-label">最寄り避難場所</span><span class="lip-row-value" id="lip-nearest-shelter">--</span></div>
                             </div>
-                            <!-- D: 現在地気象（weather.js が管理） -->
-                            <div class="lip-section" id="lip-weather-section" style="display:none;">
-                                <div class="lip-section-title">🌦 現在地気象</div>
-                                <div class="lip-row"><span class="lip-row-label">雨量</span><span class="lip-row-value" id="lip-weather-rain">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">風速</span><span class="lip-row-value" id="lip-weather-wind">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">気温</span><span class="lip-row-value" id="lip-weather-temp">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">観測点</span><span class="lip-row-value" id="lip-weather-station">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">更新</span><span class="lip-row-value" id="lip-weather-time">--</span></div>
-                                <div id="lip-weather-notice" style="display:none;font-size:11px;color:#92400e;padding:2px 0 0 0;"></div>
-                            </div>
+                            <!-- D: 現在地気象 — AMeDAS精度問題により一時非採用 -->
                             <!-- E: 雨量レーダー予測コントロール（rain-layer.js が表示制御） -->
                             <div class="lip-section" id="lip-rain-radar-ctrl-section" style="display:none;">
                                 <div class="lip-section-title">🌧 雨量レーダー予測</div>
@@ -3510,7 +3501,7 @@
     <script src="js/navigation.js"></script>
     <!-- 非ナビ時 現在地情報パネル -->
     <script src="js/location-info-panel.js"></script>
-    <script src="js/weather.js"></script>
+    <!-- weather.js — AMeDAS精度問題により一時無効化 -->
     <!-- 行政界レイヤー管理 -->
     <script src="js/boundary-layers.js"></script>
     <!-- 雨量レーダーレイヤー（Phase2B） -->
