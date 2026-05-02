@@ -50,6 +50,17 @@ const _RAIN_TILE_OPTIONS = {
     zIndex:        450,
 };
 
+// JMA hrpns タイルは偶数ズーム（4,6,8,10）にのみ雨量データが存在する。
+// 奇数ズームは常に「データなし」プレースホルダーを返すため、
+// 奇数ズームでは1段低い偶数ズームのタイルを取得し Leaflet が CSS 拡大する。
+const _RainTileLayer = L.TileLayer.extend({
+    _clampZoom: function (zoom) {
+        var z = L.TileLayer.prototype._clampZoom.call(this, zoom);
+        if (z % 2 !== 0) z = Math.max(z - 1, 2);
+        return z;
+    },
+});
+
 // ── Step1: 自動更新 ───────────────────────────────────────────────────────────
 
 async function refreshRainRadar() {
@@ -102,7 +113,7 @@ function updateRainRadarLayer() {
     if (_rainLayer) {
         _rainLayer.setUrl(entry.tile_url_template);
     } else {
-        _rainLayer = L.tileLayer(entry.tile_url_template, _RAIN_TILE_OPTIONS).addTo(map);
+        _rainLayer = new _RainTileLayer(entry.tile_url_template, _RAIN_TILE_OPTIONS).addTo(map);
     }
 
     _rainTimeDisplay(entry);
