@@ -43,7 +43,8 @@ function _rainLayerRemove() {
 const _RAIN_TILE_OPTIONS = {
     opacity:       0.6,
     attribution:   '気象庁 降水ナウキャスト',
-    minZoom:       4,
+    minZoom:       1,
+    minNativeZoom: 4,
     maxNativeZoom: 10,
     maxZoom:       18,
     tileSize:      256,
