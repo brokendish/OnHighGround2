@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OnHighGround ナビ画面</title>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a1a0f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Noto Sans JP', sans-serif;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Route Steps Data ──────────────────────────────────────────────
+const ROUTE_STEPS = [
+  { icon: "straight", label: "直進", distance: "100m", street: "和泉本町通り" },
+  { icon: "right", label: "右折", distance: "280m", street: "東野川二丁目" },
+  { icon: "left", label: "左折", distance: "450m", street: "狛江研究所前" },
+  { icon: "straight", label: "直進", distance: "620m", street: "多摩川河川敷" },
+  { icon: "right", label: "右折", distance: "850m", street: "成城五丁目" },
+  { icon: "destination", label: "到着", distance: "1.6km", street: "目的地" },
+];
+
+// ── SVG Turn Icons ────────────────────────────────────────────────
+function TurnArrow({ type, size = 48, color = "#10b981" }) {
+  const s = size;
+  if (type === "right") return (
+    <svg width={s} height={s} viewBox="0 0 48 48" fill="none">
+      <path d="M16 36V20C16 15.6 19.6 12 24 12H32" stroke={color} strokeWidth="4" strokeLinecap="round"/>
+      <path d="M27 7L32 12L27 17" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+  if (type === "left") return (
+    <svg width={s} height={s} viewBox="0 0 48 48" fill="none">
+      <path d="M32 36V20C32 15.6 28.4 12 24 12H16" stroke={color} strokeWidth="4" strokeLinecap="round"/>
+      <path d="M21 7L16 12L21 17" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+  if (type === "destination") return (
+    <svg width={s} height={s} viewBox="0 0 48 48" fill="none">
+      <circle cx="24" cy="20" r="8" stroke={color} strokeWidth="4"/>
+      <path d="M24 28C24 28 14 37 14 42H34C34 37 24 28 24 28Z" stroke={color} strokeWidth="3" strokeLinejoin="round"/>
+    </svg>
+  );
+  // straight
+  return (
+    <svg width={s} height={s} viewBox="0 0 48 48" fill="none">
+      <path d="M24 38V12" stroke={color} strokeWidth="4" strokeLinecap="round"/>
+      <path d="M18 18L24 12L30 18" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+// ── Map Placeholder (SVG-based stylized map) ──────────────────────
+function MapView({ accentColor }) {
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", background: "#1a2e1a" }}>
+      {/* OSM iframe */}
+      <iframe
+        src="https://www.openstreetmap.org/export/embed.html?bbox=139.5600%2C35.6200%2C139.6400%2C35.6700&layer=mapnik"
+        style={{ width: "100%", height: "100%", border: "none", filter: "saturate(0.7) brightness(0.85)" }}
+        title="map"
+      />
+      {/* Route overlay */}
+      <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} viewBox="0 0 390 520" preserveAspectRatio="none">
+        {/* Route path */}
+        <polyline
+          points="195,480 195,400 170,340 150,280 165,220 190,160 210,100"
+          stroke={accentColor}
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity="0.9"
+        />
+        {/* Glow */}
+        <polyline
+          points="195,480 195,400 170,340 150,280 165,220 190,160 210,100"
+          stroke={accentColor}
+          strokeWidth="14"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity="0.25"
+        />
+        {/* Current position dot */}
+        <circle cx="195" cy="480" r="10" fill={accentColor} opacity="1"/>
+        <circle cx="195" cy="480" r="18" fill={accentColor} opacity="0.25"/>
+        {/* Destination marker */}
+        <circle cx="210" cy="100" r="8" fill="#fff" stroke={accentColor} strokeWidth="3"/>
+      </svg>
+    </div>
+  );
+}
+
+// ── Safety Score Ring ─────────────────────────────────────────────
+function SafetyRing({ score, color }) {
+  const r = 18, circ = 2 * Math.PI * r;
+  const dash = (score / 100) * circ;
+  return (
+    <svg width="50" height="50" viewBox="0 0 50 50">
+      <circle cx="25" cy="25" r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="4"/>
+      <circle cx="25" cy="25" r={r} fill="none" stroke={color} strokeWidth="4"
+        strokeDasharray={`${dash} ${circ}`} strokeDashoffset={circ * 0.25}
+        strokeLinecap="round" style={{ transition: "stroke-dasharray 1s ease" }}/>
+      <text x="25" y="30" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="Space Grotesk">{score}</text>
+    </svg>
+  );
+}
+
+// ── Step Pill ─────────────────────────────────────────────────────
+function StepPill({ step, active, accentColor }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      padding: "8px 14px",
+      borderRadius: 20,
+      background: active ? `${accentColor}22` : "rgba(255,255,255,0.05)",
+      border: `1px solid ${active ? accentColor : "rgba(255,255,255,0.08)"}`,
+      flexShrink: 0,
+      transition: "all 0.3s ease",
+    }}>
+      <TurnArrow type={step.icon} size={20} color={active ? accentColor : "rgba(255,255,255,0.4)"}/>
+      <div>
+        <div style={{ color: active ? "#fff" : "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: 700, fontFamily: "Space Grotesk" }}>{step.distance}</div>
+        <div style={{ color: active ? accentColor : "rgba(255,255,255,0.3)", fontSize: 10 }}>{step.label}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Bottom Sheet Nav Panel ────────────────────────────────────────
+// 3 snap points: PEEK(collapsed) / MID / FULL(expanded)
+const SNAP = { PEEK: 0, MID: 1, FULL: 2 };
+
+function NavPanel({ accentColor, currentStep, setCurrentStep, navActive, setNavActive, panelStyle }) {
+  const step = ROUTE_STEPS[currentStep];
+  const nextStep = ROUTE_STEPS[Math.min(currentStep + 1, ROUTE_STEPS.length - 1)];
+  const stepsRef = useRef(null);
+  const sheetRef = useRef(null);
+  const dragState = useRef(null);
+  const [snap, setSnap] = useState(SNAP.MID);
+  const [dragY, setDragY] = useState(null); // live drag offset from snap pos
+
+  const isGlass = panelStyle === "glass";
+
+  // Heights per snap (px from bottom of screen)
+  const HEIGHTS = { [SNAP.PEEK]: 96, [SNAP.MID]: 300, [SNAP.FULL]: 540 };
+  const snapH = HEIGHTS[snap];
+  const liveH = dragY !== null ? Math.max(88, Math.min(560, snapH - dragY)) : snapH;
+
+  // Style tokens
+  const sheetBg = isGlass
+    ? "rgba(12,24,14,0.72)"
+    : "rgba(10,20,12,0.97)";
+  const cardBg = isGlass ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.06)";
+  const cardBorder = isGlass ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.1)";
+
+  // Drag handlers
+  const onDragStart = (e) => {
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    dragState.current = { startY: clientY, startH: liveH };
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!dragState.current) return;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const dy = clientY - dragState.current.startY;
+      setDragY(dy);
+    };
+    const onEnd = (e) => {
+      if (!dragState.current) return;
+      const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+      const dy = clientY - dragState.current.startY;
+      const finalH = Math.max(88, Math.min(560, dragState.current.startH - dy));
+      // Snap to nearest
+      const dists = Object.entries(HEIGHTS).map(([s, h]) => ({ s: Number(s), d: Math.abs(h - finalH) }));
+      dists.sort((a, b) => a.d - b.d);
+      setSnap(dists[0].s);
+      setDragY(null);
+      dragState.current = null;
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onEnd);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onEnd);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+    };
+  }, []);
+
+  // Auto-scroll steps
+  useEffect(() => {
+    if (stepsRef.current) {
+      const active = stepsRef.current.querySelector('[data-active="true"]');
+      if (active) {
+        active.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      }
+    }
+  }, [currentStep]);
+
+  const isPeek = snap === SNAP.PEEK && dragY === null;
+  const isFull = liveH > 420;
+  const animating = dragY === null;
+
+  return (
+    <div
+      ref={sheetRef}
+      style={{
+        position: "absolute",
+        bottom: 0, left: 0, right: 0,
+        height: liveH,
+        transition: animating ? "height 0.38s cubic-bezier(0.32,0.72,0,1)" : "none",
+        background: sheetBg,
+        backdropFilter: isGlass ? "blur(32px) saturate(200%)" : "blur(4px)",
+        WebkitBackdropFilter: isGlass ? "blur(32px) saturate(200%)" : "blur(4px)",
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderBottom: "none",
+        boxShadow: `0 -4px 40px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.06) inset`,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* Drag handle + top quick-info row */}
+      <div
+        onMouseDown={onDragStart}
+        onTouchStart={onDragStart}
+        style={{
+          flexShrink: 0,
+          cursor: "grab",
+          paddingTop: 10,
+          paddingBottom: 8,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 10,
+          userSelect: "none",
+        }}
+      >
+        {/* Handle pill */}
+        <div style={{
+          width: 36, height: 4, borderRadius: 2,
+          background: "rgba(255,255,255,0.22)",
+        }}/>
+
+        {/* PEEK state: compact single-line — ナビ中のみ */}
+        {isPeek && navActive && (
+          <div style={{
+            width: "100%", padding: "0 16px",
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <div style={{
+              width: 40, height: 40, flexShrink: 0,
+              background: `${accentColor}22`,
+              borderRadius: 12,
+              border: `1px solid ${accentColor}55`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <TurnArrow type={step.icon} size={26} color={accentColor}/>
+            </div>
+            <div style={{ flex: 1 }}>
+              <span style={{ color: "#fff", fontSize: 16, fontWeight: 800, fontFamily: "Space Grotesk" }}>{step.distance}</span>
+              <span style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, marginLeft: 6 }}>{step.label} · {step.street}</span>
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, fontFamily: "Space Grotesk" }}>1.6km</div>
+          </div>
+        )}
+
+        {/* MID / FULL: turn card — ナビ中のみ表示 */}
+        {!isPeek && navActive && (
+          <div style={{
+            width: "calc(100% - 32px)",
+            background: cardBg,
+            backdropFilter: "blur(20px)",
+            borderRadius: 18,
+            border: cardBorder,
+            padding: "14px 16px",
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            boxShadow: isGlass
+              ? `0 0 30px ${accentColor}15, inset 0 1px 0 rgba(255,255,255,0.12)`
+              : `0 0 30px ${accentColor}20`,
+            flexShrink: 0,
+          }}>
+            {/* Arrow box */}
+            <div style={{
+              width: 64, height: 64, flexShrink: 0,
+              background: `linear-gradient(135deg, ${accentColor}33, ${accentColor}10)`,
+              borderRadius: 16,
+              border: `1.5px solid ${accentColor}55`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: `0 0 18px ${accentColor}33`,
+            }}>
+              <TurnArrow type={step.icon} size={40} color={accentColor}/>
+            </div>
+            {/* Text */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+
+              <div style={{ color: "#fff", fontSize: 26, fontWeight: 900, fontFamily: "Space Grotesk", lineHeight: 1, marginBottom: 5 }}>
+                {step.distance}<span style={{ fontSize: 13, fontWeight: 500, color: "rgba(255,255,255,0.45)", marginLeft: 4 }}>先</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{
+                  background: accentColor, color: "#08140a",
+                  fontSize: 11, fontWeight: 700,
+                  padding: "2px 9px", borderRadius: 20,
+                  fontFamily: "Space Grotesk",
+                }}>{step.label}</span>
+                <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{step.street}</span>
+              </div>
+            </div>
+            {/* Next step */}
+            {currentStep < ROUTE_STEPS.length - 1 && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, opacity: 0.55, flexShrink: 0 }}>
+                <TurnArrow type={nextStep.icon} size={20} color="rgba(255,255,255,0.7)"/>
+                <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, fontFamily: "Space Grotesk" }}>{nextStep.distance}</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Scrollable body (hidden in PEEK) */}
+      {!isPeek && (
+        <div style={{ flex: 1, overflowY: isFull ? "auto" : "hidden", overflowX: "hidden", display: "flex", flexDirection: "column", gap: 0 }}>
+
+          {/* ── STOPPED STATE ── */}
+          {!navActive && (
+            <div style={{ display: "flex", flexDirection: "column", padding: "0 0 30px" }}>
+              {/* Info row: 安全 / 標高 / 精度 */}
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                gap: 16, padding: "4px 16px 12px",
+                borderBottom: "1px solid rgba(255,255,255,0.08)",
+                marginBottom: 4,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 14 }}>✅</span>
+                  <span style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>安全</span>
+                </div>
+                <div style={{ width: 1, height: 14, background: "rgba(255,255,255,0.15)" }}/>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>標高</span>
+                  <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "Space Grotesk" }}>48m</span>
+                </div>
+                <div style={{ width: 1, height: 14, background: "rgba(255,255,255,0.15)" }}/>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>精度</span>
+                  <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "Space Grotesk" }}>±35m</span>
+                </div>
+              </div>
+
+              {/* Tab bar */}
+              <div style={{
+                display: "flex", margin: "6px 16px 12px",
+                background: "rgba(255,255,255,0.05)",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.08)",
+                overflow: "hidden",
+              }}>
+                {[
+                  { label: "操作", icon: "📍", active: true },
+                  { label: "情報", icon: "ℹ️", active: false },
+                  { label: "レイヤー", icon: "◆", active: false },
+                  { label: "凡例", icon: "≡", active: false },
+                  { label: "地震", icon: "▲", active: false },
+                ].map((tab, i, arr) => (
+                  <button key={tab.label} style={{
+                    flex: 1, padding: "9px 0",
+                    border: "none",
+                    borderRight: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                    background: tab.active ? "rgba(255,255,255,0.1)" : "transparent",
+                    color: tab.active ? "#fff" : "rgba(255,255,255,0.4)",
+                    fontSize: 10, fontWeight: tab.active ? 700 : 400,
+                    fontFamily: "Noto Sans JP", cursor: "pointer",
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+                  }}>
+                    <span style={{ fontSize: 11 }}>{tab.icon}</span>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* 避難先を検索 */}
+              <button style={{
+                margin: "0 16px 10px", height: 50, borderRadius: 14, border: "none",
+                background: "linear-gradient(135deg, #2980b9, #3498db)",
+                color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: "Noto Sans JP",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                boxShadow: "0 4px 20px rgba(52,152,219,0.4)",
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                避難先を検索
+              </button>
+
+              {/* 詳細設定 */}
+              <div style={{ padding: "0 16px 2px" }}>
+                <button style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "rgba(255,255,255,0.4)", fontSize: 12, fontFamily: "Noto Sans JP",
+                  display: "flex", alignItems: "center", gap: 4,
+                }}>
+                  詳細設定
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"><path d="M3 2l4 3-4 3"/></svg>
+                </button>
+              </div>
+
+
+            </div>
+          )}
+
+          {/* ── ACTIVE NAV STATE ── */}
+          {navActive && (
+          <React.Fragment>
+
+          {/* Step scroll list */}
+          <div ref={stepsRef} style={{
+            display: "flex", gap: 8,
+            overflowX: "auto", padding: "8px 16px 10px",
+            scrollbarWidth: "none", flexShrink: 0,
+          }}>
+            {ROUTE_STEPS.map((s, i) => (
+              <div key={i} data-active={i === currentStep} onClick={() => setCurrentStep(i)} style={{ cursor: "pointer" }}>
+                <StepPill step={s} active={i === currentStep} accentColor={accentColor}/>
+              </div>
+            ))}
+          </div>
+
+          {/* Info row */}
+          <div style={{ display: "flex", gap: 8, margin: "0 16px 12px", flexShrink: 0 }}>
+            <div style={{ flex: 1, background: cardBg, borderRadius: 14, padding: "11px 14px", border: cardBorder }}>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 2 }}>残り距離</div>
+              <div style={{ color: "#fff", fontSize: 20, fontWeight: 700, fontFamily: "Space Grotesk", lineHeight: 1 }}>
+                1.6<span style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.45)", marginLeft: 2 }}>km</span>
+              </div>
+            </div>
+            <div style={{ flex: 1, background: cardBg, borderRadius: 14, padding: "11px 14px", border: cardBorder }}>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 2 }}>到着予想</div>
+              <div style={{ color: "#fff", fontSize: 20, fontWeight: 700, fontFamily: "Space Grotesk", lineHeight: 1 }}>
+                14:32<span style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,0.4)", marginLeft: 3 }}>約28分</span>
+              </div>
+            </div>
+            <div style={{ background: cardBg, borderRadius: 14, padding: "8px 10px", border: cardBorder, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
+              <SafetyRing score={87} color={accentColor}/>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 9 }}>安全</div>
+            </div>
+          </div>
+
+          {/* Full detail: tab bar (操作/情報/レイヤー/凡例/地震) */}
+          {isFull && (
+            <div style={{
+              display: "flex", gap: 0,
+              margin: "0 16px 14px",
+              background: "rgba(255,255,255,0.05)",
+              borderRadius: 14,
+              border: "1px solid rgba(255,255,255,0.08)",
+              overflow: "hidden",
+              flexShrink: 0,
+            }}>
+              {["操作","情報","レイヤー","凡例","地震"].map((tab, i) => (
+                <button key={tab} style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  border: "none",
+                  background: i === 0 ? `${accentColor}22` : "transparent",
+                  color: i === 0 ? accentColor : "rgba(255,255,255,0.4)",
+                  fontSize: 11,
+                  fontWeight: i === 0 ? 700 : 400,
+                  fontFamily: "Noto Sans JP",
+                  cursor: "pointer",
+                  borderRight: i < 4 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                  transition: "all 0.2s",
+                }}>{tab}</button>
+              ))}
+            </div>
+          )}
+
+          {/* Full detail: extra info */}
+          {isFull && (
+            <div style={{ padding: "0 16px 8px", flexShrink: 0 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { label: "標高", value: "48m", icon: "▲" },
+                  { label: "精度", value: "±35m", icon: "◎" },
+                  { label: "速度", value: "4.2km/h", icon: "→" },
+                ].map(item => (
+                  <div key={item.label} style={{
+                    flex: 1, background: cardBg, borderRadius: 12,
+                    padding: "10px 12px", border: cardBorder, textAlign: "center",
+                  }}>
+                    <div style={{ color: accentColor, fontSize: 16, marginBottom: 3 }}>{item.icon}</div>
+                    <div style={{ color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "Space Grotesk" }}>{item.value}</div>
+                    <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{item.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Stop button */}
+          <div style={{ padding: "4px 16px 30px", flexShrink: 0, marginTop: "auto" }}>
+            <button
+              onClick={() => setNavActive(false)}
+              style={{
+                width: "100%",
+                height: 50,
+                borderRadius: 16,
+                border: "none",
+                background: "linear-gradient(135deg, #c0392b, #e74c3c)",
+                color: "#fff",
+                fontSize: 15,
+                fontWeight: 700,
+                fontFamily: "Noto Sans JP",
+                letterSpacing: "0.05em",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                boxShadow: "0 4px 20px rgba(231,76,60,0.4)",
+                transition: "all 0.3s ease",
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="white"><rect x="3" y="3" width="4" height="10" rx="1"/><rect x="9" y="3" width="4" height="10" rx="1"/></svg>
+              ナビ停止
+            </button>
+          </div>
+          </React.Fragment>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Map Control Button helper ─────────────────────────────────────
+function MapBtn({ children, onClick, style: extraStyle = {} }) {
+  return (
+    <button onClick={onClick} style={{
+      width: 36, height: 36, borderRadius: 8,
+      background: "rgba(15,30,18,0.88)",
+      backdropFilter: "blur(10px)",
+      border: "1px solid rgba(255,255,255,0.13)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      cursor: "pointer",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+      ...extraStyle,
+    }}>{children}</button>
+  );
+}
+
+// ── Top Status Bar ─────────────────────────────────────────────────
+function TopBar({ accentColor }) {
+  return (
+    <>
+      {/* Top bar: app logo */}
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0,
+        padding: "12px 16px 0",
+        display: "flex", alignItems: "center",
+        background: "linear-gradient(180deg, rgba(8,20,10,0.85) 0%, rgba(8,20,10,0) 100%)",
+        zIndex: 10,
+        pointerEvents: "none",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, pointerEvents: "auto" }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8,
+            background: `linear-gradient(135deg, ${accentColor}, #065f46)`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L2 12H5V20H10V14H14V20H19V12H22L12 2Z" fill="white"/>
+            </svg>
+          </div>
+          <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "Space Grotesk", letterSpacing: "0.02em" }}>OnHighGround</span>
+        </div>
+      </div>
+
+      {/* Left side: hiking icon + zoom +/- */}
+      <div style={{
+        position: "absolute", top: 72, left: 12,
+        display: "flex", flexDirection: "column", gap: 8,
+        zIndex: 10,
+      }}>
+        <MapBtn>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="13" cy="4" r="1.2" fill="white" stroke="none"/>
+            <path d="M7 20l2.5-7 2.5 3 2-8"/>
+            <path d="M17 20l-2-6"/>
+            <path d="M6 13l2.5-2.5"/>
+          </svg>
+        </MapBtn>
+        <MapBtn extraStyle={{ borderRadius: "8px 8px 2px 2px" }}>
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <path d="M8 3v10M3 8h10" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+        </MapBtn>
+        <MapBtn extraStyle={{ borderRadius: "2px 2px 8px 8px", marginTop: -5 }}>
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <path d="M3 8h10" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+        </MapBtn>
+      </div>
+
+      {/* Right side: 4 buttons (クリア・地図・周囲・現在地) */}
+      <div style={{
+        position: "absolute", top: 72, right: 12,
+        display: "flex", flexDirection: "column", gap: 8,
+        zIndex: 10,
+      }}>
+        {[
+          {
+            label: "クリア",
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+          },
+          {
+            label: "地図",
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg>
+          },
+          {
+            label: "周囲",
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+          },
+          {
+            label: "現在地",
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+          },
+        ].map(({ label, icon }) => (
+          <MapBtn key={label}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+              {icon}
+              <span style={{ color: "rgba(255,255,255,0.7)", fontSize: 8, fontFamily: "Noto Sans JP", lineHeight: 1 }}>{label}</span>
+            </div>
+          </MapBtn>
+        ))}
+      </div>
+    </>
+  );
+}
+
+
+
+// ── Altitude / Width Chip ─────────────────────────────────────────
+function InfoChip({ label, value, accentColor }) {
+  return (
+    <div style={{
+      position: "absolute",
+      background: "rgba(15,30,18,0.88)",
+      backdropFilter: "blur(12px)",
+      border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: 10,
+      padding: "6px 12px",
+      display: "flex", gap: 6, alignItems: "center",
+    }}>
+      <span style={{ color: "rgba(255,255,255,0.45)", fontSize: 10 }}>{label}</span>
+      <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "Space Grotesk" }}>{value}</span>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────
+function NavApp() {
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "accentColor": "#10b981",
+    "mapBrightness": 70,
+    "routeWidth": 12,
+    "panelStyle": "glass",
+    "showAltitude": true
+  }/*EDITMODE-END*/;
+
+  const [tweaks, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
+  const { accentColor, mapBrightness, routeWidth, panelStyle, showAltitude } = tweaks;
+
+  const [currentStep, setCurrentStep] = useState(0);
+  const [navActive, setNavActive] = useState(true);
+
+  // Simulate progress
+  useEffect(() => {
+    if (!navActive) return;
+    const id = setInterval(() => {
+      setCurrentStep(s => (s + 1) % ROUTE_STEPS.length);
+    }, 4000);
+    return () => clearInterval(id);
+  }, [navActive]);
+
+  return (
+    <>
+    {/* Tweaks Panel */}
+    <TweaksPanel>
+      <TweakSection label="地図">
+        <TweakColor label="アクセントカラー" value={accentColor} onChange={v => setTweak("accentColor", v)}/>
+        <TweakSlider label="地図の明るさ" value={mapBrightness} min={40} max={110} step={5} onChange={v => setTweak("mapBrightness", v)}/>
+        <TweakSlider label="ルート太さ" value={routeWidth} min={2} max={12} step={1} onChange={v => setTweak("routeWidth", v)}/>
+      </TweakSection>
+      <TweakSection label="パネル">
+        <TweakRadio label="パネルスタイル" value={panelStyle}
+          options={[{value:"dark",label:"ダーク"},{value:"glass",label:"グラス"}]}
+          onChange={v => setTweak("panelStyle", v)}/>
+        <TweakToggle label="標高表示" value={showAltitude} onChange={v => setTweak("showAltitude", v)}/>
+      </TweakSection>
+    </TweaksPanel>
+
+    {/* iPhone Frame */}
+    <IOSDevice dark={true}>
+      <div style={{ width: "100%", height: "100%", position: "relative", background: "#08140a", overflow: "hidden" }}>
+
+        {/* Map */}
+        <div style={{ position: "absolute", inset: 0 }}>
+          <MapView accentColor={accentColor} brightness={mapBrightness} routeWidth={routeWidth}/>
+        </div>
+
+        {/* Top bar */}
+        <TopBar accentColor={accentColor}/>
+
+
+
+        {/* Bottom nav panel */}
+        <NavPanel
+          accentColor={accentColor}
+          currentStep={currentStep}
+          setCurrentStep={setCurrentStep}
+          navActive={navActive}
+          setNavActive={setNavActive}
+          panelStyle={panelStyle}
+        />
+      </div>
+    </IOSDevice>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<NavApp/>);
+</script>
+</body>
+</html>
