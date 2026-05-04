@@ -10,6 +10,8 @@
     let _lastQuakes  = [];
     let _lastUserPos = null;
     let _lastNewIds  = new Set();
+    let _expandedQuakeIds = new Set();
+    let _currentLocationMatchesExpanded = false;
 
     // ── 震度ランクテーブル ────────────────────────────────────────────────────
     const INTENSITY_RANK = {
@@ -133,6 +135,201 @@
         } catch { return ''; }
     }
 
+    function _getCurrentLocationMunicipality() {
+        if (currentReverseGeocodeStatus !== 'ready') return null;
+        const address = String(currentReverseGeocode?.address || '').trim();
+        if (!address) return null;
+        const matched = address.match(/(?:[^都道府県]+[都道府県])?((?:[^市区町村]+(?:市|区|町|村))+)/);
+        return matched ? matched[1] : null;
+    }
+
+    function _findCurrentLocationIntensity(q, municipality) {
+        if (!municipality || !Array.isArray(q?.intensity_areas)) return null;
+        const target = String(municipality).trim();
+        const areas = q.intensity_areas;
+        for (const area of areas) {
+            const name = String(area?.name || '').trim();
+            if (!name) continue;
+            if (name === target) return String(area.intensity || '');
+        }
+        for (const area of areas) {
+            const name = String(area?.name || '').trim();
+            if (name.endsWith(target)) return String(area.intensity || '');
+        }
+        for (const area of areas) {
+            const name = String(area?.name || '').trim();
+            if (name.includes(target)) return String(area.intensity || '');
+        }
+        return null;
+    }
+
+    function _getLatestCurrentLocationIntensity(sorted, municipality) {
+        if (!municipality || !Array.isArray(sorted)) return null;
+        for (const q of sorted) {
+            let maxIntensity = null;
+            // 同一イベント内で複数ヒット時に最大震度を採用
+            for (const area of (q.intensity_areas || [])) {
+                const areaName = String(area?.name || '').trim();
+                if (!areaName) continue;
+                // 市区町村名の一致判定（完全一致 → endsWith → includes）
+                if (areaName === municipality || areaName.endsWith(municipality) || areaName.includes(municipality)) {
+                    const rank = _getIntensityRank(area.intensity);
+                    const maxRank = maxIntensity ? _getIntensityRank(maxIntensity) : 0;
+                    if (rank && rank > (maxRank ?? 0)) {
+                        maxIntensity = area.intensity;
+                    }
+                }
+            }
+            if (maxIntensity) return maxIntensity;
+        }
+        return null;
+    }
+
+    function _getCurrentLocationIntensityMatches(sorted, municipality) {
+        if (!municipality || !Array.isArray(sorted)) return [];
+        const matches = [];
+        for (const q of sorted) {
+            let maxIntensity = null;
+            // 同一イベント内で複数ヒット時に最大震度を採用
+            for (const area of (q.intensity_areas || [])) {
+                const areaName = String(area?.name || '').trim();
+                if (!areaName) continue;
+                // 市区町村名の一致判定（完全一致 → endsWith → includes）
+                if (areaName === municipality || areaName.endsWith(municipality) || areaName.includes(municipality)) {
+                    const rank = _getIntensityRank(area.intensity);
+                    const maxRank = maxIntensity ? _getIntensityRank(maxIntensity) : 0;
+                    if (rank && rank > (maxRank ?? 0)) {
+                        maxIntensity = area.intensity;
+                    }
+                }
+            }
+            if (maxIntensity) {
+                matches.push({
+                    event: q,
+                    intensity: maxIntensity,
+                    occurred_at: q.occurred_at,
+                    epicenter_name: q.epicenter_name,
+                    magnitude: q.magnitude
+                });
+            }
+        }
+        return matches;
+    }
+
+    function _renderCurrentLocationIntensityMatches(matches, municipality) {
+        if (!matches || !matches.length) return '';
+        
+        const displayed = matches.slice(0, 3);
+        const remaining = matches.length - 3;
+        
+        const matchHtml = displayed.map(m => {
+            const timeStr = _formatTime(m.occurred_at);
+            return `<div class="mq-current-location-match">
+                ${_escapeHtml(timeStr)}　${_escapeHtml(municipality)}　震度${_escapeHtml(m.intensity)}　${_escapeHtml(m.epicenter_name)}　M${m.magnitude}
+            </div>`;
+        }).join('');
+        
+        const expandBtn = remaining > 0
+            ? `<div class="mq-current-location-expand-btn-row">
+                <button class="mq-current-location-expand-btn" type="button" data-expand="current-location-matches">
+                    ${_currentLocationMatchesExpanded ? 'さらに隠す' : `さらに表示（+${remaining}件）`}
+                </button>
+            </div>`
+            : '';
+        
+        const hiddenMatches = remaining > 0 && _currentLocationMatchesExpanded
+            ? matches.slice(3).map(m => {
+                const timeStr = _formatTime(m.occurred_at);
+                return `<div class="mq-current-location-match mq-current-location-match--hidden">
+                    ${_escapeHtml(timeStr)}　${_escapeHtml(municipality)}　震度${_escapeHtml(m.intensity)}　${_escapeHtml(m.epicenter_name)}　M${m.magnitude}
+                </div>`;
+            }).join('')
+            : '';
+        
+        return `<div class="mq-current-location-bar">
+            <div class="mq-current-location-bar-title">現在地関連の震度</div>
+            ${matchHtml}
+            ${hiddenMatches}
+            ${expandBtn}
+        </div>`;
+    }
+
+    function _toggleCurrentLocationMatches() {
+        _currentLocationMatchesExpanded = !_currentLocationMatchesExpanded;
+        _renderList();
+    }
+
+    function _groupIntensityAreas(q) {
+        if (!Array.isArray(q?.intensity_areas)) return {};
+        return q.intensity_areas.reduce((groups, area) => {
+            const intensity = String(area?.intensity || '').trim();
+            const name = String(area?.name || '').trim();
+            if (!intensity || !name) return groups;
+            if (!groups[intensity]) groups[intensity] = [];
+            if (!groups[intensity].includes(name)) groups[intensity].push(name);
+            return groups;
+        }, {});
+    }
+
+    function _sortIntensityGroups(groups) {
+        return Object.keys(groups).sort((a, b) => {
+            const ra = _getIntensityRank(a) ?? 0;
+            const rb = _getIntensityRank(b) ?? 0;
+            return rb - ra;
+        });
+    }
+
+    function _renderIntensitySummary(q) {
+        const intensityGroups = _groupIntensityAreas(q);
+        if (!Object.keys(intensityGroups).length) return '';
+        
+        const groups = _sortIntensityGroups(intensityGroups);
+        const summaryParts = groups.map(intensity => {
+            const count = intensityGroups[intensity].length;
+            return `震度${_escapeHtml(intensity)}（${count}）`;
+        });
+        
+        return `<div class="mq-intensity-summary">地域震度：${summaryParts.join(' / ')}</div>`;
+    }
+
+    function _renderEarthquakeDetails(q, municipality, expanded) {
+        const intensityGroups = _groupIntensityAreas(q);
+        if (!Object.keys(intensityGroups).length) {
+            return `<div class="mq-detail${expanded ? ' mq-detail--visible' : ''}">震度詳細情報はありません。</div>`;
+        }
+
+        const currentLocationIntensity = municipality ? _findCurrentLocationIntensity(q, municipality) : null;
+        const groups = _sortIntensityGroups(intensityGroups);
+        const groupHtml = groups.map(intensity => {
+            const names = intensityGroups[intensity].map(name => `<span class="mq-detail-item">${_escapeHtml(name)}</span>`).join('');
+            return `<div class="mq-detail-group">
+                    <div class="mq-detail-group-title">震度${_escapeHtml(intensity)}</div>
+                    <div class="mq-detail-group-list">${names}</div>
+                </div>`;
+        }).join('');
+
+        const currentLocationBlock = currentLocationIntensity
+            ? `<div class="mq-current-location-detail-card">
+                    <div class="mq-current-location-detail-title">現在地周辺</div>
+                    <div class="mq-current-location-detail-area">${_escapeHtml(municipality)}：震度${_escapeHtml(currentLocationIntensity)}</div>
+                </div>`
+            : '';
+
+        return `<div class="mq-detail${expanded ? ' mq-detail--visible' : ''}">
+                ${currentLocationBlock}
+                <div class="mq-detail-list">${groupHtml}</div>
+            </div>`;
+    }
+
+    function _toggleQuakeDetails(eventId) {
+        if (!_expandedQuakeIds.has(eventId)) {
+            _expandedQuakeIds.add(eventId);
+        } else {
+            _expandedQuakeIds.delete(eventId);
+        }
+        _renderList();
+    }
+
     function _ageClass(isoStr) {
         if (!isoStr) return '';
         const h = (Date.now() - new Date(isoStr).getTime()) / 3600000;
@@ -210,6 +407,9 @@
         }
 
         const sorted = _sortItems(filtered, _sortMode, _lastUserPos);
+        const municipality = _getCurrentLocationMunicipality();
+        const currentLocationMatches = _getCurrentLocationIntensityMatches(sorted, municipality);
+        const currentLocationBarHtml = _renderCurrentLocationIntensityMatches(currentLocationMatches, municipality);
 
         const html = sorted.map(q => {
             const isNew    = _lastNewIds.has(String(q.event_id));
@@ -218,25 +418,45 @@
             const timeStr  = _formatDate(q.occurred_at) + _formatTime(q.occurred_at);
             const magValue = Number(q.magnitude);
             const mag      = Number.isFinite(magValue) ? `M${magValue.toFixed(1)}` : 'M—';
-            const eventId  = _escapeHtml(q.event_id);
+            const eventId  = String(q.event_id);
             const badge    = isNew ? '<span class="mq-new-badge">NEW</span>' : '';
             let distHtml   = '';
             if (_hasUsableLocation(_lastUserPos) && _hasUsableQuakeLocation(q)) {
                 const d = _distanceKm(_lastUserPos.lat, _lastUserPos.lon, q.lat, q.lng);
                 distHtml = `<span class="mq-dist">約${Math.round(d)}km</span>`;
             }
-            return `<div class="mq-item ${ageClass}${newClass}" data-event-id="${eventId}">
+            const expanded = _expandedQuakeIds.has(eventId);
+            const detailHtml = _renderEarthquakeDetails(q, municipality, expanded);
+            const intensitySummaryHtml = _renderIntensitySummary(q);
+            return `<div class="mq-item ${ageClass}${newClass}" data-event-id="${_escapeHtml(eventId)}">
                 <div class="mq-main">
                     ${badge}<span class="mq-time">${_escapeHtml(timeStr)}</span>
                     <span class="mq-name">${_escapeHtml(q.epicenter_name)}</span>
-                    <span class="mq-scale">震度${_escapeHtml(q.max_intensity || '不明')}</span>
+                    <span class="mq-scale">\u9707\u5ea6${_escapeHtml(q.max_intensity || '\u4e0d\u660e')}</span>
                     <span class="mq-mag">${_escapeHtml(mag)}</span>
+                    <button class="mq-detail-toggle-btn" type="button" data-event-id="${_escapeHtml(eventId)}">
+                        ${expanded ? '\u9589\u3058\u308b' : '\u8a73\u7d30'}
+                    </button>
                 </div>
                 ${distHtml ? `<div class="mq-sub">${distHtml}</div>` : ''}
+                ${intensitySummaryHtml}
+                ${detailHtml}
             </div>`;
         }).join('');
 
-        panel.innerHTML = html;
+        panel.innerHTML = `${currentLocationBarHtml}${html}`;
+        panel.querySelectorAll('.mq-current-location-expand-btn').forEach(btn => {
+            btn.addEventListener('click', ev => {
+                ev.stopPropagation();
+                _toggleCurrentLocationMatches();
+            });
+        });
+        panel.querySelectorAll('.mq-detail-toggle-btn').forEach(btn => {
+            btn.addEventListener('click', ev => {
+                ev.stopPropagation();
+                _toggleQuakeDetails(String(btn.dataset.eventId));
+            });
+        });
 
         panel.querySelectorAll('.mq-item').forEach(el => {
             el.addEventListener('click', () => {

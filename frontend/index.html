@@ -1738,6 +1738,43 @@
             min-height: 0;
             overscroll-behavior: contain;
         }
+        .mq-current-location-bar {
+            padding: 10px 14px;
+            background: #fff3cd;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            font-size: 12px;
+            color: #664d03;
+            line-height: 1.5;
+        }
+        .mq-current-location-bar-title {
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .mq-current-location-match {
+            margin-bottom: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 11px;
+        }
+        .mq-current-location-match--hidden {
+            display: block;
+        }
+        .mq-current-location-expand-btn-row {
+            margin-top: 6px;
+        }
+        .mq-current-location-expand-btn {
+            border: 1px solid rgba(102, 77, 3, 0.2);
+            background: rgba(255, 255, 255, 0.5);
+            color: #664d03;
+            border-radius: 12px;
+            padding: 4px 8px;
+            font-size: 10px;
+            cursor: pointer;
+        }
+        .mq-current-location-expand-btn:hover {
+            background: rgba(255, 255, 255, 0.8);
+        }
         .mq-item {
             padding: 8px 14px;
             border-bottom: 1px solid rgba(0, 0, 0, 0.06);
@@ -1746,6 +1783,70 @@
         }
         .mq-item:hover {
             background: rgba(0, 0, 0, 0.04);
+        }
+        .mq-intensity-summary {
+            padding: 6px 14px;
+            background: #f5f5f5;
+            font-size: 11px;
+            color: #666;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+        }
+        .mq-detail-toggle-btn {
+            margin-left: auto;
+            border: 1px solid rgba(0,0,0,0.12);
+            background: #fff;
+            color: #444;
+            border-radius: 16px;
+            padding: 5px 10px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .mq-detail-toggle-btn:hover {
+            background: #f5f5f5;
+        }
+        .mq-detail {
+            display: none;
+            padding: 10px 14px 12px;
+            background: #fafafa;
+            color: #333;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .mq-detail--visible {
+            display: block;
+        }
+        .mq-current-location-detail-card {
+            padding: 10px 12px;
+            border: 1px solid rgba(0,0,0,0.08);
+            background: #fff7e6;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .mq-current-location-detail-title {
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .mq-current-location-detail-area {
+            color: #422800;
+        }
+        .mq-detail-group {
+            margin-bottom: 10px;
+        }
+        .mq-detail-group-title {
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .mq-detail-group-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .mq-detail-item {
+            background: #eee;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 11px;
+            color: #333;
         }
         .mq-item--selected {
             background: rgba(21, 101, 192, 0.10);
