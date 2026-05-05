@@ -1692,6 +1692,7 @@ function _updateRemainingDistanceDisplay(lat, lon, accuracy = 0) {
         }
     }
 
+    if (typeof _navSheetUpdateDistance === 'function') _navSheetUpdateDistance(routeResult);
     return routeResult; // 逸脱判定で再利用できるよう返す
 }
 
@@ -2070,10 +2071,24 @@ function _onNavPosition(position) {
                 const _newText = _accLabel ? `精度${_accLabel}` : '—';
                 if (_accEl.textContent !== _newText) _accEl.textContent = _newText;
             }
+            navLastKnownAccuracy = accuracy;
+            if (typeof _navSheetUpdateElev === 'function') _navSheetUpdateElev();
         }
 
         if (navIsAutoFollow) {
-            map.setView([lat, lon], map.getZoom());
+            // パネル実高をDOMから直接読む（クロージャ経由だと _visible タイミングで0になる場合がある）
+            const _navSheetEl = document.getElementById('nav-bottom-sheet');
+            const _panelH = (_navSheetEl && _navSheetEl.offsetHeight > 0)
+                ? _navSheetEl.offsetHeight : 0;
+            const _zoom = map.getZoom();
+            const _gpsPx = map.project([lat, lon], _zoom);
+            if (_panelH > 0) {
+                // GPS がパネル上の可視領域中央に来るよう地図中心を panelH/2 分だけ南にずらす
+                const _adjPx = L.point(_gpsPx.x, _gpsPx.y + _panelH / 2);
+                map.setView(map.unproject(_adjPx, _zoom), _zoom);
+            } else {
+                map.setView([lat, lon], _zoom);
+            }
         }
     }
 
@@ -2086,6 +2101,7 @@ function _onNavPosition(position) {
     // 経路ステップハイライト更新（精度に関わらず実施）
     if (typeof updateNavStepHighlight === 'function') {
         updateNavStepHighlight(lat, lon);
+        if (typeof _navSheetUpdateStep === 'function') _navSheetUpdateStep(lat, lon);
     }
 
     // 接近通知: 次の操作/横断を音声案内（voiceNav があれば）
@@ -2108,6 +2124,7 @@ function _onNavPosition(position) {
             navCurrentElevation = elev;
             const el = document.getElementById('mbc-current-elev');
             if (el) el.textContent = `標高 ${elev.toFixed(0)}m`;
+            if (typeof _navSheetUpdateElev === 'function') _navSheetUpdateElev();
         });
     }
 
@@ -8368,6 +8385,8 @@ function _updateNavUI() {
 
     // 非ナビ時情報パネルの表示切り替え
     if (typeof _lipUpdateNavMode === 'function') _lipUpdateNavMode(mode);
+    // ナビ ボトムシートの表示切り替え
+    if (typeof _navSheetUpdateMode === 'function') _navSheetUpdateMode(mode);
 }
 
 // ── 地図ドラッグで自動追従を一時解除 ─────────────────────────────────────
