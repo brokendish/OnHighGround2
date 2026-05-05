@@ -1760,6 +1760,11 @@ function startNavigation() {
     if (typeof _startLocationWatch === 'function') _startLocationWatch(true);
     setNavMode('navigation_active');
 
+    // ナビシート表示後すぐに可視領域中央へセンタリング（GPS コールバックを待たない）
+    if (currentLocation) {
+        _navCenterOnGPS(currentLocation.lat, currentLocation.lon);
+    }
+
     // watchPosition の初回更新を待たず、開始直後に残距離を即表示する
     if (currentLocation) {
         _updateRemainingDistanceDisplay(
@@ -2074,22 +2079,12 @@ function _onNavPosition(position) {
             navLastKnownAccuracy = accuracy;
             if (typeof _navSheetUpdateElev === 'function') _navSheetUpdateElev();
         }
+    }
 
-        if (navIsAutoFollow) {
-            // パネル実高をDOMから直接読む（クロージャ経由だと _visible タイミングで0になる場合がある）
-            const _navSheetEl = document.getElementById('nav-bottom-sheet');
-            const _panelH = (_navSheetEl && _navSheetEl.offsetHeight > 0)
-                ? _navSheetEl.offsetHeight : 0;
-            const _zoom = map.getZoom();
-            const _gpsPx = map.project([lat, lon], _zoom);
-            if (_panelH > 0) {
-                // GPS がパネル上の可視領域中央に来るよう地図中心を panelH/2 分だけ南にずらす
-                const _adjPx = L.point(_gpsPx.x, _gpsPx.y + _panelH / 2);
-                map.setView(map.unproject(_adjPx, _zoom), _zoom);
-            } else {
-                map.setView([lat, lon], _zoom);
-            }
-        }
+    // オートフォロー: _doFullUpdate の外（微小移動でも毎回センタリング）
+    // ナビ開始直後は stationary でも正しい可視領域中央に表示する必要があるため
+    if (navIsAutoFollow) {
+        _navCenterOnGPS(lat, lon);
     }
 
     // 音声優先順位用コンテキスト: 横断案内をターン案内より優先する
@@ -2390,6 +2385,24 @@ function _executeAutoReroute(context = {}) {
 function _onNavPositionError(err) {
     console.warn('[Nav] GPS error:', err.message);
     _showNavBanner('⚠ 位置情報の取得に失敗しました', 'warning');
+}
+
+// ── GPS オートフォロー センタリング ──────────────────────────────────────
+// ナビシートパネルの実高を DOM から読み、GPS が可視領域中央に来るよう地図中心をずらす。
+// _doFullUpdate の外から呼べるよう独立関数化。
+function _navCenterOnGPS(lat, lon) {
+    const _navSheetEl = document.getElementById('nav-bottom-sheet');
+    const _panelH = (_navSheetEl && _navSheetEl.offsetHeight > 0)
+        ? _navSheetEl.offsetHeight : 0;
+    const _zoom = map.getZoom();
+    const _gpsPx = map.project([lat, lon], _zoom);
+    if (_panelH > 0) {
+        // GPS がパネル上の可視領域中央に来るよう地図中心を panelH/2 分だけ南にずらす
+        const _adjPx = L.point(_gpsPx.x, _gpsPx.y + _panelH / 2);
+        map.setView(map.unproject(_adjPx, _zoom), _zoom);
+    } else {
+        map.setView([lat, lon], _zoom);
+    }
 }
 
 // ── 軽量マーカー更新 ─────────────────────────────────────────────────────
