@@ -1741,7 +1741,10 @@ function startNavigation() {
     }
     if (currentLocation) {
         _fetchElevation(currentLocation.lat, currentLocation.lon).then(elev => {
-            navStartElevation = elev;
+            navStartElevation   = elev;
+            navCurrentElevation = elev; // 初期標高をナビシートにも反映
+            navLastElevFetchPos = { lat: currentLocation.lat, lon: currentLocation.lon };
+            if (typeof _navSheetUpdateElev === 'function') _navSheetUpdateElev();
         });
         _checkCurrentHazard(currentLocation.lat, currentLocation.lon);
         navLastHazardFetchPos = { lat: currentLocation.lat, lon: currentLocation.lon };
@@ -2065,6 +2068,9 @@ function _onNavPosition(position) {
         _updateNavMarker(lat, lon, accuracy, heading);
     }
 
+    // 精度は常に保存（_doFullUpdate 外・静止中も最新値を維持）
+    navLastKnownAccuracy = accuracy;
+
     // 精度表示（1秒スロットル・テキスト差し替えのみ）
     if (_doFullUpdate) {
         const _nowAcc = Date.now();
@@ -2076,7 +2082,6 @@ function _onNavPosition(position) {
                 const _newText = _accLabel ? `精度${_accLabel}` : '—';
                 if (_accEl.textContent !== _newText) _accEl.textContent = _newText;
             }
-            navLastKnownAccuracy = accuracy;
             if (typeof _navSheetUpdateElev === 'function') _navSheetUpdateElev();
         }
     }
