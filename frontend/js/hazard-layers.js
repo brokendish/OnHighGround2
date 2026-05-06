@@ -24,20 +24,20 @@ const HAZARD_MIN_ZOOM = 11;
 const FLOOD_RANK_COLORS = { 1: '#e3f2fd', 2: '#90caf9', 3: '#42a5f5', 4: '#1565c0', 5: '#0d47a1' };
 const FLOOD_UNKNOWN_COLOR = '#e3f2fd';
 function getFloodRankColor(rank) { return FLOOD_RANK_COLORS[rank] || FLOOD_UNKNOWN_COLOR; }
-const FLOOD_BORDER = { color: '#1565c0', weight: 1.0, opacity: 0.6 };
+const FLOOD_BORDER = { color: '#1565c0', weight: 0.4, opacity: 0.25 };
 // storm_surge: 紫系
 const STORM_SURGE_RANK_COLORS = {
     1: '#f3e5f5', 2: '#ce93d8', 3: '#ba68c8', 4: '#9c27b0',
     5: '#7b1fa2', 6: '#6a1b9a', 7: '#4a148c',
 };
 const STORM_SURGE_UNKNOWN_COLOR = '#f3e5f5';
-const STORM_SURGE_BORDER = { color: '#6a1b9a', weight: 1.0, opacity: 0.6 };
+const STORM_SURGE_BORDER = { color: '#6a1b9a', weight: 0.4, opacity: 0.25 };
 // inland_flood: シアン・ティール系
 // INLAND_FLOOD_BORDER: VECTOR_TILE_SOURCES の borderStyle から直接参照するため
 // ここに置く必要がある（TDZ 回避）。スタイル関数は下部に定義。
 const INLAND_FLOOD_BORDER = { color: '#006064', weight: 1.0, opacity: 0.6 };
 // tsunami: 赤系ボーダー（fill色はスタイル関数内で定義）
-const TSUNAMI_BORDER = { color: '#c62828', weight: 1.0, opacity: 0.6 };
+const TSUNAMI_BORDER = { color: '#c62828', weight: 0.4, opacity: 0.25 };
 const TSUNAMI_UNKNOWN_COLOR = '#ffcdd2';
 // lowland_poor_drainage: 薄青紫系（補助レイヤー — 面の薄い重なりで表現、境界線は控えめ）
 const LOWLAND_POOR_DRAINAGE_COLOR = '#c8b4d4';
@@ -377,14 +377,14 @@ const HAZARD_LAYERS = {
 // source-layer 名は tippecanoe の --layer オプションで指定した名前（= MBTiles ファイル名の stem）
 const VECTOR_TILE_SOURCES = {
     tsunami_tokyo: [
-        { tilesetId: 'tokyo_tsunami_A40-23_13', sourceLayer: 'tokyo_tsunami_A40-23_13' }
+        { tilesetId: 'tokyo_tsunami_A40-23_13', sourceLayer: 'tokyo_tsunami_A40-23_13', opacityFn: () => 0.18 }
     ],
     tsunami_kanagawa: [
-        { tilesetId: 'kanagawa_tsunami_A40-16_14', sourceLayer: 'kanagawa_tsunami_A40-16_14' },
-        { tilesetId: 'kanagawa_tsunami_A40-20_14', sourceLayer: 'kanagawa_tsunami_A40-20_14' }
+        { tilesetId: 'kanagawa_tsunami_A40-16_14', sourceLayer: 'kanagawa_tsunami_A40-16_14', opacityFn: () => 0.18 },
+        { tilesetId: 'kanagawa_tsunami_A40-20_14', sourceLayer: 'kanagawa_tsunami_A40-20_14', opacityFn: () => 0.18 }
     ],
     tsunami_chiba: [
-        { tilesetId: 'chiba_tsunami_A40-18_12', sourceLayer: 'chiba_tsunami_A40-18_12' }
+        { tilesetId: 'chiba_tsunami_A40-18_12', sourceLayer: 'chiba_tsunami_A40-18_12', opacityFn: () => 0.18 }
     ],
     flood_tokyo_max: [
         {
@@ -392,6 +392,7 @@ const VECTOR_TILE_SOURCES = {
             sourceLayer: 'flood',
             colorFn: (props) => getFloodRankColor(props['flood_rank']),
             borderStyle: FLOOD_BORDER,
+            opacityFn: () => 0.18,
             maxNativeZoom: 14,
             useDatasetIdAsTilesetId: true
         }
@@ -402,6 +403,7 @@ const VECTOR_TILE_SOURCES = {
             sourceLayer: 'flood',
             colorFn: (props) => getFloodRankColor(props['flood_rank']),
             borderStyle: FLOOD_BORDER,
+            opacityFn: () => 0.18,
             maxNativeZoom: 14,
             useDatasetIdAsTilesetId: true
         }
@@ -430,6 +432,7 @@ const VECTOR_TILE_SOURCES = {
             sourceLayer: 'storm_surge',
             colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
             borderStyle: STORM_SURGE_BORDER,
+            opacityFn: () => 0.18,
             maxNativeZoom: 16
         }
     ],
@@ -439,6 +442,7 @@ const VECTOR_TILE_SOURCES = {
             sourceLayer: 'storm_surge',
             colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
             borderStyle: STORM_SURGE_BORDER,
+            opacityFn: () => 0.18,
             maxNativeZoom: 16
         }
     ],
@@ -805,7 +809,7 @@ function getStormSurgeFeatureStyle(feature) {
     return {
         ...STORM_SURGE_BORDER,
         fillColor,
-        fillOpacity: 0.30
+        fillOpacity: 0.18
     };
 }
 
@@ -815,7 +819,7 @@ function getFloodFeatureStyle(feature) {
     return {
         ...FLOOD_BORDER,
         fillColor,
-        fillOpacity: 0.30
+        fillOpacity: 0.18
     };
 }
 
@@ -823,7 +827,7 @@ function getTsunamiFeatureStyle(feature, depthKey) {
     const defaultStyle = {
         ...TSUNAMI_BORDER,
         fillColor: TSUNAMI_UNKNOWN_COLOR,
-        fillOpacity: 0.30
+        fillOpacity: 0.18
     };
 
     if (!depthKey) {
@@ -839,7 +843,7 @@ function getTsunamiFeatureStyle(feature, depthKey) {
     return {
         ...TSUNAMI_BORDER,
         fillColor: getDepthColor(depthMeters),
-        fillOpacity: 0.30
+        fillOpacity: 0.18
     };
 }
 
