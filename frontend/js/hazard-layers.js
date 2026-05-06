@@ -458,7 +458,7 @@ const VECTOR_TILE_SOURCES = {
     ],
     lowland_poor_drainage_tokyo: [
         {
-            tilesetId: 'tokyo_lowland_poor_drainage',
+            tilesetId: 'tokyo_lowland_poor_drainage_001',
             sourceLayer: 'lowland_poor_drainage',
             colorFn: () => LOWLAND_POOR_DRAINAGE_COLOR,
             opacityFn: () => 0.18,
@@ -468,7 +468,7 @@ const VECTOR_TILE_SOURCES = {
     ],
     lowland_poor_drainage_kanagawa: [
         {
-            tilesetId: 'kanagawa_lowland_poor_drainage',
+            tilesetId: 'kanagawa_lowland_poor_drainage_001',
             sourceLayer: 'lowland_poor_drainage',
             colorFn: () => LOWLAND_POOR_DRAINAGE_COLOR,
             opacityFn: () => 0.18,

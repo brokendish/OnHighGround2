@@ -491,6 +491,8 @@ async def _do_normalize(
         "normalize_storm_surge", "normalize_river_flood", "normalize_inland_flood",
     }:
         cmd.extend(["--dataset-id", defn.dataset_id])
+    if defn.transformer_name == "normalize_lowland_poor_drainage":
+        cmd.extend(["--region", defn.region])
     # 避難場所データは layer_type に応じた designation を付与する
     if defn.transformer_name == "normalize_shelter":
         _DESIGNATION_MAP = {
@@ -559,6 +561,8 @@ async def _do_validate(
     cmd = ["python3", str(script_path), "--input", input_path, "--output", str(output_path)]
     if defn.layer_type in {"tsunami", "storm_surge", "flood", "inland_flood"}:
         cmd.extend(["--allowed-geometry-types", "Polygon,MultiPolygon", "--require-bbox"])
+    if defn.validator_name == "validate_lowland_poor_drainage":
+        cmd.extend(["--region", defn.region])
 
     ret = await _run_subprocess(cmd, job, jm, timeout=600)
 
@@ -903,6 +907,10 @@ async def run_deploy(
         get_shelter_registry().invalidate()
         jm.log(job, "ShelterRegistry cache invalidated")
 
+    # 低地・排水困難エリアを更新した場合は hazard_service を hot-reload する
+    if defn.layer_type == "lowland_poor_drainage":
+        _reload_lowland_hazard(job, defn, state, jm)
+
     # タイルビルドが必要なレイヤーはデプロイ後に非同期で実行
     if defn.requires_tile_build:
         await _do_tile_build(job, defn, state, jm, ss)
@@ -911,6 +919,42 @@ async def run_deploy(
                progress_message="実行環境への反映が完了しました。",
                exit_code=0)
     jm.log(job, "=== deploy completed ===")
+
+
+# ── lowland hazard hot-reload ─────────────────────────────────────────────────
+
+def _reload_lowland_hazard(job, defn, state, jm) -> None:
+    """
+    低地・排水困難エリアのデプロイ後に hazard_service を hot-reload する。
+
+    validated GeoJSON を data_runtime/backend/hazard/lowland_poor_drainage/ にコピーし、
+    メモリ上の HazardService に即時反映する。
+    """
+    src_path_str = state.current_validated_path or state.current_normalized_path
+    if not src_path_str or not Path(src_path_str).is_file():
+        jm.log(job, "WARN: lowland hazard reload スキップ — validated GeoJSON が存在しません")
+        return
+
+    backend_dir = _PROJECT_ROOT / "data_runtime" / "backend" / "hazard" / "lowland_poor_drainage"
+    backend_dir.mkdir(parents=True, exist_ok=True)
+    dest = backend_dir / f"{defn.region}_lowland_poor_drainage.geojson"
+
+    try:
+        shutil.copy2(src_path_str, dest)
+    except Exception as exc:
+        jm.log(job, f"WARN: lowland backend ファイルコピー失敗: {exc}")
+        return
+
+    try:
+        from app.services.hazard_runtime_service import get_hazard_service
+        svc = get_hazard_service()
+        if svc is not None:
+            svc.load("lowland_poor_drainage", dest, bbox_only=True)
+            jm.log(job, f"hazard_service reloaded: lowland_poor_drainage/{defn.region} → {dest}")
+        else:
+            jm.log(job, "INFO: hazard_service 未登録 — 次回起動時に自動読み込みされます")
+    except Exception as exc:
+        jm.log(job, f"WARN: hazard_service reload 失敗: {exc}")
 
 
 # ── tile_build ────────────────────────────────────────────────────────────────

@@ -539,12 +539,18 @@ if _lowland_enabled:
             hazard_service.load("lowland_poor_drainage", _f, bbox_only=True)
     else:
         for _region in ("tokyo", "kanagawa"):
-            _lowland_path = BASE_DIR.parent / "data_lake" / "validated" / _region / "lowland_poor_drainage" / "lowland_poor_drainage.geojson"
-            if _lowland_path.exists():
+            _validated_dir = BASE_DIR.parent / "data_lake" / "validated" / _region / "lowland_poor_drainage"
+            _lowland_files = sorted(_validated_dir.glob("*.geojson")) if _validated_dir.is_dir() else []
+            if _lowland_files:
+                _lowland_path = _lowland_files[0]
                 logger.info("LowlandPoorDrainage loaded from validated (%s): %s", _region, _lowland_path)
                 hazard_service.load("lowland_poor_drainage", _lowland_path, bbox_only=True)
             else:
-                logger.info("低地データが見つかりません（スキップ）: %s", _lowland_path)
+                logger.info("低地データが見つかりません（スキップ）: %s", _validated_dir)
+
+    from app.services.hazard_runtime_service import set_hazard_service as _set_hs
+    _set_hs(hazard_service)
+    logger.info("hazard_runtime_service: HazardService 登録完了")
 else:
     logger.info("低地・排水困難エリア判定は無効（hazard.lowland_poor_drainage.enabled=false）")
 
