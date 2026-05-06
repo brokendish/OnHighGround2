@@ -40,7 +40,7 @@ const INLAND_FLOOD_BORDER = { color: '#006064', weight: 1.0, opacity: 0.6 };
 const TSUNAMI_BORDER = { color: '#c62828', weight: 0.4, opacity: 0.25 };
 const TSUNAMI_UNKNOWN_COLOR = '#ffcdd2';
 // lowland_poor_drainage: 薄青紫系（補助レイヤー — 面の薄い重なりで表現、境界線は控えめ）
-const LOWLAND_POOR_DRAINAGE_COLOR = '#c8b4d4';
+const LOWLAND_POOR_DRAINAGE_COLOR = '#913fc0';
 const LOWLAND_POOR_DRAINAGE_BORDER = { color: '#7b5ea7', weight: 0.4, opacity: 0.25 };
 // pseudo_inland_flood: DEM 推定レイヤー（low=水色 / medium=黄 / high=赤系）
 // 補助系レイヤーのため境界線は控えめ（面の重なりで表現）
