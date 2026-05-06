@@ -289,6 +289,7 @@ function _lipRenderRouteSelector(transportMode) {
     if (routeList.length <= 1 || !onSelect) {
         section.style.display = 'none';
         container.innerHTML = '';
+        _lipRenderRouteRiskInfo();
         return;
     }
 
@@ -326,9 +327,10 @@ function _lipRenderRouteSelector(transportMode) {
 
 function _lipRenderRouteRiskInfo() {
     const el = document.getElementById('lip-route-risk-info');
+    const section = document.getElementById('lip-route-risk-section');
     if (!el) return;
     el.innerHTML = '';
-    el.style.display = 'none';
+    if (section) section.style.display = 'none';
 
     const idx = _lipRouteSelection.selectedRouteIndex;
     const routes = _lipRouteSelection.routes;
@@ -341,7 +343,7 @@ function _lipRenderRouteRiskInfo() {
 
     if (typeof _appendRouteRiskBlock === 'function') {
         _appendRouteRiskBlock(el, route);
-        el.style.display = '';
+        if (section) section.style.display = '';
     }
 }
 
