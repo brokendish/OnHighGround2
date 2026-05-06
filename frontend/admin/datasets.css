@@ -646,3 +646,61 @@ table.dataset-table {
 /* ── Config ログ行 ───────────────────────────────────── */
 .log-line-config         { color: #7c3aed; }
 .log-line-config-warning { color: #c2410c; font-weight: 600; }
+
+/* ── チャンクアップロード進捗 ──────────────────────────── */
+.chunk-progress {
+  margin-top: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.chunk-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.chunk-filename {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chunk-cancel-btn {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 10px;
+  background: #fee2e2;
+  color: #b91c1c;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.chunk-cancel-btn:hover { background: #fecaca; }
+.chunk-progress-meta {
+  font-size: 12px;
+  color: #475569;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.chunk-progress-sep { color: #cbd5e1; }
+.chunk-progress-bar-wrap {
+  width: 100%;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.chunk-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #818cf8);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+  width: 0%;
+}

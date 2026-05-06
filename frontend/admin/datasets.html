@@ -258,8 +258,8 @@
              ondragleave="this.classList.remove('dragover')"
              ondrop="handleDrop(event)">
           <div class="icon">📂</div>
-          <div class="label">クリックまたはドラッグ&ドロップ</div>
-          <div class="sub" id="um-size-limit">最大ファイルサイズ: —</div>
+          <div class="label">ファイルをドラッグ＆ドロップ<br><span style="font-size:12px;opacity:0.7">またはクリックして選択</span></div>
+          <div class="sub" id="um-size-limit">対応形式: .zip / .geojson / .gml / .mbtiles / .gpkg</div>
         </div>
         <input type="file" id="upload-input" multiple onchange="handleFileSelect(this)">
         <div class="upload-selected" id="upload-selected">
@@ -268,6 +268,26 @@
           <span id="upload-file-size" style="margin-left:auto;color:#64748b;font-size:11px"></span>
         </div>
         <div class="upload-file-list" id="upload-file-list"></div>
+
+        <!-- チャンクアップロード進捗 UI (アップロード中のみ表示) -->
+        <div class="chunk-progress" id="chunk-progress" style="display:none">
+          <div class="chunk-progress-header">
+            <span class="chunk-filename" id="cp-filename"></span>
+            <button class="chunk-cancel-btn" id="cp-cancel-btn" onclick="cancelChunkUpload()">キャンセル</button>
+          </div>
+          <div class="chunk-progress-meta">
+            <span id="cp-size"></span>
+            <span class="chunk-progress-sep">|</span>
+            <span id="cp-percent"></span>
+            <span class="chunk-progress-sep">|</span>
+            <span id="cp-speed"></span>
+            <span class="chunk-progress-sep">|</span>
+            <span id="cp-eta"></span>
+          </div>
+          <div class="chunk-progress-bar-wrap">
+            <div class="chunk-progress-bar" id="cp-bar"></div>
+          </div>
+        </div>
       </div>
 
       <!-- tab: fetch_url -->
@@ -474,6 +494,7 @@
   </div>
 </div>
 
+<script src="/admin/upload-manager.js"></script>
 <script src="/admin/datasets.js"></script>
 </body>
 </html>

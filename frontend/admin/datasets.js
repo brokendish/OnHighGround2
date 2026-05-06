@@ -112,6 +112,7 @@ let _osrmModalDataset = null;    // OSRM再構築確認対象
 let _logModalJobId = null;       // ジョブログモーダル対象
 let _selectedFiles = [];         // アップロード選択ファイル（複数対応）
 let _activeInputTab = null;      // 現在の投入方式タブ
+let _chunkUploadMgr = null;      // チャンクアップロードマネージャ
 
 let _listRefreshTimer = null;
 let _detailRefreshTimer = null;
@@ -625,6 +626,11 @@ function switchInputTab(mode) {
 }
 
 function closeUpdateModal() {
+  if (_chunkUploadMgr) {
+    _chunkUploadMgr.cancel();
+    _chunkUploadMgr = null;
+  }
+  _hideChunkProgress();
   document.getElementById("update-modal").classList.remove("open");
   _updateModalDataset = null;
   _selectedFiles = [];
@@ -669,6 +675,58 @@ function setSelectedFiles(files) {
   summaryEl.classList.add("visible");
 }
 
+// ── チャンクアップロード進捗表示 ─────────────────────
+function _showChunkProgress(file) {
+  const el = document.getElementById("chunk-progress");
+  document.getElementById("cp-filename").textContent = file.name;
+  document.getElementById("cp-size").textContent = formatBytes(file.size);
+  document.getElementById("cp-percent").textContent = "0%";
+  document.getElementById("cp-speed").textContent = "—";
+  document.getElementById("cp-eta").textContent = "—";
+  document.getElementById("cp-bar").style.width = "0%";
+  el.style.display = "block";
+  document.getElementById("upload-zone").style.display = "none";
+  document.getElementById("upload-selected").classList.remove("visible");
+}
+
+function _updateChunkProgress({ percent, speed, etaSec }) {
+  document.getElementById("cp-percent").textContent = `${percent}%`;
+  document.getElementById("cp-speed").textContent = _formatSpeed(speed);
+  document.getElementById("cp-eta").textContent = etaSec != null ? `残り ${_formatEta(etaSec)}` : "—";
+  document.getElementById("cp-bar").style.width = `${percent}%`;
+}
+
+function _hideChunkProgress() {
+  const el = document.getElementById("chunk-progress");
+  if (el) el.style.display = "none";
+  const zone = document.getElementById("upload-zone");
+  if (zone) zone.style.display = "";
+}
+
+function _formatSpeed(bps) {
+  if (!bps || bps < 1) return "—";
+  if (bps >= 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(1)} MB/s`;
+  if (bps >= 1024) return `${(bps / 1024).toFixed(0)} KB/s`;
+  return `${bps.toFixed(0)} B/s`;
+}
+
+function _formatEta(sec) {
+  if (sec < 60) return `${Math.ceil(sec)}秒`;
+  if (sec < 3600) return `${Math.ceil(sec / 60)}分`;
+  return `${(sec / 3600).toFixed(1)}時間`;
+}
+
+function cancelChunkUpload() {
+  if (_chunkUploadMgr) {
+    _chunkUploadMgr.cancel();
+    _chunkUploadMgr = null;
+  }
+  _hideChunkProgress();
+  const btn = document.getElementById("um-execute-btn");
+  if (btn) { btn.disabled = false; btn.textContent = "処理を開始する"; }
+  showNotice("info", "アップロードをキャンセルしました");
+}
+
 // ── 更新実行 ──────────────────────────────────────────
 async function executeUpdate() {
   const d = _updateModalDataset;
@@ -682,19 +740,36 @@ async function executeUpdate() {
     let job_id;
 
     if (_activeInputTab === "upload") {
-      if (!_selectedFiles.length) { showNotice("error", "ファイルを選択してください"); return; }
-      const formData = new FormData();
-      for (const f of _selectedFiles) {
-        formData.append("files", f);
+      if (!_selectedFiles.length) { showNotice("error", "ファイルを選択してください"); btn.disabled = false; btn.textContent = "処理を開始する"; return; }
+
+      if (_selectedFiles.length === 1) {
+        // 単一ファイル → チャンクアップロード（大容量対応）
+        const file = _selectedFiles[0];
+        _chunkUploadMgr = new UploadManager({ api: '/api/admin/upload' });
+        _showChunkProgress(file);
+        btn.textContent = "アップロード中...";
+        try {
+          const result = await _chunkUploadMgr.upload(file, d.dataset_id, {
+            onProgress: (p) => _updateChunkProgress(p),
+          });
+          _chunkUploadMgr = null;
+          job_id = result.job_id;
+        } catch (err) {
+          _chunkUploadMgr = null;
+          _hideChunkProgress();
+          if (err.cancelled) { btn.disabled = false; btn.textContent = "処理を開始する"; return; }
+          throw err;
+        }
+        _hideChunkProgress();
+      } else {
+        // 複数ファイル → 従来の FormData（サーバー側で bundle.zip に梱包）
+        const formData = new FormData();
+        for (const f of _selectedFiles) formData.append("files", f);
+        const res = await fetch(`${API}/datasets/${d.dataset_id}/upload`, { method: "POST", body: formData });
+        const json = await res.json();
+        if (!res.ok || !json.accepted) throw new Error(json.user_message || json.detail || "アップロードに失敗しました");
+        job_id = json.job_id;
       }
-      const res = await fetch(`${API}/datasets/${d.dataset_id}/upload`, {
-        method: "POST", body: formData
-      });
-      const json = await res.json();
-      if (!res.ok || !json.accepted) {
-        throw new Error(json.user_message || json.detail || "アップロードに失敗しました");
-      }
-      job_id = json.job_id;
 
     } else if (_activeInputTab === "fetch_url") {
       const url = document.getElementById("fetch-url-input").value.trim();
