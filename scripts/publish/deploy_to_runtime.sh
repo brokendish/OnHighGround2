@@ -308,7 +308,7 @@ else
     log_info "--- frontend tiles ---"
     mkdir -p "${RUNTIME_FRONTEND_TILES}"
 
-    for hazard_type in flood tsunami storm_surge urban_flood pseudo_inland_flood; do
+    for hazard_type in flood tsunami storm_surge urban_flood pseudo_inland_flood lowland_poor_drainage; do
         TILE_SRC="${TILES}/${hazard_type}"
         TILE_DST="${RUNTIME_FRONTEND_TILES}/${hazard_type}"
         if [[ -d "${TILE_SRC}" ]]; then

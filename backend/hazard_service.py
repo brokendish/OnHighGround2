@@ -34,6 +34,10 @@ KNOWN_HAZARD_TYPES: List[str] = ["flood", "tsunami", "storm_surge", "urban_flood
 # severity 判定が有効なハザードタイプ（structured dict を返す）
 SEVERITY_HAZARD_TYPES: List[str] = ["inland_flood", "landslide"]
 
+# 補助ハザードタイプ — hazard_assessment には現れるが is_danger には影響しない
+# 地形的リスクであり、単独では避難判断のトリガーにならない
+SUPPLEMENTARY_HAZARD_TYPES: List[str] = ["lowland_poor_drainage"]
+
 
 def _classify_depth(depth: float) -> str:
     """浸水深（m）から危険度レベルを返す。
@@ -866,6 +870,8 @@ class HazardService:
         """
         hazards: List[str] = []
         for hazard_type in self.loaded_hazard_types():
+            if hazard_type in SUPPLEMENTARY_HAZARD_TYPES:
+                continue  # 補助ハザードは is_danger に影響させない
             if self.check_point(lat, lon, hazard_type):
                 hazards.append(hazard_type)
 

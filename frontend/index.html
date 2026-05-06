@@ -3197,6 +3197,22 @@
                 </details>
                 <div class="shelter-status" id="pseudoInlandFloodStatus">低地・内水リスク（推定）レイヤー: OFF</div>
                 <details class="hazard-group">
+                    <summary class="hazard-group-summary">低地・排水困難エリア</summary>
+                    <label class="manual-location-toggle" for="showLowlandPoorDrainageTokyo">
+                        <input type="checkbox" id="showLowlandPoorDrainageTokyo">
+                        東京都
+                    </label>
+                    <label class="manual-location-toggle" for="showLowlandPoorDrainageKanagawa">
+                        <input type="checkbox" id="showLowlandPoorDrainageKanagawa">
+                        神奈川県
+                    </label>
+                    <div id="lowlandPoorDrainageLegend" class="hazard-legend" style="display:none;">
+                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#c8b4d4;"></span>低地・排水困難</div>
+                        <div class="hazard-legend-note">※地形的な排水困難エリアです。他の浸水リスクと重なった場合に危険度が高まる補助情報です。</div>
+                    </div>
+                </details>
+                <div class="shelter-status" id="lowlandPoorDrainageStatus">低地・排水困難エリアレイヤー: OFF</div>
+                <details class="hazard-group">
                     <summary class="hazard-group-summary">行政界</summary>
                     <label class="manual-location-toggle" for="showBoundaryTokyo">
                         <input type="checkbox" id="showBoundaryTokyo">

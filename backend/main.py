@@ -521,6 +521,30 @@ if LANDSLIDE_ENABLED:
 else:
     logger.info("土砂災害ハザード判定は無効（hazard.landslide.enabled=false）")
 
+# ── 低地・排水困難エリア ─────────────────────────────────────────────────────
+# 地形的リスク（補助ハザード）。is_danger には影響しない（SUPPLEMENTARY_HAZARD_TYPES 参照）。
+_lowland_enabled = parse_bool(APP_CONFIG.get("hazard.lowland_poor_drainage.enabled"), True)
+if _lowland_enabled:
+    _lowland_runtime_dir = BASE_DIR.parent / "data_runtime" / "backend" / "hazard" / "lowland_poor_drainage"
+    _lowland_geojson_files: list = []
+    if _lowland_runtime_dir.is_dir():
+        _lowland_geojson_files = sorted(_lowland_runtime_dir.rglob("*.geojson"))
+
+    if _lowland_geojson_files:
+        for _f in _lowland_geojson_files:
+            logger.info("LowlandPoorDrainage loaded from runtime: %s", _f)
+            hazard_service.load("lowland_poor_drainage", _f, bbox_only=True)
+    else:
+        for _region in ("tokyo", "kanagawa"):
+            _lowland_path = BASE_DIR.parent / "data_lake" / "validated" / _region / "lowland_poor_drainage" / "lowland_poor_drainage.geojson"
+            if _lowland_path.exists():
+                logger.info("LowlandPoorDrainage loaded from validated (%s): %s", _region, _lowland_path)
+                hazard_service.load("lowland_poor_drainage", _lowland_path, bbox_only=True)
+            else:
+                logger.info("低地データが見つかりません（スキップ）: %s", _lowland_path)
+else:
+    logger.info("低地・排水困難エリア判定は無効（hazard.lowland_poor_drainage.enabled=false）")
+
 # APIサーバー設定
 API_HOST = APP_CONFIG.get("api.host", "0.0.0.0")
 try:

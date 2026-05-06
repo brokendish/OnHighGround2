@@ -39,6 +39,9 @@ const INLAND_FLOOD_BORDER = { color: '#006064', weight: 1.0, opacity: 0.6 };
 // tsunami: 赤系ボーダー（fill色はスタイル関数内で定義）
 const TSUNAMI_BORDER = { color: '#c62828', weight: 1.0, opacity: 0.6 };
 const TSUNAMI_UNKNOWN_COLOR = '#ffcdd2';
+// lowland_poor_drainage: 薄青紫系（地形的リスク。浸水系レイヤーより視覚優先度を下げる）
+const LOWLAND_POOR_DRAINAGE_COLOR = '#c8b4d4';
+const LOWLAND_POOR_DRAINAGE_BORDER = { color: '#7b5ea7', weight: 0.8, opacity: 0.7, dashArray: '4,6' };
 // pseudo_inland_flood: DEM 推定レイヤー（low=水色 / medium=黄 / high=赤系）
 const PSEUDO_INLAND_FLOOD_COLORS = { low: '#4fc3f7', medium: '#fbc02d', high: '#e53935' };
 const PSEUDO_INLAND_FLOOD_OPACITY = { low: 0.18, medium: 0.28, high: 0.38 };
@@ -105,6 +108,13 @@ const HAZARD_CATEGORY_CONFIG = {
             { color: '#e53935', label: '高' },
             { color: '#fbc02d', label: '中' },
             { color: '#4fc3f7', label: '低' },
+        ]
+    },
+    lowland_poor_drainage: {
+        label: '低地・排水困難エリア',
+        note: '※地形的な排水困難エリアです。即時の浸水想定ではなく、他の浸水リスクと重なった場合に危険度が高まる補助情報です。',
+        legend: [
+            { color: LOWLAND_POOR_DRAINAGE_COLOR, label: '低地・排水困難' },
         ]
     }
 };
@@ -328,6 +338,36 @@ const HAZARD_LAYERS = {
         datasetState: 'ready',
         availabilityState: 'uninitialized',
         type: 'pseudo_inland_flood'
+    },
+    lowland_poor_drainage_tokyo: {
+        name: "低地・排水困難エリア（東京都）",
+        menuLabel: '東京都',
+        region: 'tokyo',
+        regionLabel: '東京都',
+        checkboxId: "showLowlandPoorDrainageTokyo",
+        layer: null,
+        loaded: false,
+        visible: false,
+        rawData: null,
+        lastError: null,
+        datasetState: 'ready',
+        availabilityState: 'uninitialized',
+        type: 'lowland_poor_drainage'
+    },
+    lowland_poor_drainage_kanagawa: {
+        name: "低地・排水困難エリア（神奈川県）",
+        menuLabel: '神奈川県',
+        region: 'kanagawa',
+        regionLabel: '神奈川県',
+        checkboxId: "showLowlandPoorDrainageKanagawa",
+        layer: null,
+        loaded: false,
+        visible: false,
+        rawData: null,
+        lastError: null,
+        datasetState: 'ready',
+        availabilityState: 'uninitialized',
+        type: 'lowland_poor_drainage'
     }
 };
 
@@ -408,6 +448,26 @@ const VECTOR_TILE_SOURCES = {
             colorFn: (props) => getPseudoInlandFloodColor(props['risk_level']),
             opacityFn: (props) => getPseudoInlandFloodOpacity(props['risk_level']),
             borderStyle: PSEUDO_INLAND_FLOOD_BORDER,
+            maxNativeZoom: 14
+        }
+    ],
+    lowland_poor_drainage_tokyo: [
+        {
+            tilesetId: 'tokyo_lowland_poor_drainage',
+            sourceLayer: 'lowland_poor_drainage',
+            colorFn: () => LOWLAND_POOR_DRAINAGE_COLOR,
+            opacityFn: () => 0.45,
+            borderStyle: LOWLAND_POOR_DRAINAGE_BORDER,
+            maxNativeZoom: 14
+        }
+    ],
+    lowland_poor_drainage_kanagawa: [
+        {
+            tilesetId: 'kanagawa_lowland_poor_drainage',
+            sourceLayer: 'lowland_poor_drainage',
+            colorFn: () => LOWLAND_POOR_DRAINAGE_COLOR,
+            opacityFn: () => 0.45,
+            borderStyle: LOWLAND_POOR_DRAINAGE_BORDER,
             maxNativeZoom: 14
         }
     ]
@@ -1219,6 +1279,19 @@ function updateHazardStatusSummary() {
         if (pseudoInlandFloodStatusEl) pseudoInlandFloodStatusEl.textContent = `低地・内水リスク（推定）レイヤー: ON`;
         if (pseudoInlandFloodLegend) pseudoInlandFloodLegend.style.display = 'block';
     }
+
+    const lowlandVisible = Object.values(HAZARD_LAYERS)
+        .filter((h) => h.type === 'lowland_poor_drainage' && h.visible)
+        .map((h) => h.regionLabel || h.name);
+    const lowlandStatusEl = document.getElementById('lowlandPoorDrainageStatus');
+    const lowlandLegend = document.getElementById('lowlandPoorDrainageLegend');
+    if (lowlandVisible.length === 0) {
+        if (lowlandStatusEl) lowlandStatusEl.textContent = '低地・排水困難エリアレイヤー: OFF';
+        if (lowlandLegend) lowlandLegend.style.display = 'none';
+    } else {
+        if (lowlandStatusEl) lowlandStatusEl.textContent = `低地・排水困難エリアレイヤー: ON（${lowlandVisible.join(' / ')}）`;
+        if (lowlandLegend) lowlandLegend.style.display = 'block';
+    }
 }
 
 function setInlandFloodStatus(msg) {
@@ -1245,6 +1318,8 @@ function setLandslideStatus(msg) {
         INLAND_FLOOD_BORDER,
         PSEUDO_INLAND_FLOOD_COLORS,
         PSEUDO_INLAND_FLOOD_BORDER,
+        LOWLAND_POOR_DRAINAGE_COLOR,
+        LOWLAND_POOR_DRAINAGE_BORDER,
         VECTOR_TILE_SOURCES,
         HAZARD_LAYERS,
     };

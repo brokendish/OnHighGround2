@@ -42,10 +42,12 @@ mbtiles:
     - /tiles/tokyo/storm_surge
     - /tiles/tokyo/inland_flood
     - /tiles/tokyo/pseudo_inland_flood
+    - /tiles/tokyo/lowland_poor_drainage
     # ── 神奈川 ──────────────────────────────────────────────────────────────
     # deploy_to_runtime.sh --region kanagawa 実行後にタイルが配備される。
     # ディレクトリが存在しない場合は Martin が起動時に警告を出すが動作継続する。
     - /tiles/kanagawa/flood
     - /tiles/kanagawa/storm_surge
     - /tiles/kanagawa/inland_flood
+    - /tiles/kanagawa/lowland_poor_drainage
     # kanagawa/tsunami: MBTiles 未生成のため省略（生成後に追加する）

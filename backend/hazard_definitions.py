@@ -137,6 +137,24 @@ HAZARD_DEFINITIONS: List[HazardDefinition] = [
         notes="Phase 4 追加。警戒区域・特別警戒区域を保持。TTI/RSA は将来拡張。",
         enabled=True,
     ),
+
+    # ── 補助ハザード（地形的リスク） ─────────────────────────────────────────
+    # 単独では is_danger を True にしない。他の浸水リスクと重なった場合の
+    # 総合危険度算出に使う補助要素（SUPPLEMENTARY_HAZARD_TYPES 参照）。
+
+    HazardDefinition(
+        name="lowland_poor_drainage",
+        display_name="低地・排水困難エリア",
+        backend_enabled=True,
+        frontend_enabled=True,
+        has_polygon_check=True,
+        has_time_to_impact=False,
+        supports_rsa=False,
+        source_type="geojson",
+        evaluation_mode="inside_outside",
+        notes="国土数値情報 G08 低位地帯データ。risk_score=1（低）。is_danger 計算から除外される補助ハザード。",
+        enabled=True,
+    ),
 ]
 
 
