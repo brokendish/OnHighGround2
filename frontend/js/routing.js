@@ -229,6 +229,7 @@ function clearRouteCandidateLayers() {
         }
     });
     routeCandidateLayers = [];
+    if (typeof clearRouteRiskOutlines === 'function') clearRouteRiskOutlines();
 }
 
 function clearRouteStepFocusMarker() {
@@ -370,6 +371,16 @@ function renderRouteCandidatesOnMap(routes, routeColors, selectedRouteIndex, onS
 
     // マップクリックで非選択経路をタップ選択
     _setupRouteSelectHandler(routeList, selectedRouteIndex, onSelect);
+
+    // 選択中ルートの危険区間アウトラインを描画
+    if (typeof drawRouteRiskOutlines === 'function') {
+        const selRoute = routeList[selectedRouteIndex];
+        if (selRoute
+                && Array.isArray(selRoute.coordinates) && selRoute.coordinates.length >= 2
+                && Array.isArray(selRoute.__riskSampledPoints) && selRoute.__riskSampledPoints.length > 0) {
+            drawRouteRiskOutlines(selRoute.coordinates, selRoute.__riskSampledPoints, 7);
+        }
+    }
 }
 
 function resolveInstructionLatLng(route, instruction) {
@@ -510,6 +521,14 @@ function _appendRouteRiskBlock(panel, route) {
         });
         block.appendChild(list);
     }
+
+    // ルート線アウトラインの凡例（地図上の色線の意味を明示）
+    const legend = document.createElement('div');
+    legend.className = 'route-risk-outline-legend';
+    legend.innerHTML =
+        '<span><span class="risk-outline-swatch danger"></span>赤＝危険区間</span>' +
+        '<span><span class="risk-outline-swatch caution"></span>黄＝この先／通過直後に注意</span>';
+    block.appendChild(legend);
 
     panel.appendChild(block);
 }

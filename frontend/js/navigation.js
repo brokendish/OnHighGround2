@@ -6533,8 +6533,13 @@ async function evaluateRouteSafety(route, options = {}) {
 
     // ハザードゾーン通過率に基づくルート危険度評価
     route.__riskSummary = null;
+    route.__riskSampledPoints = null;
     try {
-        route.__riskSummary = await _assessRouteHazardRisk(route);
+        const riskResult = await _assessRouteHazardRisk(route);
+        route.__riskSummary = riskResult;
+        if (riskResult && Array.isArray(riskResult.sampled_points)) {
+            route.__riskSampledPoints = riskResult.sampled_points;
+        }
     } catch (e) {
         console.warn('[route-risk] assessment failed:', e);
     }

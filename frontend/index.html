@@ -514,6 +514,28 @@
         .route-risk-notes li {
             margin-bottom: 1px;
         }
+        .route-risk-outline-legend {
+            margin-top: 5px;
+            padding-top: 4px;
+            border-top: 1px solid rgba(0,0,0,0.12);
+            font-size: 10px;
+            color: inherit;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            opacity: 0.88;
+        }
+        .risk-outline-swatch {
+            display: inline-block;
+            width: 18px;
+            height: 3px;
+            border-radius: 2px;
+            vertical-align: middle;
+            margin-right: 2px;
+        }
+        .risk-outline-swatch.danger  { background: #ef4444; }
+        .risk-outline-swatch.caution { background: #facc15; }
         #lip-route-risk-info {
             margin-top: 8px;
         }
@@ -3839,6 +3861,8 @@
     <script src="js/navigation-debug-layer.js"></script>
     <!-- ハザードレイヤー管理 -->
     <script src="js/hazard-layers.js"></script>
+    <!-- ルート危険区間アウトライン -->
+    <script src="js/route-risk-outline.js"></script>
     <!-- ルーティング・経路案内 -->
     <script src="js/routing.js"></script>
     <!-- UI 表示・レンダリング -->

@@ -1536,7 +1536,11 @@ async def assess_route_risk(request: RouteRiskRequest):
                 "total_penalty": float,
                 "hazards": [...],
                 "notes": [...],
-            }
+            },
+            "sampled_points": [
+                {"lat": float, "lon": float, "hazards": {"flood": "inside" | "outside" | "unknown", ...}},
+                ...
+            ]
         }
     """
     try:
@@ -1554,8 +1558,9 @@ async def assess_route_risk(request: RouteRiskRequest):
         if sampled[-1] is not last and sampled[-1] != last:
             sampled = sampled + [last]
 
-        # ハザード通過率を計算
+        # ハザード通過率を計算（per-point データも収集）
         inside_counts: Dict[str, int] = {}
+        sampled_points = []
         valid_samples = 0
         for coord in sampled:
             if len(coord) < 2:
@@ -1565,6 +1570,7 @@ async def assess_route_risk(request: RouteRiskRequest):
                 continue
             valid_samples += 1
             assessment = hazard_service.assess_candidate(lat, lon)
+            point_hazards: Dict[str, str] = {}
             for hazard_type, value in assessment.items():
                 if isinstance(value, str):
                     status = value
@@ -1572,14 +1578,19 @@ async def assess_route_risk(request: RouteRiskRequest):
                     status = value.get("status", "unknown")
                 else:
                     status = "unknown"
+                point_hazards[hazard_type] = status
                 if status == "inside":
                     inside_counts[hazard_type] = inside_counts.get(hazard_type, 0) + 1
+            sampled_points.append({"lat": lat, "lon": lon, "hazards": point_hazards})
 
         if valid_samples == 0:
-            return calc_route_risk_score({})
+            result = calc_route_risk_score({})
+            result["sampled_points"] = []
+            return result
 
         exposure_by_hazard = {k: v / valid_samples for k, v in inside_counts.items()}
         result = calc_route_risk_score(exposure_by_hazard)
+        result["sampled_points"] = sampled_points
         logger.debug(
             "route-risk: samples=%d score=%.1f level=%s",
             valid_samples, result["safety_score"], result["risk_level"],
