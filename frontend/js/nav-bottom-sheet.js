@@ -179,8 +179,17 @@ const _navSheet = (() => {
 
     function _safetyInfo() {
         const route = (typeof navActiveRoute !== 'undefined') ? navActiveRoute : null;
-        if (route?.__crossingRisk?.hasUnsafeCrossing) return { score: 45, color: '#ef4444' };
-        return { score: 87, color: ACCENT };
+        const riskSummary = route?.__riskSummary;
+        if (riskSummary && typeof riskSummary.safety_score === 'number') {
+            const score = Math.round(riskSummary.safety_score);
+            const level = riskSummary.risk_level || 'safe';
+            const color = level === 'danger' ? '#ef4444'
+                : level === 'caution' ? '#f59e0b'
+                : ACCENT;
+            return { score, color, notes: riskSummary.risk_summary?.notes || [] };
+        }
+        if (route?.__crossingRisk?.hasUnsafeCrossing) return { score: 45, color: '#ef4444', notes: [] };
+        return { score: 87, color: ACCENT, notes: [] };
     }
 
     function _elevText() {
@@ -273,6 +282,13 @@ const _navSheet = (() => {
             ? `${eta.time}<span style="font-size:10px;font-weight:500;color:${C_MUTED};margin-left:3px;">約${eta.mins}分</span>`
             : '—';
 
+        const firstNote = safety.notes && safety.notes.length > 0 ? safety.notes[0] : '';
+        const noteHtml = firstNote
+            ? `<div style="color:${safety.color};font-size:8px;max-width:76px;text-align:center;` +
+              `line-height:1.3;margin-top:1px;overflow:hidden;display:-webkit-box;` +
+              `-webkit-line-clamp:2;-webkit-box-orient:vertical;">${firstNote}</div>`
+            : '';
+
         el.innerHTML =
             `<div style="flex:1;background:${CARD_BG};border-radius:14px;padding:11px 14px;border:${CARD_BORDER};">` +
             `<div style="color:${C_SECONDARY};font-size:10px;letter-spacing:0.06em;` +
@@ -285,7 +301,9 @@ const _navSheet = (() => {
             `<div style="background:${CARD_BG};border-radius:14px;padding:8px 10px;border:${CARD_BORDER};` +
             `display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">` +
             _ringSVG(safety.score, safety.color) +
-            `<div style="color:${C_SECONDARY};font-size:9px;">安全</div></div>`;
+            `<div style="color:${C_SECONDARY};font-size:9px;">安全度</div>` +
+            noteHtml +
+            `</div>`;
     }
 
     function _renderStepPills() {
@@ -345,6 +363,19 @@ const _navSheet = (() => {
             { icon: '▲', label: '標高', value: _elevText() },
             { icon: '◎', label: '精度', value: _accText() },
         ];
+
+        const safety = _safetyInfo();
+        const riskNotes = safety.notes || [];
+        const riskNotesHtml = riskNotes.length > 0
+            ? `<div style="padding:0 16px 8px;">` +
+              `<div style="background:${CARD_BG};border-radius:12px;padding:10px 12px;border:${CARD_BORDER};">` +
+              `<div style="color:${safety.color};font-size:10px;font-weight:700;margin-bottom:5px;">` +
+              `⚠ ルート危険度: 安全度 ${safety.score}</div>` +
+              `<ul style="margin:0;padding-left:14px;font-size:10px;color:${C_PRIMARY};line-height:1.6;">` +
+              riskNotes.map(n => `<li>${n}</li>`).join('') +
+              `</ul></div></div>`
+            : '';
+
         el.innerHTML =
             `<div style="display:flex;gap:8px;padding:0 16px 8px;">` +
             items.map(item =>
@@ -355,7 +386,8 @@ const _navSheet = (() => {
                 `<div style="color:${C_SECONDARY};font-size:10px;">${item.label}</div>` +
                 `</div>`
             ).join('') +
-            `</div>`;
+            `</div>` +
+            riskNotesHtml;
     }
 
     // ── 高さ・スナップ管理 ────────────────────────────────────────────────────

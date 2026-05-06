@@ -6176,6 +6176,38 @@ async function _fetchOsrmAlternatives(from, to, maxAlts = 3, contextLabel = 'alt
     }
 }
 
+/**
+ * ルート座標列を /api/route-risk に送信してハザード危険度を評価する。
+ * @param {object} route - OSRM ルートオブジェクト (route.coordinates が必要)
+ * @returns {object|null} {safety_score, risk_level, risk_summary} または null
+ */
+async function _assessRouteHazardRisk(route) {
+    const rawCoords = Array.isArray(route?.coordinates) ? route.coordinates : [];
+    if (rawCoords.length < 2) return null;
+
+    const coordPairs = rawCoords
+        .map(c => {
+            const lat = Number(c?.lat ?? c?.[0]);
+            const lon = Number(c?.lng ?? c?.lon ?? c?.[1]);
+            return [lat, lon];
+        })
+        .filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
+
+    if (coordPairs.length < 2) return null;
+
+    try {
+        const res = await apiFetch('/api/route-risk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ coordinates: coordPairs, sample_count: 40 })
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (e) {
+        return null;
+    }
+}
+
 async function fetchRouteCandidates(origin, destination, options = {}) {
     const transportMode = options.transportMode || document.getElementById('transportMode')?.value || 'walking';
     const profile = transportMode === 'walking' ? 'walking' : 'driving';
@@ -6497,6 +6529,14 @@ async function evaluateRouteSafety(route, options = {}) {
     };
     if (conservativeSafety) {
         route.__pedestrianSafety = { ...route.__pedestrianSafety, ...conservativeSafety };
+    }
+
+    // ハザードゾーン通過率に基づくルート危険度評価
+    route.__riskSummary = null;
+    try {
+        route.__riskSummary = await _assessRouteHazardRisk(route);
+    } catch (e) {
+        console.warn('[route-risk] assessment failed:', e);
     }
 
     return {

@@ -472,6 +472,52 @@
             font-weight: 700;
         }
 
+        /* ── ルート危険度ブロック ── */
+        .route-risk-block {
+            margin-bottom: 8px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            line-height: 1.45;
+            border-left-width: 4px;
+            border-left-style: solid;
+        }
+        .route-risk-block.safe {
+            background: #e8f5e9;
+            color: #1b5e20;
+            border-left-color: #4caf50;
+        }
+        .route-risk-block.caution {
+            background: #fff8e1;
+            color: #6d4c00;
+            border-left-color: #ffc107;
+        }
+        .route-risk-block.danger {
+            background: #ffebee;
+            color: #b71c1c;
+            border-left-color: #ef5350;
+        }
+        .route-risk-header {
+            font-weight: 700;
+            margin-bottom: 3px;
+        }
+        .route-risk-score {
+            font-weight: 700;
+        }
+        .route-risk-notes {
+            margin: 3px 0 0;
+            padding-left: 16px;
+            font-size: 10px;
+            line-height: 1.5;
+            color: inherit;
+        }
+        .route-risk-notes li {
+            margin-bottom: 1px;
+        }
+        #lip-route-risk-info {
+            margin-top: 8px;
+        }
+
         .route-guidance-steps {
             margin: 0;
             padding-left: 18px;
@@ -3535,6 +3581,7 @@
                             <div class="lip-section" id="lip-route-selector-section" style="display:none;">
                                 <div class="lip-section-title">🛣 ルート選択</div>
                                 <div id="lip-route-options"></div>
+                                <div id="lip-route-risk-info" style="display:none;"></div>
                             </div>
                             <div class="lip-section">
                                 <div class="lip-section-title">🎯 目的地住所情報</div>
@@ -3577,6 +3624,7 @@
                         <!-- 避難先候補のみ（標高・スコア・ハザード・コメント） -->
                         <div id="shelter-card-dest-info" style="display:none;">
                             <div id="shelter-card-hazard-block"></div>
+                            <div id="shelter-card-route-risk" style="display:none;"></div>
                             <div id="shelter-card-elev-score"></div>
                             <div id="shelter-card-comment" style="display:none;"></div>
                         </div>

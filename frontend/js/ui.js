@@ -969,6 +969,24 @@ function updateShelterCardRouteInfo(distanceMeters, durationSeconds) {
     document.getElementById('shelter-card-duration').textContent = _formatCardDuration(durationSeconds);
 }
 
+// フロートカードのルート危険度ブロックを更新（ルート取得後に呼ぶ）
+function updateShelterCardRiskInfo(route) {
+    const el = document.getElementById('shelter-card-route-risk');
+    if (!el) return;
+    el.innerHTML = '';
+    el.style.display = 'none';
+    if (!route) return;
+    const riskSummary = route.__riskSummary;
+    if (!riskSummary) return;
+    const notes = riskSummary.risk_summary?.notes || [];
+    const score = Math.round(riskSummary.safety_score ?? 100);
+    if (notes.length === 0 && score >= 95) return;
+    if (typeof _appendRouteRiskBlock === 'function') {
+        _appendRouteRiskBlock(el, route);
+    }
+    el.style.display = '';
+}
+
 function updateSelectedEmergencyShelterRouteInfo(distanceMeters, durationSeconds, transportMode) {
     const transportLabel = transportMode === 'walking' ? '徒歩' : '車';
     const distText = _formatCardDistance(distanceMeters);

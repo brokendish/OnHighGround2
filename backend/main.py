@@ -35,6 +35,7 @@ from app.services.earthquake_realtime_service import get_realtime_service
 from app.services.job_manager import get_job_manager
 from app.services.admin_log_service import write_app_log
 from app.services.reverse_geocode_service import get_reverse_geocode_service
+from app.services.route_risk_scoring import calc_route_risk_score
 from app.services.shelter_service import (
     HAZARD_COLUMN_MAP,
     REGION_PATH_MAP,
@@ -618,6 +619,15 @@ class RecommendedDestination(BaseModel):
     hazard_safe: Optional[bool]           # null = データ未ロードで判定不能
     hazard_assessment: Optional[Dict[str, str]] = None
     reason: str
+
+
+class RouteRiskRequest(BaseModel):
+    """ルート危険度評価リクエスト"""
+    coordinates: List[List[float]] = Field(
+        ...,
+        description="ルート座標列 [[lat, lon], ...] (2点以上)"
+    )
+    sample_count: int = Field(default=40, ge=5, le=100, description="サンプリング点数")
 
 
 class ElevationProfileRequest(BaseModel):
@@ -1504,6 +1514,83 @@ async def find_evacuation_destinations(request: EvacuationRequest):
     except Exception as e:
         logger.exception("避難目的地検索エラー")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/route-risk")
+async def assess_route_risk(request: RouteRiskRequest):
+    """
+    ルート危険度評価
+
+    ルート座標列を受け取り、ハザードゾーンとの重複率（exposure_ratio）を算出して
+    安全度スコアとリスクサマリーを返す。
+
+    Args:
+        request.coordinates: [[lat, lon], ...] (2点以上)
+        request.sample_count: サンプリング点数（デフォルト40）
+
+    Returns:
+        {
+            "safety_score": float,       # 0–100
+            "risk_level": str,           # "safe" | "caution" | "danger"
+            "risk_summary": {
+                "total_penalty": float,
+                "hazards": [...],
+                "notes": [...],
+            }
+        }
+    """
+    try:
+        coords = request.coordinates
+        if len(coords) < 2:
+            raise HTTPException(status_code=400, detail="座標が2点以上必要です")
+
+        # サンプリング: ルート全体から均等に sample_count 点を取得
+        total = len(coords)
+        sample_count = min(request.sample_count, total)
+        step = max(1, total // sample_count)
+        sampled = coords[::step]
+        # 末尾点が抜けた場合は補完
+        last = coords[-1]
+        if sampled[-1] is not last and sampled[-1] != last:
+            sampled = sampled + [last]
+
+        # ハザード通過率を計算
+        inside_counts: Dict[str, int] = {}
+        valid_samples = 0
+        for coord in sampled:
+            if len(coord) < 2:
+                continue
+            lat, lon = float(coord[0]), float(coord[1])
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+            valid_samples += 1
+            assessment = hazard_service.assess_candidate(lat, lon)
+            for hazard_type, value in assessment.items():
+                if isinstance(value, str):
+                    status = value
+                elif isinstance(value, dict):
+                    status = value.get("status", "unknown")
+                else:
+                    status = "unknown"
+                if status == "inside":
+                    inside_counts[hazard_type] = inside_counts.get(hazard_type, 0) + 1
+
+        if valid_samples == 0:
+            return calc_route_risk_score({})
+
+        exposure_by_hazard = {k: v / valid_samples for k, v in inside_counts.items()}
+        result = calc_route_risk_score(exposure_by_hazard)
+        logger.debug(
+            "route-risk: samples=%d score=%.1f level=%s",
+            valid_samples, result["safety_score"], result["risk_level"],
+        )
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("ルート危険度評価エラー")
+        raise HTTPException(status_code=500, detail="ルート危険度評価中に内部エラーが発生しました")
 
 
 @app.post("/api/elevation-profile")

@@ -225,17 +225,20 @@ function _lipDescribeDestinationHazard(dest) {
 }
 
 function _lipDescribeRouteCaution(route) {
+    const parts = [];
     const safety = route?.__pedestrianSafety || null;
-    if (!safety) return '';
-    if (Array.isArray(safety.dangerousCrossings) && safety.dangerousCrossings.length > 0) {
-        const first = safety.dangerousCrossings[0];
-        const highway = first?.classification?.highway || '幹線道路';
-        return `${highway} 横断に注意`;
+    if (safety) {
+        if (Array.isArray(safety.dangerousCrossings) && safety.dangerousCrossings.length > 0) {
+            const first = safety.dangerousCrossings[0];
+            const highway = first?.classification?.highway || '幹線道路';
+            parts.push(`${highway} 横断に注意`);
+        } else if (safety.status === 'unknown') {
+            parts.push('横断安全性を判定できません');
+        }
     }
-    if (safety.status === 'unknown') {
-        return '横断安全性を判定できません';
-    }
-    return '';
+    const riskNotes = route?.__riskSummary?.risk_summary?.notes || [];
+    riskNotes.forEach(note => parts.push(note));
+    return parts.join(' / ');
 }
 
 function _lipRouteMetric(route, key) {
@@ -317,6 +320,29 @@ function _lipRenderRouteSelector(transportMode) {
         });
         container.appendChild(button);
     });
+
+    _lipRenderRouteRiskInfo();
+}
+
+function _lipRenderRouteRiskInfo() {
+    const el = document.getElementById('lip-route-risk-info');
+    if (!el) return;
+    el.innerHTML = '';
+    el.style.display = 'none';
+
+    const idx = _lipRouteSelection.selectedRouteIndex;
+    const routes = _lipRouteSelection.routes;
+    if (!Array.isArray(routes) || idx == null || idx < 0 || idx >= routes.length) return;
+    const route = routes[idx];
+    if (!route) return;
+
+    const riskSummary = route.__riskSummary;
+    if (!riskSummary) return;
+
+    if (typeof _appendRouteRiskBlock === 'function') {
+        _appendRouteRiskBlock(el, route);
+        el.style.display = '';
+    }
 }
 
 function _lipResolveElevationGain(route, dest) {

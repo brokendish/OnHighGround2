@@ -436,11 +436,13 @@ function buildRouteCandidateSummary(route, routeIndex, formatter) {
     const durationLabel = Number.isFinite(duration) ? formatDurationText(duration) : '-';
     const featureLabels = buildRouteFeatureLabels(route, formatter);
     const safetyLabel = featureLabels.join(' / ');
+    const riskLabel = _buildRiskLabel(route?.__riskSummary);
     return {
         label,
         reason,
         scoreLabel: Number.isFinite(score) ? `安全スコア ${Math.round(score)}` : '',
         safetyLabel,
+        riskLabel,
         metricLabel: `${distanceLabel} / ${durationLabel}`
     };
 }
@@ -461,6 +463,55 @@ function buildRouteFeatureLabels(route, formatter) {
             : `${Math.round(addedDistance)}m`}`);
     }
     return labels;
+}
+
+// ── ルート危険度表示 ──────────────────────────────────────────────────────────
+
+const ROUTE_RISK_LEVEL_TEXT = { safe: '安全', caution: '注意', danger: '危険' };
+const ROUTE_RISK_LEVEL_ICON = { safe: '🟢', caution: '🟡', danger: '🔴' };
+
+function _buildRiskLabel(riskSummary) {
+    if (!riskSummary || typeof riskSummary.safety_score !== 'number') return '';
+    const score = Math.round(riskSummary.safety_score);
+    const level = riskSummary.risk_level || 'safe';
+    const text = ROUTE_RISK_LEVEL_TEXT[level] || level;
+    return `安全度 ${score}（${text}）`;
+}
+
+function _appendRouteRiskBlock(panel, route) {
+    const riskSummary = route?.__riskSummary;
+    if (!riskSummary) return;
+
+    const notes = riskSummary.risk_summary?.notes || [];
+    const score = Math.round(riskSummary.safety_score ?? 100);
+    const level = riskSummary.risk_level || 'safe';
+
+    // ハザードが一切なければ（スコア高・notesなし）ブロック非表示
+    if (notes.length === 0 && score >= 95) return;
+
+    const block = document.createElement('div');
+    block.className = `route-risk-block ${level}`;
+
+    const icon = ROUTE_RISK_LEVEL_ICON[level] || '';
+    const text = ROUTE_RISK_LEVEL_TEXT[level] || level;
+    const header = document.createElement('div');
+    header.className = 'route-risk-header';
+    header.innerHTML =
+        `${icon} ルート危険度: <span class="route-risk-score">${text}（安全度 ${score}）</span>`;
+    block.appendChild(header);
+
+    if (notes.length > 0) {
+        const list = document.createElement('ul');
+        list.className = 'route-risk-notes';
+        notes.forEach(note => {
+            const li = document.createElement('li');
+            li.textContent = note;
+            list.appendChild(li);
+        });
+        block.appendChild(list);
+    }
+
+    panel.appendChild(block);
 }
 
 function appendRouteSafetyNotice(panel, routes) {
@@ -529,13 +580,13 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
                 }
                 const color = routeColors[routeIndex] || getRouteColorByIndex(routeIndex);
                 const routeSummary = buildRouteCandidateSummary(candidateRoute, routeIndex, formatter);
-                const subText = [routeSummary.metricLabel, routeSummary.safetyLabel].filter(Boolean).join(' / ');
+                const subText = [routeSummary.metricLabel, routeSummary.safetyLabel, routeSummary.riskLabel].filter(Boolean).join(' / ');
                 button.innerHTML = `
                     <span class="route-color-chip" style="background: ${color};"></span>
                     <span class="route-option-main">${routeSummary.label}</span>
                     <span class="route-option-sub">${subText}</span>
                 `;
-                button.title = [routeSummary.reason, routeSummary.scoreLabel].filter(Boolean).join(' / ');
+                button.title = [routeSummary.reason, routeSummary.scoreLabel, routeSummary.riskLabel].filter(Boolean).join(' / ');
                 button.addEventListener('click', (event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -586,6 +637,7 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
             reasonEl.textContent = route.__displayReason;
             panel.appendChild(reasonEl);
         }
+        _appendRouteRiskBlock(panel, route);
         appendRouteSafetyNotice(panel, routeList);
         if (routeList.length > 1) {
             panel.appendChild(buttons);
@@ -662,13 +714,13 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
             }
             const color = routeColors[routeIndex] || getRouteColorByIndex(routeIndex);
             const routeSummary = buildRouteCandidateSummary(candidateRoute, routeIndex, formatter);
-            const subText = [routeSummary.metricLabel, routeSummary.safetyLabel].filter(Boolean).join(' / ');
+            const subText = [routeSummary.metricLabel, routeSummary.safetyLabel, routeSummary.riskLabel].filter(Boolean).join(' / ');
             button.innerHTML = `
                 <span class="route-color-chip" style="background: ${color};"></span>
                 <span class="route-option-main">${routeSummary.label}</span>
                 <span class="route-option-sub">${subText}</span>
             `;
-            button.title = [routeSummary.reason, routeSummary.scoreLabel].filter(Boolean).join(' / ');
+            button.title = [routeSummary.reason, routeSummary.scoreLabel, routeSummary.riskLabel].filter(Boolean).join(' / ');
             button.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -720,6 +772,7 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
             reasonEl.textContent = route.__displayReason;
             panel.appendChild(reasonEl);
         }
+        _appendRouteRiskBlock(panel, route);
         appendRouteSafetyNotice(panel, routeList);
         if (routeList.length > 1) {
             panel.appendChild(buttons);
@@ -1143,10 +1196,13 @@ function showRoute(destination, index, options = {}) {
                 selectRouteIndex,
                 routeColors
             );
-            // フロートカードの距離・時間を実ルート値に統一
+            // フロートカードの距離・時間・危険度を実ルート値に統一
             const _sr = routes[selectedRouteIndex];
             if (_sr && _sr.summary && typeof updateShelterCardRouteInfo === 'function') {
                 updateShelterCardRouteInfo(_sr.summary.totalDistance, _sr.summary.totalTime);
+            }
+            if (typeof updateShelterCardRiskInfo === 'function') {
+                updateShelterCardRiskInfo(routes[selectedRouteIndex] ?? null);
             }
             // 現在地〜目的地が見えるように地図範囲を調整
             if (currentLocation) {
