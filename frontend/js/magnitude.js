@@ -238,30 +238,57 @@
         return n;
     }
 
-    // ── データ取得（フォールバック付き） ──────────────────────────────────────
-    // 1. /api/earthquakes/recent (JMA Phase2C) を試みる
-    //    - events[] が返れば正規化して使用
-    //    - items[] が返れば（テストモック等）そのまま使用（フォールバックなし）
-    // 2. 失敗時のみ /api/earthquakes (既存P2P) へフォールバック
-    // 3. 両方失敗した場合は例外を投げる
-    async function _fetchEarthquakes() {
-        try {
-            const resp = await fetch('/api/earthquakes/recent');
-            if (resp.ok) {
-                const data = await resp.json();
-                if (Array.isArray(data.events)) {
-                    return data.events.map(_normalizeEvent);
-                }
-                if (Array.isArray(data.items)) {
-                    return data.items;
-                }
+    // ── JMAイベントへP2P観測点データを付け合わせ ────────────────────────────────
+    // 同一地震を時刻±3分・マグニチュード±0.5で照合し、P2P points を補完する。
+    function _enrichWithP2PPoints(jmaEvents, p2pItems) {
+        if (!p2pItems.length) return jmaEvents;
+        return jmaEvents.map(jmaEv => {
+            if (Array.isArray(jmaEv.points) && jmaEv.points.length > 0) return jmaEv;
+            const jmaMs = new Date(jmaEv.occurred_at || 0).getTime();
+            const jmaMag = Number(jmaEv.magnitude);
+            const match = p2pItems.find(p2p => {
+                const diff = Math.abs(new Date(p2p.occurred_at || 0).getTime() - jmaMs);
+                if (diff > 3 * 60 * 1000) return false;
+                const p2pMag = Number(p2p.magnitude);
+                if (Number.isFinite(jmaMag) && Number.isFinite(p2pMag) && Math.abs(jmaMag - p2pMag) > 0.5) return false;
+                return true;
+            });
+            if (match && Array.isArray(match.points) && match.points.length > 0) {
+                return Object.assign({}, jmaEv, { points: match.points });
             }
-        } catch (_e) { /* fall through to legacy endpoint */ }
+            return jmaEv;
+        });
+    }
 
-        const resp = await fetch('/api/earthquakes');
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        return Array.isArray(data.items) ? data.items : [];
+    // ── データ取得（フォールバック付き） ──────────────────────────────────────
+    // 1. /api/earthquakes/recent (JMA) と /api/earthquakes (P2P) を並行取得
+    // 2. JMA取得成功 → JMAイベントにP2P観測点を付け合わせて返す
+    // 3. JMA失敗 → P2Pデータのみ返す
+    // 4. 両方失敗 → 例外
+    async function _fetchEarthquakes() {
+        const jmaPromise = fetch('/api/earthquakes/recent')
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null);
+        const p2pPromise = fetch('/api/earthquakes')
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null);
+
+        const [jmaData, p2pData] = await Promise.all([jmaPromise, p2pPromise]);
+
+        const p2pItems = (p2pData && Array.isArray(p2pData.items)) ? p2pData.items : [];
+
+        if (jmaData) {
+            if (Array.isArray(jmaData.events)) {
+                const jmaEvents = jmaData.events.map(_normalizeEvent);
+                return _enrichWithP2PPoints(jmaEvents, p2pItems);
+            }
+            if (Array.isArray(jmaData.items)) {
+                return jmaData.items; // テストモック等
+            }
+        }
+
+        if (p2pItems.length > 0) return p2pItems;
+        throw new Error('地震データを取得できませんでした');
     }
 
     // ── 取得・描画 ────────────────────────────────────────────────────────────

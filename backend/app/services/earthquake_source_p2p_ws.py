@@ -117,6 +117,18 @@ def normalize_p2p_ws_message(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         fp = _make_fingerprint(occurred_at, epicenter_name, mag_val, max_intensity)
         event_id = f"p2p-ws-{fp}"
 
+    raw_points = raw.get("points") or []
+    points = [
+        {
+            "pref":   str(p.get("pref", "")),
+            "addr":   str(p.get("addr", "")),
+            "isArea": bool(p.get("isArea", True)),
+            "scale":  int(p.get("scale", -1)),
+        }
+        for p in raw_points
+        if isinstance(p, dict) and isinstance(p.get("scale"), (int, float)) and int(p.get("scale", -1)) > 0
+    ]
+
     return {
         "event_id": event_id,
         "occurred_at": occurred_at,
@@ -128,6 +140,7 @@ def normalize_p2p_ws_message(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "max_intensity": max_intensity,
         "tsunami_info": tsunami_info,
         "source": "p2p_ws",
+        "points": points,
         "raw": raw,
     }
 

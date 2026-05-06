@@ -2078,6 +2078,31 @@
             color: #aaa;
             padding: 0 14px 6px;
         }
+        /* ── 震度分布マーカー（earthquake-intensity-layer.js） ─── */
+        .earthquake-intensity-marker {
+            border-radius: 999px;
+            font-weight: 700;
+            text-align: center;
+            border: 2px solid rgba(0,0,0,0.25);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+        /* Phase 4: 詳細パネル内ステータス行 */
+        .mq-intensity-map-status {
+            font-size: 10px;
+            color: #1565c0;
+            background: #e8f0fe;
+            border-radius: 4px;
+            padding: 4px 8px;
+            margin-bottom: 8px;
+        }
+        .mq-detail-empty {
+            color: #888;
+        }
+
         /* 新着ピンの外周パルスリング（Leaflet CircleMarker の SVG path に適用） */
         .magnitude-ring-new {
             animation: magnitude-ring-pulse 1.5s ease-out infinite;
@@ -3893,6 +3918,8 @@
     <script src="js/map-overlay-ui.js"></script>
     <!-- Magnitudeモード（地震情報） -->
     <script src="js/magnitude-layer.js"></script>
+    <!-- 震度分布マーカーレイヤー（Phase 1–4） -->
+    <script src="js/earthquake-intensity-layer.js"></script>
     <script src="js/magnitude-ui.js"></script>
     <script src="js/magnitude.js"></script>
     <script>

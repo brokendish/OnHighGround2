@@ -38,18 +38,18 @@ async function setupMocks(page) {
   await page.route('/favicon.ico', route => route.fulfill({ status: 204, body: '' }));
   await page.route('/api/**', route => route.fulfill({
     status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({}),
+    contentType: route.request().url().includes('/stream') ? 'text/event-stream' : 'application/json',
+    body: route.request().url().includes('/stream') ? 'retry: 10000\n\n' : JSON.stringify({}),
   }));
   await page.route('/api/earthquakes**', route => route.fulfill({
     status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ count: items.length, items }),
+    contentType: route.request().url().includes('/stream') ? 'text/event-stream' : 'application/json',
+    body: route.request().url().includes('/stream') ? 'retry: 10000\n\n' : JSON.stringify({ count: items.length, items }),
   }));
   await page.route('/api/admin/config**', route => route.fulfill({
     status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ config: [] }),
+    contentType: route.request().url().includes('/stream') ? 'text/event-stream' : 'application/json',
+    body: route.request().url().includes('/stream') ? 'retry: 10000\n\n' : JSON.stringify({ config: [] }),
   }));
   await page.route('/api/admin/config/stream', route => route.fulfill({
     status: 200,

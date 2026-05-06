@@ -120,11 +120,13 @@
             }).addTo(map);
             marker.bindPopup(_popupHtml(q, userPos));
             marker._quakeId = String(q.event_id);
-            marker.on('click', () => {
-                if (typeof selectEarthquakeListItem === 'function') {
-                    selectEarthquakeListItem(q.event_id);
-                }
-            });
+            if (typeof marker.on === 'function') {
+                marker.on('click', () => {
+                    if (typeof selectEarthquakeListItem === 'function') {
+                        selectEarthquakeListItem(q.event_id);
+                    }
+                });
+            }
             _pins.push(marker);
 
             // 新着ピンに外周パルスリングを追加

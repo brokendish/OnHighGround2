@@ -2,6 +2,9 @@
  * magnitude-ui.js — 地震情報リストパネル
  *
  * 依存: magnitude-layer.js (renderEarthquakePins, focusEarthquakePin)
+ *       earthquake-intensity-layer.js (formatJmaIntensity, extractIntensityPoints,
+ *                                      renderEarthquakeIntensityMarkers,
+ *                                      clearEarthquakeIntensityMarkers)
  */
 (function () {
     let _sortMode   = 'newest';
@@ -12,6 +15,10 @@
     let _lastNewIds  = new Set();
     let _expandedQuakeIds = new Set();
     let _currentLocationMatchesExpanded = false;
+
+    // Phase 3/4: 選択中イベントの震度マーカー描画ステータス
+    // { eventId, total, mapped, unmapped } | null
+    let _currentIntensityStatus = null;
 
     // ── 震度ランクテーブル ────────────────────────────────────────────────────
     const INTENSITY_RANK = {
@@ -136,20 +143,59 @@
     }
 
     function _getCurrentLocationMunicipality() {
-        if (currentReverseGeocodeStatus !== 'ready') return null;
-        const address = String(currentReverseGeocode?.address || '').trim();
+        if (typeof currentReverseGeocodeStatus === 'undefined' || currentReverseGeocodeStatus !== 'ready') return null;
+        const reverseGeocode = typeof currentReverseGeocode === 'undefined' ? null : currentReverseGeocode;
+        const address = String(reverseGeocode?.address || '').trim();
         if (!address) return null;
         const matched = address.match(/(?:[^都道府県]+[都道府県])?((?:[^市区町村]+(?:市|区|町|村))+)/);
         return matched ? matched[1] : null;
     }
 
+    function _normalizeFallbackIntensityAreas(rawAreas) {
+        if (!Array.isArray(rawAreas)) return [];
+        return rawAreas.map(area => {
+            const name = String(area?.name || area?.addr || '').trim();
+            const intensity = String(
+                area?.intensity ??
+                (typeof formatJmaIntensity === 'function' ? formatJmaIntensity(area?.scale) : '') ??
+                ''
+            ).trim();
+            if (!name || !intensity) return null;
+            return { name, intensity };
+        }).filter(Boolean);
+    }
+
+    // ── Phase 1: 有効震度エリア取得（P2P points 優先、fallback intensity_areas） ──
+    // P2P形式の points がある場合は観測点レベルで返す。
+    // ない場合は既存の intensity_areas にフォールバック。
+    function _getEffectiveIntensityAreas(q) {
+        // P2P points が利用可能な場合
+        if (Array.isArray(q.points) && q.points.length > 0 &&
+            typeof extractIntensityPoints === 'function') {
+            const pts = extractIntensityPoints(q);
+            if (pts && pts.length > 0) {
+                return pts.map(p => ({
+                    name:      p.addr ? (p.pref ? `${p.pref} ${p.addr}` : p.addr) : p.pref,
+                    intensity: p.intensity,
+                }));
+            }
+        }
+        // JMA intensity_areas フォールバック
+        const intensityAreas = _normalizeFallbackIntensityAreas(q.intensity_areas);
+        if (intensityAreas.length) return intensityAreas;
+        // P2P/JMA互換の areas フォールバック
+        const areas = _normalizeFallbackIntensityAreas(q.areas);
+        if (areas.length) return areas;
+        return [];
+    }
+
     function _findCurrentLocationIntensity(q, municipality) {
-        if (!municipality || !Array.isArray(q?.intensity_areas)) return null;
+        if (!municipality) return null;
+        const areas = _getEffectiveIntensityAreas(q);
+        if (!areas.length) return null;
         const target = String(municipality).trim();
-        const areas = q.intensity_areas;
         for (const area of areas) {
             const name = String(area?.name || '').trim();
-            if (!name) continue;
             if (name === target) return String(area.intensity || '');
         }
         for (const area of areas) {
@@ -167,11 +213,10 @@
         if (!municipality || !Array.isArray(sorted)) return null;
         for (const q of sorted) {
             let maxIntensity = null;
-            // 同一イベント内で複数ヒット時に最大震度を採用
-            for (const area of (q.intensity_areas || [])) {
+            const areas = _getEffectiveIntensityAreas(q);
+            for (const area of areas) {
                 const areaName = String(area?.name || '').trim();
                 if (!areaName) continue;
-                // 市区町村名の一致判定（完全一致 → endsWith → includes）
                 if (areaName === municipality || areaName.endsWith(municipality) || areaName.includes(municipality)) {
                     const rank = _getIntensityRank(area.intensity);
                     const maxRank = maxIntensity ? _getIntensityRank(maxIntensity) : 0;
@@ -190,11 +235,10 @@
         const matches = [];
         for (const q of sorted) {
             let maxIntensity = null;
-            // 同一イベント内で複数ヒット時に最大震度を採用
-            for (const area of (q.intensity_areas || [])) {
+            const areas = _getEffectiveIntensityAreas(q);
+            for (const area of areas) {
                 const areaName = String(area?.name || '').trim();
                 if (!areaName) continue;
-                // 市区町村名の一致判定（完全一致 → endsWith → includes）
                 if (areaName === municipality || areaName.endsWith(municipality) || areaName.includes(municipality)) {
                     const rank = _getIntensityRank(area.intensity);
                     const maxRank = maxIntensity ? _getIntensityRank(maxIntensity) : 0;
@@ -218,17 +262,17 @@
 
     function _renderCurrentLocationIntensityMatches(matches, municipality) {
         if (!matches || !matches.length) return '';
-        
+
         const displayed = matches.slice(0, 3);
         const remaining = matches.length - 3;
-        
+
         const matchHtml = displayed.map(m => {
             const timeStr = _formatTime(m.occurred_at);
             return `<div class="mq-current-location-match">
                 ${_escapeHtml(timeStr)}　${_escapeHtml(municipality)}　震度${_escapeHtml(m.intensity)}　${_escapeHtml(m.epicenter_name)}　M${m.magnitude}
             </div>`;
         }).join('');
-        
+
         const expandBtn = remaining > 0
             ? `<div class="mq-current-location-expand-btn-row">
                 <button class="mq-current-location-expand-btn" type="button" data-expand="current-location-matches">
@@ -236,7 +280,7 @@
                 </button>
             </div>`
             : '';
-        
+
         const hiddenMatches = remaining > 0 && _currentLocationMatchesExpanded
             ? matches.slice(3).map(m => {
                 const timeStr = _formatTime(m.occurred_at);
@@ -245,7 +289,7 @@
                 </div>`;
             }).join('')
             : '';
-        
+
         return `<div class="mq-current-location-bar">
             <div class="mq-current-location-bar-title">現在地関連の震度</div>
             ${matchHtml}
@@ -259,16 +303,20 @@
         _renderList();
     }
 
+    // ── Phase 1: intensity_areas グルーピング（P2P points 対応済み） ───────────
     function _groupIntensityAreas(q) {
-        if (!Array.isArray(q?.intensity_areas)) return {};
-        return q.intensity_areas.reduce((groups, area) => {
+        const areas = _getEffectiveIntensityAreas(q);
+        const groups = areas.reduce((g, area) => {
             const intensity = String(area?.intensity || '').trim();
-            const name = String(area?.name || '').trim();
-            if (!intensity || !name) return groups;
-            if (!groups[intensity]) groups[intensity] = [];
-            if (!groups[intensity].includes(name)) groups[intensity].push(name);
-            return groups;
+            const name      = String(area?.name      || '').trim();
+            if (!intensity || !name) return g;
+            if (!g[intensity]) g[intensity] = [];
+            if (!g[intensity].includes(name)) g[intensity].push(name);
+            return g;
         }, {});
+        // Phase 1: 震度グループ内を都道府県・地点名の昇順でソート
+        Object.values(groups).forEach(names => names.sort((a, b) => a.localeCompare(b, 'ja')));
+        return groups;
     }
 
     function _sortIntensityGroups(groups) {
@@ -282,20 +330,32 @@
     function _renderIntensitySummary(q) {
         const intensityGroups = _groupIntensityAreas(q);
         if (!Object.keys(intensityGroups).length) return '';
-        
+
         const groups = _sortIntensityGroups(intensityGroups);
         const summaryParts = groups.map(intensity => {
             const count = intensityGroups[intensity].length;
             return `震度${_escapeHtml(intensity)}（${count}）`;
         });
-        
+
         return `<div class="mq-intensity-summary">地域震度：${summaryParts.join(' / ')}</div>`;
     }
 
+    // ── Phase 1 + Phase 4: 詳細パネル描画 ────────────────────────────────────
     function _renderEarthquakeDetails(q, municipality, expanded) {
         const intensityGroups = _groupIntensityAreas(q);
+        const eventId         = String(q.event_id || '');
+
+        // Phase 4: 震度マーカーステータス行
+        let statusHtml = '';
+        if (_currentIntensityStatus && _currentIntensityStatus.eventId === eventId) {
+            const { total, mapped, unmapped } = _currentIntensityStatus;
+            if (total > 0) {
+                statusHtml = `<div class="mq-intensity-map-status">観測点: ${total}件 / 地図表示: ${mapped}件 / 座標未登録: ${unmapped}件</div>`;
+            }
+        }
+
         if (!Object.keys(intensityGroups).length) {
-            return `<div class="mq-detail${expanded ? ' mq-detail--visible' : ''}">震度詳細情報はありません。</div>`;
+            return `<div class="mq-detail${expanded ? ' mq-detail--visible' : ''}">${statusHtml}<div class="mq-detail-empty">震度詳細情報はありません。</div></div>`;
         }
 
         const currentLocationIntensity = municipality ? _findCurrentLocationIntensity(q, municipality) : null;
@@ -316,14 +376,26 @@
             : '';
 
         return `<div class="mq-detail${expanded ? ' mq-detail--visible' : ''}">
+                ${statusHtml}
                 ${currentLocationBlock}
                 <div class="mq-detail-list">${groupHtml}</div>
             </div>`;
     }
 
+    // ── Phase 3/4: 震度マーカー描画ヘルパー ──────────────────────────────────
+    function _renderIntensityMarkersForEvent(eventId) {
+        if (typeof renderEarthquakeIntensityMarkers !== 'function') return;
+        const quake = _lastQuakes.find(q => String(q.event_id) === eventId);
+        if (!quake) return;
+        const status = renderEarthquakeIntensityMarkers(quake);
+        _currentIntensityStatus = { eventId, ...status };
+    }
+
     function _toggleQuakeDetails(eventId) {
         if (!_expandedQuakeIds.has(eventId)) {
             _expandedQuakeIds.add(eventId);
+            // Phase 3/4: 詳細展開時に震度マーカー描画
+            _renderIntensityMarkersForEvent(eventId);
         } else {
             _expandedQuakeIds.delete(eventId);
         }
@@ -432,10 +504,10 @@
                 <div class="mq-main">
                     ${badge}<span class="mq-time">${_escapeHtml(timeStr)}</span>
                     <span class="mq-name">${_escapeHtml(q.epicenter_name)}</span>
-                    <span class="mq-scale">\u9707\u5ea6${_escapeHtml(q.max_intensity || '\u4e0d\u660e')}</span>
+                    <span class="mq-scale">震度${_escapeHtml(q.max_intensity || '不明')}</span>
                     <span class="mq-mag">${_escapeHtml(mag)}</span>
                     <button class="mq-detail-toggle-btn" type="button" data-event-id="${_escapeHtml(eventId)}">
-                        ${expanded ? '\u9589\u3058\u308b' : '\u8a73\u7d30'}
+                        ${expanded ? '閉じる' : '詳細'}
                     </button>
                 </div>
                 ${distHtml ? `<div class="mq-sub">${distHtml}</div>` : ''}
@@ -466,6 +538,13 @@
                 });
                 el.classList.add('mq-item--selected');
                 if (typeof focusEarthquakePin === 'function') focusEarthquakePin(id);
+                // Phase 3/4: アイテム選択時に震度分布マーカーを描画
+                const isNewEvent = !_currentIntensityStatus || _currentIntensityStatus.eventId !== id;
+                _renderIntensityMarkersForEvent(id);
+                // 詳細が既に展開されていてかつ新規イベントの場合、ステータス行を更新するため再描画
+                if (isNewEvent && _expandedQuakeIds.has(id)) {
+                    _renderList();
+                }
             });
         });
 
@@ -500,6 +579,11 @@
         if (sortBar) sortBar.innerHTML = '';
         const filterBar = document.getElementById('magnitude-filter-bar');
         if (filterBar) filterBar.innerHTML = '';
+        _currentIntensityStatus = null;
+        // Phase 3/4: パネルクローズ時に震度マーカーをクリア
+        if (typeof clearEarthquakeIntensityMarkers === 'function') {
+            clearEarthquakeIntensityMarkers();
+        }
     };
 
     // マーカークリック → リストアイテム選択 + スクロール
@@ -509,10 +593,17 @@
         panel.querySelectorAll('.mq-item--selected').forEach(el => {
             el.classList.remove('mq-item--selected');
         });
-        const target = panel.querySelector(`.mq-item[data-event-id="${CSS.escape(String(eventId))}"]`);
+        const id = String(eventId);
+        const target = panel.querySelector(`.mq-item[data-event-id="${CSS.escape(id)}"]`);
         if (target) {
             target.classList.add('mq-item--selected');
             target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        // Phase 3/4: マーカークリックからの選択でも震度分布を描画
+        const isNewEvent = !_currentIntensityStatus || _currentIntensityStatus.eventId !== id;
+        _renderIntensityMarkersForEvent(id);
+        if (isNewEvent && _expandedQuakeIds.has(id)) {
+            _renderList();
         }
     };
 

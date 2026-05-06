@@ -76,6 +76,18 @@ def _normalize(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     max_scale = eq.get("maxScale", -1)
     tsunami_code = eq.get("domesticTsunami", "None")
 
+    raw_points = raw.get("points") or []
+    points = [
+        {
+            "pref":   str(p.get("pref", "")),
+            "addr":   str(p.get("addr", "")),
+            "isArea": bool(p.get("isArea", True)),
+            "scale":  int(p.get("scale", -1)),
+        }
+        for p in raw_points
+        if isinstance(p, dict) and isinstance(p.get("scale"), (int, float)) and int(p.get("scale", -1)) > 0
+    ]
+
     return {
         "event_id": str(raw.get("id", "")),
         "occurred_at": occurred_at,
@@ -87,6 +99,7 @@ def _normalize(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "max_intensity": _SCALE_MAP.get(max_scale, "不明"),
         "tsunami_info": _TSUNAMI_MAP.get(tsunami_code, tsunami_code),
         "source": "p2pquake",
+        "points": points,
     }
 
 
