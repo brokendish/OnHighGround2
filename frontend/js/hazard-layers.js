@@ -39,13 +39,14 @@ const INLAND_FLOOD_BORDER = { color: '#006064', weight: 1.0, opacity: 0.6 };
 // tsunami: 赤系ボーダー（fill色はスタイル関数内で定義）
 const TSUNAMI_BORDER = { color: '#c62828', weight: 1.0, opacity: 0.6 };
 const TSUNAMI_UNKNOWN_COLOR = '#ffcdd2';
-// lowland_poor_drainage: 薄青紫系（地形的リスク。浸水系レイヤーより視覚優先度を下げる）
+// lowland_poor_drainage: 薄青紫系（補助レイヤー — 面の薄い重なりで表現、境界線は控えめ）
 const LOWLAND_POOR_DRAINAGE_COLOR = '#c8b4d4';
-const LOWLAND_POOR_DRAINAGE_BORDER = { color: '#7b5ea7', weight: 0.8, opacity: 0.7, dashArray: '4,6' };
+const LOWLAND_POOR_DRAINAGE_BORDER = { color: '#7b5ea7', weight: 0.4, opacity: 0.25 };
 // pseudo_inland_flood: DEM 推定レイヤー（low=水色 / medium=黄 / high=赤系）
+// 補助系レイヤーのため境界線は控えめ（面の重なりで表現）
 const PSEUDO_INLAND_FLOOD_COLORS = { low: '#4fc3f7', medium: '#fbc02d', high: '#e53935' };
 const PSEUDO_INLAND_FLOOD_OPACITY = { low: 0.18, medium: 0.28, high: 0.38 };
-const PSEUDO_INLAND_FLOOD_BORDER = { color: '#0277bd', weight: 0.8, opacity: 0.5, dashArray: '3,5' };
+const PSEUDO_INLAND_FLOOD_BORDER = { color: '#0277bd', weight: 0.4, opacity: 0.25 };
 function getPseudoInlandFloodColor(risk_level) {
     return PSEUDO_INLAND_FLOOD_COLORS[risk_level] || PSEUDO_INLAND_FLOOD_COLORS.low;
 }
@@ -456,7 +457,7 @@ const VECTOR_TILE_SOURCES = {
             tilesetId: 'tokyo_lowland_poor_drainage',
             sourceLayer: 'lowland_poor_drainage',
             colorFn: () => LOWLAND_POOR_DRAINAGE_COLOR,
-            opacityFn: () => 0.45,
+            opacityFn: () => 0.18,
             borderStyle: LOWLAND_POOR_DRAINAGE_BORDER,
             maxNativeZoom: 14
         }
@@ -466,7 +467,7 @@ const VECTOR_TILE_SOURCES = {
             tilesetId: 'kanagawa_lowland_poor_drainage',
             sourceLayer: 'lowland_poor_drainage',
             colorFn: () => LOWLAND_POOR_DRAINAGE_COLOR,
-            opacityFn: () => 0.45,
+            opacityFn: () => 0.18,
             borderStyle: LOWLAND_POOR_DRAINAGE_BORDER,
             maxNativeZoom: 14
         }
