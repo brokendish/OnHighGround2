@@ -63,6 +63,28 @@ def _local(tag: str) -> str:
 
 # ── GML (国土数値情報 KSJ P20) パーサー ───────────────────────────────────────
 
+# 指定避難所ファイルに特有の列名（これらがあれば designation を '指定避難所' と推定する）
+_EVAC_SHELTER_INDICATOR_KEYS: frozenset[str] = frozenset({
+    "受入対象者",
+    "指定緊急避難場所との住所同一",
+})
+
+
+def _infer_designation_for_features(features: list[dict]) -> str:
+    """全フィーチャーの列名からファイル種別を推定する。
+    指定避難所固有の列があれば '指定避難所'、それ以外は '指定緊急避難場所' を返す。"""
+    all_keys: set[str] = set()
+    for feat in features:
+        all_keys.update((feat.get("properties") or {}).keys())
+    if _EVAC_SHELTER_INDICATOR_KEYS & all_keys:
+        return "指定避難所"
+    for feat in features:
+        shisetu = (feat.get("properties") or {}).get("施設種別", "")
+        if shisetu in ("避難所", "指定避難所"):
+            return "指定避難所"
+    return "指定緊急避難場所"
+
+
 # KSJ P20 ハザード要素名 → 共通スキーマの日本語列名
 # P20-12 (2012版) の hazardClassification サブ要素
 _KSJ_HAZARD_MAP: dict[str, str] = {
@@ -210,11 +232,18 @@ def _load_geojson(path: Path, source_dataset: str, region_code: str) -> list[dic
     if data.get("type") != "FeatureCollection":
         raise ValueError(f"Input is not a GeoJSON FeatureCollection: {path.name}")
 
+    raw_features = data.get("features", [])
+    # designation が全件未設定の場合は列名から一括推定する
+    inferred_designation = _infer_designation_for_features(raw_features)
+
     features: list[dict] = []
-    for feature in data.get("features", []):
+    for feature in raw_features:
         props = dict(feature.get("properties") or {})
         props.setdefault("source_dataset", source_dataset)
         props.setdefault("normalized_region_code", region_code)
+        # 個別 feature に designation がない場合は推定値を使う
+        if not props.get("designation"):
+            props["designation"] = inferred_designation
         features.append({
             "type": "Feature",
             "geometry": feature.get("geometry"),
@@ -304,10 +333,14 @@ def _load_zip(path: Path, source_dataset: str, region_code: str) -> list[dict]:
                         f"原因: {exc}"
                     ) from exc
                 if data.get("type") == "FeatureCollection":
-                    for feat in data.get("features", []):
+                    raw_feats = data.get("features", [])
+                    inferred_designation = _infer_designation_for_features(raw_feats)
+                    for feat in raw_feats:
                         props = dict(feat.get("properties") or {})
                         props.setdefault("source_dataset", source_dataset)
                         props.setdefault("normalized_region_code", region_code)
+                        if not props.get("designation"):
+                            props["designation"] = inferred_designation
                         features.append({
                             "type": "Feature",
                             "geometry": feat.get("geometry"),

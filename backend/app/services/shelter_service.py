@@ -54,6 +54,12 @@ HAZARD_COLUMN_MAP: Dict[str, str] = {
     "火山現象":            "volcano",
 }
 
+# 指定避難所ファイルに特有の列名（これらがあれば evacuation_shelter として扱う）
+_EVACUATION_SHELTER_INDICATOR_KEYS = frozenset({
+    "受入対象者",
+    "指定緊急避難場所との住所同一",
+})
+
 
 # ── ユーティリティ ──────────────────────────────────────────────────────────────
 
@@ -65,6 +71,21 @@ def parse_float(value: Any) -> Optional[float]:
         return float(str(value).strip())
     except (TypeError, ValueError):
         return None
+
+
+def _infer_file_default_designation(features: list) -> str:
+    """GeoJSON の全フィーチャのプロパティ列名からファイル種別を推定する。
+    指定避難所固有の列が見つかれば '指定避難所'、それ以外は '指定緊急避難場所' を返す。"""
+    all_keys: set = set()
+    for feat in features:
+        all_keys.update((feat.get("properties") or {}).keys())
+    if _EVACUATION_SHELTER_INDICATOR_KEYS & all_keys:
+        return "指定避難所"
+    for feat in features:
+        shisetu = (feat.get("properties") or {}).get("施設種別", "")
+        if shisetu in ("避難所", "指定避難所"):
+            return "指定避難所"
+    return "指定緊急避難場所"
 
 
 # ── 避難場所ローダー ────────────────────────────────────────────────────────────
@@ -141,7 +162,10 @@ def load_emergency_shelters_from_geojson(
         logger.warning("GeoJSON shelter source is not a FeatureCollection: %s", geojson_path)
         return
 
-    for feature in data.get("features", []):
+    features = data.get("features", [])
+    _file_default_designation = _infer_file_default_designation(features)
+
+    for feature in features:
         properties = feature.get("properties", {}) or {}
         geometry = feature.get("geometry", {}) or {}
         coordinates = geometry.get("coordinates")
@@ -173,7 +197,7 @@ def load_emergency_shelters_from_geojson(
         designation = (
             properties.get("designation")
             or properties.get("指定区分")
-            or "指定緊急避難場所"
+            or _file_default_designation
         ).strip()
 
         if designation and designation not in (
