@@ -26,167 +26,100 @@
         return { pref: _norm(pref), addr: _norm(addr) };
     };
 
-    // ── 観測点座標辞書（東京・神奈川） ─────────────────────────────────────────
-    // キー: "都道府県名|地点名"  値: { lat, lon }
-    const _COORD_DICT = {
-        // 東京都 23区
-        '東京都|千代田区':   { lat: 35.6940, lon: 139.7536 },
-        '東京都|中央区':     { lat: 35.6702, lon: 139.7730 },
-        '東京都|港区':       { lat: 35.6581, lon: 139.7514 },
-        '東京都|新宿区':     { lat: 35.6938, lon: 139.7036 },
-        '東京都|文京区':     { lat: 35.7077, lon: 139.7520 },
-        '東京都|台東区':     { lat: 35.7127, lon: 139.7811 },
-        '東京都|墨田区':     { lat: 35.7101, lon: 139.8014 },
-        '東京都|江東区':     { lat: 35.6720, lon: 139.8170 },
-        '東京都|品川区':     { lat: 35.6094, lon: 139.7304 },
-        '東京都|目黒区':     { lat: 35.6322, lon: 139.6987 },
-        '東京都|大田区':     { lat: 35.5613, lon: 139.7160 },
-        '東京都|世田谷区':   { lat: 35.6465, lon: 139.6536 },
-        '東京都|渋谷区':     { lat: 35.6617, lon: 139.7039 },
-        '東京都|中野区':     { lat: 35.7077, lon: 139.6653 },
-        '東京都|杉並区':     { lat: 35.6995, lon: 139.6365 },
-        '東京都|豊島区':     { lat: 35.7296, lon: 139.7188 },
-        '東京都|北区':       { lat: 35.7533, lon: 139.7336 },
-        '東京都|荒川区':     { lat: 35.7358, lon: 139.7832 },
-        '東京都|板橋区':     { lat: 35.7510, lon: 139.6953 },
-        '東京都|練馬区':     { lat: 35.7358, lon: 139.6513 },
-        '東京都|足立区':     { lat: 35.7757, lon: 139.8048 },
-        '東京都|葛飾区':     { lat: 35.7437, lon: 139.8473 },
-        '東京都|江戸川区':   { lat: 35.7065, lon: 139.8680 },
-        // 東京都 多摩地域
-        '東京都|八王子市':   { lat: 35.6641, lon: 139.3163 },
-        '東京都|立川市':     { lat: 35.6975, lon: 139.4081 },
-        '東京都|武蔵野市':   { lat: 35.7198, lon: 139.5663 },
-        '東京都|三鷹市':     { lat: 35.6828, lon: 139.5589 },
-        '東京都|府中市':     { lat: 35.6702, lon: 139.4779 },
-        '東京都|調布市':     { lat: 35.6515, lon: 139.5415 },
-        '東京都|町田市':     { lat: 35.5483, lon: 139.4468 },
-        '東京都|小金井市':   { lat: 35.6996, lon: 139.5132 },
-        '東京都|小平市':     { lat: 35.7286, lon: 139.4765 },
-        '東京都|日野市':     { lat: 35.6715, lon: 139.3952 },
-        '東京都|東村山市':   { lat: 35.7548, lon: 139.4686 },
-        '東京都|国分寺市':   { lat: 35.7020, lon: 139.4638 },
-        '東京都|国立市':     { lat: 35.6847, lon: 139.4424 },
-        '東京都|西東京市':   { lat: 35.7258, lon: 139.5383 },
-        '東京都|多摩市':     { lat: 35.6362, lon: 139.4468 },
-        '東京都|稲城市':     { lat: 35.6391, lon: 139.5053 },
-        '東京都|狛江市':     { lat: 35.6333, lon: 139.5786 },
-        '東京都|東大和市':   { lat: 35.7402, lon: 139.4274 },
-        '東京都|清瀬市':     { lat: 35.7853, lon: 139.5256 },
-        '東京都|東久留米市': { lat: 35.7560, lon: 139.5249 },
-        '東京都|武蔵村山市': { lat: 35.7547, lon: 139.3874 },
-        // 東京都 島嶼
-        '東京都|大島町':     { lat: 34.7237, lon: 139.3579 },
-        '東京都|利島村':     { lat: 34.5209, lon: 139.2874 },
-        '東京都|新島村':     { lat: 34.3856, lon: 139.2710 },
-        '東京都|神津島村':   { lat: 34.2029, lon: 139.1333 },
-        '東京都|三宅村':     { lat: 34.0858, lon: 139.5277 },
-        '東京都|御蔵島村':   { lat: 33.8990, lon: 139.5931 },
-        '東京都|八丈町':     { lat: 33.1138, lon: 139.7931 },
-        '東京都|青ヶ島村':   { lat: 32.4608, lon: 139.7625 },
-        '東京都|小笠原村':   { lat: 27.0943, lon: 142.1977 },
-        // 神奈川県 横浜市
-        '神奈川県|横浜市中区':     { lat: 35.4442, lon: 139.6420 },
-        '神奈川県|横浜市西区':     { lat: 35.4651, lon: 139.6228 },
-        '神奈川県|横浜市磯子区':   { lat: 35.3979, lon: 139.6327 },
-        '神奈川県|横浜市金沢区':   { lat: 35.3471, lon: 139.6349 },
-        '神奈川県|横浜市都筑区':   { lat: 35.5424, lon: 139.5850 },
-        '神奈川県|横浜市青葉区':   { lat: 35.5428, lon: 139.5278 },
-        '神奈川県|横浜市緑区':     { lat: 35.5228, lon: 139.5895 },
-        '神奈川県|横浜市鶴見区':   { lat: 35.5197, lon: 139.6797 },
-        '神奈川県|横浜市神奈川区': { lat: 35.4917, lon: 139.6343 },
-        '神奈川県|横浜市港北区':   { lat: 35.5292, lon: 139.6338 },
-        '神奈川県|横浜市旭区':     { lat: 35.4581, lon: 139.5553 },
-        '神奈川県|横浜市瀬谷区':   { lat: 35.4638, lon: 139.5128 },
-        '神奈川県|横浜市保土ケ谷区': { lat: 35.4572, lon: 139.5972 },
-        '神奈川県|横浜市泉区':     { lat: 35.4139, lon: 139.5234 },
-        '神奈川県|横浜市戸塚区':   { lat: 35.4048, lon: 139.5355 },
-        '神奈川県|横浜市南区':     { lat: 35.4236, lon: 139.6222 },
-        '神奈川県|横浜市栄区':     { lat: 35.3861, lon: 139.5667 },
-        '神奈川県|横浜市港南区':   { lat: 35.4032, lon: 139.6072 },
-        // 神奈川県 川崎市
-        '神奈川県|川崎市川崎区': { lat: 35.5309, lon: 139.7034 },
-        '神奈川県|川崎市幸区':   { lat: 35.5372, lon: 139.6699 },
-        '神奈川県|川崎市中原区': { lat: 35.5713, lon: 139.6565 },
-        '神奈川県|川崎市高津区': { lat: 35.5786, lon: 139.6285 },
-        '神奈川県|川崎市多摩区': { lat: 35.5992, lon: 139.5781 },
-        '神奈川県|川崎市宮前区': { lat: 35.5636, lon: 139.5907 },
-        '神奈川県|川崎市麻生区': { lat: 35.5929, lon: 139.5259 },
-        // 神奈川県 相模原市
-        '神奈川県|相模原市緑区':   { lat: 35.5878, lon: 139.3751 },
-        '神奈川県|相模原市中央区': { lat: 35.5699, lon: 139.3729 },
-        '神奈川県|相模原市南区':   { lat: 35.5337, lon: 139.3764 },
-        // 神奈川県 その他市町村
-        '神奈川県|横須賀市': { lat: 35.2806, lon: 139.6718 },
-        '神奈川県|平塚市':   { lat: 35.3282, lon: 139.3497 },
-        '神奈川県|鎌倉市':   { lat: 35.3192, lon: 139.5469 },
-        '神奈川県|藤沢市':   { lat: 35.3374, lon: 139.4912 },
-        '神奈川県|小田原市': { lat: 35.2654, lon: 139.1559 },
-        '神奈川県|茅ヶ崎市': { lat: 35.3316, lon: 139.4086 },
-        '神奈川県|逗子市':   { lat: 35.2952, lon: 139.5799 },
-        '神奈川県|三浦市':   { lat: 35.1393, lon: 139.6165 },
-        '神奈川県|厚木市':   { lat: 35.4415, lon: 139.3373 },
-        '神奈川県|大和市':   { lat: 35.4740, lon: 139.4617 },
-        '神奈川県|伊勢原市': { lat: 35.4007, lon: 139.3093 },
-        '神奈川県|海老名市': { lat: 35.4474, lon: 139.3920 },
-        '神奈川県|座間市':   { lat: 35.4879, lon: 139.4073 },
-        '神奈川県|綾瀬市':   { lat: 35.4325, lon: 139.4338 },
-        '神奈川県|南足柄市': { lat: 35.3233, lon: 139.0942 },
-        '神奈川県|葉山町':   { lat: 35.2718, lon: 139.5804 },
-        '神奈川県|寒川町':   { lat: 35.3834, lon: 139.3742 },
-        '神奈川県|大磯町':   { lat: 35.3042, lon: 139.3115 },
-        '神奈川県|二宮町':   { lat: 35.3013, lon: 139.2572 },
-        '神奈川県|中井町':   { lat: 35.3600, lon: 139.2226 },
-        '神奈川県|大井町':   { lat: 35.3286, lon: 139.1733 },
-        '神奈川県|松田町':   { lat: 35.3417, lon: 139.1347 },
-        '神奈川県|山北町':   { lat: 35.3722, lon: 139.0730 },
-        '神奈川県|開成町':   { lat: 35.3250, lon: 139.1265 },
-        '神奈川県|箱根町':   { lat: 35.2328, lon: 139.1065 },
-        '神奈川県|真鶴町':   { lat: 35.1575, lon: 139.1353 },
-        '神奈川県|湯河原町': { lat: 35.1454, lon: 139.1116 },
-        '神奈川県|愛川町':   { lat: 35.5306, lon: 139.3219 },
-        '神奈川県|清川村':   { lat: 35.5306, lon: 139.2697 },
-    };
+    // ── 全国市区町村座標辞書（非同期ロード） ──────────────────────────────────
+    // キー: "都道府県名|市区町村名"  値: { lat, lon }
+    let _COORD_DICT = null;  // null = ロード中
+
+    fetch('/data/municipality_coords.json')
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(data => {
+            _COORD_DICT = data;
+            console.info('[EQ intensity] 座標辞書 ロード完了:', Object.keys(data).length, '件');
+        })
+        .catch(e => {
+            console.warn('[EQ intensity] 座標辞書 ロード失敗:', e);
+            _COORD_DICT = {};
+        });
 
     // ── P2P addr → 市区町村単位に正規化 ──────────────────────────────────────
-    // P2P の addr は "東京練馬区豊玉北" "横浜鶴見区末広町" など観測所レベル。
-    // 座標辞書は市区町村レベルなので、区・市の部分だけ抽出する。
+    // P2P の addr は観測所レベル。座標辞書は市区町村レベルなので区・市を抽出する。
+    //
+    // 政令市パターン: "{市名short}{区名}{地区}" → "{完全市名}{区名}"
+    // 例: "横浜鶴見区末広町" → "横浜市鶴見区"
+    //
+    // 府県prefix パターン: 大阪府・静岡県・岡山県は非政令市でも "大阪"|"静岡"|"岡山" prefix
+    // 例: "大阪和泉市府中町" → "和泉市"、"静岡菊川市赤土" → "菊川市"
+
+    // [prefix, 完全市名, skipLen] — 長い prefix を先に置いて競合を防ぐ
+    const _SEIREISHI = [
+        ['大阪堺市', '堺市',     4],  // 大阪府 堺市: "大阪堺市中区..." → 堺市中区
+        ['さいたま', 'さいたま市', 4],
+        ['相模原',   '相模原市',  3],
+        ['名古屋',   '名古屋市',  3],
+        ['北九州',   '北九州市',  3],
+        ['札幌',     '札幌市',    2],
+        ['仙台',     '仙台市',    2],
+        ['千葉',     '千葉市',    2],
+        ['横浜',     '横浜市',    2],
+        ['川崎',     '川崎市',    2],
+        ['新潟',     '新潟市',    2],
+        ['静岡',     '静岡市',    2],  // 静岡県 静岡市 ward
+        ['浜松',     '浜松市',    2],
+        ['大阪',     '大阪市',    2],  // 大阪府 大阪市 ward
+        ['京都',     '京都市',    2],
+        ['神戸',     '神戸市',    2],
+        ['岡山',     '岡山市',    2],  // 岡山県 岡山市 ward
+        ['広島',     '広島市',    2],
+        ['福岡',     '福岡市',    2],
+        ['熊本',     '熊本市',    2],
+    ];
+
+    // これらの都道府県では、非政令市 addr にも府県省略名 prefix が付く
+    const _PREF_PREFIXES = ['大阪', '静岡', '岡山'];
+
     function _parseAddrToUnit(pref, rawAddr) {
         const a = rawAddr.replace(/\s+/g, '');
+
+        // 東京都: 23区は "市" なし、多摩・島嶼は通常の市区町村
         if (pref === '東京都') {
-            // 23区: "東京{区名}{地区}" → "{区名}"
             const m23 = a.match(/^東京(.+?[区])/);
             if (m23) return m23[1];
-            // 市: "八王子市..." → "八王子市"
             const mCity = a.match(/^(.+?市)/);
             if (mCity) return mCity[1];
-            // 島嶼など
             const mOther = a.match(/^(.+?[町村])/);
             if (mOther) return mOther[1];
+            return a;
         }
-        if (pref === '神奈川県') {
-            // 政令市区: "横浜{区名}..." "川崎{区名}..." "相模原{区名}..."
-            const bigCities = [['横浜', 3], ['相模原', 4], ['川崎', 3]];
-            for (const [city, len] of bigCities) {
-                if (a.startsWith(city)) {
-                    const rest = a.slice(len);
-                    const mWard = rest.match(/^(.+?[区])/);
-                    if (mWard) return `${city}市${mWard[1]}`;
-                }
-            }
-            // 一般市
-            const mCity = a.match(/^(.+?市)/);
-            if (mCity) return mCity[1];
-            // 町村
-            const mOther = a.match(/^(.+?[町村])/);
-            if (mOther) return mOther[1];
+
+        // 政令市ワードを前方マッチで検索
+        for (const [prefix, fullCity, skipLen] of _SEIREISHI) {
+            if (!a.startsWith(prefix)) continue;
+            const rest = a.slice(skipLen);
+            const mWard = rest.match(/^(.+?[区])/);
+            if (mWard) return `${fullCity}${mWard[1]}`;
+            // prefix は一致したが区名がない → 政令市以外の住所 (府県 prefix パターン)
+            break;
         }
-        // その他都道府県: 市区町村を抽出
+
+        // 府県 prefix パターン: "大阪"/「静岡」/「岡山」を除去して市区町村を抽出
+        for (const pp of _PREF_PREFIXES) {
+            if (!a.startsWith(pp)) continue;
+            const rest = a.slice(pp.length);
+            const m = rest.match(/^(.+?[市区町村])/);
+            if (m) return m[1];
+            break;
+        }
+
+        // 一般: 市区町村名を抽出
         const m = a.match(/^(.+?[市区町村])/);
         return m ? m[1] : a;
     }
 
     function _dictLookup(key) {
+        if (!_COORD_DICT) return null;
         if (_COORD_DICT[key]) return _COORD_DICT[key];
         const alt1 = key.replace(/ヶ/g, 'ケ');
         if (_COORD_DICT[alt1]) return _COORD_DICT[alt1];
@@ -196,17 +129,14 @@
 
     window.resolveIntensityPointLocation = function (pref, addr) {
         const { pref: p, addr: a } = normalizeEarthquakePointName(pref, addr);
-        // 直接引き（辞書キーは既に unit レベル）
         const r1 = _dictLookup(`${p}|${a}`);
         if (r1) return r1;
-        // P2P rawアドレスが渡された場合の保険（unit 抽出後に再引き）
         const unit = _parseAddrToUnit(p, a);
         if (unit !== a) return _dictLookup(`${p}|${unit}`);
         return null;
     };
 
     // ── P2P points 抽出・変換（市区町村単位に集約） ────────────────────────────
-    // isArea:false を優先。複数観測所が同一市区町村の場合は最大 scale を採用。
     window.extractIntensityPoints = function (event) {
         if (!event) return null;
         const raw = Array.isArray(event.points) ? event.points : null;
@@ -216,7 +146,6 @@
         const src = stationPts.length > 0 ? stationPts : raw.filter(p => p.isArea === true);
         if (src.length === 0) return null;
 
-        // (pref, unit) でグループ化し最大 scale を保持
         const groups = new Map();
         for (const p of src) {
             const scale = Number(p.scale);
@@ -284,7 +213,6 @@
         if (!event) return { total: 0, mapped: 0, unmapped: 0 };
 
         const newId = String(event.event_id || '');
-        // 同一イベントの再呼出しはマップ操作せずステータスだけ返す
         if (newId && newId === _currentId) return { ..._lastStatus };
 
         clearEarthquakeIntensityMarkers();
@@ -300,7 +228,6 @@
         let mapped = 0, unmapped = 0;
         const bounds = [];
 
-        // 震源もboundsに含める
         const eLat = Number(event.lat);
         const eLng = Number(event.lng ?? event.lon);
         if (Number.isFinite(eLat) && Number.isFinite(eLng)) bounds.push([eLat, eLng]);
@@ -345,7 +272,6 @@
             mapped++;
         });
 
-        // fitBounds（ナビ中・追従中は地図を動かさない）
         if (bounds.length >= 1) {
             const navigating = typeof navigationMode !== 'undefined' &&
                 (navigationMode === 'navigation_active' || navigationMode === 'navigation_warning');
