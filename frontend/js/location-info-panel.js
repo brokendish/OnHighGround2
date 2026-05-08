@@ -339,7 +339,15 @@ function _lipRenderRouteRiskInfo() {
     if (!route) return;
 
     const riskSummary = route.__riskSummary;
-    if (!riskSummary) return;
+    if (!riskSummary) {
+        const msg = document.createElement('div');
+        msg.className = 'route-risk-block safe';
+        msg.style.cssText = 'color:#9e9e9e;font-size:12px;';
+        msg.textContent = 'ルートリスク情報を取得できませんでした';
+        el.appendChild(msg);
+        if (section) section.style.display = '';
+        return;
+    }
 
     if (typeof _appendRouteRiskBlock === 'function') {
         _appendRouteRiskBlock(el, route);

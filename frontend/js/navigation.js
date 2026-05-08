@@ -6279,6 +6279,17 @@ async function fetchRouteCandidates(origin, destination, options = {}) {
             contextUnavailable: false,
             failOpenApplied: false
         });
+        route.__riskSummary = null;
+        route.__riskSampledPoints = null;
+        try {
+            const riskResult = await _assessRouteHazardRisk(route);
+            route.__riskSummary = riskResult;
+            if (riskResult && Array.isArray(riskResult.sampled_points)) {
+                route.__riskSampledPoints = riskResult.sampled_points;
+            }
+        } catch (e) {
+            console.warn('[route-risk] assessment failed (crossing-disabled):', e);
+        }
         console.log('[route-candidates] safe_crossing disabled; selected shortest route only');
         return [route];
     }

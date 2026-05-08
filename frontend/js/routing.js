@@ -497,9 +497,6 @@ function _appendRouteRiskBlock(panel, route) {
     const score = Math.round(riskSummary.safety_score ?? 100);
     const level = riskSummary.risk_level || 'safe';
 
-    // ハザードが一切なければ（スコア高・notesなし）ブロック非表示
-    if (notes.length === 0 && score >= 95) return;
-
     const block = document.createElement('div');
     block.className = `route-risk-block ${level}`;
 
@@ -522,13 +519,15 @@ function _appendRouteRiskBlock(panel, route) {
         block.appendChild(list);
     }
 
-    // ルート線アウトラインの凡例（地図上の色線の意味を明示）
-    const legend = document.createElement('div');
-    legend.className = 'route-risk-outline-legend';
-    legend.innerHTML =
-        '<span><span class="risk-outline-swatch danger"></span>赤＝危険区間</span>' +
-        '<span><span class="risk-outline-swatch caution"></span>黄＝この先／通過直後に注意</span>';
-    block.appendChild(legend);
+    // 危険・注意区間がある場合のみ凡例を表示（安全ルートでは地図上に色線が出ないため省略）
+    if (level !== 'safe') {
+        const legend = document.createElement('div');
+        legend.className = 'route-risk-outline-legend';
+        legend.innerHTML =
+            '<span><span class="risk-outline-swatch danger"></span>赤＝危険区間</span>' +
+            '<span><span class="risk-outline-swatch caution"></span>黄＝この先／通過直後に注意</span>';
+        block.appendChild(legend);
+    }
 
     panel.appendChild(block);
 }
