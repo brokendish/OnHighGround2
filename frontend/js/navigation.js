@@ -46,6 +46,10 @@ const CROSSING_PENALTY_BY_HIGHWAY = {
 };
 const CROSSING_UNKNOWN_PENALTY = 30;
 const CROSSING_SAFE_BONUS = 20;
+// ハザードゾーン危険度ランキング（大きい値ほど安全）
+const RISK_LEVEL_RANK = { safe: 3, caution: 2, danger: 1, unknown: 0 };
+// safety_score 差がこの値未満なら距離・時間でtiebreak
+const HAZARD_SCORE_DIFF_THRESHOLD = 5;
 const SAFE_CROSSING_SEARCH_RADIUS_FALLBACK_M = 50;
 const SAFE_CROSSING_DETOUR_RATIO_FALLBACK = 1.5;
 
@@ -6262,7 +6266,7 @@ async function fetchRouteCandidates(origin, destination, options = {}) {
         route.__routeCandidateIndex = 0;
         route.__crossingRisk = _buildDisabledCrossingRisk();
         route.__safetyScore = null;
-        route.__displayLabel = '推奨ルート';
+        route.__displayLabel = '推奨';
         route.__displayReason = null;
         route.__routeFeatures = _buildRouteCandidateFeatures(route, route.__crossingRisk, {
             distance: Number(route?.summary?.totalDistance ?? route?.totalDistance),
@@ -6718,37 +6722,80 @@ function _buildRouteCandidateReason(crossingRisk, pedestrianSafety, conservative
 }
 
 function rankRouteCandidates(candidates) {
-    const ranked = (Array.isArray(candidates) ? candidates : [])
-        .slice()
-        .sort((a, b) => (b.safetyScore ?? 0) - (a.safetyScore ?? 0));
-    ranked.forEach((candidate, rankIndex) => {
+    const list = Array.isArray(candidates) ? candidates : [];
+
+    const sorted = list.slice().sort((a, b) => {
+        const aSum = a.route.__riskSummary;
+        const bSum = b.route.__riskSummary;
+        const aLevel = RISK_LEVEL_RANK[aSum?.risk_level] ?? RISK_LEVEL_RANK.unknown;
+        const bLevel = RISK_LEVEL_RANK[bSum?.risk_level] ?? RISK_LEVEL_RANK.unknown;
+
+        // 1. risk_level 優先（safe > caution > danger > unknown）
+        if (aLevel !== bLevel) return bLevel - aLevel;
+
+        // 2. 同レベル内は safety_score（ハザードゾーン評価）、なければ crossing ベーススコアで代替
+        const aScore = typeof aSum?.safety_score === 'number' ? aSum.safety_score : a.safetyScore;
+        const bScore = typeof bSum?.safety_score === 'number' ? bSum.safety_score : b.safetyScore;
+        const scoreDiff = bScore - aScore;
+        if (Math.abs(scoreDiff) >= HAZARD_SCORE_DIFF_THRESHOLD) return scoreDiff;
+
+        // 3. スコア差が小さい場合は距離→時間
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        return a.duration - b.duration;
+    });
+
+    sorted.forEach((candidate, rankIndex) => {
         candidate.route.__rankedRouteIndex = rankIndex;
-        // ラベルはrank後に付け直す — 注意ラベルは除去（検出精度が安定するまで）
-        if (rankIndex === 0) {
-            candidate.route.__displayLabel = '推奨ルート';
-        } else if (candidate.route?.__routeFeatures?.viaSafeCrossing) {
-            candidate.route.__displayLabel = '安全横断候補';
-        } else {
-            candidate.route.__displayLabel = candidate.crossingRisk?.hasUnsafeCrossing
-                ? `候補${rankIndex + 1}`
-                : '安全優先';
-        }
+        candidate.route.__displayLabel = _buildRankedRouteLabel(candidate, rankIndex, sorted);
         const totalUnsafe = (candidate.crossingRisk?.unsafeMajorRoadCrossings ?? 0)
             + (candidate.crossingRisk?.unsafeSecondaryCrossings ?? 0);
         console.log(
             `[route-candidates] raw=${candidate.index} rank=${rankIndex} distance=${Math.round(candidate.distance)} ` +
-            `unsafe=${totalUnsafe} score=${Math.round(candidate.safetyScore)} label=${candidate.route.__displayLabel}`
+            `risk_level=${candidate.route.__riskSummary?.risk_level ?? 'n/a'} ` +
+            `hazard_score=${candidate.route.__riskSummary?.safety_score != null ? Math.round(candidate.route.__riskSummary.safety_score) : 'n/a'} ` +
+            `unsafe=${totalUnsafe} crossing_score=${Math.round(candidate.safetyScore)} label=${candidate.route.__displayLabel}`
         );
     });
-    const selected = ranked[0];
+
+    const selected = sorted[0];
     if (selected) {
-        const reason = selected.crossingRisk?.hasUnsafeCrossing ? 'least_unsafe' : 'safe_crossing_priority';
-        console.log(`[route-candidates] selected_raw_index=${selected.index} selected_rank=0 reason=${reason}`);
+        const riskLevel = selected.route.__riskSummary?.risk_level ?? 'unknown';
+        const reason = riskLevel === 'danger' ? 'least_dangerous'
+            : selected.crossingRisk?.hasUnsafeCrossing ? 'least_unsafe'
+            : 'safety_priority';
+        console.log(`[route-candidates] selected_raw_index=${selected.index} selected_rank=0 risk_level=${riskLevel} reason=${reason}`);
     }
-    if (ranked.length > 0 && ranked.every(candidate => candidate.crossingRisk?.hasUnsafeCrossing)) {
-        console.warn('[route-candidates] warning=safe_alternative_not_found');
+    if (sorted.length > 0 && sorted.every(c => (RISK_LEVEL_RANK[c.route.__riskSummary?.risk_level] ?? 0) <= RISK_LEVEL_RANK.danger)) {
+        console.warn('[route-candidates] warning=no_safe_or_caution_route_found');
     }
-    return ranked.map(candidate => candidate.route).slice(0, MAX_ROUTE_CANDIDATES);
+    return sorted.map(candidate => candidate.route).slice(0, MAX_ROUTE_CANDIDATES);
+}
+
+function _buildRankedRouteLabel(candidate, rankIndex, allSorted) {
+    const riskLevel = candidate.route.__riskSummary?.risk_level;
+    const hasUnsafeCrossing = candidate.crossingRisk?.hasUnsafeCrossing;
+
+    // 明確な danger は順位に関わらず注意
+    if (riskLevel === 'danger') return '注意';
+
+    // rank 0 → 推奨
+    if (rankIndex === 0) return '推奨';
+
+    // 安全横断経由で生成したルート
+    if (candidate.route?.__routeFeatures?.viaSafeCrossing) return '安全横断候補';
+
+    const top = allSorted[0];
+    const topRiskPriority = RISK_LEVEL_RANK[top.route.__riskSummary?.risk_level] ?? RISK_LEVEL_RANK.unknown;
+    const myRiskPriority  = RISK_LEVEL_RANK[riskLevel] ?? RISK_LEVEL_RANK.unknown;
+
+    // 全候補中で最短かつ推奨より短い → 最短
+    const isOverallShortest = allSorted.every(c => c.distance >= candidate.distance);
+    if (isOverallShortest && candidate.distance < top.distance) return '最短';
+
+    // 推奨と同等以上の安全レベルで unsafe 横断なし → 安全優先
+    if (myRiskPriority >= topRiskPriority && !hasUnsafeCrossing) return '安全優先';
+
+    return '注意';
 }
 
 function renderRouteCandidates(candidates) {
