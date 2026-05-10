@@ -759,5 +759,114 @@ function _lipBearingLabel(lat1, lon1, lat2, lon2) {
     return dirs[Math.round(deg / 45) % 8];
 }
 
+// ── 天体情報 ──────────────────────────────────────────────────────
+
+const _ASTRO_CACHE_TTL_MS = 10 * 60 * 1000;  // 10分
+let _astroCache = null;  // { lat, lon, data, fetchedAt }
+
+async function _astroFetch(lat, lon) {
+    const now = Date.now();
+    if (
+        _astroCache &&
+        Math.abs(_astroCache.lat - lat) < 0.05 &&
+        Math.abs(_astroCache.lon - lon) < 0.05 &&
+        now - _astroCache.fetchedAt < _ASTRO_CACHE_TTL_MS
+    ) {
+        return _astroCache.data;
+    }
+    try {
+        const res = await fetch(`/api/astro/current?lat=${lat}&lon=${lon}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        _astroCache = { lat, lon, data, fetchedAt: now };
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+function _astroFmtTime(isoStr) {
+    if (!isoStr) return '--';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '--';
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+}
+
+/**
+ * 月齢から月の形を表すインライン SVG を生成する。
+ * phase: Astral の moon phase 値（0〜28、0/28=新月、14=満月）
+ *
+ * 描画方式:
+ *   - 暗い円（月盤）を描く
+ *   - 輝面部分だけ明るいパスで上書きする
+ *   - 明暗の境界（朔望線）は x 軸方向に変化する楕円弧で表現
+ */
+function _astroMoonSvg(phase) {
+    const r  = 7;
+    const sz = r * 2 + 2;
+    const cx = sz / 2, cy = sz / 2;
+    const dark  = '#4b5563';
+    const light = '#fef9c3';
+    const base  = `width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"` +
+                  ` style="display:inline-block;vertical-align:middle;margin-right:3px"`;
+
+    const p = ((phase % 28) + 28) % 28 / 28; // 0..1 (0/1=新月, 0.5=満月)
+
+    if (p < 0.03 || p > 0.97) {
+        return `<svg ${base}><circle cx="${cx}" cy="${cy}" r="${r}" fill="${dark}" stroke="#6b7280" stroke-width="0.5"/></svg>`;
+    }
+    if (p > 0.47 && p < 0.53) {
+        return `<svg ${base}><circle cx="${cx}" cy="${cy}" r="${r}" fill="${light}" stroke="#9ca3af" stroke-width="0.5"/></svg>`;
+    }
+
+    // 朔望線の楕円 x 半径: 新月→r、上弦→0、満月→-r、下弦→0、新月→r
+    const termRx   = r * Math.cos(p * Math.PI * 2);
+    const termSwp  = termRx > 0 ? 0 : 1;   // 凹（三日月）= 0、凸（十三夜）= 1
+    const absRx    = Math.max(Math.abs(termRx), 0.5);
+    const litSwp   = p < 0.5 ? 1 : 0;      // 上弦側(右)=1、下弦側(左)=0
+
+    const path = `M ${cx} ${cy - r} A ${r} ${r} 0 0 ${litSwp} ${cx} ${cy + r} A ${absRx} ${r} 0 0 ${termSwp} ${cx} ${cy - r}`;
+
+    return `<svg ${base}>
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="${dark}" stroke="#6b7280" stroke-width="0.5"/>
+        <path d="${path}" fill="${light}"/>
+    </svg>`;
+}
+
+async function _astroUpdate(lat, lon) {
+    const data = await _astroFetch(lat, lon);
+    const section = document.getElementById('lip-astro-section');
+    if (!section) return;
+
+    if (!data) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = '';
+    _lipSet('lip-astro-sunrise', _astroFmtTime(data.sunrise));
+    _lipSet('lip-astro-sunset',  _astroFmtTime(data.sunset));
+
+    const moonEl = document.getElementById('lip-astro-moon');
+    if (moonEl) {
+        moonEl.innerHTML = `${_astroMoonSvg(data.moon_phase)}${data.moon_phase} / ${data.moon_label}`;
+    }
+
+    const noteEl = document.getElementById('lip-astro-note');
+    if (noteEl) {
+        if (data.moon_label === '新月') {
+            noteEl.innerHTML = '<span style="color:#92400e;background:#fef3c7;border-radius:3px;padding:0 5px;font-size:10px">暗所注意</span>';
+            noteEl.style.display = '';
+        } else if (data.moon_label === '満月') {
+            noteEl.innerHTML = '<span style="color:#166534;background:#dcfce7;border-radius:3px;padding:0 5px;font-size:10px">視界良好</span>';
+            noteEl.style.display = '';
+        } else {
+            noteEl.style.display = 'none';
+        }
+    }
+}
+
 // 起動時1回のみ実行（他のスクリプトがすべてロード済みの状態で実行される）
 _lipInit();
