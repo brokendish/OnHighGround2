@@ -273,9 +273,12 @@ def _request_tide736(params: dict) -> dict:
         f"{_TIDE736_URL}?{query}",
         headers={"User-Agent": "OnHighGround2/1.0"},
     )
+    logger.info("tide736: request url=%s", req.full_url)
     with urllib.request.urlopen(req, timeout=_TIDE736_TIMEOUT_SECONDS) as resp:
         charset = resp.headers.get_content_charset() or "utf-8"
-        return json.loads(resp.read().decode(charset))
+        raw = resp.read().decode(charset)
+        logger.info("tide736: response url=%s bytes=%d", resp.geturl(), len(raw))
+        return json.loads(raw)
 
 
 def _fetch_tide736_day(station: dict, day: date) -> Optional[dict]:
@@ -308,6 +311,22 @@ def _fetch_tide736_day(station: dict, day: date) -> Optional[dict]:
     if data.get("status") != 1:
         logger.info("tide736: non-success station=%s date=%s message=%s", station.get("id"), date_key, data.get("message"))
         return None
+
+    port = (data.get("tide") or {}).get("port") or {}
+    chart = ((data.get("tide") or {}).get("chart") or {})
+    day_chart = chart.get(date_key) or {}
+    logger.info(
+        "tide736: parsed station=%s date=%s pc=%s hc=%s port=%s/%s edd=%s flood=%s chart_keys=%s",
+        station.get("id"),
+        date_key,
+        pc,
+        hc,
+        port.get("prefecture_code"),
+        port.get("harbor_code"),
+        [item.get("time") for item in (day_chart.get("edd") or [])],
+        [item.get("time") for item in (day_chart.get("flood") or [])],
+        list(chart.keys()),
+    )
 
     _TIDE736_CACHE[cache_key] = {"data": data, "expires_at": now + _TIDE736_CACHE_TTL}
     return data
@@ -361,6 +380,17 @@ def _format_tide736_event(event: Optional[dict], now: datetime, include_remainin
     return out
 
 
+def _select_next_tide736_event(events: list, now: datetime, event_type: Optional[str] = None) -> Optional[dict]:
+    return next(
+        (
+            event
+            for event in sorted(events, key=lambda e: e["time"])
+            if event["time"] > now and (event_type is None or event["type"] == event_type)
+        ),
+        None,
+    )
+
+
 def get_tide_info(lat: float, lon: float) -> Optional[dict]:
     """
     現在地から最寄り地点の参考潮汐情報を返す。
@@ -377,8 +407,8 @@ def get_tide_info(lat: float, lon: float) -> Optional[dict]:
     dist_km = round(_haversine_km(lat, lon, station["lat"], station["lon"]), 1)
 
     events = _build_tide736_events(station, now)
-    next_high = next((e for e in events if e["type"] == "high" and e["time"] > now), None)
-    next_low = next((e for e in events if e["type"] == "low" and e["time"] > now), None)
+    next_high = _select_next_tide736_event(events, now, "high")
+    next_low = _select_next_tide736_event(events, now, "low")
     if not next_high and not next_low:
         return _unavailable()
 

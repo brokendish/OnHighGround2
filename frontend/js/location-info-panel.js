@@ -848,6 +848,8 @@ async function _astroUpdate(lat, lon) {
     section.style.display = '';
     _lipSet('lip-astro-sunrise', _astroFmtTime(data.sunrise));
     _lipSet('lip-astro-sunset',  _astroFmtTime(data.sunset));
+    _astroSetOptionalTime('lip-astro-moonrise-row', 'lip-astro-moonrise', data.moonrise);
+    _astroSetOptionalTime('lip-astro-moonset-row', 'lip-astro-moonset', data.moonset);
 
     const moonEl = document.getElementById('lip-astro-moon');
     if (moonEl) {
@@ -868,96 +870,25 @@ async function _astroUpdate(lat, lon) {
     }
 }
 
-// ── 潮汐情報 ──────────────────────────────────────────────────────
+function _astroSetOptionalTime(rowId, valueId, isoStr) {
+    const row = document.getElementById(rowId);
+    const value = document.getElementById(valueId);
+    const label = _astroFmtTime(isoStr);
+    if (!row || !value) return;
 
-const _TIDE_CACHE_TTL_MS = 30 * 60 * 1000;  // 30分
-let _tideCache = null;  // { lat, lon, data, fetchedAt }
-
-function _tideHide() {
-    const section = document.getElementById('lip-tide-section');
-    if (section) section.style.display = 'none';
-}
-
-async function _tideFetch(lat, lon) {
-    const now = Date.now();
-    if (
-        _tideCache &&
-        Math.abs(_tideCache.lat - lat) < 0.05 &&
-        Math.abs(_tideCache.lon - lon) < 0.05 &&
-        now - _tideCache.fetchedAt < _TIDE_CACHE_TTL_MS
-    ) {
-        return _tideCache.data;
-    }
-    try {
-        const res = await fetch(`/api/tide/current?lat=${lat}&lon=${lon}`);
-        if (!res.ok) return null;
-        const data = await res.json();
-        _tideCache = { lat, lon, data, fetchedAt: now };
-        return data;
-    } catch {
-        return null;
-    }
-}
-
-function _tideFmtTime(isoStr) {
-    if (!isoStr) return null;
-    const d = new Date(isoStr);
-    if (isNaN(d.getTime())) return null;
-    const h = String(d.getHours()).padStart(2, '0');
-    const m = String(d.getMinutes()).padStart(2, '0');
-    return `${h}:${m}`;
-}
-
-function _tideFmtRemaining(minutes) {
-    if (!Number.isFinite(minutes) || minutes < 0) return null;
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return h > 0 ? `${h}h${m}m` : `${m}m`;
-}
-
-async function _tideUpdate(lat, lon) {
-    const data = await _tideFetch(lat, lon);
-    const section = document.getElementById('lip-tide-section');
-    if (!section) return;
-
-    const hasEvent = !!(data && (data.next_high_tide || data.next_low_tide));
-    if (!data || data.available === false || !data.station || !hasEvent) {
-        _tideHide();
+    if (!isoStr || label === '--') {
+        row.style.display = 'none';
         return;
     }
 
-    const highRow = document.getElementById('lip-tide-high-row');
-    const highLabel = document.getElementById('lip-tide-high-label');
-    const highEl = document.getElementById('lip-tide-high');
-    const lowRow = document.getElementById('lip-tide-low-row');
-    const lowEl = document.getElementById('lip-tide-low');
-    const stationEl = document.getElementById('lip-tide-station');
-
-    if (data.next_high_tide && highRow && highEl) {
-        const time = _tideFmtTime(data.next_high_tide.time);
-        const remaining = _tideFmtRemaining(data.next_high_tide.remaining_minutes);
-        if (highLabel) highLabel.textContent = remaining ? '満潮まで' : '次の満潮';
-        highEl.textContent = remaining || time || '--';
-        highRow.style.display = '';
-    } else if (highRow) {
-        highRow.style.display = 'none';
-    }
-
-    if (data.next_low_tide && lowRow && lowEl) {
-        lowEl.textContent = _tideFmtTime(data.next_low_tide.time) || '--';
-        lowRow.style.display = '';
-    } else if (lowRow) {
-        lowRow.style.display = 'none';
-    }
-
-    if (stationEl) {
-        const dist = Number(data.station.distance_km);
-        const distText = Number.isFinite(dist) ? `現在地から約${dist.toFixed(1)}km` : '距離不明';
-        stationEl.textContent = `${data.station.name}（${distText}）`;
-    }
-
-    section.style.display = '';
+    value.textContent = label;
+    row.style.display = '';
 }
+
+// ── 潮汐情報 ──────────────────────────────────────────────────────
+// tide736 Web表示とAPI raw responseに整合性疑義があるため、潮汐表示は凍結中。
+// backend adapter と raw調査 artifact は将来の公式/信頼可能データ源への差し替え用に残す。
+async function _tideUpdate() {}
 
 // 起動時1回のみ実行（他のスクリプトがすべてロード済みの状態で実行される）
 _lipInit();

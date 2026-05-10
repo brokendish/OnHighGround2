@@ -1,13 +1,14 @@
 """
-天体情報API — 現在地の日の出・日の入り・月齢を返す。
+天体情報API — 現在地の日の出・日の入り・月の出・月の入り・月齢を返す。
 外部API不要。Astralライブラリのみで計算。
 """
 import logging
-from datetime import date, datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from astral import Observer
 from astral.sun import sun
-from astral.moon import phase as moon_phase
+from astral.moon import moonrise, moonset, phase as moon_phase
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,10 @@ def _night_visibility(label: str) -> str:
     return "通常"
 
 
+def _iso_or_none(dt: Optional[datetime]) -> Optional[str]:
+    return dt.isoformat() if dt else None
+
+
 @router.get("/api/astro/current")
 async def get_astro_current(
     lat: float = Query(..., description="緯度", ge=-90, le=90),
@@ -43,8 +48,10 @@ async def get_astro_current(
 ):
     try:
         observer = Observer(latitude=lat, longitude=lon)
-        today = date.today()
+        today = datetime.now(JST).date()
         s = sun(observer, date=today, tzinfo=JST)
+        mr = moonrise(observer, date=today, tzinfo=JST)
+        ms = moonset(observer, date=today, tzinfo=JST)
         phase = moon_phase(today)
         label = _moon_label(phase)
         return {
@@ -54,6 +61,8 @@ async def get_astro_current(
             "timezone": "Asia/Tokyo",
             "sunrise": s["sunrise"].isoformat(),
             "sunset": s["sunset"].isoformat(),
+            "moonrise": _iso_or_none(mr),
+            "moonset": _iso_or_none(ms),
             "moon_phase": round(phase, 1),
             "moon_label": label,
             "night_visibility": _night_visibility(label),

@@ -1,5 +1,5 @@
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
@@ -25,7 +25,7 @@ def test_get_tide_info_returns_reference_shape(monkeypatch):
         "name": "東京港",
         "lat": 35.63,
         "lon": 139.79,
-        "tide736": {"pc": "13", "hc": "2"},
+        "tide736": {"pc": "13", "hc": "3"},
     }
 
     monkeypatch.setattr(svc, "_STATIONS", [station])
@@ -60,3 +60,21 @@ def test_get_tide_info_without_events_is_unavailable(monkeypatch):
     body = svc.get_tide_info(35.6812, 139.7671)
 
     assert body == {"available": False, "source": "tide736", "is_reference": True}
+
+
+def test_select_next_tide736_event_uses_sorted_future_events():
+    now = datetime(2026, 5, 10, 18, 11, tzinfo=svc.JST)
+    events = [
+        svc._event_from_tide736_item({"unix": 1778493960000, "cm": 68.1}, "low"),
+        svc._event_from_tide736_item({"unix": 1778402700000, "cm": 65.8}, "low"),
+        svc._event_from_tide736_item({"unix": 1778428620000, "cm": 163.6}, "high"),
+        svc._event_from_tide736_item({"unix": 1778451420000, "cm": 102.2}, "low"),
+    ]
+
+    next_high = svc._select_next_tide736_event(events, now, "high")
+    next_low = svc._select_next_tide736_event(events, now, "low")
+    next_any = svc._select_next_tide736_event(events, now)
+
+    assert next_high["time"].isoformat() == "2026-05-11T00:57:00+09:00"
+    assert next_low["time"].isoformat() == "2026-05-11T07:17:00+09:00"
+    assert next_any["time"].isoformat() == "2026-05-11T00:57:00+09:00"
