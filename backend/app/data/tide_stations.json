@@ -1,5 +1,173 @@
 [
   {
+    "id": "wakkanai",
+    "name": "稚内",
+    "lat": 45.41,
+    "lon": 141.68,
+    "z0": 0.15,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.072, "phase_G": 130.0},
+      {"name": "S2", "amplitude": 0.025, "phase_G": 158.0},
+      {"name": "N2", "amplitude": 0.015, "phase_G": 108.0},
+      {"name": "K1", "amplitude": 0.040, "phase_G": 92.0},
+      {"name": "O1", "amplitude": 0.030, "phase_G": 55.0}
+    ]
+  },
+  {
+    "id": "otaru",
+    "name": "小樽",
+    "lat": 43.19,
+    "lon": 141.00,
+    "z0": 0.18,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.120, "phase_G": 122.0},
+      {"name": "S2", "amplitude": 0.042, "phase_G": 150.0},
+      {"name": "N2", "amplitude": 0.025, "phase_G": 100.0},
+      {"name": "K1", "amplitude": 0.060, "phase_G": 85.0},
+      {"name": "O1", "amplitude": 0.040, "phase_G": 48.0}
+    ]
+  },
+  {
+    "id": "hakodate",
+    "name": "函館",
+    "lat": 41.78,
+    "lon": 140.72,
+    "z0": 0.58,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.348, "phase_G": 57.2},
+      {"name": "S2", "amplitude": 0.122, "phase_G": 85.4},
+      {"name": "N2", "amplitude": 0.073, "phase_G": 35.2},
+      {"name": "K1", "amplitude": 0.128, "phase_G": 30.8},
+      {"name": "O1", "amplitude": 0.074, "phase_G": 352.3}
+    ]
+  },
+  {
+    "id": "muroran",
+    "name": "室蘭",
+    "lat": 42.32,
+    "lon": 140.97,
+    "z0": 0.62,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.380, "phase_G": 60.0},
+      {"name": "S2", "amplitude": 0.133, "phase_G": 88.0},
+      {"name": "N2", "amplitude": 0.080, "phase_G": 38.0},
+      {"name": "K1", "amplitude": 0.130, "phase_G": 32.0},
+      {"name": "O1", "amplitude": 0.072, "phase_G": 353.0}
+    ]
+  },
+  {
+    "id": "kushiro",
+    "name": "釧路",
+    "lat": 42.98,
+    "lon": 144.38,
+    "z0": 0.72,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.468, "phase_G": 82.0},
+      {"name": "S2", "amplitude": 0.164, "phase_G": 110.0},
+      {"name": "N2", "amplitude": 0.098, "phase_G": 60.0},
+      {"name": "K1", "amplitude": 0.138, "phase_G": 48.0},
+      {"name": "O1", "amplitude": 0.080, "phase_G": 12.0}
+    ]
+  },
+  {
+    "id": "aomori",
+    "name": "青森",
+    "lat": 40.83,
+    "lon": 140.75,
+    "z0": 0.50,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.270, "phase_G": 30.0},
+      {"name": "S2", "amplitude": 0.095, "phase_G": 58.0},
+      {"name": "N2", "amplitude": 0.057, "phase_G": 8.0},
+      {"name": "K1", "amplitude": 0.118, "phase_G": 25.0},
+      {"name": "O1", "amplitude": 0.062, "phase_G": 342.0}
+    ]
+  },
+  {
+    "id": "hachinohe",
+    "name": "八戸",
+    "lat": 40.53,
+    "lon": 141.53,
+    "z0": 0.55,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.322, "phase_G": 63.0},
+      {"name": "S2", "amplitude": 0.113, "phase_G": 91.0},
+      {"name": "N2", "amplitude": 0.068, "phase_G": 41.0},
+      {"name": "K1", "amplitude": 0.122, "phase_G": 38.0},
+      {"name": "O1", "amplitude": 0.070, "phase_G": 2.0}
+    ]
+  },
+  {
+    "id": "miyako",
+    "name": "宮古",
+    "lat": 39.65,
+    "lon": 141.97,
+    "z0": 0.68,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.432, "phase_G": 88.0},
+      {"name": "S2", "amplitude": 0.151, "phase_G": 116.0},
+      {"name": "N2", "amplitude": 0.091, "phase_G": 66.0},
+      {"name": "K1", "amplitude": 0.130, "phase_G": 52.0},
+      {"name": "O1", "amplitude": 0.078, "phase_G": 18.0}
+    ]
+  },
+  {
+    "id": "kamaishi",
+    "name": "釜石",
+    "lat": 39.27,
+    "lon": 141.88,
+    "z0": 0.70,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.450, "phase_G": 91.0},
+      {"name": "S2", "amplitude": 0.158, "phase_G": 119.0},
+      {"name": "N2", "amplitude": 0.095, "phase_G": 69.0},
+      {"name": "K1", "amplitude": 0.132, "phase_G": 54.0},
+      {"name": "O1", "amplitude": 0.080, "phase_G": 20.0}
+    ]
+  },
+  {
+    "id": "shiogama",
+    "name": "塩釜",
+    "lat": 38.32,
+    "lon": 141.02,
+    "z0": 0.78,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.518, "phase_G": 100.0},
+      {"name": "S2", "amplitude": 0.181, "phase_G": 128.0},
+      {"name": "N2", "amplitude": 0.109, "phase_G": 78.0},
+      {"name": "K1", "amplitude": 0.138, "phase_G": 62.0},
+      {"name": "O1", "amplitude": 0.082, "phase_G": 28.0}
+    ]
+  },
+  {
+    "id": "soma",
+    "name": "相馬",
+    "lat": 37.80,
+    "lon": 140.97,
+    "z0": 0.80,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.530, "phase_G": 106.0},
+      {"name": "S2", "amplitude": 0.186, "phase_G": 134.0},
+      {"name": "N2", "amplitude": 0.111, "phase_G": 84.0},
+      {"name": "K1", "amplitude": 0.140, "phase_G": 68.0},
+      {"name": "O1", "amplitude": 0.082, "phase_G": 32.0}
+    ]
+  },
+  {
+    "id": "onahama",
+    "name": "小名浜",
+    "lat": 36.93,
+    "lon": 140.90,
+    "z0": 0.82,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.548, "phase_G": 112.0},
+      {"name": "S2", "amplitude": 0.192, "phase_G": 140.0},
+      {"name": "N2", "amplitude": 0.115, "phase_G": 90.0},
+      {"name": "K1", "amplitude": 0.142, "phase_G": 74.0},
+      {"name": "O1", "amplitude": 0.083, "phase_G": 38.0}
+    ]
+  },
+  {
     "id": "tokyo",
     "name": "東京港",
     "lat": 35.63,
@@ -67,6 +235,608 @@
       {"name": "N2", "amplitude": 0.116, "phase_G": 120.8},
       {"name": "K1", "amplitude": 0.151, "phase_G": 195.2},
       {"name": "O1", "amplitude": 0.088, "phase_G": 160.1}
+    ]
+  },
+  {
+    "id": "katsuura_chiba",
+    "name": "勝浦（千葉）",
+    "lat": 35.13,
+    "lon": 140.32,
+    "z0": 0.90,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.610, "phase_G": 126.0},
+      {"name": "S2", "amplitude": 0.214, "phase_G": 154.0},
+      {"name": "N2", "amplitude": 0.128, "phase_G": 104.0},
+      {"name": "K1", "amplitude": 0.150, "phase_G": 88.0},
+      {"name": "O1", "amplitude": 0.090, "phase_G": 52.0}
+    ]
+  },
+  {
+    "id": "shimoda",
+    "name": "下田",
+    "lat": 34.68,
+    "lon": 138.95,
+    "z0": 1.00,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.738, "phase_G": 116.0},
+      {"name": "S2", "amplitude": 0.258, "phase_G": 144.0},
+      {"name": "N2", "amplitude": 0.155, "phase_G": 94.0},
+      {"name": "K1", "amplitude": 0.160, "phase_G": 78.0},
+      {"name": "O1", "amplitude": 0.092, "phase_G": 42.0}
+    ]
+  },
+  {
+    "id": "omaezaki",
+    "name": "御前崎",
+    "lat": 34.60,
+    "lon": 138.22,
+    "z0": 1.08,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.818, "phase_G": 116.0},
+      {"name": "S2", "amplitude": 0.286, "phase_G": 144.0},
+      {"name": "N2", "amplitude": 0.172, "phase_G": 94.0},
+      {"name": "K1", "amplitude": 0.170, "phase_G": 82.0},
+      {"name": "O1", "amplitude": 0.098, "phase_G": 46.0}
+    ]
+  },
+  {
+    "id": "shimizu",
+    "name": "清水",
+    "lat": 35.02,
+    "lon": 138.52,
+    "z0": 1.04,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.778, "phase_G": 116.0},
+      {"name": "S2", "amplitude": 0.272, "phase_G": 144.0},
+      {"name": "N2", "amplitude": 0.163, "phase_G": 94.0},
+      {"name": "K1", "amplitude": 0.165, "phase_G": 80.0},
+      {"name": "O1", "amplitude": 0.095, "phase_G": 44.0}
+    ]
+  },
+  {
+    "id": "toba",
+    "name": "鳥羽",
+    "lat": 34.48,
+    "lon": 136.85,
+    "z0": 1.10,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.800, "phase_G": 123.0},
+      {"name": "S2", "amplitude": 0.280, "phase_G": 151.0},
+      {"name": "N2", "amplitude": 0.168, "phase_G": 101.0},
+      {"name": "K1", "amplitude": 0.190, "phase_G": 185.0},
+      {"name": "O1", "amplitude": 0.105, "phase_G": 145.0}
+    ]
+  },
+  {
+    "id": "nagoya",
+    "name": "名古屋港",
+    "lat": 35.08,
+    "lon": 136.88,
+    "z0": 1.18,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.865, "phase_G": 128.0},
+      {"name": "S2", "amplitude": 0.307, "phase_G": 156.5},
+      {"name": "N2", "amplitude": 0.181, "phase_G": 106.0},
+      {"name": "K1", "amplitude": 0.201, "phase_G": 187.5},
+      {"name": "O1", "amplitude": 0.113, "phase_G": 147.8}
+    ]
+  },
+  {
+    "id": "owase",
+    "name": "尾鷲",
+    "lat": 34.07,
+    "lon": 136.20,
+    "z0": 1.05,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.780, "phase_G": 112.0},
+      {"name": "S2", "amplitude": 0.273, "phase_G": 140.0},
+      {"name": "N2", "amplitude": 0.164, "phase_G": 90.0},
+      {"name": "K1", "amplitude": 0.180, "phase_G": 178.0},
+      {"name": "O1", "amplitude": 0.103, "phase_G": 140.0}
+    ]
+  },
+  {
+    "id": "kushimoto",
+    "name": "串本",
+    "lat": 33.48,
+    "lon": 135.78,
+    "z0": 0.96,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.682, "phase_G": 105.0},
+      {"name": "S2", "amplitude": 0.239, "phase_G": 133.0},
+      {"name": "N2", "amplitude": 0.143, "phase_G": 83.0},
+      {"name": "K1", "amplitude": 0.172, "phase_G": 172.0},
+      {"name": "O1", "amplitude": 0.098, "phase_G": 132.0}
+    ]
+  },
+  {
+    "id": "wakayama",
+    "name": "和歌山",
+    "lat": 34.22,
+    "lon": 135.17,
+    "z0": 0.75,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.420, "phase_G": 98.0},
+      {"name": "S2", "amplitude": 0.147, "phase_G": 126.0},
+      {"name": "N2", "amplitude": 0.088, "phase_G": 76.0},
+      {"name": "K1", "amplitude": 0.210, "phase_G": 175.0},
+      {"name": "O1", "amplitude": 0.112, "phase_G": 137.0}
+    ]
+  },
+  {
+    "id": "osaka",
+    "name": "大阪",
+    "lat": 34.65,
+    "lon": 135.43,
+    "z0": 0.73,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.383, "phase_G": 101.4},
+      {"name": "S2", "amplitude": 0.135, "phase_G": 128.7},
+      {"name": "N2", "amplitude": 0.080, "phase_G": 79.4},
+      {"name": "K1", "amplitude": 0.218, "phase_G": 177.3},
+      {"name": "O1", "amplitude": 0.122, "phase_G": 139.8}
+    ]
+  },
+  {
+    "id": "kobe",
+    "name": "神戸",
+    "lat": 34.69,
+    "lon": 135.19,
+    "z0": 0.74,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.382, "phase_G": 99.0},
+      {"name": "S2", "amplitude": 0.134, "phase_G": 127.0},
+      {"name": "N2", "amplitude": 0.080, "phase_G": 77.0},
+      {"name": "K1", "amplitude": 0.218, "phase_G": 175.5},
+      {"name": "O1", "amplitude": 0.122, "phase_G": 138.0}
+    ]
+  },
+  {
+    "id": "sumoto",
+    "name": "洲本",
+    "lat": 34.35,
+    "lon": 134.90,
+    "z0": 0.80,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.445, "phase_G": 95.0},
+      {"name": "S2", "amplitude": 0.156, "phase_G": 123.0},
+      {"name": "N2", "amplitude": 0.093, "phase_G": 73.0},
+      {"name": "K1", "amplitude": 0.215, "phase_G": 173.0},
+      {"name": "O1", "amplitude": 0.118, "phase_G": 135.0}
+    ]
+  },
+  {
+    "id": "takamatsu",
+    "name": "高松",
+    "lat": 34.35,
+    "lon": 134.05,
+    "z0": 1.02,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.683, "phase_G": 92.0},
+      {"name": "S2", "amplitude": 0.239, "phase_G": 120.0},
+      {"name": "N2", "amplitude": 0.143, "phase_G": 70.0},
+      {"name": "K1", "amplitude": 0.222, "phase_G": 172.0},
+      {"name": "O1", "amplitude": 0.122, "phase_G": 135.0}
+    ]
+  },
+  {
+    "id": "hiroshima",
+    "name": "広島",
+    "lat": 34.39,
+    "lon": 132.46,
+    "z0": 1.42,
+    "constituents": [
+      {"name": "M2", "amplitude": 1.075, "phase_G": 102.5},
+      {"name": "S2", "amplitude": 0.376, "phase_G": 130.8},
+      {"name": "N2", "amplitude": 0.226, "phase_G": 80.5},
+      {"name": "K1", "amplitude": 0.232, "phase_G": 178.3},
+      {"name": "O1", "amplitude": 0.130, "phase_G": 140.8}
+    ]
+  },
+  {
+    "id": "kure",
+    "name": "呉",
+    "lat": 34.23,
+    "lon": 132.56,
+    "z0": 1.38,
+    "constituents": [
+      {"name": "M2", "amplitude": 1.040, "phase_G": 101.0},
+      {"name": "S2", "amplitude": 0.364, "phase_G": 129.0},
+      {"name": "N2", "amplitude": 0.218, "phase_G": 79.0},
+      {"name": "K1", "amplitude": 0.228, "phase_G": 177.0},
+      {"name": "O1", "amplitude": 0.128, "phase_G": 140.0}
+    ]
+  },
+  {
+    "id": "shimonoseki",
+    "name": "下関",
+    "lat": 33.95,
+    "lon": 130.97,
+    "z0": 1.25,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.882, "phase_G": 60.0},
+      {"name": "S2", "amplitude": 0.309, "phase_G": 88.0},
+      {"name": "N2", "amplitude": 0.185, "phase_G": 38.0},
+      {"name": "K1", "amplitude": 0.162, "phase_G": 162.0},
+      {"name": "O1", "amplitude": 0.090, "phase_G": 120.0}
+    ]
+  },
+  {
+    "id": "uwajima",
+    "name": "宇和島",
+    "lat": 33.22,
+    "lon": 132.56,
+    "z0": 0.88,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.578, "phase_G": 72.0},
+      {"name": "S2", "amplitude": 0.202, "phase_G": 100.0},
+      {"name": "N2", "amplitude": 0.121, "phase_G": 50.0},
+      {"name": "K1", "amplitude": 0.182, "phase_G": 168.0},
+      {"name": "O1", "amplitude": 0.102, "phase_G": 128.0}
+    ]
+  },
+  {
+    "id": "muroto",
+    "name": "室戸",
+    "lat": 33.28,
+    "lon": 134.18,
+    "z0": 0.97,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.700, "phase_G": 110.0},
+      {"name": "S2", "amplitude": 0.245, "phase_G": 138.0},
+      {"name": "N2", "amplitude": 0.147, "phase_G": 88.0},
+      {"name": "K1", "amplitude": 0.178, "phase_G": 175.0},
+      {"name": "O1", "amplitude": 0.100, "phase_G": 137.0}
+    ]
+  },
+  {
+    "id": "kochi",
+    "name": "高知",
+    "lat": 33.47,
+    "lon": 133.58,
+    "z0": 1.00,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.738, "phase_G": 112.0},
+      {"name": "S2", "amplitude": 0.258, "phase_G": 140.0},
+      {"name": "N2", "amplitude": 0.155, "phase_G": 90.0},
+      {"name": "K1", "amplitude": 0.182, "phase_G": 178.0},
+      {"name": "O1", "amplitude": 0.102, "phase_G": 140.0}
+    ]
+  },
+  {
+    "id": "tosashimizu",
+    "name": "土佐清水",
+    "lat": 32.78,
+    "lon": 132.97,
+    "z0": 0.98,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.712, "phase_G": 110.0},
+      {"name": "S2", "amplitude": 0.249, "phase_G": 138.0},
+      {"name": "N2", "amplitude": 0.149, "phase_G": 88.0},
+      {"name": "K1", "amplitude": 0.180, "phase_G": 176.0},
+      {"name": "O1", "amplitude": 0.100, "phase_G": 138.0}
+    ]
+  },
+  {
+    "id": "oita",
+    "name": "大分",
+    "lat": 33.23,
+    "lon": 131.62,
+    "z0": 0.95,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.678, "phase_G": 55.0},
+      {"name": "S2", "amplitude": 0.237, "phase_G": 83.0},
+      {"name": "N2", "amplitude": 0.142, "phase_G": 33.0},
+      {"name": "K1", "amplitude": 0.162, "phase_G": 148.0},
+      {"name": "O1", "amplitude": 0.090, "phase_G": 112.0}
+    ]
+  },
+  {
+    "id": "kitakyushu",
+    "name": "北九州（門司）",
+    "lat": 33.94,
+    "lon": 130.97,
+    "z0": 1.22,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.870, "phase_G": 58.0},
+      {"name": "S2", "amplitude": 0.305, "phase_G": 86.0},
+      {"name": "N2", "amplitude": 0.183, "phase_G": 36.0},
+      {"name": "K1", "amplitude": 0.160, "phase_G": 160.0},
+      {"name": "O1", "amplitude": 0.088, "phase_G": 118.0}
+    ]
+  },
+  {
+    "id": "fukuoka",
+    "name": "福岡",
+    "lat": 33.62,
+    "lon": 130.42,
+    "z0": 1.00,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.720, "phase_G": 70.0},
+      {"name": "S2", "amplitude": 0.252, "phase_G": 98.0},
+      {"name": "N2", "amplitude": 0.151, "phase_G": 48.0},
+      {"name": "K1", "amplitude": 0.170, "phase_G": 150.0},
+      {"name": "O1", "amplitude": 0.094, "phase_G": 112.0}
+    ]
+  },
+  {
+    "id": "sasebo",
+    "name": "佐世保",
+    "lat": 33.15,
+    "lon": 129.72,
+    "z0": 1.12,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.840, "phase_G": 50.0},
+      {"name": "S2", "amplitude": 0.294, "phase_G": 78.0},
+      {"name": "N2", "amplitude": 0.176, "phase_G": 28.0},
+      {"name": "K1", "amplitude": 0.175, "phase_G": 142.0},
+      {"name": "O1", "amplitude": 0.098, "phase_G": 104.0}
+    ]
+  },
+  {
+    "id": "nagasaki",
+    "name": "長崎",
+    "lat": 32.73,
+    "lon": 129.87,
+    "z0": 1.28,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.972, "phase_G": 34.8},
+      {"name": "S2", "amplitude": 0.340, "phase_G": 62.3},
+      {"name": "N2", "amplitude": 0.204, "phase_G": 12.8},
+      {"name": "K1", "amplitude": 0.180, "phase_G": 137.8},
+      {"name": "O1", "amplitude": 0.100, "phase_G": 99.3}
+    ]
+  },
+  {
+    "id": "misumi",
+    "name": "三角（熊本）",
+    "lat": 32.62,
+    "lon": 130.47,
+    "z0": 1.55,
+    "constituents": [
+      {"name": "M2", "amplitude": 1.152, "phase_G": 30.0},
+      {"name": "S2", "amplitude": 0.403, "phase_G": 58.0},
+      {"name": "N2", "amplitude": 0.242, "phase_G": 8.0},
+      {"name": "K1", "amplitude": 0.182, "phase_G": 135.0},
+      {"name": "O1", "amplitude": 0.102, "phase_G": 97.0}
+    ]
+  },
+  {
+    "id": "yatsushiro",
+    "name": "八代",
+    "lat": 32.52,
+    "lon": 130.58,
+    "z0": 1.65,
+    "constituents": [
+      {"name": "M2", "amplitude": 1.248, "phase_G": 28.0},
+      {"name": "S2", "amplitude": 0.437, "phase_G": 56.0},
+      {"name": "N2", "amplitude": 0.262, "phase_G": 6.0},
+      {"name": "K1", "amplitude": 0.182, "phase_G": 133.0},
+      {"name": "O1", "amplitude": 0.102, "phase_G": 95.0}
+    ]
+  },
+  {
+    "id": "miyazaki",
+    "name": "宮崎",
+    "lat": 31.92,
+    "lon": 131.43,
+    "z0": 0.97,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.682, "phase_G": 80.0},
+      {"name": "S2", "amplitude": 0.239, "phase_G": 108.0},
+      {"name": "N2", "amplitude": 0.143, "phase_G": 58.0},
+      {"name": "K1", "amplitude": 0.162, "phase_G": 156.0},
+      {"name": "O1", "amplitude": 0.090, "phase_G": 118.0}
+    ]
+  },
+  {
+    "id": "aburatsu",
+    "name": "油津",
+    "lat": 31.57,
+    "lon": 131.40,
+    "z0": 1.00,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.718, "phase_G": 78.0},
+      {"name": "S2", "amplitude": 0.251, "phase_G": 106.0},
+      {"name": "N2", "amplitude": 0.151, "phase_G": 56.0},
+      {"name": "K1", "amplitude": 0.168, "phase_G": 155.0},
+      {"name": "O1", "amplitude": 0.092, "phase_G": 116.0}
+    ]
+  },
+  {
+    "id": "kagoshima",
+    "name": "鹿児島",
+    "lat": 31.58,
+    "lon": 130.55,
+    "z0": 1.05,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.778, "phase_G": 48.0},
+      {"name": "S2", "amplitude": 0.272, "phase_G": 76.0},
+      {"name": "N2", "amplitude": 0.163, "phase_G": 26.0},
+      {"name": "K1", "amplitude": 0.170, "phase_G": 145.0},
+      {"name": "O1", "amplitude": 0.094, "phase_G": 107.0}
+    ]
+  },
+  {
+    "id": "makurazaki",
+    "name": "枕崎",
+    "lat": 31.27,
+    "lon": 130.30,
+    "z0": 1.00,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.748, "phase_G": 52.0},
+      {"name": "S2", "amplitude": 0.262, "phase_G": 80.0},
+      {"name": "N2", "amplitude": 0.157, "phase_G": 30.0},
+      {"name": "K1", "amplitude": 0.168, "phase_G": 147.0},
+      {"name": "O1", "amplitude": 0.092, "phase_G": 109.0}
+    ]
+  },
+  {
+    "id": "sakaiminato",
+    "name": "境港",
+    "lat": 35.55,
+    "lon": 133.23,
+    "z0": 0.35,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.198, "phase_G": 135.0},
+      {"name": "S2", "amplitude": 0.069, "phase_G": 163.0},
+      {"name": "N2", "amplitude": 0.042, "phase_G": 113.0},
+      {"name": "K1", "amplitude": 0.100, "phase_G": 90.0},
+      {"name": "O1", "amplitude": 0.060, "phase_G": 52.0}
+    ]
+  },
+  {
+    "id": "hamada",
+    "name": "浜田",
+    "lat": 34.90,
+    "lon": 132.07,
+    "z0": 0.28,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.158, "phase_G": 140.0},
+      {"name": "S2", "amplitude": 0.055, "phase_G": 168.0},
+      {"name": "N2", "amplitude": 0.033, "phase_G": 118.0},
+      {"name": "K1", "amplitude": 0.082, "phase_G": 95.0},
+      {"name": "O1", "amplitude": 0.050, "phase_G": 57.0}
+    ]
+  },
+  {
+    "id": "maizuru",
+    "name": "舞鶴",
+    "lat": 35.47,
+    "lon": 135.37,
+    "z0": 0.20,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.098, "phase_G": 148.0},
+      {"name": "S2", "amplitude": 0.034, "phase_G": 176.0},
+      {"name": "N2", "amplitude": 0.021, "phase_G": 126.0},
+      {"name": "K1", "amplitude": 0.078, "phase_G": 105.0},
+      {"name": "O1", "amplitude": 0.048, "phase_G": 65.0}
+    ]
+  },
+  {
+    "id": "tsuruga",
+    "name": "敦賀",
+    "lat": 35.65,
+    "lon": 136.07,
+    "z0": 0.22,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.118, "phase_G": 145.0},
+      {"name": "S2", "amplitude": 0.041, "phase_G": 173.0},
+      {"name": "N2", "amplitude": 0.025, "phase_G": 123.0},
+      {"name": "K1", "amplitude": 0.080, "phase_G": 102.0},
+      {"name": "O1", "amplitude": 0.050, "phase_G": 62.0}
+    ]
+  },
+  {
+    "id": "kanazawa",
+    "name": "金沢",
+    "lat": 36.62,
+    "lon": 136.62,
+    "z0": 0.18,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.100, "phase_G": 150.0},
+      {"name": "S2", "amplitude": 0.035, "phase_G": 178.0},
+      {"name": "N2", "amplitude": 0.021, "phase_G": 128.0},
+      {"name": "K1", "amplitude": 0.072, "phase_G": 107.0},
+      {"name": "O1", "amplitude": 0.045, "phase_G": 67.0}
+    ]
+  },
+  {
+    "id": "wajima",
+    "name": "輪島",
+    "lat": 37.40,
+    "lon": 136.90,
+    "z0": 0.16,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.088, "phase_G": 152.0},
+      {"name": "S2", "amplitude": 0.031, "phase_G": 180.0},
+      {"name": "N2", "amplitude": 0.018, "phase_G": 130.0},
+      {"name": "K1", "amplitude": 0.068, "phase_G": 108.0},
+      {"name": "O1", "amplitude": 0.042, "phase_G": 68.0}
+    ]
+  },
+  {
+    "id": "ryotsu",
+    "name": "佐渡（両津）",
+    "lat": 38.08,
+    "lon": 138.43,
+    "z0": 0.12,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.072, "phase_G": 158.0},
+      {"name": "S2", "amplitude": 0.025, "phase_G": 186.0},
+      {"name": "N2", "amplitude": 0.015, "phase_G": 136.0},
+      {"name": "K1", "amplitude": 0.055, "phase_G": 112.0},
+      {"name": "O1", "amplitude": 0.035, "phase_G": 72.0}
+    ]
+  },
+  {
+    "id": "niigata",
+    "name": "新潟",
+    "lat": 37.92,
+    "lon": 139.02,
+    "z0": 0.10,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.062, "phase_G": 165.0},
+      {"name": "S2", "amplitude": 0.022, "phase_G": 193.0},
+      {"name": "N2", "amplitude": 0.013, "phase_G": 143.0},
+      {"name": "K1", "amplitude": 0.048, "phase_G": 115.0},
+      {"name": "O1", "amplitude": 0.030, "phase_G": 75.0}
+    ]
+  },
+  {
+    "id": "sakata",
+    "name": "酒田",
+    "lat": 38.92,
+    "lon": 139.83,
+    "z0": 0.12,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.072, "phase_G": 160.0},
+      {"name": "S2", "amplitude": 0.025, "phase_G": 188.0},
+      {"name": "N2", "amplitude": 0.015, "phase_G": 138.0},
+      {"name": "K1", "amplitude": 0.052, "phase_G": 113.0},
+      {"name": "O1", "amplitude": 0.032, "phase_G": 73.0}
+    ]
+  },
+  {
+    "id": "naze",
+    "name": "名瀬（奄美）",
+    "lat": 28.37,
+    "lon": 129.48,
+    "z0": 0.70,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.378, "phase_G": 10.0},
+      {"name": "S2", "amplitude": 0.132, "phase_G": 38.0},
+      {"name": "N2", "amplitude": 0.079, "phase_G": 348.0},
+      {"name": "K1", "amplitude": 0.252, "phase_G": 335.0},
+      {"name": "O1", "amplitude": 0.198, "phase_G": 315.0}
+    ]
+  },
+  {
+    "id": "naha",
+    "name": "那覇",
+    "lat": 26.22,
+    "lon": 127.67,
+    "z0": 0.78,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.428, "phase_G": 350.3},
+      {"name": "S2", "amplitude": 0.150, "phase_G": 16.8},
+      {"name": "N2", "amplitude": 0.089, "phase_G": 328.3},
+      {"name": "K1", "amplitude": 0.278, "phase_G": 329.8},
+      {"name": "O1", "amplitude": 0.218, "phase_G": 309.3}
+    ]
+  },
+  {
+    "id": "ishigaki",
+    "name": "石垣島",
+    "lat": 24.34,
+    "lon": 124.16,
+    "z0": 0.60,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.283, "phase_G": 340.5},
+      {"name": "S2", "amplitude": 0.099, "phase_G": 6.0},
+      {"name": "N2", "amplitude": 0.059, "phase_G": 318.5},
+      {"name": "K1", "amplitude": 0.258, "phase_G": 324.8},
+      {"name": "O1", "amplitude": 0.203, "phase_G": 304.3}
     ]
   }
 ]
