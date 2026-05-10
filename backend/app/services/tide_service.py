@@ -1,5 +1,11 @@
 """
-潮汐推算サービス。
+潮汐情報サービス。
+tide736.net の潮汐APIを参考情報として取得する。
+
+外部サービスの停止・仕様変更・アクセス制限時は available=false を返し、
+アプリ本体や防災判断には影響させない。
+
+以下の自前調和推算コードは再検証用に残しているが、ユーザー向け表示には使わない。
 調和定数（振幅・位相遅れ）から外部APIなしで潮位を計算する。
 
 正式公式:
@@ -19,7 +25,9 @@
 import json
 import math
 import logging
-from datetime import datetime, timezone, timedelta
+import urllib.parse
+import urllib.request
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -61,7 +69,11 @@ _CONSTITUENTS: dict = {
 
 _STATIONS: list = []
 _CACHE: dict = {}   # { station_id: { "events": [...], "expires_at": datetime } }
+_TIDE736_CACHE: dict = {}  # { (station_id, YYYY-MM-DD): { "data": dict, "expires_at": datetime } }
 _CACHE_TTL = timedelta(minutes=60)
+_TIDE736_CACHE_TTL = timedelta(hours=3)
+_TIDE736_URL = "https://api.tide736.net/get_tide.php"
+_TIDE736_TIMEOUT_SECONDS = 4
 
 _EXTREMA_STEP_MIN      = 10    # サンプリング間隔 [分]（浅海分潮の短周期変動を均す）
 _EXTREMA_MIN_GAP_HOURS = 2.5   # 隣接極値の最小間隔 [時間]（M4 誘発偽ピーク抑制）
@@ -251,11 +263,108 @@ def _format_jst(dt: datetime) -> str:
     return dt.astimezone(JST).isoformat()
 
 
+def _unavailable() -> dict:
+    return {"available": False, "source": "tide736", "is_reference": True}
+
+
+def _request_tide736(params: dict) -> dict:
+    query = urllib.parse.urlencode(params)
+    req = urllib.request.Request(
+        f"{_TIDE736_URL}?{query}",
+        headers={"User-Agent": "OnHighGround2/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=_TIDE736_TIMEOUT_SECONDS) as resp:
+        charset = resp.headers.get_content_charset() or "utf-8"
+        return json.loads(resp.read().decode(charset))
+
+
+def _fetch_tide736_day(station: dict, day: date) -> Optional[dict]:
+    tide736 = station.get("tide736") or {}
+    pc = tide736.get("pc")
+    hc = tide736.get("hc")
+    if not pc or not hc:
+        return None
+
+    now = datetime.now(JST)
+    date_key = day.isoformat()
+    cache_key = (station["id"], date_key)
+    cached = _TIDE736_CACHE.get(cache_key)
+    if cached and cached["expires_at"] > now:
+        return cached["data"]
+
+    try:
+        data = _request_tide736({
+            "pc": pc,
+            "hc": hc,
+            "yr": day.year,
+            "mn": day.month,
+            "dy": day.day,
+            "rg": "day",
+        })
+    except Exception as e:
+        logger.info("tide736: request failed station=%s date=%s: %s", station.get("id"), date_key, e)
+        return None
+
+    if data.get("status") != 1:
+        logger.info("tide736: non-success station=%s date=%s message=%s", station.get("id"), date_key, data.get("message"))
+        return None
+
+    _TIDE736_CACHE[cache_key] = {"data": data, "expires_at": now + _TIDE736_CACHE_TTL}
+    return data
+
+
+def _event_from_tide736_item(item: dict, event_type: str) -> Optional[dict]:
+    unix_ms = item.get("unix")
+    if unix_ms is None:
+        return None
+    try:
+        when = datetime.fromtimestamp(float(unix_ms) / 1000.0, JST)
+    except (TypeError, ValueError, OSError):
+        return None
+    event = {"type": event_type, "time": when}
+    if item.get("cm") is not None:
+        try:
+            event["height_cm"] = round(float(item["cm"]), 1)
+        except (TypeError, ValueError):
+            pass
+    return event
+
+
+def _build_tide736_events(station: dict, now: datetime) -> list:
+    events = []
+    for offset in (0, 1):
+        day = (now + timedelta(days=offset)).date()
+        data = _fetch_tide736_day(station, day)
+        if not data:
+            continue
+        chart = ((data.get("tide") or {}).get("chart") or {})
+        day_chart = chart.get(day.isoformat()) or {}
+        for item in day_chart.get("flood") or []:
+            event = _event_from_tide736_item(item, "high")
+            if event:
+                events.append(event)
+        for item in day_chart.get("edd") or []:
+            event = _event_from_tide736_item(item, "low")
+            if event:
+                events.append(event)
+    return sorted(events, key=lambda e: e["time"])
+
+
+def _format_tide736_event(event: Optional[dict], now: datetime, include_remaining: bool = False) -> Optional[dict]:
+    if not event:
+        return None
+    out = {"time": _format_jst(event["time"])}
+    if "height_cm" in event:
+        out["height_cm"] = event["height_cm"]
+    if include_remaining:
+        out["remaining_minutes"] = max(0, int((event["time"] - now).total_seconds() / 60))
+    return out
+
+
 def get_tide_info(lat: float, lon: float) -> Optional[dict]:
     """
-    現在地から最寄り地点の潮汐情報を返す。
-    キャッシュは絶対時刻イベントを保持し、remaining_minutes は毎回計算する。
-    TTL 60 分。
+    現在地から最寄り地点の参考潮汐情報を返す。
+    tide736 取得失敗・コード未設定・次イベントなしの場合は available=false。
     """
     if not _STATIONS:
         _load_stations()
@@ -264,44 +373,24 @@ def get_tide_info(lat: float, lon: float) -> Optional[dict]:
     if not station:
         return None
 
-    sid = station["id"]
     now = datetime.now(JST)
     dist_km = round(_haversine_km(lat, lon, station["lat"], station["lon"]), 1)
 
-    # キャッシュチェック（イベントリストを保持、remaining_minutes は毎回計算）
-    cached = _CACHE.get(sid)
-    if cached and cached["expires_at"] > now:
-        events = cached["events"]
-    else:
-        events = _build_tide_events(station, now)
-        _CACHE[sid] = {"events": events, "expires_at": now + _CACHE_TTL}
-
+    events = _build_tide736_events(station, now)
     next_high = next((e for e in events if e["type"] == "high" and e["time"] > now), None)
-    next_low  = next((e for e in events if e["type"] == "low"  and e["time"] > now), None)
-
-    # キャッシュ内イベントが全て過去になった場合は再計算
-    if next_high is None or next_low is None:
-        events = _build_tide_events(station, now)
-        _CACHE[sid] = {"events": events, "expires_at": now + _CACHE_TTL}
-        next_high = next((e for e in events if e["type"] == "high" and e["time"] > now), None)
-        next_low  = next((e for e in events if e["type"] == "low"  and e["time"] > now), None)
+    next_low = next((e for e in events if e["type"] == "low" and e["time"] > now), None)
+    if not next_high and not next_low:
+        return _unavailable()
 
     return {
+        "available": True,
         "station": {
             "id":          station["id"],
             "name":        station["name"],
             "distance_km": dist_km,
         },
-        "next_high_tide": {
-            "time":              _format_jst(next_high["time"]),
-            "height":            next_high["height"],
-            "remaining_minutes": max(0, int((next_high["time"] - now).total_seconds() / 60)),
-        } if next_high else None,
-        "next_low_tide": {
-            "time":   _format_jst(next_low["time"]),
-            "height": next_low["height"],
-        } if next_low else None,
-        "source":            "harmonic",
-        "accuracy":          "harmonic_estimation",
-        "constituent_count": len(station["constituents"]),
+        "next_high_tide": _format_tide736_event(next_high, now, include_remaining=True),
+        "next_low_tide": _format_tide736_event(next_low, now),
+        "source": "tide736",
+        "is_reference": True,
     }

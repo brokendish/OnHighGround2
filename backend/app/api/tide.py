@@ -2,7 +2,7 @@
 潮汐情報API — 現在地から最寄り地点の満潮・干潮情報を返す。
 """
 import logging
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query
 
 from app.services.tide_service import get_tide_info
 
@@ -19,10 +19,10 @@ async def get_tide_current(
     try:
         data = get_tide_info(lat, lon)
     except Exception as e:
-        logger.warning("tide calc failed lat=%s lon=%s: %s", lat, lon, e)
-        raise HTTPException(status_code=500, detail="潮汐情報の計算に失敗しました")
+        logger.warning("tide lookup failed lat=%s lon=%s: %s", lat, lon, e)
+        data = None
 
     if data is None:
-        raise HTTPException(status_code=503, detail="潮汐地点データが利用できません")
+        data = {"available": False, "source": "tide736", "is_reference": True}
 
     return {"lat": lat, "lon": lon, **data}
