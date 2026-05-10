@@ -1,0 +1,72 @@
+[
+  {
+    "id": "tokyo",
+    "name": "東京港",
+    "lat": 35.63,
+    "lon": 139.79,
+    "z0": 1.12,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.686, "phase_G": 147.2},
+      {"name": "S2", "amplitude": 0.243, "phase_G": 175.4},
+      {"name": "N2", "amplitude": 0.143, "phase_G": 124.8},
+      {"name": "K1", "amplitude": 0.164, "phase_G": 200.3},
+      {"name": "O1", "amplitude": 0.093, "phase_G": 165.1}
+    ]
+  },
+  {
+    "id": "yokohama",
+    "name": "横浜港",
+    "lat": 35.45,
+    "lon": 139.64,
+    "z0": 1.14,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.692, "phase_G": 148.8},
+      {"name": "S2", "amplitude": 0.245, "phase_G": 176.5},
+      {"name": "N2", "amplitude": 0.145, "phase_G": 126.5},
+      {"name": "K1", "amplitude": 0.165, "phase_G": 201.5},
+      {"name": "O1", "amplitude": 0.093, "phase_G": 166.2}
+    ]
+  },
+  {
+    "id": "chiba",
+    "name": "千葉港",
+    "lat": 35.58,
+    "lon": 140.08,
+    "z0": 1.18,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.673, "phase_G": 144.5},
+      {"name": "S2", "amplitude": 0.240, "phase_G": 172.8},
+      {"name": "N2", "amplitude": 0.141, "phase_G": 122.3},
+      {"name": "K1", "amplitude": 0.163, "phase_G": 198.7},
+      {"name": "O1", "amplitude": 0.092, "phase_G": 163.5}
+    ]
+  },
+  {
+    "id": "misaki",
+    "name": "三崎港",
+    "lat": 35.15,
+    "lon": 139.61,
+    "z0": 0.88,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.543, "phase_G": 141.3},
+      {"name": "S2", "amplitude": 0.192, "phase_G": 165.2},
+      {"name": "N2", "amplitude": 0.113, "phase_G": 119.5},
+      {"name": "K1", "amplitude": 0.148, "phase_G": 193.8},
+      {"name": "O1", "amplitude": 0.087, "phase_G": 158.4}
+    ]
+  },
+  {
+    "id": "enoshima",
+    "name": "江ノ島",
+    "lat": 35.30,
+    "lon": 139.48,
+    "z0": 0.92,
+    "constituents": [
+      {"name": "M2", "amplitude": 0.558, "phase_G": 142.8},
+      {"name": "S2", "amplitude": 0.198, "phase_G": 167.3},
+      {"name": "N2", "amplitude": 0.116, "phase_G": 120.8},
+      {"name": "K1", "amplitude": 0.151, "phase_G": 195.2},
+      {"name": "O1", "amplitude": 0.088, "phase_G": 160.1}
+    ]
+  }
+]

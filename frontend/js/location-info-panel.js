@@ -868,5 +868,82 @@ async function _astroUpdate(lat, lon) {
     }
 }
 
+// ── 潮汐情報 ──────────────────────────────────────────────────────
+
+const _TIDE_CACHE_TTL_MS = 30 * 60 * 1000;  // 30分
+let _tideCache = null;  // { lat, lon, data, fetchedAt }
+
+async function _tideFetch(lat, lon) {
+    const now = Date.now();
+    if (
+        _tideCache &&
+        Math.abs(_tideCache.lat - lat) < 0.05 &&
+        Math.abs(_tideCache.lon - lon) < 0.05 &&
+        now - _tideCache.fetchedAt < _TIDE_CACHE_TTL_MS
+    ) {
+        return _tideCache.data;
+    }
+    try {
+        const res = await fetch(`/api/tide/current?lat=${lat}&lon=${lon}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        _tideCache = { lat, lon, data, fetchedAt: now };
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+function _tideFmtRemaining(minutes) {
+    if (minutes == null || minutes < 0) return '--';
+    const m = Math.round(minutes);
+    if (m < 60) return `${m}分`;
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    return min > 0 ? `${h}h${min}m` : `${h}h`;
+}
+
+function _tideFmtTime(isoStr) {
+    if (!isoStr) return '--';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '--';
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+async function _tideUpdate(lat, lon) {
+    const data = await _tideFetch(lat, lon);
+    const section = document.getElementById('lip-tide-section');
+    if (!section) return;
+
+    if (!data) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = '';
+
+    const highEl = document.getElementById('lip-tide-high');
+    if (highEl) {
+        highEl.textContent = data.next_high_tide
+            ? _tideFmtRemaining(data.next_high_tide.remaining_minutes)
+            : '--';
+    }
+
+    const lowEl = document.getElementById('lip-tide-low');
+    if (lowEl) {
+        lowEl.textContent = data.next_low_tide
+            ? _tideFmtTime(data.next_low_tide.time)
+            : '--';
+    }
+
+    const stEl = document.getElementById('lip-tide-station');
+    if (stEl && data.station) {
+        const dist = data.station.distance_km != null
+            ? `現在地から約${Math.round(data.station.distance_km)}km`
+            : '';
+        stEl.textContent = dist ? `${data.station.name}（${dist}）` : data.station.name;
+    }
+}
+
 // 起動時1回のみ実行（他のスクリプトがすべてロード済みの状態で実行される）
 _lipInit();
