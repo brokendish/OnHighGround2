@@ -14,30 +14,146 @@ raw ディレクトリ (h{code}.txt) を読み込み、
         --output-dir data_lake/normalized/japan/tide/jma/2026
 """
 import argparse
-import importlib.util
 import json
 import logging
 import sys
+from collections import defaultdict
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
+from typing import Optional
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# ── インライン潮汐パーサー（tide_parser.py から移植、外部依存なし） ─────────
+
+TIDE_FORMAT = {
+    "line_start": 0,
+    "value_width": 3,
+    "hourly_count": 24,
+    "date_start": 72,
+    "station_start": 78,
+}
+
+_MISSING_VALUE = 999
+_JST = timezone(timedelta(hours=9))
 
 
-def _load_tide_parser():
-    """tide_parser をファイルパス直接ロードする（sys.path 操作なし）。"""
-    parser_path = _PROJECT_ROOT / "backend" / "app" / "services" / "tide_parser.py"
-    if not parser_path.exists():
-        print(f"ERROR: tide_parser.py not found: {parser_path}", file=sys.stderr)
-        sys.exit(1)
-    spec = importlib.util.spec_from_file_location("tide_parser", parser_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+class TideFormatError(ValueError):
+    pass
 
 
-_tide_parser = _load_tide_parser()
-iter_hourly = _tide_parser.iter_hourly
-find_extremes = _tide_parser.find_extremes
+def _parse_century(yy: int) -> int:
+    return 2000 + yy if yy < 50 else 1900 + yy
+
+
+def _parse_line(line: str, *, strict: bool = False) -> tuple[Optional[date], list[Optional[int]]]:
+    required_len = TIDE_FORMAT["station_start"] + 2
+    if len(line) < required_len:
+        if strict:
+            raise TideFormatError(f"fixed length short: expected>={required_len} actual={len(line)}")
+        return None, []
+
+    date_field = line[TIDE_FORMAT["date_start"]:TIDE_FORMAT["station_start"]]
+    try:
+        yy = int(date_field[0:2])
+        mm = int(date_field[2:4])
+        dd = int(date_field[4:6])
+    except ValueError:
+        if strict and line[:72].strip():
+            raise TideFormatError(f"invalid date field: {date_field!r}")
+        return None, []
+    try:
+        year = _parse_century(yy)
+        day = date(year, mm, dd)
+    except ValueError:
+        if strict:
+            raise TideFormatError(f"invalid date: {date_field!r}")
+        return None, []
+
+    start = TIDE_FORMAT["line_start"]
+    width = TIDE_FORMAT["value_width"]
+    count = TIDE_FORMAT["hourly_count"]
+    values: list[Optional[int]] = []
+    for i in range(count):
+        chunk = line[start + i * width : start + (i + 1) * width]
+        if len(chunk) < width:
+            if strict:
+                raise TideFormatError(f"short hourly field hour={i}")
+            return day, []
+        try:
+            val = int(chunk)
+            values.append(None if val == _MISSING_VALUE else val)
+        except ValueError:
+            if strict:
+                raise TideFormatError(f"invalid hourly field hour={i} value={chunk!r}")
+            values.append(None)
+
+    return day, values
+
+
+def iter_hourly(station_code: str, text: str, *, log_errors: bool = False) -> list[dict]:
+    records = []
+    for lineno, raw_line in enumerate(text.splitlines(), 1):
+        line = raw_line.rstrip()
+        if not line:
+            continue
+        try:
+            day, values = _parse_line(line, strict=log_errors)
+        except TideFormatError as exc:
+            logger.error("invalid tide format station=%s line=%d: %s", station_code, lineno, exc)
+            continue
+        if day is None:
+            continue
+        if len(values) != TIDE_FORMAT["hourly_count"]:
+            if log_errors:
+                logger.error(
+                    "invalid tide format station=%s line=%d: hourly_count=%d",
+                    station_code, lineno, len(values),
+                )
+            continue
+        for hour, cm in enumerate(values):
+            dt = datetime(day.year, day.month, day.day, hour, 0, 0, tzinfo=_JST)
+            records.append({
+                "station": station_code,
+                "datetime": dt.isoformat(),
+                "tide_cm": cm,
+            })
+    return records
+
+
+def find_extremes(station_code: str, hourly: list[dict]) -> list[dict]:
+    by_date: dict[str, list[dict]] = defaultdict(list)
+    for rec in hourly:
+        by_date[rec["datetime"][:10]].append(rec)
+
+    result = []
+    for day_str in sorted(by_date):
+        day_recs = by_date[day_str]
+        valid = [(i, r) for i, r in enumerate(day_recs) if r["tide_cm"] is not None]
+
+        highs: list[dict] = []
+        lows: list[dict] = []
+
+        for idx, (i, rec) in enumerate(valid):
+            cm = rec["tide_cm"]
+            prev_cm = valid[idx - 1][1]["tide_cm"] if idx > 0 else None
+            next_cm = valid[idx + 1][1]["tide_cm"] if idx < len(valid) - 1 else None
+
+            if prev_cm is not None and next_cm is not None:
+                if cm >= prev_cm and cm >= next_cm:
+                    highs.append({"time": rec["datetime"], "tide_cm": cm})
+                elif cm <= prev_cm and cm <= next_cm:
+                    lows.append({"time": rec["datetime"], "tide_cm": cm})
+
+        result.append({
+            "station": station_code,
+            "date": day_str,
+            "high_tides": highs,
+            "low_tides": lows,
+        })
+
+    return result
+
+
+# ── ロギング設定 ─────────────────────────────────────────────────────────────
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,27 +162,48 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-_STATION_MASTER = _PROJECT_ROOT / "data_lake" / "registry" / "station_master.json"
-_LEGACY_STATION_MASTER = _PROJECT_ROOT / "data_lake" / "registry" / "tide_station_master.json"
+
+# ── ステーションマスター ─────────────────────────────────────────────────────
+
+def _find_station_master() -> Optional[Path]:
+    """スクリプト位置を基点に station_master.json を探す。
+
+    ローカル: scripts/normalize/ → 2階層上 = プロジェクトルート
+    VPS (Docker): /scripts/normalize/ → 2階層上 = / → /data_lake/registry/
+    """
+    script_dir = Path(__file__).resolve().parent
+    candidates_roots = [
+        script_dir.parents[1],  # プロジェクトルート or / (VPS)
+        script_dir.parents[0],  # scripts/normalize
+        Path("/app"),           # 一般的な Docker マウント点
+    ]
+    for root_candidate in candidates_roots:
+        for name in ("station_master.json", "tide_station_master.json"):
+            candidate = root_candidate / "data_lake" / "registry" / name
+            if candidate.exists():
+                return candidate
+    return None
 
 
 def _load_station_codes() -> set[str]:
-    station_master = _STATION_MASTER if _STATION_MASTER.exists() else _LEGACY_STATION_MASTER
-    if not station_master.exists():
-        logger.error("station_master not found: %s", _STATION_MASTER)
+    master = _find_station_master()
+    if master is None:
+        logger.error("station_master not found")
         sys.exit(1)
-    with station_master.open(encoding="utf-8") as f:
+    logger.info("station_master: %s", master)
+    with master.open(encoding="utf-8") as f:
         stations = json.load(f)
     return {s["station_code"] for s in stations}
 
 
 def _year_from_dir(raw_dir: Path) -> str:
-    """ディレクトリパスから年を推定する (例: .../2026 → "2026")。"""
     for part in reversed(raw_dir.parts):
         if part.isdigit() and len(part) == 4:
             return part
     return "unknown"
 
+
+# ── メイン ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Normalize JMA tide table text to JSONL")
@@ -104,7 +241,6 @@ def main() -> None:
          extremes_path.open("w", encoding="utf-8") as fe:
 
         for txt_file in txt_files:
-            # ファイル名から地点コードを取得: h{CODE}.txt
             stem = txt_file.stem  # "hTK"
             if not stem.startswith("h"):
                 continue
