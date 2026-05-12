@@ -41,14 +41,13 @@ def _load_stations() -> list[dict]:
 
 
 def _resolve_runtime_dir() -> Optional[Path]:
-    """最新の年度ディレクトリを返す。"""
+    """runtime ディレクトリを返す。JSONL が直置きされている場合はそのまま返す。"""
     if not _RUNTIME_BASE.exists():
         return None
-    year_dirs = sorted(
-        (d for d in _RUNTIME_BASE.iterdir() if d.is_dir() and d.name.isdigit()),
-        reverse=True,
-    )
-    return year_dirs[0] if year_dirs else None
+    # JSONL が直接置かれている（年非依存レイアウト）
+    if any(_RUNTIME_BASE.glob("tide_hourly_*.jsonl")):
+        return _RUNTIME_BASE
+    return None
 
 
 def _load_runtime() -> None:
@@ -61,9 +60,10 @@ def _load_runtime() -> None:
         logger.warning("tide: no runtime dir found under %s", _RUNTIME_BASE)
         return
 
-    year = runtime_dir.name
-
     hourly_files = sorted(runtime_dir.glob("tide_hourly_*.jsonl"))
+
+    # 年はファイル名から取得: tide_hourly_2026.jsonl → "2026"
+    year = hourly_files[0].stem.split("_")[-1] if hourly_files else "unknown"
     extremes_files = sorted(runtime_dir.glob("tide_extremes_*.jsonl"))
 
     if not hourly_files:

@@ -501,6 +501,12 @@ async def _run_post_ingest_pipeline(
     state.last_job_id = job.job_id
     ss.save(state)
 
+    # auto_deploy が有効な場合、validate 成功後にそのまま deploy まで実行する
+    if defn.auto_deploy and state.is_deployable:
+        jm.log(job, "=== auto_deploy: normalize/validate 完了、自動デプロイを開始 ===")
+        await run_deploy(job, defn, state, jm, ss)
+        return
+
     jm.update(job, status=JobStatus.success, step=JobStep.completed,
                progress_message="取り込みが完了しました。反映ボタンから実行環境への反映が可能です。",
                exit_code=0)

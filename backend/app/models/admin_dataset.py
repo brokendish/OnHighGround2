@@ -177,6 +177,10 @@ class DatasetDefinition(BaseModel):
     # _do_normalize が --output-dir を渡し、current_normalized_path にディレクトリパスを格納する。
     normalized_output_dir: bool = False
 
+    # True の場合、normalize+validate 成功後に deploy を自動実行する。
+    # 非エンジニア向けのワンクリック更新フローに使用する。
+    auto_deploy: bool = False
+
     # 追加属性（year など、スクリプトへ渡す任意パラメータ）
     extra_attrs: Optional[dict] = None
 
