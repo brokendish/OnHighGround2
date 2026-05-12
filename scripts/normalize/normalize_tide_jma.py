@@ -14,15 +14,30 @@ raw ディレクトリ (h{code}.txt) を読み込み、
         --output-dir data_lake/normalized/japan/tide/jma/2026
 """
 import argparse
+import importlib.util
 import json
 import logging
 import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_PROJECT_ROOT / "backend"))
 
-from app.services.tide_parser import iter_hourly, find_extremes
+
+def _load_tide_parser():
+    """tide_parser をファイルパス直接ロードする（sys.path 操作なし）。"""
+    parser_path = _PROJECT_ROOT / "backend" / "app" / "services" / "tide_parser.py"
+    if not parser_path.exists():
+        print(f"ERROR: tide_parser.py not found: {parser_path}", file=sys.stderr)
+        sys.exit(1)
+    spec = importlib.util.spec_from_file_location("tide_parser", parser_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_tide_parser = _load_tide_parser()
+iter_hourly = _tide_parser.iter_hourly
+find_extremes = _tide_parser.find_extremes
 
 logging.basicConfig(
     level=logging.INFO,
