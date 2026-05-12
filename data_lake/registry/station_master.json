@@ -1,0 +1,452 @@
+[
+  {
+    "station_code": "WN",
+    "name": "稚内",
+    "lat": 45.408,
+    "lon": 141.675,
+    "prefecture": "北海道",
+    "station_name": "稚内",
+    "legacy_station_code": "WK"
+  },
+  {
+    "station_code": "B3",
+    "name": "小樽",
+    "lat": 43.192,
+    "lon": 141.002,
+    "prefecture": "北海道",
+    "station_name": "小樽",
+    "legacy_station_code": "OT"
+  },
+  {
+    "station_code": "HK",
+    "name": "函館",
+    "lat": 41.783,
+    "lon": 140.717,
+    "prefecture": "北海道",
+    "station_name": "函館",
+    "legacy_station_code": "HK"
+  },
+  {
+    "station_code": "A8",
+    "name": "室蘭",
+    "lat": 42.35,
+    "lon": 140.967,
+    "prefecture": "北海道",
+    "station_name": "室蘭",
+    "legacy_station_code": "MR"
+  },
+  {
+    "station_code": "ES",
+    "name": "江差",
+    "lat": 41.867,
+    "lon": 140.125,
+    "prefecture": "北海道",
+    "station_name": "江差",
+    "legacy_station_code": "EM"
+  },
+  {
+    "station_code": "KR",
+    "name": "釧路",
+    "lat": 42.982,
+    "lon": 144.383,
+    "prefecture": "北海道",
+    "station_name": "釧路",
+    "legacy_station_code": "KS"
+  },
+  {
+    "station_code": "AS",
+    "name": "網走",
+    "lat": 44.017,
+    "lon": 144.267,
+    "prefecture": "北海道",
+    "station_name": "網走",
+    "legacy_station_code": "AB"
+  },
+  {
+    "station_code": "B4",
+    "name": "大間",
+    "lat": 41.517,
+    "lon": 141.317,
+    "prefecture": "青森",
+    "station_name": "大間",
+    "legacy_station_code": "OM"
+  },
+  {
+    "station_code": "MY",
+    "name": "宮古",
+    "lat": 39.65,
+    "lon": 141.967,
+    "prefecture": "岩手",
+    "station_name": "宮古",
+    "legacy_station_code": "MY"
+  },
+  {
+    "station_code": "Q6",
+    "name": "釜石",
+    "lat": 39.267,
+    "lon": 141.883,
+    "prefecture": "岩手",
+    "station_name": "釜石",
+    "legacy_station_code": "KA"
+  },
+  {
+    "station_code": "SG",
+    "name": "塩釜",
+    "lat": 38.317,
+    "lon": 141.017,
+    "prefecture": "宮城",
+    "station_name": "塩釜",
+    "legacy_station_code": "SM"
+  },
+  {
+    "station_code": "E6",
+    "name": "石巻",
+    "lat": 38.433,
+    "lon": 141.3,
+    "prefecture": "宮城",
+    "station_name": "石巻",
+    "legacy_station_code": "IS"
+  },
+  {
+    "station_code": "ZM",
+    "name": "相馬",
+    "lat": 37.833,
+    "lon": 140.967,
+    "prefecture": "福島",
+    "station_name": "相馬",
+    "legacy_station_code": "SO"
+  },
+  {
+    "station_code": "ON",
+    "name": "小名浜",
+    "lat": 36.933,
+    "lon": 140.9,
+    "prefecture": "福島",
+    "station_name": "小名浜",
+    "legacy_station_code": "OH2"
+  },
+  {
+    "station_code": "CS",
+    "name": "銚子漁港",
+    "lat": 35.733,
+    "lon": 140.867,
+    "prefecture": "千葉",
+    "station_name": "銚子漁港",
+    "legacy_station_code": "CH"
+  },
+  {
+    "station_code": "ZF",
+    "name": "勝浦",
+    "lat": 35.15,
+    "lon": 140.317,
+    "prefecture": "千葉",
+    "station_name": "勝浦",
+    "legacy_station_code": "KU"
+  },
+  {
+    "station_code": "TK",
+    "name": "東京",
+    "lat": 35.65,
+    "lon": 139.767,
+    "prefecture": "東京",
+    "station_name": "東京",
+    "legacy_station_code": "TK"
+  },
+  {
+    "station_code": "MJ",
+    "name": "三宅島（坪田）",
+    "lat": 34.067,
+    "lon": 139.467,
+    "prefecture": "東京",
+    "station_name": "三宅島（坪田）",
+    "legacy_station_code": "MJ"
+  },
+  {
+    "station_code": "QS",
+    "name": "横浜",
+    "lat": 35.45,
+    "lon": 139.65,
+    "prefecture": "神奈川",
+    "station_name": "横浜",
+    "legacy_station_code": "YK"
+  },
+  {
+    "station_code": "Z1",
+    "name": "油壺",
+    "lat": 35.133,
+    "lon": 139.617,
+    "prefecture": "神奈川",
+    "station_name": "油壺",
+    "legacy_station_code": "MK"
+  },
+  {
+    "station_code": "D6",
+    "name": "下田",
+    "lat": 34.683,
+    "lon": 138.95,
+    "prefecture": "静岡",
+    "station_name": "下田",
+    "legacy_station_code": "SN"
+  },
+  {
+    "station_code": "Z5",
+    "name": "焼津",
+    "lat": 34.867,
+    "lon": 138.333,
+    "prefecture": "静岡",
+    "station_name": "焼津",
+    "legacy_station_code": "YI"
+  },
+  {
+    "station_code": "SM",
+    "name": "清水港",
+    "lat": 35.017,
+    "lon": 138.517,
+    "prefecture": "静岡",
+    "station_name": "清水港",
+    "legacy_station_code": "SZ"
+  },
+  {
+    "station_code": "OM",
+    "name": "御前崎",
+    "lat": 34.6,
+    "lon": 138.217,
+    "prefecture": "静岡",
+    "station_name": "御前崎",
+    "legacy_station_code": "OI"
+  },
+  {
+    "station_code": "NG",
+    "name": "名古屋",
+    "lat": 35.083,
+    "lon": 136.883,
+    "prefecture": "愛知",
+    "station_name": "名古屋",
+    "legacy_station_code": "NG"
+  },
+  {
+    "station_code": "ZD",
+    "name": "鬼崎",
+    "lat": 34.95,
+    "lon": 136.883,
+    "prefecture": "愛知",
+    "station_name": "鬼崎",
+    "legacy_station_code": "OK2"
+  },
+  {
+    "station_code": "OW",
+    "name": "尾鷲",
+    "lat": 34.067,
+    "lon": 136.2,
+    "prefecture": "三重",
+    "station_name": "尾鷲",
+    "legacy_station_code": "OU"
+  },
+  {
+    "station_code": "OS",
+    "name": "大阪",
+    "lat": 34.65,
+    "lon": 135.433,
+    "prefecture": "大阪",
+    "station_name": "大阪",
+    "legacy_station_code": "OS"
+  },
+  {
+    "station_code": "KB",
+    "name": "神戸",
+    "lat": 34.683,
+    "lon": 135.183,
+    "prefecture": "兵庫",
+    "station_name": "神戸",
+    "legacy_station_code": "KB"
+  },
+  {
+    "station_code": "WY",
+    "name": "和歌山",
+    "lat": 34.217,
+    "lon": 135.167,
+    "prefecture": "和歌山",
+    "station_name": "和歌山",
+    "legacy_station_code": "WJ"
+  },
+  {
+    "station_code": "KC",
+    "name": "高知",
+    "lat": 33.567,
+    "lon": 133.567,
+    "prefecture": "高知",
+    "station_name": "高知",
+    "legacy_station_code": "KO"
+  },
+  {
+    "station_code": "MU",
+    "name": "室戸岬",
+    "lat": 33.25,
+    "lon": 134.167,
+    "prefecture": "高知",
+    "station_name": "室戸岬",
+    "legacy_station_code": "MU"
+  },
+  {
+    "station_code": "UW",
+    "name": "宇和島",
+    "lat": 33.233,
+    "lon": 132.567,
+    "prefecture": "愛媛",
+    "station_name": "宇和島",
+    "legacy_station_code": "UW"
+  },
+  {
+    "station_code": "MT",
+    "name": "松山",
+    "lat": 33.833,
+    "lon": 132.717,
+    "prefecture": "愛媛",
+    "station_name": "松山",
+    "legacy_station_code": "MS"
+  },
+  {
+    "station_code": "Q8",
+    "name": "広島",
+    "lat": 34.35,
+    "lon": 132.467,
+    "prefecture": "広島",
+    "station_name": "広島",
+    "legacy_station_code": "HR"
+  },
+  {
+    "station_code": "Q9",
+    "name": "呉",
+    "lat": 34.233,
+    "lon": 132.567,
+    "prefecture": "広島",
+    "station_name": "呉",
+    "legacy_station_code": "KN"
+  },
+  {
+    "station_code": "TA",
+    "name": "高松",
+    "lat": 34.35,
+    "lon": 134.05,
+    "prefecture": "香川",
+    "station_name": "高松",
+    "legacy_station_code": "TK2"
+  },
+  {
+    "station_code": "ST",
+    "name": "洲本",
+    "lat": 34.333,
+    "lon": 134.883,
+    "prefecture": "兵庫",
+    "station_name": "洲本",
+    "legacy_station_code": "SB"
+  },
+  {
+    "station_code": "NS",
+    "name": "長崎",
+    "lat": 32.733,
+    "lon": 129.867,
+    "prefecture": "長崎",
+    "station_name": "長崎",
+    "legacy_station_code": "NS"
+  },
+  {
+    "station_code": "X5",
+    "name": "佐伯",
+    "lat": 32.967,
+    "lon": 131.9,
+    "prefecture": "大分",
+    "station_name": "佐伯",
+    "legacy_station_code": "SK"
+  },
+  {
+    "station_code": "AB",
+    "name": "油津",
+    "lat": 31.567,
+    "lon": 131.417,
+    "prefecture": "宮崎",
+    "station_name": "油津",
+    "legacy_station_code": "AO"
+  },
+  {
+    "station_code": "KG",
+    "name": "鹿児島",
+    "lat": 31.6,
+    "lon": 130.567,
+    "prefecture": "鹿児島",
+    "station_name": "鹿児島",
+    "legacy_station_code": "KG"
+  },
+  {
+    "station_code": "O9",
+    "name": "奄美",
+    "lat": 28.333,
+    "lon": 129.567,
+    "prefecture": "鹿児島",
+    "station_name": "奄美",
+    "legacy_station_code": "AM"
+  },
+  {
+    "station_code": "NH",
+    "name": "那覇",
+    "lat": 26.217,
+    "lon": 127.667,
+    "prefecture": "沖縄",
+    "station_name": "那覇",
+    "legacy_station_code": "NK"
+  },
+  {
+    "station_code": "IS",
+    "name": "石垣",
+    "lat": 24.333,
+    "lon": 124.167,
+    "prefecture": "沖縄",
+    "station_name": "石垣",
+    "legacy_station_code": "IR"
+  },
+  {
+    "station_code": "MI",
+    "name": "舞阪",
+    "lat": 34.683,
+    "lon": 137.617,
+    "prefecture": "静岡",
+    "station_name": "舞阪",
+    "legacy_station_code": "MT"
+  },
+  {
+    "station_code": "S1",
+    "name": "秋田",
+    "lat": 39.75,
+    "lon": 140.1,
+    "prefecture": "秋田",
+    "station_name": "秋田",
+    "legacy_station_code": "AK"
+  },
+  {
+    "station_code": "S9",
+    "name": "酒田",
+    "lat": 38.933,
+    "lon": 139.833,
+    "prefecture": "山形",
+    "station_name": "酒田",
+    "legacy_station_code": "SA"
+  },
+  {
+    "station_code": "T1",
+    "name": "金沢",
+    "lat": 36.567,
+    "lon": 136.633,
+    "prefecture": "石川",
+    "station_name": "金沢",
+    "legacy_station_code": "KT"
+  },
+  {
+    "station_code": "O1",
+    "name": "対馬",
+    "lat": 34.2,
+    "lon": 129.283,
+    "prefecture": "長崎",
+    "station_name": "対馬",
+    "legacy_station_code": "TS"
+  }
+]

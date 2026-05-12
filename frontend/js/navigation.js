@@ -1566,6 +1566,7 @@ function fetchCurrentLocInfo(lat, lon, elevation, accuracyMeters) {
     _checkCurrentHazard(lat, lon);
     if (typeof _weatherUpdate === 'function') _weatherUpdate(lat, lon);
     if (typeof _astroUpdate === 'function') _astroUpdate(lat, lon);
+    if (typeof _tideUpdate === 'function') _tideUpdate(lat, lon);
 }
 
 // ── 現在地ハザードチェック ──────────────────────────────────────────────────

@@ -350,15 +350,68 @@ async def run_ingest_fetch_official(
     jm: JobManager,
     ss: DatasetStateService,
 ) -> None:
-    if not defn.official_source_url:
-        _fail(job, jm, "DOWNLOAD_FAILED",
-              "この データセットには公式取得URLが設定されていません。",
-              "URL指定取得またはアップロードを使用してください。")
-        return
-
     jm.update(job, status=JobStatus.running, step=JobStep.download,
                progress_message="公式サイトからデータを取得中...")
     jm.log(job, f"=== ingest_fetch_official start: {defn.dataset_id} ===")
+
+    # バッチダウンロードスクリプトが指定されている場合はそちらを実行する
+    if defn.downloader_name:
+        script_path = _SCRIPTS_DIR / "download" / f"{defn.downloader_name}.py"
+        if not script_path.exists():
+            _fail(job, jm, "DOWNLOAD_FAILED",
+                  "ダウンロードスクリプトが見つかりませんでした。",
+                  f"scripts/download/{defn.downloader_name}.py が存在するか確認してください。")
+            return
+
+        raw_dir = (_PROJECT_ROOT / defn.raw_storage_path).resolve()
+        _ensure_dir(raw_dir)
+
+        cmd = ["python3", "-u", str(script_path), "--raw-dir", str(raw_dir)]
+        extra = defn.extra_attrs or {}
+        for key, val in extra.items():
+            cmd.extend([f"--{key}", str(val)])
+
+        jm.log(job, f"Batch downloader: {defn.downloader_name}")
+        ret = await _run_subprocess(cmd, job, jm, timeout=1800)
+
+        if ret != 0:
+            _fail(job, jm, "DOWNLOAD_FAILED",
+                  "一括ダウンロードに失敗しました。",
+                  "ネットワーク接続またはログを確認してください。",
+                  exit_code=ret)
+            return
+
+        # raw_dir 全体を参照先として扱う
+        file_count = sum(1 for _ in raw_dir.glob("*.txt"))
+        jm.log(job, f"Download complete: {file_count} files in {raw_dir}")
+        logger.info("tide dataset download start dataset_id=%s raw_dir=%s", defn.dataset_id, raw_dir)
+
+        state.storage_status = StorageStatus.stored
+        state.current_file_name = raw_dir.name
+        state.current_file_size = sum(p.stat().st_size for p in raw_dir.glob("*.txt"))
+        state.current_raw_path = str(raw_dir)
+        state.updated_at = datetime.utcnow()
+        state.last_job_id = job.job_id
+
+        if not defn.requires_normalize:
+            state.normalize_status = NormalizeStatus.not_required
+        if not defn.requires_validation:
+            state.validation_status = ValidationStatus.not_required
+        ss.save(state)
+
+        _append_history(ss, defn.dataset_id, OperationType.ingest, job,
+                        source_file_name=raw_dir.name, artifact_path=str(raw_dir))
+
+        await _run_post_ingest_pipeline(job, defn, state, jm, ss)
+        return
+
+    # 通常の単一 URL ダウンロード
+    if not defn.official_source_url:
+        _fail(job, jm, "DOWNLOAD_FAILED",
+              "このデータセットには公式取得URLが設定されていません。",
+              "URL指定取得またはアップロードを使用してください。")
+        return
+
     jm.log(job, f"Official URL: {defn.official_source_url}")
 
     dest_dir = (_PROJECT_ROOT / defn.raw_storage_path).resolve()
@@ -480,12 +533,23 @@ async def _do_normalize(
     output_dir = (_PROJECT_ROOT / defn.normalized_storage_path).resolve() if defn.normalized_storage_path else None
     if output_dir:
         _ensure_dir(output_dir)
-        output_path = output_dir / f"{defn.dataset_id.lower()}.geojson"
-    else:
-        output_path = (_PROJECT_ROOT / defn.raw_storage_path).resolve() / f"{defn.dataset_id.lower()}_normalized.geojson"
 
-    # -u: Python stdout/stderr をアンバッファードにしてリアルタイムログを実現する
-    cmd = ["python3", "-u", str(script_path), "--input", input_path, "--output", str(output_path)]
+    # normalized_output_dir=True の場合はディレクトリを出力先として渡す
+    if defn.normalized_output_dir:
+        if not output_dir:
+            output_dir = (_PROJECT_ROOT / defn.raw_storage_path).resolve() / "normalized"
+            _ensure_dir(output_dir)
+        output_path = output_dir
+        cmd = ["python3", "-u", str(script_path),
+               "--input", input_path,
+               "--output-dir", str(output_path)]
+    else:
+        if output_dir:
+            output_path = output_dir / f"{defn.dataset_id.lower()}.geojson"
+        else:
+            output_path = (_PROJECT_ROOT / defn.raw_storage_path).resolve() / f"{defn.dataset_id.lower()}_normalized.geojson"
+        cmd = ["python3", "-u", str(script_path), "--input", input_path, "--output", str(output_path)]
+
     if defn.transformer_name in {
         "normalize_shelter", "normalize_tsunami",
         "normalize_storm_surge", "normalize_river_flood", "normalize_inland_flood",
@@ -523,6 +587,7 @@ async def _do_normalize(
     _append_history(ss, defn.dataset_id, OperationType.normalize, job,
                     artifact_path=str(output_path))
     jm.log(job, f"normalize success: {output_path}")
+    logger.info("tide dataset normalize completed dataset_id=%s output=%s", defn.dataset_id, output_path)
     return True
 
 
@@ -552,17 +617,27 @@ async def _do_validate(
     input_path = state.current_normalized_path or state.current_raw_path or \
         str((_PROJECT_ROOT / defn.raw_storage_path).resolve())
     output_dir = (_PROJECT_ROOT / defn.validated_storage_path).resolve() if defn.validated_storage_path else None
-    if output_dir:
-        _ensure_dir(output_dir)
-        output_path = output_dir / f"{defn.dataset_id.lower()}.geojson"
-    else:
-        output_path = Path(input_path)
 
-    cmd = ["python3", str(script_path), "--input", input_path, "--output", str(output_path)]
-    if defn.layer_type in {"tsunami", "storm_surge", "flood", "inland_flood"}:
-        cmd.extend(["--allowed-geometry-types", "Polygon,MultiPolygon", "--require-bbox"])
-    if defn.validator_name == "validate_lowland_poor_drainage":
-        cmd.extend(["--region", defn.region])
+    # normalized_output_dir=True の場合は入力がディレクトリなので dir モードで validate する
+    if defn.normalized_output_dir and Path(input_path).is_dir():
+        if not output_dir:
+            output_dir = Path(input_path).parent / "validated"
+        _ensure_dir(output_dir)
+        cmd = ["python3", "-u", str(script_path),
+               "--input-dir", input_path,
+               "--output-dir", str(output_dir)]
+        output_path = output_dir
+    else:
+        if output_dir:
+            _ensure_dir(output_dir)
+            output_path = output_dir / f"{defn.dataset_id.lower()}.geojson"
+        else:
+            output_path = Path(input_path)
+        cmd = ["python3", str(script_path), "--input", input_path, "--output", str(output_path)]
+        if defn.layer_type in {"tsunami", "storm_surge", "flood", "inland_flood"}:
+            cmd.extend(["--allowed-geometry-types", "Polygon,MultiPolygon", "--require-bbox"])
+        if defn.validator_name == "validate_lowland_poor_drainage":
+            cmd.extend(["--region", defn.region])
 
     ret = await _run_subprocess(cmd, job, jm, timeout=600)
 
@@ -910,6 +985,15 @@ async def run_deploy(
     # 低地・排水困難エリアを更新した場合は hazard_service を hot-reload する
     if defn.layer_type == "lowland_poor_drainage":
         _reload_lowland_hazard(job, defn, state, jm)
+
+    # 潮位データを更新した場合は tide_service のキャッシュを即時リロードする
+    if defn.category == "tide":
+        try:
+            from app.services.tide_service import reload as tide_reload
+            tide_reload()
+            jm.log(job, "tide runtime loaded")
+        except Exception as exc:
+            jm.log(job, f"WARN: tide_service reload failed: {exc}")
 
     # タイルビルドが必要なレイヤーはデプロイ後に非同期で実行
     if defn.requires_tile_build:

@@ -1,5 +1,5 @@
 """
-潮汐情報API — 現在地から最寄り地点の満潮・干潮情報を返す。
+tide API — 現在地から最寄り地点の満潮・干潮情報を返す。
 """
 import logging
 from fastapi import APIRouter, Query
@@ -23,6 +23,6 @@ async def get_tide_current(
         data = None
 
     if data is None:
-        data = {"available": False, "source": "tide736", "is_reference": True}
+        data = {"available": False, "source": "jma"}
 
     return {"lat": lat, "lon": lon, **data}

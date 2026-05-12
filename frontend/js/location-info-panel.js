@@ -886,9 +886,73 @@ function _astroSetOptionalTime(rowId, valueId, isoStr) {
 }
 
 // ── 潮汐情報 ──────────────────────────────────────────────────────
-// tide736 Web表示とAPI raw responseに整合性疑義があるため、潮汐表示は凍結中。
-// backend adapter と raw調査 artifact は将来の公式/信頼可能データ源への差し替え用に残す。
-async function _tideUpdate() {}
+
+const _TIDE_CACHE_TTL_MS = 10 * 60 * 1000;
+let _tideCache = null;  // { lat, lon, data, fetchedAt }
+
+async function _tideFetch(lat, lon) {
+    const now = Date.now();
+    if (
+        _tideCache &&
+        Math.abs(_tideCache.lat - lat) < 0.05 &&
+        Math.abs(_tideCache.lon - lon) < 0.05 &&
+        now - _tideCache.fetchedAt < _TIDE_CACHE_TTL_MS
+    ) {
+        return _tideCache.data;
+    }
+    const res = await fetch(`/api/tide/current?lat=${lat}&lon=${lon}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    _tideCache = { lat, lon, data, fetchedAt: now };
+    return data;
+}
+
+function _tideFmtCm(value) {
+    return value == null ? '--' : `${Math.round(Number(value))} cm`;
+}
+
+function _tideFmtExtreme(value) {
+    if (!value || !value.time) return '--';
+    const d = new Date(value.time);
+    if (isNaN(d.getTime())) return '--';
+    const time = d.toLocaleTimeString('ja-JP', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Tokyo',
+    });
+    const remain = Number.isFinite(Number(value.remaining_minutes))
+        ? `・約${Math.round(Number(value.remaining_minutes))}分後`
+        : '';
+    return `${time} ${_tideFmtCm(value.tide_cm)}${remain}`;
+}
+
+function _tideRender(data) {
+    const section = document.getElementById('lip-tide-section');
+    if (!section) return;
+
+    if (!data || data.available === false) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = '';
+    _lipSet('lip-tide-current', _tideFmtCm(data.current_tide_cm));
+    _lipSet('lip-tide-high', _tideFmtExtreme(data.next_high_tide));
+    _lipSet('lip-tide-low', _tideFmtExtreme(data.next_low_tide));
+
+    const station = data.station || {};
+    const distance = station.distance_km != null ? `（${station.distance_km}km）` : '';
+    _lipSet('lip-tide-station', `${station.name || station.id || '--'}${distance}`);
+}
+
+async function _tideUpdate(lat, lon) {
+    try {
+        _tideRender(await _tideFetch(lat, lon));
+    } catch (err) {
+        console.warn('[tide] fetch error:', err);
+        _tideRender(null);
+    }
+}
 
 // 起動時1回のみ実行（他のスクリプトがすべてロード済みの状態で実行される）
 _lipInit();

@@ -169,6 +169,17 @@ class DatasetDefinition(BaseModel):
     osrm_stem: Optional[str] = None
     osrm_dir: Optional[str] = None
 
+    # バッチダウンロード用スクリプト名（scripts/download/ 以下）
+    # 設定されている場合、fetch-official は single URL curl の代わりにスクリプトを実行する
+    downloader_name: Optional[str] = None
+
+    # True の場合、normalize の出力はディレクトリ（JSONL など）。
+    # _do_normalize が --output-dir を渡し、current_normalized_path にディレクトリパスを格納する。
+    normalized_output_dir: bool = False
+
+    # 追加属性（year など、スクリプトへ渡す任意パラメータ）
+    extra_attrs: Optional[dict] = None
+
     @property
     def browser_upload_enabled(self) -> bool:
         return self.max_browser_upload_mb > 0

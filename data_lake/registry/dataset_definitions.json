@@ -746,5 +746,38 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_shelter",
     "validator_name": "validate_geometry"
+  },
+  {
+    "dataset_id": "TIDE-JMA-JAPAN-2026-001",
+    "region": "japan",
+    "category": "tide",
+    "layer_type": "tide",
+    "display_name": "潮位表（気象庁・全国・2026年）",
+    "description": "気象庁公式潮位表テキストデータ（2026年・全国観測地点）。各地点の毎時潮位と干満時刻を収録。",
+    "hint_text": "気象庁潮位表テキストデータを全国地点一括で取得します。年度を選択して「全国一括ダウンロード」を実行してください。",
+    "impact_scope": "全国潮位情報・満潮干潮時刻表示",
+    "accepted_input_modes": [
+      "fetch_official"
+    ],
+    "accepted_extensions": [],
+    "max_browser_upload_mb": 0,
+    "requires_normalize": true,
+    "requires_validation": true,
+    "requires_deploy": true,
+    "requires_osrm_rebuild": false,
+    "source_url": "https://www.data.jma.go.jp/gmd/kaiyou/data/db/tide/suisan/",
+    "official_source_url": null,
+    "raw_storage_path": "data_lake/raw/japan/tide/jma/2026",
+    "normalized_storage_path": "data_lake/normalized/japan/tide/jma/2026",
+    "validated_storage_path": "data_lake/validated/japan/tide/jma/2026",
+    "runtime_path": "data_runtime/backend/tide/jma/2026",
+    "deploy_mode": "replace_dir",
+    "transformer_name": "normalize_tide_jma",
+    "validator_name": "validate_tide_jma",
+    "downloader_name": "download_tide_jma",
+    "normalized_output_dir": true,
+    "extra_attrs": {
+      "year": "2026"
+    }
   }
 ]
