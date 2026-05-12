@@ -911,6 +911,16 @@ function _tideFmtCm(value) {
     return value == null ? '--' : `${Math.round(Number(value))} cm`;
 }
 
+function _tideFmtRemain(minutes) {
+    const m = Math.round(Number(minutes));
+    if (!Number.isFinite(m) || m < 0) return '';
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    if (h === 0) return `あと${min}分`;
+    if (min === 0) return `あと${h}時間`;
+    return `あと${h}時間${min}分`;
+}
+
 function _tideFmtExtreme(value) {
     if (!value || !value.time) return '--';
     const d = new Date(value.time);
@@ -920,10 +930,11 @@ function _tideFmtExtreme(value) {
         minute: '2-digit',
         timeZone: 'Asia/Tokyo',
     });
+    const cm = _tideFmtCm(value.tide_cm);
     const remain = Number.isFinite(Number(value.remaining_minutes))
-        ? `・約${Math.round(Number(value.remaining_minutes))}分後`
+        ? `  ${_tideFmtRemain(value.remaining_minutes)}`
         : '';
-    return `${time} ${_tideFmtCm(value.tide_cm)}${remain}`;
+    return `${time}  ${cm}${remain}`;
 }
 
 function _tideRender(data) {
@@ -941,7 +952,7 @@ function _tideRender(data) {
     _lipSet('lip-tide-low', _tideFmtExtreme(data.next_low_tide));
 
     const station = data.station || {};
-    const distance = station.distance_km != null ? `（${station.distance_km}km）` : '';
+    const distance = station.distance_km != null ? `  ${station.distance_km} km` : '';
     _lipSet('lip-tide-station', `${station.name || station.id || '--'}${distance}`);
 }
 
