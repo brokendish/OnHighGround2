@@ -545,7 +545,9 @@ function openUpdateModal(datasetId) {
   fetchJSON(`${API}/datasets/${datasetId}`).then(detail => {
     const defn = detail.definition;
     document.getElementById("um-exts").textContent = defn.accepted_extensions.join(", ");
-    document.getElementById("um-official-url").textContent = defn.official_source_url || "—";
+    document.getElementById("um-official-url").textContent =
+      defn.official_source_url ||
+      (defn.downloader_name ? `一括取得スクリプト: ${defn.downloader_name}` : "—");
     document.getElementById("um-size-limit").textContent =
       defn.max_browser_upload_mb > 0
         ? `最大ファイルサイズ: ${defn.max_browser_upload_mb} MB`
@@ -570,6 +572,7 @@ function openUpdateModal(datasetId) {
     let steps = [];
     if (defn.requires_normalize) steps.push("整形処理");
     if (defn.requires_validation) steps.push("内容確認");
+    if (defn.auto_deploy) steps.push("反映");
     if (steps.length > 0) {
       pipelineNotice.style.display = "";
       pipelineDesc.textContent = ` 取り込み後、自動的に${steps.join(" → ")}が実行されます。`;

@@ -371,7 +371,8 @@ async def fetch_official_dataset(dataset_id: str):
     if InputMode.fetch_official not in defn.accepted_input_modes:
         return _error_response("INVALID_INPUT_MODE")
 
-    if not defn.official_source_url:
+    # downloader_name があれば official_source_url は不要（バッチDLスクリプトを使う）
+    if not defn.official_source_url and not defn.downloader_name:
         return _error_response("INVALID_INPUT_MODE",
                                 detail="official_source_url not configured")
 
@@ -380,7 +381,7 @@ async def fetch_official_dataset(dataset_id: str):
 
     state = ss.init_from_definition(defn)
     job = jm.create(dataset_id, JobType.ingest_fetch_official,
-                     fetch_url=defn.official_source_url)
+                     fetch_url=defn.official_source_url or "")
     state.last_job_id = job.job_id
     ss.save(state)
 
