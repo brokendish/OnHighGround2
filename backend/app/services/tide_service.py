@@ -216,6 +216,8 @@ def get_tide_info(lat: float, lon: float) -> Optional[dict]:
             "id":          code,
             "name":        station.get("station_name") or station.get("name", code),
             "distance_km": dist_km,
+            "lat":         station["lat"],
+            "lon":         station["lon"],
         },
         "current_tide_cm": current_tide_cm,
         "next_high_tide":  next_high,

@@ -91,6 +91,7 @@ function _lipUpdate(lat, lon, accuracy) {
     _lipRenderPosition();
     _lipRenderShelter();
     _lipStartAgeTimer();
+    _tideMaybeRefreshDistance(lat, lon);
 }
 
 /**
@@ -888,7 +889,9 @@ function _astroSetOptionalTime(rowId, valueId, isoStr) {
 // ── 潮汐情報 ──────────────────────────────────────────────────────
 
 const _TIDE_CACHE_TTL_MS = 10 * 60 * 1000;
-let _tideCache = null;  // { lat, lon, data, fetchedAt }
+const _TIDE_DIST_UPDATE_M = 100;  // 距離表示を更新する移動閾値（m）
+let _tideCache = null;            // { lat, lon, data, fetchedAt }
+let _tideDistLastPos = null;      // { lat, lon } 距離表示を最後に更新した位置
 
 async function _tideFetch(lat, lon) {
     const now = Date.now();
@@ -937,6 +940,31 @@ function _tideFmtExtreme(value) {
     return `${time}  ${cm}${remain}`;
 }
 
+function _tideFmtDistance(meters) {
+    if (!Number.isFinite(meters)) return '';
+    if (meters >= 1000) {
+        const km = Math.round(meters / 100) / 10;
+        return `  ${km} km`;
+    }
+    return `  ${Math.round(meters / 100) * 100} m`;
+}
+
+function _tideRenderStation(lat, lon) {
+    if (!_tideCache || !_tideCache.data || _tideCache.data.available === false) return;
+    const station = _tideCache.data.station || {};
+    let distLabel = '';
+    if (
+        lat != null && lon != null &&
+        Number.isFinite(station.lat) && Number.isFinite(station.lon)
+    ) {
+        const meters = _lipHaversineMeters(lat, lon, station.lat, station.lon);
+        distLabel = _tideFmtDistance(meters);
+    } else if (station.distance_km != null) {
+        distLabel = `  ${station.distance_km} km`;
+    }
+    _lipSet('lip-tide-station', `${station.name || station.id || '--'}${distLabel}`);
+}
+
 function _tideRender(data) {
     const section = document.getElementById('lip-tide-section');
     if (!section) return;
@@ -950,10 +978,20 @@ function _tideRender(data) {
     _lipSet('lip-tide-current', _tideFmtCm(data.current_tide_cm));
     _lipSet('lip-tide-high', _tideFmtExtreme(data.next_high_tide));
     _lipSet('lip-tide-low', _tideFmtExtreme(data.next_low_tide));
+    _tideRenderStation(_lipLat, _lipLon);
+    _tideDistLastPos = (_lipLat != null && _lipLon != null)
+        ? { lat: _lipLat, lon: _lipLon } : null;
+}
 
-    const station = data.station || {};
-    const distance = station.distance_km != null ? `  ${station.distance_km} km` : '';
-    _lipSet('lip-tide-station', `${station.name || station.id || '--'}${distance}`);
+function _tideMaybeRefreshDistance(lat, lon) {
+    if (!_tideCache || !_tideCache.data || _tideCache.data.available === false) return;
+    if (lat == null || lon == null) return;
+    if (_tideDistLastPos) {
+        const moved = _lipHaversineMeters(_tideDistLastPos.lat, _tideDistLastPos.lon, lat, lon);
+        if (moved < _TIDE_DIST_UPDATE_M) return;
+    }
+    _tideRenderStation(lat, lon);
+    _tideDistLastPos = { lat, lon };
 }
 
 async function _tideUpdate(lat, lon) {
