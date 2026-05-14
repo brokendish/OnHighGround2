@@ -519,6 +519,7 @@ function _lipRenderRouteSelection(modeOverride = null) {
 
 function _lipRenderElev() {
     _lipSet('lip-elev', _lipElevation != null ? `${Math.round(_lipElevation)} m` : '--');
+    _lipSet('lip-cs-elev', _lipElevation != null ? `${Math.round(_lipElevation)} m` : '--');
     _lipRenderRouteSelection();
 }
 
@@ -563,6 +564,13 @@ function _lipRenderReverseGeocode() {
     attributionEl.style.display = 'none';
 }
 
+function _lipRenderCompactSummary() {
+    _lipSet('lip-cs-elev', _lipElevation != null ? `${Math.round(_lipElevation)} m` : '--');
+    _lipSet('lip-cs-hazard', _lipDescribeCurrentHazardSummary() || '--');
+    const shelterEl = document.getElementById('lip-nearest-shelter');
+    _lipSet('lip-cs-shelter', shelterEl ? shelterEl.textContent : '--');
+}
+
 function _lipRenderHazard() {
     const a = _lipHazardAssessment;
 
@@ -586,6 +594,7 @@ function _lipRenderHazard() {
         insideLabel: '⚠️ 警戒域',
         outsideLabel: '✅ 域外',
     });
+    _lipRenderCompactSummary();
     _lipRenderRouteSelection();
 }
 
@@ -645,6 +654,7 @@ function _lipRenderShelter() {
         : '';
 
     el.textContent = dir ? `${name}（${dist} ${dir}）` : `${name}（${dist}）`;
+    _lipSet('lip-cs-shelter', el.textContent);
 }
 
 function _lipRenderAge() {
@@ -889,9 +899,10 @@ function _astroSetOptionalTime(rowId, valueId, isoStr) {
 // ── 潮汐情報 ──────────────────────────────────────────────────────
 
 const _TIDE_CACHE_TTL_MS = 10 * 60 * 1000;
-const _TIDE_DIST_UPDATE_M = 100;  // 距離表示を更新する移動閾値（m）
-let _tideCache = null;            // { lat, lon, data, fetchedAt }
-let _tideDistLastPos = null;      // { lat, lon } 距離表示を最後に更新した位置
+const _TIDE_DIST_UPDATE_M = 100;
+let _tideCache = null;          // { lat, lon, data, fetchedAt }
+let _tideDistLastPos = null;    // { lat, lon }
+let _selectedTideStation = null; // {id, name, lat, lon} or null
 
 async function _tideFetch(lat, lon) {
     const now = Date.now();
@@ -981,6 +992,12 @@ function _tideRender(data) {
     _tideRenderStation(_lipLat, _lipLon);
     _tideDistLastPos = (_lipLat != null && _lipLon != null)
         ? { lat: _lipLat, lon: _lipLon } : null;
+
+    // 選択地点が確定している場合グラフを更新
+    const stationId = _selectedTideStation
+        ? _selectedTideStation.id
+        : (data.station ? data.station.id : null);
+    if (stationId) _tideGraphUpdate(stationId);
 }
 
 function _tideMaybeRefreshDistance(lat, lon) {
@@ -995,13 +1012,320 @@ function _tideMaybeRefreshDistance(lat, lon) {
 }
 
 async function _tideUpdate(lat, lon) {
+    // マーカーで地点選択中はその地点の lat/lon を使う
+    const fetchLat = _selectedTideStation ? _selectedTideStation.lat : lat;
+    const fetchLon = _selectedTideStation ? _selectedTideStation.lon : lon;
     try {
-        _tideRender(await _tideFetch(lat, lon));
+        _tideRender(await _tideFetch(fetchLat, fetchLon));
     } catch (err) {
         console.warn('[tide] fetch error:', err);
         _tideRender(null);
     }
 }
 
+/** マーカータップ時に外部から呼ばれる — 地点を切り替えてサマリ＋グラフを再取得 */
+async function _tideSetStation(station) {
+    _selectedTideStation = station;
+    _tideCache = null; // キャッシュをクリアして強制再取得
+    if (typeof tideMarkersSetSelected === 'function') {
+        tideMarkersSetSelected(station.id);
+    }
+    try {
+        _tideRender(await _tideFetch(station.lat, station.lon));
+    } catch (err) {
+        console.warn('[tide] station fetch error:', err);
+        _tideRender(null);
+    }
+}
+
+/** 全国表示を閉じたときに外部から呼ばれる — 現在地最寄りへ戻す */
+function _tideResetToNearest() {
+    _selectedTideStation = null;
+    _tideCache = null;
+    if (_lipLat != null && _lipLon != null) {
+        _tideUpdate(_lipLat, _lipLon);
+    }
+}
+
+// ── 潮位グラフ ────────────────────────────────────────────────────
+
+let _tideGraphCache = {};  // stationId+date → {records, extremes}
+
+async function _tideGraphFetch(stationId) {
+    // 現在JSTから24時間分：当日＋翌日を取得して結合する
+    const nowMs = Date.now();
+    const jstOffMs = 9 * 3600 * 1000;
+    const todayJst    = new Date(nowMs + jstOffMs).toISOString().slice(0, 10);
+    const tomorrowJst = new Date(nowMs + jstOffMs + 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const fetchDay = async (date) => {
+        const key = `${stationId}|${date}`;
+        if (_tideGraphCache[key]) return _tideGraphCache[key];
+        const res = await fetch(`/api/tide/hourly?station=${encodeURIComponent(stationId)}&date=${date}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        _tideGraphCache[key] = data;
+        return data;
+    };
+
+    const [todayData, tomorrowData] = await Promise.all([
+        fetchDay(todayJst).catch(() => null),
+        todayJst !== tomorrowJst ? fetchDay(tomorrowJst).catch(() => null) : Promise.resolve(null),
+    ]);
+
+    return {
+        records: [
+            ...(todayData?.records   || []),
+            ...(tomorrowData?.records || []),
+        ],
+        extremes: {
+            high_tides: [
+                ...(todayData?.extremes?.high_tides   || []),
+                ...(tomorrowData?.extremes?.high_tides || []),
+            ],
+            low_tides: [
+                ...(todayData?.extremes?.low_tides   || []),
+                ...(tomorrowData?.extremes?.low_tides || []),
+            ],
+        },
+    };
+}
+
+async function _tideGraphUpdate(stationId) {
+    const canvas = document.getElementById('lip-tide-graph');
+    if (!canvas) return;
+    const data = await _tideGraphFetch(stationId);
+    _tideGraphDraw(canvas, data);
+}
+
+function _tideGraphDraw(canvas, data) {
+    // canvas の論理ピクセルを表示幅に合わせる
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0) canvas.width = Math.round(rect.width);
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
+    const PAD = { top: 10, right: 10, bottom: 22, left: 36 };
+
+    ctx.clearRect(0, 0, W, H);
+
+    // 横軸: 現在時刻 → +24時間
+    const now  = Date.now();
+    const tMin = now;
+    const tMax = now + 24 * 3600 * 1000;
+
+    const records = data && data.records && data.records.length > 0 ? data.records : null;
+    if (!records) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('データなし', W / 2, H / 2);
+        return;
+    }
+
+    // 描画範囲に含まれるポイント（前後1hずつバッファ）
+    const points = records
+        .map(r => ({ t: new Date(r.datetime).getTime(), cm: Number(r.tide_cm) }))
+        .filter(p => Number.isFinite(p.t) && Number.isFinite(p.cm)
+                  && p.t >= tMin - 3600 * 1000
+                  && p.t <= tMax + 3600 * 1000)
+        .sort((a, b) => a.t - b.t);
+
+    if (points.length === 0) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('データなし', W / 2, H / 2);
+        return;
+    }
+
+    const cmValues = points.map(p => p.cm);
+    let cmMin = Math.min(...cmValues);
+    let cmMax = Math.max(...cmValues);
+    const cmPad = Math.max(20, (cmMax - cmMin) * 0.15);
+    cmMin -= cmPad;
+    cmMax += cmPad;
+
+    const gW = W - PAD.left - PAD.right;
+    const gH = H - PAD.top - PAD.bottom;
+
+    function tx(t)  { return PAD.left + (t - tMin) / (tMax - tMin) * gW; }
+    function ty(cm) { return PAD.top  + (1 - (cm - cmMin) / (cmMax - cmMin)) * gH; }
+
+    // 水平グリッド
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 0.5;
+    const cmStep = (cmMax - cmMin) > 200 ? 50 : (cmMax - cmMin) > 100 ? 25 : 20;
+    const cmBase = Math.ceil(cmMin / cmStep) * cmStep;
+    for (let c = cmBase; c <= cmMax; c += cmStep) {
+        const y = ty(c);
+        ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + gW, y); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(`${c}`, PAD.left - 3, y + 3);
+    }
+
+    // 時間グリッド（3h毎） — 次の整数時刻から
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 0.5;
+    const hMs = 3600 * 1000;
+    const t3hStart = Math.ceil(tMin / (3 * hMs)) * 3 * hMs;
+    ctx.fillStyle = '#94a3b8'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+    for (let t = t3hStart; t <= tMax; t += 3 * hMs) {
+        const x = tx(t);
+        ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + gH); ctx.stroke();
+        const jstHour = new Date(t + 9 * hMs).getUTCHours(); // UTC+9h のUTC時刻 = JST時刻
+        ctx.fillText(`${String(jstHour).padStart(2, '0')}h`, x, H - 4);
+    }
+
+    // 潮位ライン（描画範囲内）
+    const visPoints = points.filter(p => p.t >= tMin && p.t <= tMax);
+    if (visPoints.length > 0) {
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        visPoints.forEach((p, i) => {
+            const x = tx(p.t); const y = ty(p.cm);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // 塗りつぶし
+        const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + gH);
+        grad.addColorStop(0, 'rgba(37,99,235,0.15)');
+        grad.addColorStop(1, 'rgba(37,99,235,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        visPoints.forEach((p, i) => {
+            const x = tx(p.t); const y = ty(p.cm);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.lineTo(tx(visPoints[visPoints.length - 1].t), PAD.top + gH);
+        ctx.lineTo(tx(visPoints[0].t), PAD.top + gH);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // 満潮・干潮マーカー（24h窓内のみ）
+    const extremes = data && data.extremes;
+    if (extremes) {
+        const drawExtremes = (list, color, label) => {
+            (list || []).forEach(e => {
+                const t = new Date(e.time).getTime();
+                if (t < tMin || t > tMax) return;
+                const x = tx(t);
+                const y = ty(Number(e.tide_cm));
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.fillStyle = color;
+                ctx.font = 'bold 9px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(label, x, label === '満' ? y - 6 : y + 14);
+            });
+        };
+        drawExtremes(extremes.high_tides, '#dc2626', '満');
+        drawExtremes(extremes.low_tides,  '#0891b2', '干');
+    }
+
+    // 現在時刻ライン（左端・強調表示）
+    const x0 = PAD.left;
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(x0, PAD.top); ctx.lineTo(x0, PAD.top + gH); ctx.stroke();
+
+    // 現在潮位の丸ドット＋数値ラベル
+    const closestPt = points.length > 0
+        ? points.reduce((a, b) => Math.abs(b.t - now) < Math.abs(a.t - now) ? b : a)
+        : null;
+    if (closestPt) {
+        const dotY = ty(closestPt.cm);
+
+        // ドット（白縁付き赤丸）
+        ctx.beginPath();
+        ctx.arc(x0, dotY, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ef4444';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // cm ラベル（赤背景・白文字）
+        const label = `${Math.round(closestPt.cm)} cm`;
+        ctx.font = 'bold 10px sans-serif';
+        const lw = ctx.measureText(label).width;
+        const lx = x0 + 9;
+        const ly = dotY;
+        // ラベルが上端に近い場合は下へずらす
+        const textY = dotY < PAD.top + 14 ? dotY + 13 : dotY + 4;
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.roundRect(lx - 2, textY - 11, lw + 6, 14, 3);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'left';
+        ctx.fillText(label, lx + 1, textY);
+    }
+
+    // 「現在」テキスト（ライン上部）
+    ctx.fillStyle = '#ef4444';
+    ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('現在', x0 + 2, PAD.top - 1);
+}
+
+// ── 情報タブ折りたたみ ────────────────────────────────────────────
+
+let _lipLevel = 2;  // 1=compact, 2=standard(default), 3=detail
+
+function _lipCycleLevel() {
+    _lipLevel = (_lipLevel % 3) + 1;
+    _lipApplyLevel();
+}
+
+function _lipApplyLevel() {
+    const el = document.getElementById('loc-info-nonnav');
+    if (!el) return;
+    el.setAttribute('data-lip-level', String(_lipLevel));
+
+    const labels = { 1: '最小', 2: '標準', 3: '詳細' };
+    const next   = { 1: '標準▾', 2: '詳細▾', 3: '最小▴' };
+    _lipSet('lip-level-label', labels[_lipLevel] || '');
+    const btn = document.getElementById('lip-level-btn');
+    if (btn) btn.textContent = next[_lipLevel] || '詳細▾';
+
+    // レベル切替時にグラフを再描画（キャンバスサイズが変わる場合があるため）
+    const stationId = _selectedTideStation
+        ? _selectedTideStation.id
+        : (_tideCache && _tideCache.data && _tideCache.data.station
+            ? _tideCache.data.station.id : null);
+    if (stationId) _tideGraphUpdate(stationId);
+}
+
+// ── 全国潮位表示 ON/OFF ───────────────────────────────────────────
+
+async function _tidePanelToggleAllNation() {
+    const btn = document.getElementById('lip-tide-allnation-btn');
+    const isOn = typeof isTideMarkersVisible === 'function' && isTideMarkersVisible();
+    if (isOn) {
+        if (typeof hideTideMarkers === 'function') hideTideMarkers();
+        if (btn) { btn.textContent = '全国潮位 ON'; btn.classList.remove('active'); }
+    } else {
+        if (btn) { btn.textContent = '全国潮位 OFF'; btn.classList.add('active'); }
+        try {
+            if (typeof showTideMarkers === 'function') await showTideMarkers();
+        } catch (err) {
+            console.warn('[tide] showTideMarkers failed:', err);
+            if (btn) { btn.textContent = '全国潮位 ON'; btn.classList.remove('active'); }
+        }
+    }
+}
+
 // 起動時1回のみ実行（他のスクリプトがすべてロード済みの状態で実行される）
 _lipInit();
+// HTML 側の data-lip-level="2" に合わせてボタンラベルを初期化
+_lipApplyLevel();

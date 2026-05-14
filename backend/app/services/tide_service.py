@@ -227,6 +227,38 @@ def get_tide_info(lat: float, lon: float) -> Optional[dict]:
     }
 
 
+def get_stations() -> list[dict]:
+    """全観測地点一覧を返す（データあり地点のみ has_data=True）。"""
+    _ensure_loaded()
+    return [
+        {
+            "id": s["station_code"],
+            "name": s.get("station_name") or s.get("name", s["station_code"]),
+            "lat": s["lat"],
+            "lon": s["lon"],
+            "prefecture": s.get("prefecture", ""),
+            "has_data": s["station_code"] in _hourly_index,
+        }
+        for s in _stations
+    ]
+
+
+def get_hourly_data(station_code: str, date_str: str) -> list[dict]:
+    """指定地点・日付の時間毎潮位データを返す。date_str: "YYYY-MM-DD"。"""
+    _ensure_loaded()
+    records = _hourly_index.get(station_code, [])
+    return [r for r in records if r.get("datetime", "").startswith(date_str)]
+
+
+def get_extremes_for_date(station_code: str, date_str: str) -> Optional[dict]:
+    """指定地点・日付の満干潮データを返す。date_str: "YYYY-MM-DD"。"""
+    _ensure_loaded()
+    for rec in _extremes_index.get(station_code, []):
+        if rec.get("date") == date_str:
+            return rec
+    return None
+
+
 def reload() -> None:
     """runtime キャッシュを再ロードする（deploy 後ホットリロード用）。"""
     global _hourly_index, _extremes_index, _loaded_year

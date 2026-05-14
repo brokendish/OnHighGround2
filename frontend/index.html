@@ -2681,6 +2681,85 @@
             text-transform: uppercase;
             margin-bottom: 5px;
         }
+
+        /* ── 折りたたみレベル制御 ──────────────── */
+        .lip-level-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 2px 0 6px;
+            margin-bottom: 2px;
+        }
+        .lip-level-label {
+            font-size: 10px;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+        .lip-level-btn {
+            font-size: 10px;
+            background: none;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 1px 8px;
+            color: #475569;
+            cursor: pointer;
+        }
+        .lip-level-btn:hover { background: #f1f5f9; }
+
+        /* compact-summary — compact(1)時のみ表示 */
+        .lip-compact-summary {
+            display: none;
+            font-size: 12px;
+            color: #334155;
+            gap: 6px;
+            padding: 4px 0;
+        }
+        .lip-cs-sep { color: #cbd5e1; }
+
+        /* standard(2): A(位置詳細)・C(天体)・グラフ・Eを非表示 */
+        #loc-info-nonnav[data-lip-level="2"] .lip-section-a,
+        #loc-info-nonnav[data-lip-level="2"] .lip-section-c,
+        #loc-info-nonnav[data-lip-level="2"] .lip-level-detail-only,
+        #loc-info-nonnav[data-lip-level="2"] #lip-rain-radar-ctrl-section { display: none !important; }
+
+        /* compact(1): 全セクション非表示、compact-summary のみ */
+        #loc-info-nonnav[data-lip-level="1"] .lip-section { display: none !important; }
+        #loc-info-nonnav[data-lip-level="1"] .lip-compact-summary { display: flex; }
+
+        /* detail(3): 全て表示 */
+        #loc-info-nonnav[data-lip-level="3"] .lip-level-detail-only { display: block; }
+
+        /* 潮位グラフ */
+        #lip-tide-graph {
+            display: block;
+            width: 100%;
+            height: 100px;
+            border-radius: 4px;
+            background: #f8fafc;
+            margin-top: 6px;
+        }
+        /* 全国潮位ボタン */
+        .lip-tide-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        #lip-tide-allnation-btn {
+            font-size: 10px;
+            background: #eff6ff;
+            border: 1px solid #93c5fd;
+            border-radius: 4px;
+            padding: 1px 8px;
+            color: #1d4ed8;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        #lip-tide-allnation-btn:hover { background: #dbeafe; }
+        #lip-tide-allnation-btn.active {
+            background: #2563eb;
+            color: #fff;
+            border-color: #2563eb;
+        }
         .lip-row {
             display: flex;
             justify-content: space-between;
@@ -3625,9 +3704,22 @@
                     <!-- 情報タブ -->
                     <div id="mbc-tab-panel-info" style="display:none;">
                         <!-- 非ナビ時：現在地情報パネル -->
-                        <div id="loc-info-nonnav" style="display:none;">
-                            <!-- A: 位置情報 -->
-                            <div class="lip-section">
+                        <div id="loc-info-nonnav" style="display:none;" data-lip-level="2">
+                            <!-- レベルバー -->
+                            <div class="lip-level-bar">
+                                <span class="lip-level-label" id="lip-level-label">標準</span>
+                                <button class="lip-level-btn" id="lip-level-btn" onclick="_lipCycleLevel()">詳細▾</button>
+                            </div>
+                            <!-- compact 時サマリ行 -->
+                            <div class="lip-compact-summary">
+                                <span id="lip-cs-elev">--</span>
+                                <span class="lip-cs-sep">|</span>
+                                <span id="lip-cs-hazard">--</span>
+                                <span class="lip-cs-sep">|</span>
+                                <span id="lip-cs-shelter">--</span>
+                            </div>
+                            <!-- A: 位置情報（detail のみ表示） -->
+                            <div class="lip-section lip-section-a lip-level-detail-only">
                                 <div class="lip-section-title">📍 現在地</div>
                                 <div class="lip-row"><span class="lip-row-label">緯度</span><span class="lip-row-value" id="lip-lat">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">経度</span><span class="lip-row-value" id="lip-lon">--</span></div>
@@ -3643,15 +3735,15 @@
                                 <div class="lip-row"><span class="lip-row-label">最終更新</span><span class="lip-row-value" id="lip-age">--</span></div>
                             </div>
                             <!-- B: 標高・ハザード -->
-                            <div class="lip-section">
+                            <div class="lip-section lip-section-b">
                                 <div class="lip-section-title">🏔 標高・ハザード</div>
                                 <div class="lip-row"><span class="lip-row-label">標高</span><span class="lip-row-value" id="lip-elev">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">津波浸水域</span><span class="lip-row-value" id="lip-h-tsunami">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">洪水リスク</span><span class="lip-row-value" id="lip-h-flood">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">土砂災害警戒域</span><span class="lip-row-value" id="lip-h-landslide">--</span></div>
                             </div>
-                            <!-- C: 天体情報 -->
-                            <div class="lip-section" id="lip-astro-section" style="display:none;">
+                            <!-- C: 天体情報（detail のみ表示） -->
+                            <div class="lip-section lip-section-c" id="lip-astro-section" style="display:none;">
                                 <div class="lip-section-title">🌙 天体情報</div>
                                 <div class="lip-row"><span class="lip-row-label">日の出</span><span class="lip-row-value" id="lip-astro-sunrise">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">日の入り</span><span class="lip-row-value" id="lip-astro-sunset">--</span></div>
@@ -3662,18 +3754,22 @@
                             </div>
                             <!-- D: 潮汐情報 -->
                             <div class="lip-section" id="lip-tide-section" style="display:none;">
-                                <div class="lip-section-title">潮汐情報</div>
-                                <div class="lip-row"><span class="lip-row-label">現在潮位</span><span class="lip-row-value" id="lip-tide-current">--</span></div>
+                                <div class="lip-tide-title-row">
+                                    <div class="lip-section-title" style="margin-bottom:0;">🌊 潮汐情報</div>
+                                    <button id="lip-tide-allnation-btn" onclick="_tidePanelToggleAllNation()">全国潮位 ON</button>
+                                </div>
+                                <div class="lip-row" style="margin-top:5px;"><span class="lip-row-label">現在潮位</span><span class="lip-row-value" id="lip-tide-current">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">次回満潮</span><span class="lip-row-value" id="lip-tide-high">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">次回干潮</span><span class="lip-row-value" id="lip-tide-low">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">観測点</span><span class="lip-row-value" id="lip-tide-station">--</span></div>
+                                <!-- 24h潮位グラフ -->
+                                <canvas id="lip-tide-graph" width="400" height="100"></canvas>
                             </div>
-                            <!-- D: 周辺情報（最寄り避難場所のみ。高台はスコープ外） -->
+                            <!-- 周辺の安全情報 -->
                             <div class="lip-section">
                                 <div class="lip-section-title">🏃 周辺の安全情報</div>
                                 <div class="lip-row"><span class="lip-row-label">最寄り避難場所</span><span class="lip-row-value" id="lip-nearest-shelter">--</span></div>
                             </div>
-                            <!-- D: 現在地気象 — AMeDAS精度問題により一時非採用 -->
                             <!-- E: 雨量レーダー予測コントロール（rain-layer.js が表示制御） -->
                             <div class="lip-section" id="lip-rain-radar-ctrl-section" style="display:none;">
                                 <div class="lip-section-title">🌧 雨量レーダー予測</div>
@@ -3980,6 +4076,7 @@
     <!-- ナビ ボトムシート -->
     <script src="js/nav-bottom-sheet.js"></script>
     <!-- 非ナビ時 現在地情報パネル -->
+    <script src="js/tide-markers.js"></script>
     <script src="js/location-info-panel.js"></script>
     <!-- weather.js — AMeDAS精度問題により一時無効化 -->
     <!-- 行政界レイヤー管理 -->
