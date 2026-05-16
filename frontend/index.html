@@ -2673,6 +2673,26 @@
             border-bottom: 1px solid rgba(0,0,0,0.08);
         }
         .lip-section:last-child { border-bottom: none; }
+
+        /* アコーディオンセクション */
+        .lip-accordion-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+            padding: 2px 0;
+        }
+        .lip-accordion-header:hover .lip-accordion-arrow { color: #334155; }
+        .lip-accordion-arrow {
+            font-size: 11px;
+            color: #94a3b8;
+            transition: transform 0.15s;
+        }
+        .lip-accordion.lip-accordion-collapsed .lip-accordion-body { display: none; }
+        .lip-accordion.lip-accordion-collapsed .lip-accordion-arrow { transform: rotate(0deg); }
+        .lip-accordion:not(.lip-accordion-collapsed) .lip-accordion-arrow { transform: rotate(180deg); }
+
         .lip-section-title {
             font-size: 10px;
             font-weight: 700;
@@ -2738,6 +2758,19 @@
             background: #f8fafc;
             margin-top: 6px;
         }
+        /* 日月タイムライン */
+        .lip-tide-timeline-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #475569;
+            margin: 8px 0 2px 0;
+        }
+        #lip-sun-moon-timeline {
+            display: block;
+            width: 100%;
+            height: 130px;
+            border-radius: 4px;
+        }
         /* 全国潮位ボタン */
         .lip-tide-title-row {
             display: flex;
@@ -2760,6 +2793,41 @@
             color: #fff;
             border-color: #2563eb;
         }
+        /* ── 潮位リッチカード ─────────────────────── */
+        .lip-tide-card {
+            background: linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 100%);
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            padding: 8px 10px;
+            margin-top: 6px;
+        }
+        .lip-tide-card-station { display:flex; align-items:baseline; gap:6px; margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid #bae6fd; }
+        .lip-tide-card-sname   { font-size:12px; font-weight:600; color:#0c4a6e; }
+        .lip-tide-card-sdist   { font-size:10px; color:#0369a1; }
+        .lip-tide-card-body    { display:flex; gap:10px; align-items:stretch; }
+        .lip-tide-card-cur     { flex-shrink:0; padding-right:10px; border-right:1px solid #bae6fd; min-width:72px; }
+        .lip-tide-card-lbl     { font-size:10px; color:#0369a1; font-weight:500; margin-bottom:1px; }
+        .lip-tide-card-bigval  { font-size:28px; font-weight:700; color:#0369a1; line-height:1.1; }
+        .lip-tide-card-unit    { font-size:13px; font-weight:400; color:#0369a1; margin-left:1px; }
+        .lip-tide-card-clock   { font-size:10px; color:#64748b; margin-top:4px; }
+        .lip-tide-card-hl      { flex:1; display:flex; flex-direction:column; justify-content:center; gap:5px; }
+        .lip-tide-card-hl-row  { display:flex; align-items:center; gap:5px; }
+        .lip-tide-card-dot     { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+        .lip-dot-high { background:#ef4444; }
+        .lip-dot-low  { background:#0ea5e9; }
+        .lip-tide-card-hl-lbl  { font-size:10px; color:#64748b; min-width:42px; }
+        .lip-tide-card-hl-time { font-size:12px; font-weight:600; color:#1e3a5f; }
+        .lip-tide-card-hl-cm   { font-size:11px; color:#475569; }
+        /* ── 天体リッチカード ─────────────────────── */
+        .lip-astro-card   { display:flex; align-items:center; background:#0f172a; border-radius:6px; padding:8px 8px; gap:0; }
+        .lip-astro-col    { flex:1; display:flex; align-items:center; gap:7px; min-width:0; }
+        .lip-astro-sun-icon { font-size:20px; flex-shrink:0; }
+        .lip-astro-col-rows { display:flex; flex-direction:column; gap:4px; }
+        .lip-astro-vdiv   { width:1px; height:40px; background:#1e293b; margin:0 8px; flex-shrink:0; }
+        .lip-astro-evt    { display:flex; align-items:center; gap:4px; }
+        .lip-astro-evt-lbl  { font-size:10px; color:#475569; min-width:30px; }
+        .lip-astro-evt-time { font-size:11px; font-weight:500; color:#cbd5e1; }
+        .lip-astro-badge  { display:inline-block; font-size:10px; background:#1e293b; color:#94a3b8; border-radius:3px; padding:1px 5px; margin-top:1px; }
         .lip-row {
             display: flex;
             justify-content: space-between;
@@ -3742,33 +3810,117 @@
                                 <div class="lip-row"><span class="lip-row-label">洪水リスク</span><span class="lip-row-value" id="lip-h-flood">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">土砂災害警戒域</span><span class="lip-row-value" id="lip-h-landslide">--</span></div>
                             </div>
-                            <!-- C: 天体情報（detail のみ表示） -->
-                            <div class="lip-section lip-section-c" id="lip-astro-section" style="display:none;">
-                                <div class="lip-section-title">🌙 天体情報</div>
-                                <div class="lip-row"><span class="lip-row-label">日の出</span><span class="lip-row-value" id="lip-astro-sunrise">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">日の入り</span><span class="lip-row-value" id="lip-astro-sunset">--</span></div>
-                                <div class="lip-row" id="lip-astro-moonrise-row" style="display:none;"><span class="lip-row-label">月の出</span><span class="lip-row-value" id="lip-astro-moonrise">--</span></div>
-                                <div class="lip-row" id="lip-astro-moonset-row" style="display:none;"><span class="lip-row-label">月の入</span><span class="lip-row-value" id="lip-astro-moonset">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">月齢</span><span class="lip-row-value" id="lip-astro-moon">--</span></div>
-                                <div id="lip-astro-note" style="display:none;font-size:11px;color:#78909c;padding:2px 0 4px 4px;"></div>
-                            </div>
-                            <!-- D: 潮汐情報 -->
-                            <div class="lip-section" id="lip-tide-section" style="display:none;">
-                                <div class="lip-tide-title-row">
-                                    <div class="lip-section-title" style="margin-bottom:0;">🌊 潮汐情報</div>
-                                    <button id="lip-tide-allnation-btn" onclick="_tidePanelToggleAllNation()">全国潮位 ON</button>
+                            <!-- C+D: 潮汐 · 天体情報（アコーディオン） -->
+                            <div class="lip-section lip-accordion" id="lip-tide-section" style="display:none;">
+                                <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
+                                    <div class="lip-section-title" style="margin-bottom:0;">🌊 潮汐 · 天体情報</div>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <button id="lip-tide-allnation-btn" onclick="event.stopPropagation();_tidePanelToggleAllNation()">全国潮位 ON</button>
+                                        <span class="lip-accordion-arrow">▾</span>
+                                    </div>
                                 </div>
-                                <div class="lip-row" style="margin-top:5px;"><span class="lip-row-label">現在潮位</span><span class="lip-row-value" id="lip-tide-current">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">次回満潮</span><span class="lip-row-value" id="lip-tide-high">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">次回干潮</span><span class="lip-row-value" id="lip-tide-low">--</span></div>
-                                <div class="lip-row"><span class="lip-row-label">観測点</span><span class="lip-row-value" id="lip-tide-station">--</span></div>
-                                <!-- 24h潮位グラフ -->
-                                <canvas id="lip-tide-graph" width="400" height="100"></canvas>
+                                <div class="lip-accordion-body">
+                                    <!-- 潮位リッチカード -->
+                                    <div class="lip-tide-card" id="lip-tide-card" style="display:none;">
+                                        <div class="lip-tide-card-station">
+                                            <span class="lip-tide-card-sname" id="lip-tide-card-name">--</span>
+                                            <span class="lip-tide-card-sdist" id="lip-tide-card-dist"></span>
+                                        </div>
+                                        <div class="lip-tide-card-body">
+                                            <div class="lip-tide-card-cur">
+                                                <div class="lip-tide-card-lbl">現在潮位</div>
+                                                <div class="lip-tide-card-bigval"><span id="lip-tide-card-num">--</span><span class="lip-tide-card-unit">cm</span></div>
+                                                <div class="lip-tide-card-clock" id="lip-tide-card-clock"></div>
+                                            </div>
+                                            <div class="lip-tide-card-hl">
+                                                <div class="lip-tide-card-hl-row">
+                                                    <span class="lip-tide-card-dot lip-dot-high"></span>
+                                                    <span class="lip-tide-card-hl-lbl">次の満潮</span>
+                                                    <span class="lip-tide-card-hl-time" id="lip-tide-card-high-time">--</span>
+                                                    <span class="lip-tide-card-hl-cm" id="lip-tide-card-high-cm"></span>
+                                                </div>
+                                                <div class="lip-tide-card-hl-row">
+                                                    <span class="lip-tide-card-dot lip-dot-low"></span>
+                                                    <span class="lip-tide-card-hl-lbl">次の干潮</span>
+                                                    <span class="lip-tide-card-hl-time" id="lip-tide-card-low-time">--</span>
+                                                    <span class="lip-tide-card-hl-cm" id="lip-tide-card-low-cm"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- 24h潮位グラフ -->
+                                    <canvas id="lip-tide-graph" width="400" height="100"></canvas>
+                                    <!-- 天体リッチカード -->
+                                    <div id="lip-astro-section" style="display:none;">
+                                        <div class="lip-astro-card">
+                                            <div class="lip-astro-col">
+                                                <div class="lip-astro-sun-icon">☀</div>
+                                                <div class="lip-astro-col-rows">
+                                                    <div class="lip-astro-evt">
+                                                        <span class="lip-astro-evt-lbl">日の出</span>
+                                                        <span class="lip-astro-evt-time" id="lip-astro-sunrise">--</span>
+                                                    </div>
+                                                    <div class="lip-astro-evt">
+                                                        <span class="lip-astro-evt-lbl">日の入</span>
+                                                        <span class="lip-astro-evt-time" id="lip-astro-sunset">--</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="lip-astro-vdiv"></div>
+                                            <div class="lip-astro-col">
+                                                <canvas id="lip-astro-moon-canvas" width="32" height="32" style="flex-shrink:0;"></canvas>
+                                                <div class="lip-astro-col-rows">
+                                                    <div class="lip-astro-evt">
+                                                        <span class="lip-astro-evt-lbl">月の出</span>
+                                                        <span class="lip-astro-evt-time" id="lip-astro-moonrise">--</span>
+                                                    </div>
+                                                    <div class="lip-astro-evt">
+                                                        <span class="lip-astro-evt-lbl">月の入</span>
+                                                        <span class="lip-astro-evt-time" id="lip-astro-moonset">--</span>
+                                                    </div>
+                                                    <div id="lip-astro-note"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- 日月タイムライン -->
+                                    <canvas id="lip-sun-moon-timeline" width="400" height="130" style="margin-top:6px;"></canvas>
+                                </div>
                             </div>
                             <!-- 周辺の安全情報 -->
                             <div class="lip-section">
                                 <div class="lip-section-title">🏃 周辺の安全情報</div>
                                 <div class="lip-row"><span class="lip-row-label">最寄り避難場所</span><span class="lip-row-value" id="lip-nearest-shelter">--</span></div>
+                            </div>
+                            <!-- F: 気象（将来予測）アコーディオン -->
+                            <div class="lip-section lip-accordion lip-accordion-collapsed">
+                                <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
+                                    <div class="lip-section-title" style="margin-bottom:0;">🌤 気象（将来予測）</div>
+                                    <span class="lip-accordion-arrow">▾</span>
+                                </div>
+                                <div class="lip-accordion-body">
+                                    <div class="lip-row"><span class="lip-row-label" style="color:#94a3b8;">実装予定</span><span class="lip-row-value"></span></div>
+                                </div>
+                            </div>
+                            <!-- G: 地震（周辺観測）アコーディオン -->
+                            <div class="lip-section lip-accordion lip-accordion-collapsed">
+                                <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
+                                    <div class="lip-section-title" style="margin-bottom:0;">🫨 地震（周辺観測）</div>
+                                    <span class="lip-accordion-arrow">▾</span>
+                                </div>
+                                <div class="lip-accordion-body">
+                                    <div class="lip-row"><span class="lip-row-label" style="color:#94a3b8;">実装予定</span><span class="lip-row-value"></span></div>
+                                </div>
+                            </div>
+                            <!-- H: その他情報 アコーディオン -->
+                            <div class="lip-section lip-accordion lip-accordion-collapsed">
+                                <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
+                                    <div class="lip-section-title" style="margin-bottom:0;">📋 その他情報</div>
+                                    <span class="lip-accordion-arrow">▾</span>
+                                </div>
+                                <div class="lip-accordion-body">
+                                    <div class="lip-row"><span class="lip-row-label" style="color:#94a3b8;">実装予定</span><span class="lip-row-value"></span></div>
+                                </div>
                             </div>
                             <!-- E: 雨量レーダー予測コントロール（rain-layer.js が表示制御） -->
                             <div class="lip-section" id="lip-rain-radar-ctrl-section" style="display:none;">

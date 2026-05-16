@@ -859,41 +859,57 @@ async function _astroUpdate(lat, lon) {
     section.style.display = '';
     _lipSet('lip-astro-sunrise', _astroFmtTime(data.sunrise));
     _lipSet('lip-astro-sunset',  _astroFmtTime(data.sunset));
-    _astroSetOptionalTime('lip-astro-moonrise-row', 'lip-astro-moonrise', data.moonrise);
-    _astroSetOptionalTime('lip-astro-moonset-row', 'lip-astro-moonset', data.moonset);
-
-    const moonEl = document.getElementById('lip-astro-moon');
-    if (moonEl) {
-        moonEl.innerHTML = `${_astroMoonSvg(data.moon_phase)}${data.moon_phase} / ${data.moon_label}`;
-    }
+    _lipSet('lip-astro-moonrise', _astroFmtTime(data.moonrise) || '--');
+    _lipSet('lip-astro-moonset',  _astroFmtTime(data.moonset)  || '--');
 
     const noteEl = document.getElementById('lip-astro-note');
     if (noteEl) {
         if (data.moon_label === '新月') {
-            noteEl.innerHTML = '<span style="color:#92400e;background:#fef3c7;border-radius:3px;padding:0 5px;font-size:10px">暗所注意</span>';
-            noteEl.style.display = '';
+            noteEl.innerHTML = '<span class="lip-astro-badge" style="color:#92400e;background:#fef3c7;">暗所注意</span>';
         } else if (data.moon_label === '満月') {
-            noteEl.innerHTML = '<span style="color:#166534;background:#dcfce7;border-radius:3px;padding:0 5px;font-size:10px">視界良好</span>';
-            noteEl.style.display = '';
+            noteEl.innerHTML = '<span class="lip-astro-badge" style="color:#166534;background:#dcfce7;">視界良好</span>';
+        } else if (data.moon_label) {
+            noteEl.innerHTML = `<span class="lip-astro-badge">月齢 ${data.moon_phase} / ${data.moon_label}</span>`;
         } else {
-            noteEl.style.display = 'none';
+            noteEl.innerHTML = '';
         }
     }
+
+    _astroMoonCanvasStart(data.moon_phase);
 }
 
-function _astroSetOptionalTime(rowId, valueId, isoStr) {
-    const row = document.getElementById(rowId);
-    const value = document.getElementById(valueId);
-    const label = _astroFmtTime(isoStr);
-    if (!row || !value) return;
+let _moonCanvasAnimId = null;
+let _moonCanvasPhase  = 0;
+let _moonCanvasStart  = 0;
 
-    if (!isoStr || label === '--') {
-        row.style.display = 'none';
-        return;
-    }
-
-    value.textContent = label;
-    row.style.display = '';
+function _astroMoonCanvasStart(phase) {
+    _moonCanvasPhase = phase;
+    if (_moonCanvasAnimId) { cancelAnimationFrame(_moonCanvasAnimId); _moonCanvasAnimId = null; }
+    _moonCanvasStart = performance.now();
+    const tick = (ts) => {
+        const canvas = document.getElementById('lip-astro-moon-canvas');
+        if (!canvas) { _moonCanvasAnimId = null; return; }
+        if (!canvas.offsetParent) { _moonCanvasAnimId = requestAnimationFrame(tick); return; }
+        const dpr = window.devicePixelRatio || 1;
+        const r   = 13;
+        const sz  = r * 2 + 6;
+        const needW = Math.round(sz * dpr);
+        const needH = Math.round(sz * dpr);
+        if (canvas.width !== needW || canvas.height !== needH) {
+            canvas.width  = needW;
+            canvas.height = needH;
+            canvas.style.width  = sz + 'px';
+            canvas.style.height = sz + 'px';
+        }
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, sz, sz);
+        const elapsed   = (ts - _moonCanvasStart) / 1000;
+        const glowPulse = 0.5 + 0.5 * Math.sin(elapsed * Math.PI * 2 / 3);
+        _tlDrawMoonPhaseIcon(ctx, sz / 2, sz / 2, r, _moonCanvasPhase, glowPulse);
+        _moonCanvasAnimId = requestAnimationFrame(tick);
+    };
+    _moonCanvasAnimId = requestAnimationFrame(tick);
 }
 
 // ── 潮汐情報 ──────────────────────────────────────────────────────
@@ -964,16 +980,15 @@ function _tideRenderStation(lat, lon) {
     if (!_tideCache || !_tideCache.data || _tideCache.data.available === false) return;
     const station = _tideCache.data.station || {};
     let distLabel = '';
-    if (
-        lat != null && lon != null &&
-        Number.isFinite(station.lat) && Number.isFinite(station.lon)
-    ) {
+    if (lat != null && lon != null && Number.isFinite(station.lat) && Number.isFinite(station.lon)) {
         const meters = _lipHaversineMeters(lat, lon, station.lat, station.lon);
-        distLabel = _tideFmtDistance(meters);
+        const km = (Math.round(meters / 100) * 100 / 1000).toFixed(1);
+        distLabel = `観測地点まで ${km} km`;
     } else if (station.distance_km != null) {
-        distLabel = `  ${station.distance_km} km`;
+        distLabel = `観測地点まで ${station.distance_km} km`;
     }
-    _lipSet('lip-tide-station', `${station.name || station.id || '--'}${distLabel}`);
+    _lipSet('lip-tide-card-name', station.name || station.id || '--');
+    _lipSet('lip-tide-card-dist', distLabel);
 }
 
 function _tideRender(data) {
@@ -986,18 +1001,45 @@ function _tideRender(data) {
     }
 
     section.style.display = '';
-    _lipSet('lip-tide-current', _tideFmtCm(data.current_tide_cm));
-    _lipSet('lip-tide-high', _tideFmtExtreme(data.next_high_tide));
-    _lipSet('lip-tide-low', _tideFmtExtreme(data.next_low_tide));
+    const card = document.getElementById('lip-tide-card');
+    if (card) card.style.display = '';
+
+    // 現在潮位
+    const num = data.current_tide_cm == null ? '--' : String(Math.round(Number(data.current_tide_cm)));
+    _lipSet('lip-tide-card-num', num);
+
+    // 満潮・干潮（時刻とcmを分けて表示）
+    _tideSetExtreme('lip-tide-card-high-time', 'lip-tide-card-high-cm', data.next_high_tide);
+    _tideSetExtreme('lip-tide-card-low-time',  'lip-tide-card-low-cm',  data.next_low_tide);
+
+    // 現在時刻
+    _tideUpdateClock();
+
     _tideRenderStation(_lipLat, _lipLon);
     _tideDistLastPos = (_lipLat != null && _lipLon != null)
         ? { lat: _lipLat, lon: _lipLon } : null;
 
-    // 選択地点が確定している場合グラフを更新
     const stationId = _selectedTideStation
         ? _selectedTideStation.id
         : (data.station ? data.station.id : null);
     if (stationId) _tideGraphUpdate(stationId);
+}
+
+function _tideSetExtreme(timeId, cmId, value) {
+    if (!value || !value.time) { _lipSet(timeId, '--'); _lipSet(cmId, ''); return; }
+    const d = new Date(value.time);
+    if (isNaN(d.getTime())) { _lipSet(timeId, '--'); _lipSet(cmId, ''); return; }
+    const time = d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
+    const cm   = value.tide_cm == null ? '' : `${Math.round(Number(value.tide_cm))} cm`;
+    _lipSet(timeId, time);
+    _lipSet(cmId, cm);
+}
+
+function _tideUpdateClock() {
+    const now = new Date();
+    const ymd = now.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Tokyo' });
+    const hm  = now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
+    _lipSet('lip-tide-card-clock', `🕐 ${ymd} ${hm}`);
 }
 
 function _tideMaybeRefreshDistance(lat, lon) {
@@ -1052,9 +1094,10 @@ function _tideResetToNearest() {
 let _tideGraphCache = {};  // stationId+date → {records, extremes}
 
 async function _tideGraphFetch(stationId) {
-    // 現在JSTから24時間分：当日＋翌日を取得して結合する
+    // 現在±12h（現在中央）: 前日・当日・翌日を取得して結合する
     const nowMs = Date.now();
     const jstOffMs = 9 * 3600 * 1000;
+    const prevJst     = new Date(nowMs + jstOffMs - 24 * 3600 * 1000).toISOString().slice(0, 10);
     const todayJst    = new Date(nowMs + jstOffMs).toISOString().slice(0, 10);
     const tomorrowJst = new Date(nowMs + jstOffMs + 24 * 3600 * 1000).toISOString().slice(0, 10);
 
@@ -1068,25 +1111,14 @@ async function _tideGraphFetch(stationId) {
         return data;
     };
 
-    const [todayData, tomorrowData] = await Promise.all([
-        fetchDay(todayJst).catch(() => null),
-        todayJst !== tomorrowJst ? fetchDay(tomorrowJst).catch(() => null) : Promise.resolve(null),
-    ]);
+    const dates = [...new Set([prevJst, todayJst, tomorrowJst])];
+    const results = await Promise.all(dates.map(d => fetchDay(d).catch(() => null)));
 
     return {
-        records: [
-            ...(todayData?.records   || []),
-            ...(tomorrowData?.records || []),
-        ],
+        records: results.flatMap(d => d?.records || []),
         extremes: {
-            high_tides: [
-                ...(todayData?.extremes?.high_tides   || []),
-                ...(tomorrowData?.extremes?.high_tides || []),
-            ],
-            low_tides: [
-                ...(todayData?.extremes?.low_tides   || []),
-                ...(tomorrowData?.extremes?.low_tides || []),
-            ],
+            high_tides: results.flatMap(d => d?.extremes?.high_tides || []),
+            low_tides:  results.flatMap(d => d?.extremes?.low_tides  || []),
         },
     };
 }
@@ -1094,25 +1126,36 @@ async function _tideGraphFetch(stationId) {
 async function _tideGraphUpdate(stationId) {
     const canvas = document.getElementById('lip-tide-graph');
     if (!canvas) return;
+    const nowMs = Date.now();
+    const tMin  = nowMs - 12 * 3600 * 1000;
+    const tMax  = nowMs + 12 * 3600 * 1000;
     const data = await _tideGraphFetch(stationId);
-    _tideGraphDraw(canvas, data);
+    _tideGraphDraw(canvas, data, tMin, tMax, nowMs);
+    if (_lipLat != null && _lipLon != null) {
+        _sunMoonTimelineUpdate(_lipLat, _lipLon, tMin, tMax, nowMs).catch(() => {});
+    }
 }
 
-function _tideGraphDraw(canvas, data) {
-    // canvas の論理ピクセルを表示幅に合わせる
+function _tideGraphDraw(canvas, data, tMin, tMax, nowMs) {
+    const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    if (rect.width > 0) canvas.width = Math.round(rect.width);
+    // section.style.display='' 直後はリフロー未完で width=0 になる → 次フレームで再試行
+    if (rect.width === 0) {
+        requestAnimationFrame(() => _tideGraphDraw(canvas, data, tMin, tMax, nowMs));
+        return;
+    }
+    canvas.width  = Math.round(rect.width  * dpr);
+    canvas.height = Math.round(rect.height * dpr);
     const ctx = canvas.getContext('2d');
-    const W = canvas.width;
-    const H = canvas.height;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = canvas.width  / dpr;
+    const H = canvas.height / dpr;
     const PAD = { top: 10, right: 10, bottom: 22, left: 36 };
 
     ctx.clearRect(0, 0, W, H);
 
-    // 横軸: 現在時刻 → +24時間
-    const now  = Date.now();
-    const tMin = now;
-    const tMax = now + 24 * 3600 * 1000;
+    // 横軸: 現在を中央に -12h〜+12h
+    const now = nowMs != null ? nowMs : (tMin + tMax) / 2;
 
     const records = data && data.records && data.records.length > 0 ? data.records : null;
     if (!records) {
@@ -1164,17 +1207,23 @@ function _tideGraphDraw(canvas, data) {
         ctx.fillText(`${c}`, PAD.left - 3, y + 3);
     }
 
-    // 時間グリッド（3h毎） — 次の整数時刻から
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 0.5;
+    // 時間グリッド（6h毎ラベル・3h毎補助線）
     const hMs = 3600 * 1000;
     const t3hStart = Math.ceil(tMin / (3 * hMs)) * 3 * hMs;
-    ctx.fillStyle = '#94a3b8'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+    const t6hStart = Math.ceil(tMin / (6 * hMs)) * 6 * hMs;
+    // 補助グリッド線（3h、ラベルなし）
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 0.5;
     for (let t = t3hStart; t <= tMax; t += 3 * hMs) {
         const x = tx(t);
         ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + gH); ctx.stroke();
-        const jstHour = new Date(t + 9 * hMs).getUTCHours(); // UTC+9h のUTC時刻 = JST時刻
-        ctx.fillText(`${String(jstHour).padStart(2, '0')}h`, x, H - 4);
+    }
+    // 時刻ラベル（6h毎）
+    ctx.fillStyle = '#94a3b8'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+    for (let t = t6hStart; t <= tMax; t += 6 * hMs) {
+        const x = tx(t);
+        const jstHour = new Date(t + 9 * hMs).getUTCHours();
+        ctx.fillText(`${String(jstHour).padStart(2, '0')}:00`, x, H - 4);
     }
 
     // 潮位ライン（描画範囲内）
@@ -1225,15 +1274,16 @@ function _tideGraphDraw(canvas, data) {
                 ctx.fillStyle = color;
                 ctx.font = 'bold 9px sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText(label, x, label === '満' ? y - 6 : y + 14);
+                const labelY = Math.max(PAD.top + 9, y - 6);
+                ctx.fillText(label, x, labelY);
             });
         };
         drawExtremes(extremes.high_tides, '#dc2626', '満');
         drawExtremes(extremes.low_tides,  '#0891b2', '干');
     }
 
-    // 現在時刻ライン（左端・強調表示）
-    const x0 = PAD.left;
+    // 現在時刻ライン（中央）
+    const x0 = tx(now);
     ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = 2;
     ctx.setLineDash([]);
@@ -1272,15 +1322,519 @@ function _tideGraphDraw(canvas, data) {
         ctx.fillText(label, lx + 1, textY);
     }
 
-    // 「現在」テキスト（ライン上部）
+    // 「現在」テキスト（ライン上部・中央揃え）
     ctx.fillStyle = '#ef4444';
-    ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('現在', x0 + 2, PAD.top - 1);
+    ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('現在', x0, PAD.top - 1);
+}
+
+// ── 日月タイムライン ─────────────────────────────────────────────────
+
+const _ASTRO_TL_CACHE_TTL_MS = 10 * 60 * 1000;
+let _astroTlCache = {};
+
+async function _astroTlFetchDay(lat, lon, dateStr) {
+    const key = `${lat.toFixed(3)},${lon.toFixed(3)}|${dateStr}`;
+    const now = Date.now();
+    const cached = _astroTlCache[key];
+    if (cached && now - cached.fetchedAt < _ASTRO_TL_CACHE_TTL_MS) return cached.data;
+    try {
+        const res = await fetch(`/api/astro/current?lat=${lat}&lon=${lon}&date=${dateStr}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        _astroTlCache[key] = { data, fetchedAt: now };
+        return data;
+    } catch {
+        return null;
+    }
+}
+
+async function _sunMoonTimelineUpdate(lat, lon, tMin, tMax, nowMs) {
+    const canvas = document.getElementById('lip-sun-moon-timeline');
+    if (!canvas) return;
+    const centerMs = nowMs != null ? nowMs : (tMin + tMax) / 2;
+    const jstOffMs = 9 * 3600 * 1000;
+    const prevStr     = new Date(centerMs + jstOffMs - 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const todayStr    = new Date(centerMs + jstOffMs).toISOString().slice(0, 10);
+    const tomorrowStr = new Date(centerMs + jstOffMs + 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const [prevData, todayData, tomorrowData] = await Promise.all([
+        _astroTlFetchDay(lat, lon, prevStr),
+        _astroTlFetchDay(lat, lon, todayStr),
+        todayStr !== tomorrowStr ? _astroTlFetchDay(lat, lon, tomorrowStr) : Promise.resolve(null),
+    ]);
+    _sunMoonTimelineDraw(canvas, todayData, tomorrowData, tMin, tMax, prevData, centerMs);
+}
+
+/**
+ * タイムラインのイベントラベルを重なりを避けて描画する。
+ * - rise → tick の右側、set → tick の左側を基本とする
+ * - 端を超える場合は反転
+ * - 隣接ラベルが重なる場合は矢印のみに省略する
+ * - labelNames: { rise: '日の出', set: '日の入' } など（省略可）
+ */
+function _tlDrawEventLabels(ctx, events, bandY, bandH, fillColor, strokeColor, LPAD, gW, labelNames) {
+    if (!events || events.length === 0) return;
+    const NAMEFONT  = 'bold 9px sans-serif';
+    const TIMEFONT  = '9px sans-serif';
+    const MARGIN    = 2;
+    const NAME_DY   = -22;  // バー上端からの名前行オフセット
+    const TIME_DY   = -12;  // バー上端からの時刻行オフセット
+    const ARROW_DY  = -3;   // バー上端からの矢印オフセット
+    const TICK_TOP  = -24;  // チック線のバー上端からの開始オフセット
+
+    const fmtT = (t) => {
+        const d = new Date(t + 9 * 3600 * 1000);
+        return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    };
+
+    const items = events.map(({ t, type, x }) => {
+        const nameStr  = labelNames ? labelNames[type] : '';
+        const timeStr  = fmtT(t);
+        const arrowStr = type === 'rise' ? '↑' : '↓';
+
+        ctx.font = NAMEFONT;
+        const nw = nameStr ? ctx.measureText(nameStr).width : 0;
+        ctx.font = TIMEFONT;
+        const tw = ctx.measureText(timeStr).width;
+        const aw = ctx.measureText(arrowStr).width;
+        const maxW = Math.max(nw, tw, aw);
+
+        let align = type === 'rise' ? 'left' : 'right';
+        let tx    = type === 'rise' ? x + MARGIN : x - MARGIN;
+
+        if (align === 'left'  && tx + maxW > LPAD + gW - 1) { align = 'right'; tx = x - MARGIN; }
+        if (align === 'right' && tx - maxW < LPAD + 1)       { align = 'left';  tx = x + MARGIN; }
+
+        const x1 = align === 'left' ? tx         : tx - maxW;
+        const x2 = align === 'left' ? tx + maxW  : tx;
+        return { t, type, x, nameStr, timeStr, arrowStr, maxW, aw, align, tx, x1, x2, shorten: false };
+    });
+
+    items.sort((a, b) => a.x - b.x);
+    for (let i = 1; i < items.length; i++) {
+        const prev = items[i - 1];
+        const curr = items[i];
+        if (curr.x1 < prev.x2 + 3) {
+            curr.shorten = true;
+            curr.x2 = curr.align === 'left' ? curr.tx + curr.aw : curr.tx;
+            curr.x1 = curr.align === 'left' ? curr.tx            : curr.tx - curr.aw;
+            if (curr.x1 < prev.x2 + 3) {
+                prev.shorten = true;
+                prev.x2 = prev.align === 'left' ? prev.tx + prev.aw : prev.tx;
+                prev.x1 = prev.align === 'left' ? prev.tx            : prev.tx - prev.aw;
+            }
+        }
+    }
+
+    items.forEach(({ t, type, x, nameStr, timeStr, arrowStr, align, tx, shorten }) => {
+        // チック線
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(x, bandY + TICK_TOP);
+        ctx.lineTo(x, bandY + bandH);
+        ctx.stroke();
+
+        ctx.textAlign = align;
+
+        if (shorten) {
+            ctx.fillStyle = fillColor;
+            ctx.font = TIMEFONT;
+            ctx.fillText(arrowStr, tx, bandY + ARROW_DY);
+            return;
+        }
+
+        // 名前行
+        if (nameStr) {
+            ctx.fillStyle = fillColor;
+            ctx.font = NAMEFONT;
+            ctx.fillText(nameStr, tx, bandY + NAME_DY);
+        }
+        // 時刻行
+        ctx.fillStyle = fillColor;
+        ctx.font = TIMEFONT;
+        ctx.fillText(timeStr, tx, bandY + TIME_DY);
+        // 矢印
+        ctx.fillText(arrowStr, tx, bandY + ARROW_DY);
+    });
+}
+
+// ── タイムライン RAF アニメーション ──────────────────────────────────
+let _tlAnimId = null;
+let _tlAnimParams = null;
+let _tlAnimStart = 0;
+
+function _sunMoonTimelineDraw(canvas, todayData, tomorrowData, tMin, tMax, prevData = null, nowMs = null) {
+    _tlAnimParams = { canvas, todayData, tomorrowData, tMin, tMax, prevData, nowMs };
+    if (_tlAnimId != null) { cancelAnimationFrame(_tlAnimId); _tlAnimId = null; }
+    _tlAnimStart = performance.now();
+    const tick = (ts) => {
+        const p = _tlAnimParams;
+        if (!p) { _tlAnimId = null; return; }
+        if (!p.canvas.offsetParent) { _tlAnimId = requestAnimationFrame(tick); return; }
+        _tlDrawCore(p, (ts - _tlAnimStart) / 1000);
+        _tlAnimId = requestAnimationFrame(tick);
+    };
+    _tlAnimId = requestAnimationFrame(tick);
+}
+
+function _tlDrawMoonPhaseIcon(ctx, cx, cy, r, phase, glowPulse) {
+    const theta  = (phase / 28) * 2 * Math.PI;   // Astral は 0-28 スケール
+    const lit    = 0.5 - 0.5 * Math.cos(theta);
+    const waxing = phase < 14;
+    const kappa  = 0.5523;
+    const sign   = waxing ? 1 : -1;
+    const ex     = sign * (1 - 2 * lit) * r;
+
+    const glowR = r + 2 + glowPulse * 3;
+    const glowA = (0.15 + glowPulse * 0.25).toFixed(2);
+    const grd = ctx.createRadialGradient(cx, cy, r * 0.4, cx, cy, glowR);
+    grd.addColorStop(0, `rgba(200,225,255,${glowA})`);
+    grd.addColorStop(1, 'rgba(200,225,255,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = '#0f1e36';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+
+    if (lit > 0.01) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+        ctx.fillStyle = '#d8eaf9';
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, !waxing);
+        ctx.bezierCurveTo(cx + ex * kappa, cy + r, cx + ex * kappa, cy - r, cx, cy - r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
+    ctx.strokeStyle = 'rgba(148,163,184,0.5)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+}
+
+function _tlDrawCore(p, elapsed) {
+    const { canvas, todayData, tomorrowData, tMin, tMax, prevData, nowMs } = p;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    // リフロー未完（width=0）の場合は描画をスキップし、次フレームで再描画
+    if (rect.width === 0) return;
+    const needW = Math.round(rect.width  * dpr);
+    const needH = Math.round(rect.height * dpr);
+    if (canvas.width !== needW || canvas.height !== needH) {
+        canvas.width  = needW;
+        canvas.height = needH;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = needW / dpr;
+    const H = needH / dpr;
+    ctx.clearRect(0, 0, W, H);
+
+    if (!todayData && !tomorrowData) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('天体データなし', W / 2, H / 2 + 4);
+        return;
+    }
+
+    const LPAD = 68;
+    const RPAD = 10;
+    const gW   = W - LPAD - RPAD;
+
+    const SUN_Y  = 30;
+    const SUN_H  = 26;
+    const MOON_Y = SUN_Y + SUN_H + 28;  // = 84: 2行ラベル分の余白
+    const MOON_H = 26;
+    const AXIS_Y = MOON_Y + MOON_H + 5; // = 115
+
+    const centerMs = nowMs != null ? nowMs : (tMin + tMax) / 2;
+    const toX    = (t) => LPAD + (t - tMin) / (tMax - tMin) * gW;
+    const clampX = (x) => Math.max(LPAD, Math.min(LPAD + gW, x));
+
+    const parseMs = (iso) => {
+        if (!iso) return null;
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? null : d.getTime();
+    };
+
+    const previous = prevData     || {};
+    const today    = todayData    || {};
+    const tomorrow = tomorrowData || {};
+
+    const sunEvents = [];
+    for (const [iso, type] of [
+        [previous.sunrise, 'rise'], [previous.sunset, 'set'],
+        [today.sunrise, 'rise'], [today.sunset, 'set'],
+        [tomorrow.sunrise, 'rise'], [tomorrow.sunset, 'set'],
+    ]) {
+        const t = parseMs(iso);
+        if (t != null) sunEvents.push({ t, type });
+    }
+    sunEvents.sort((a, b) => a.t - b.t);
+
+    const moonEvents = [];
+    for (const [iso, type] of [
+        [previous.moonrise, 'rise'], [previous.moonset, 'set'],
+        [today.moonrise, 'rise'], [today.moonset, 'set'],
+        [tomorrow.moonrise, 'rise'], [tomorrow.moonset, 'set'],
+    ]) {
+        const t = parseMs(iso);
+        if (t != null) moonEvents.push({ t, type });
+    }
+    moonEvents.sort((a, b) => a.t - b.t);
+
+    // ── 太陽グラデーション帯 ──────────────────────────────────────
+    const NIGHT    = '#0f172a';
+    const TWILIGHT = '#f97316';
+    const DAY      = '#fef9c3';
+    const TRANS_MS = 40 * 60 * 1000;
+
+    const sunBefore    = sunEvents.filter(e => e.t <= tMin);
+    const isDayAtStart = sunBefore.filter(e => e.type === 'rise').length
+                       > sunBefore.filter(e => e.type === 'set').length;
+
+    const sunGrad = ctx.createLinearGradient(LPAD, 0, LPAD + gW, 0);
+    const addSunStop = (t, color) => {
+        sunGrad.addColorStop(Math.max(0, Math.min(1, (t - tMin) / (tMax - tMin))), color);
+    };
+
+    sunGrad.addColorStop(0, isDayAtStart ? DAY : NIGHT);
+    const sunWin = sunEvents.filter(e => e.t > tMin && e.t < tMax);
+    let lastSunState = isDayAtStart;
+    sunWin.forEach(({ t, type }) => {
+        if (type === 'rise') {
+            addSunStop(Math.max(tMin, t - TRANS_MS), NIGHT);
+            addSunStop(t, TWILIGHT);
+            addSunStop(Math.min(tMax, t + TRANS_MS), DAY);
+            lastSunState = true;
+        } else {
+            addSunStop(Math.max(tMin, t - TRANS_MS), DAY);
+            addSunStop(t, TWILIGHT);
+            addSunStop(Math.min(tMax, t + TRANS_MS), NIGHT);
+            lastSunState = false;
+        }
+    });
+    sunGrad.addColorStop(1, lastSunState ? DAY : NIGHT);
+
+    ctx.fillStyle = sunGrad;
+    ctx.beginPath();
+    ctx.roundRect(LPAD, SUN_Y, gW, SUN_H, 3);
+    ctx.fill();
+
+    // ── 夜帯に星を散らす ─────────────────────────────────────────
+    const nightSegs = [];
+    let nightStart = isDayAtStart ? null : tMin;
+    sunWin.forEach(({ t, type }) => {
+        if (type === 'rise') {
+            if (nightStart != null) nightSegs.push([nightStart, t]);
+            nightStart = null;
+        } else {
+            nightStart = t;
+        }
+    });
+    if (nightStart != null) nightSegs.push([nightStart, tMax]);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    nightSegs.forEach(([tS, tE]) => {
+        const xS = Math.max(LPAD, toX(tS));
+        const xE = Math.min(LPAD + gW, toX(tE));
+        const w  = xE - xS;
+        if (w < 5) return;
+        const n = Math.max(2, Math.floor(w / 9));
+        for (let i = 0; i < n; i++) {
+            const h1 = Math.sin(xS * 0.31 + i * 7.13) * 43758.5453;
+            const h2 = Math.sin(xS * 0.17 + i * 13.73) * 97531.843;
+            const rx = xS + (h1 - Math.floor(h1)) * w;
+            const ry = SUN_Y + 2 + (h2 - Math.floor(h2)) * (SUN_H - 4);
+            ctx.beginPath();
+            ctx.arc(rx, ry, i % 5 === 0 ? 1.0 : 0.55, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    });
+
+    // ── 昼帯の中央に太陽アイコン ──────────────────────────────────
+    const daytimeSegs = [];
+    let dayStart = isDayAtStart ? tMin : null;
+    sunWin.forEach(({ t, type }) => {
+        if (type === 'rise') { dayStart = t; }
+        else { if (dayStart != null) daytimeSegs.push([dayStart, t]); dayStart = null; }
+    });
+    if (dayStart != null) daytimeSegs.push([dayStart, tMax]);
+
+    daytimeSegs.forEach(([tS, tE]) => {
+        const xMid = toX((tS + tE) / 2);
+        if (xMid < LPAD || xMid > LPAD + gW) return;
+        const cy = SUN_Y + SUN_H / 2;
+        const r  = 3;
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.beginPath();
+        ctx.arc(xMid, cy, r + 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.arc(xMid, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(xMid + Math.cos(a) * (r + 2), cy + Math.sin(a) * (r + 2));
+            ctx.lineTo(xMid + Math.cos(a) * (r + 4), cy + Math.sin(a) * (r + 4));
+            ctx.stroke();
+        }
+    });
+
+    // 日の出・日の入マーカー（2行ラベル）
+    _tlDrawEventLabels(ctx,
+        sunWin.map(({ t, type }) => ({ t, type, x: clampX(toX(t)) })),
+        SUN_Y, SUN_H, '#fb923c', 'rgba(251,146,60,0.85)', LPAD, gW,
+        { rise: '日の出', set: '日の入' });
+
+    // ── 月バー背景 ────────────────────────────────────────────────
+    ctx.fillStyle = '#1e293b';
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.roundRect(LPAD, MOON_Y, gW, MOON_H, 3);
+    ctx.fill();
+
+    const moonBefore = moonEvents.filter(e => e.t <= tMin);
+    const moonR0 = moonBefore.filter(e => e.type === 'rise').length;
+    const moonS0 = moonBefore.filter(e => e.type === 'set').length;
+    let moonUpAtStart;
+    if (moonR0 > moonS0) {
+        moonUpAtStart = true;
+    } else if (moonR0 > 0) {
+        moonUpAtStart = false;
+    } else {
+        const firstWin = moonEvents.find(e => e.t > tMin);
+        moonUpAtStart = firstWin ? firstWin.type === 'set' : false;
+    }
+
+    const moonWin = moonEvents.filter(e => e.t > tMin && e.t < tMax);
+    let moonPeriodStart = moonUpAtStart ? tMin : null;
+
+    const drawMoonPeriod = (x1, x2, fromEdge) => {
+        if (x2 <= x1) return;
+        const fade = Math.min(0.15, 12 / Math.max(1, x2 - x1));
+        const hg = ctx.createLinearGradient(x1, 0, x2, 0);
+        hg.addColorStop(0, fromEdge ? 'rgba(148,163,184,0.7)' : 'rgba(148,163,184,0)');
+        hg.addColorStop(fromEdge ? 0 : fade, 'rgba(148,163,184,0.7)');
+        hg.addColorStop(1 - fade, 'rgba(148,163,184,0.7)');
+        hg.addColorStop(1, 'rgba(148,163,184,0)');
+        ctx.fillStyle = hg;
+        ctx.fillRect(x1, MOON_Y, x2 - x1, MOON_H);
+        const vg = ctx.createLinearGradient(0, MOON_Y, 0, MOON_Y + MOON_H);
+        vg.addColorStop(0,    'rgba(235,245,255,0.45)');
+        vg.addColorStop(0.35, 'rgba(160,185,210,0.1)');
+        vg.addColorStop(1,    'rgba(30,55,90,0.3)');
+        ctx.fillStyle = vg;
+        ctx.fillRect(x1, MOON_Y, x2 - x1, MOON_H);
+        const hx1 = x1 + (fromEdge ? 0 : (x2 - x1) * fade);
+        const hx2 = x2 - (x2 - x1) * fade;
+        if (hx2 > hx1) {
+            ctx.strokeStyle = 'rgba(210,230,250,0.75)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(hx1, MOON_Y + 1);
+            ctx.lineTo(hx2, MOON_Y + 1);
+            ctx.stroke();
+        }
+        // 月が出ている期間が十分広い場合にラベルを表示
+        if (x2 - x1 > 90) {
+            ctx.save();
+            ctx.font = '8px sans-serif';
+            ctx.fillStyle = 'rgba(200,220,240,0.6)';
+            ctx.textAlign = 'center';
+            ctx.fillText('月が出ている時間帯', (x1 + x2) / 2, MOON_Y + MOON_H - 4);
+            ctx.restore();
+        }
+    };
+
+    moonWin.forEach(({ t, type }) => {
+        if (type === 'rise') {
+            moonPeriodStart = t;
+        } else {
+            if (moonPeriodStart != null) {
+                drawMoonPeriod(clampX(toX(moonPeriodStart)), clampX(toX(t)), moonPeriodStart <= tMin);
+            }
+            moonPeriodStart = null;
+        }
+    });
+    if (moonPeriodStart != null) {
+        drawMoonPeriod(clampX(toX(moonPeriodStart)), LPAD + gW, moonPeriodStart <= tMin);
+    }
+
+    // 月の出・月の入マーカー（2行ラベル）
+    _tlDrawEventLabels(ctx,
+        moonWin.map(({ t, type }) => ({ t, type, x: clampX(toX(t)) })),
+        MOON_Y, MOON_H, '#94a3b8', 'rgba(148,163,184,0.9)', LPAD, gW,
+        { rise: '月の出', set: '月の入' });
+
+    // ── 月齢アイコン（バー中央・グロー アニメーション） ──────────
+    const moonPhase  = (todayData || {}).moon_phase ?? (tomorrowData || {}).moon_phase ?? 0;
+    const glowPulse  = 0.5 + 0.5 * Math.sin(elapsed * Math.PI * 2 / 3);
+    _tlDrawMoonPhaseIcon(ctx, LPAD + gW / 2, MOON_Y + MOON_H / 2, Math.floor(MOON_H / 2) - 1, moonPhase, glowPulse);
+
+    // ── 左側ラベル（太陽の明るさ / 月の状態） ───────────────────
+    ctx.font = '8px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(251,146,60,0.85)';
+    ctx.fillText('太陽の明るさ', LPAD - 6, SUN_Y + SUN_H / 2 + 3);
+    ctx.fillStyle = 'rgba(148,163,184,0.85)';
+    ctx.fillText('月の状態', LPAD - 6, MOON_Y + MOON_H / 2 + 3);
+
+    // ── 現在時刻ライン（破線・中央） ────────────────────────────
+    const nowX = clampX(toX(centerMs));
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(nowX, 4);
+    ctx.lineTo(nowX, AXIS_Y + 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // ── 時間軸（±12h 相対ラベル） ───────────────────────────────
+    const hMs = 3600 * 1000;
+    const t6Start = Math.ceil(tMin / (6 * hMs)) * 6 * hMs;
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([]);
+    ctx.font = '9px sans-serif';
+    for (let t = t6Start; t <= tMax; t += 6 * hMs) {
+        const x = toX(t);
+        if (x < LPAD || x > LPAD + gW) continue;
+        ctx.beginPath();
+        ctx.moveTo(x, AXIS_Y);
+        ctx.lineTo(x, AXIS_Y + 3);
+        ctx.stroke();
+        const diffH = Math.round((t - centerMs) / hMs);
+        const lbl = diffH === 0 ? '現在' : (diffH > 0 ? `+${diffH}h` : `${diffH}h`);
+        ctx.fillStyle = diffH === 0 ? '#ef4444' : '#94a3b8';
+        ctx.textAlign = 'center';
+        ctx.fillText(lbl, x, AXIS_Y + 11);
+    }
 }
 
 // ── 情報タブ折りたたみ ────────────────────────────────────────────
 
 let _lipLevel = 2;  // 1=compact, 2=standard(default), 3=detail
+
+function _lipAccordionToggle(headerEl) {
+    const section = headerEl.closest('.lip-accordion');
+    if (!section) return;
+    const collapsed = section.classList.toggle('lip-accordion-collapsed');
+    const arrow = headerEl.querySelector('.lip-accordion-arrow');
+    if (arrow) arrow.textContent = collapsed ? '▾' : '▴';
+}
 
 function _lipCycleLevel() {
     _lipLevel = (_lipLevel % 3) + 1;

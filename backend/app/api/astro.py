@@ -45,19 +45,26 @@ def _iso_or_none(dt: Optional[datetime]) -> Optional[str]:
 async def get_astro_current(
     lat: float = Query(..., description="緯度", ge=-90, le=90),
     lon: float = Query(..., description="経度", ge=-180, le=180),
+    date: Optional[str] = Query(None, description="日付 YYYY-MM-DD (省略=今日JST)"),
 ):
     try:
         observer = Observer(latitude=lat, longitude=lon)
-        today = datetime.now(JST).date()
-        s = sun(observer, date=today, tzinfo=JST)
-        mr = moonrise(observer, date=today, tzinfo=JST)
-        ms = moonset(observer, date=today, tzinfo=JST)
-        phase = moon_phase(today)
+        if date:
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(status_code=400, detail="日付形式が不正です (YYYY-MM-DD)")
+        else:
+            target_date = datetime.now(JST).date()
+        s = sun(observer, date=target_date, tzinfo=JST)
+        mr = moonrise(observer, date=target_date, tzinfo=JST)
+        ms = moonset(observer, date=target_date, tzinfo=JST)
+        phase = moon_phase(target_date)
         label = _moon_label(phase)
         return {
             "lat": lat,
             "lon": lon,
-            "date": today.isoformat(),
+            "date": target_date.isoformat(),
             "timezone": "Asia/Tokyo",
             "sunrise": s["sunrise"].isoformat(),
             "sunset": s["sunset"].isoformat(),
@@ -68,6 +75,8 @@ async def get_astro_current(
             "night_visibility": _night_visibility(label),
             "source": "astral",
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.warning("astro calc failed lat=%s lon=%s: %s", lat, lon, e)
+        logger.warning("astro calc failed lat=%s lon=%s date=%s: %s", lat, lon, date, e)
         raise HTTPException(status_code=500, detail="天体情報の計算に失敗しました")
