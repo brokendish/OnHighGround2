@@ -846,6 +846,34 @@ function _astroMoonSvg(phase) {
     </svg>`;
 }
 
+function _fmtMsHM(ms) {
+    return new Date(ms).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
+}
+
+function _computeDarkPeriod(data) {
+    if (!data || !data.sunset) return null;
+    const sunsetMs   = new Date(data.sunset).getTime();
+    const sunriseMs  = data.sunrise  ? new Date(data.sunrise).getTime()  : null;
+    const moonriseMs = data.moonrise ? new Date(data.moonrise).getTime() : null;
+    const moonsetMs  = data.moonset  ? new Date(data.moonset).getTime()  : null;
+
+    // 暗所開始: sunset と moonset の遅い方（後に消える光源を基準）
+    let darkStart = sunsetMs;
+    if (moonsetMs && moonsetMs > sunsetMs) darkStart = moonsetMs;
+
+    // 暗所終了: 翌日 sunrise と moonrise（+24h 近似）の早い方
+    const nextSunriseMs  = sunriseMs  ? sunriseMs  + 24 * 3600 * 1000 : null;
+    const nextMoonriseMs = moonriseMs ? moonriseMs + 24 * 3600 * 1000 : null;
+    let darkEnd;
+    if (nextSunriseMs && nextMoonriseMs) {
+        darkEnd = Math.min(nextSunriseMs, nextMoonriseMs);
+    } else {
+        darkEnd = nextSunriseMs || null;
+    }
+    if (!darkEnd) return null;
+    return { start: darkStart, end: darkEnd };
+}
+
 async function _astroUpdate(lat, lon) {
     const data = await _astroFetch(lat, lon);
     const section = document.getElementById('lip-astro-section');
@@ -862,16 +890,33 @@ async function _astroUpdate(lat, lon) {
     _lipSet('lip-astro-moonrise', _astroFmtTime(data.moonrise) || '--');
     _lipSet('lip-astro-moonset',  _astroFmtTime(data.moonset)  || '--');
 
+    // 月齢バッジ（ライトモード）
     const noteEl = document.getElementById('lip-astro-note');
     if (noteEl) {
-        if (data.moon_label === '新月') {
-            noteEl.innerHTML = '<span class="lip-astro-badge" style="color:#92400e;background:#fef3c7;">暗所注意</span>';
-        } else if (data.moon_label === '満月') {
-            noteEl.innerHTML = '<span class="lip-astro-badge" style="color:#166534;background:#dcfce7;">視界良好</span>';
-        } else if (data.moon_label) {
-            noteEl.innerHTML = `<span class="lip-astro-badge">月齢 ${data.moon_phase} / ${data.moon_label}</span>`;
+        if (data.moon_label && data.moon_phase != null) {
+            noteEl.innerHTML = `<span class="lip-astro-badge--light">月齢 ${data.moon_phase}（${data.moon_label}）</span>`;
         } else {
             noteEl.innerHTML = '';
+        }
+    }
+
+    // 昼の長さ
+    if (data.sunrise && data.sunset) {
+        const dayMin = Math.round((new Date(data.sunset) - new Date(data.sunrise)) / 60000);
+        const dh = Math.floor(dayMin / 60), dm = dayMin % 60;
+        _lipSet('lip-env-day-length', `昼の長さ ${dh}時間${String(dm).padStart(2, '0')}分`);
+    }
+
+    // 暗所注意タイル
+    const dark = _computeDarkPeriod(data);
+    const darkTile = document.getElementById('lip-env-dark-tile');
+    if (darkTile) {
+        if (dark) {
+            _lipSet('lip-env-dark-start', _fmtMsHM(dark.start));
+            _lipSet('lip-env-dark-end',   _fmtMsHM(dark.end));
+            darkTile.style.display = '';
+        } else {
+            darkTile.style.display = 'none';
         }
     }
 
@@ -1037,9 +1082,9 @@ function _tideSetExtreme(timeId, cmId, value) {
 
 function _tideUpdateClock() {
     const now = new Date();
-    const ymd = now.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Tokyo' });
     const hm  = now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
-    _lipSet('lip-tide-card-clock', `🕐 ${ymd} ${hm}`);
+    _lipSet('lip-tide-card-clock', `現在時刻 ${hm}`);
+    _lipSet('lip-graph-now-label', `現在 ${hm}`);
 }
 
 function _tideMaybeRefreshDistance(lat, lon) {
@@ -1150,7 +1195,7 @@ function _tideGraphDraw(canvas, data, tMin, tMax, nowMs) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const W = canvas.width  / dpr;
     const H = canvas.height / dpr;
-    const PAD = { top: 10, right: 10, bottom: 22, left: 36 };
+    const PAD = { top: 10, right: 10, bottom: 22, left: 68 };
 
     ctx.clearRect(0, 0, W, H);
 
@@ -1839,6 +1884,22 @@ function _lipAccordionToggle(headerEl) {
 function _lipCycleLevel() {
     _lipLevel = (_lipLevel % 3) + 1;
     _lipApplyLevel();
+}
+
+function _lipToggleMaximize() {
+    const ctrl = document.getElementById('map-bottom-controls');
+    if (!ctrl) return;
+    const expanded = ctrl.classList.toggle('mbc-info-expanded');
+    const btn = document.getElementById('lip-maximize-btn');
+    if (btn) btn.textContent = expanded ? '⤡' : '⤢';
+    // パネル高さ変化後にグラフ再描画
+    setTimeout(() => {
+        const stationId = _selectedTideStation
+            ? _selectedTideStation.id
+            : (_tideCache && _tideCache.data && _tideCache.data.station
+                ? _tideCache.data.station.id : null);
+        if (stationId) _tideGraphUpdate(stationId);
+    }, 280);
 }
 
 function _lipApplyLevel() {
