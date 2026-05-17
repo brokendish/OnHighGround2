@@ -3540,6 +3540,65 @@
             line-height: 1;
         }
         .nrw-banner-close:hover { opacity: 1; }
+        /* ── ルート比較カード（route-ui.js / Phase3-A） ─────────────────── */
+        .rui-compare-header {
+            font-size: 11px;
+            font-weight: 700;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 4px 0 6px;
+        }
+        .rui-compare-row {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+        }
+        .rui-compare-row--selected {
+            border-color: #3b82f6;
+            background: #eff6ff;
+        }
+        .rui-compare-row--recommended {
+            border-left: 3px solid #16a34a;
+        }
+        .rui-compare-row--selected.rui-compare-row--recommended {
+            border-left: 3px solid #16a34a;
+            border-color: #3b82f6;
+        }
+        .rui-compare-topline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+        .rui-compare-badge {
+            font-weight: 700;
+            font-size: 12px;
+            color: #1e293b;
+            min-width: 48px;
+        }
+        .rui-compare-score {
+            color: #475569;
+            font-size: 11px;
+        }
+        .rui-compare-risk {
+            margin-left: auto;
+            font-weight: 700;
+            font-size: 12px;
+        }
+        .rui-compare-summary {
+            font-size: 11px;
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+        .rui-compare-msg {
+            font-size: 11px;
+            color: #64748b;
+            padding: 4px 0 0;
+            line-height: 1.4;
+        }
         /* ── 気象カード（weather-card.js） ──────────────────────────────── */
         .wc-status-badge {
             display: inline-block;
@@ -4349,6 +4408,7 @@
                             <div class="lip-section" id="lip-route-risk-section" style="display:none;">
                                 <div id="lip-route-risk-info"></div>
                             </div>
+                            <div id="lip-route-weather-compare" style="display:none;"></div>
                             <div class="lip-section">
                                 <div class="lip-section-title">🎯 目的地住所情報</div>
                                 <div class="lip-row"><span class="lip-row-label">目的地名</span><span class="lip-row-value" id="lip-dest-name">目的地未設定</span></div>
@@ -4642,6 +4702,7 @@
     <script src="js/weather-card.js"></script>
     <script src="js/weather-alert-ui.js"></script>
     <script src="js/weather-route-service.js"></script>
+    <script src="js/route-ui.js"></script>
     <!-- 行政界レイヤー管理 -->
     <script src="js/boundary-layers.js"></script>
     <!-- 雨量レーダーレイヤー（Phase2B） -->

@@ -191,6 +191,7 @@ function _lipClearRouteSelection() {
     _lipDestinationReverseGeocodeStatus = 'idle';
     _lipDestinationReverseGeocodeInFlight = null;
     _lipDestinationReverseGeocodeKey = null;
+    if (typeof _routeUiClearComparison === 'function') _routeUiClearComparison();
     _lipRenderRouteSelection('browse');
 }
 
@@ -319,11 +320,27 @@ function _lipRenderRouteSelector(transportMode) {
             event.preventDefault();
             event.stopPropagation();
             onSelect(routeIndex);
+            if (typeof _routeUiOnRouteSelected === 'function') _routeUiOnRouteSelected(routeIndex);
         });
         container.appendChild(button);
     });
 
     _lipRenderRouteRiskInfo();
+
+    // ルート比較カード（Phase3-A）
+    const dest = _lipRouteSelection.destination;
+    if (
+        routeList.length > 1 &&
+        _lipLat != null && _lipLon != null &&
+        dest && dest.lon != null && dest.lat != null &&
+        typeof _routeUiFetchAndShow === 'function'
+    ) {
+        _routeUiFetchAndShow(
+            [_lipLon, _lipLat],
+            [dest.lon, dest.lat],
+            _lipRouteSelection.selectedRouteIndex ?? 0
+        );
+    }
 }
 
 function _lipRenderRouteRiskInfo() {
