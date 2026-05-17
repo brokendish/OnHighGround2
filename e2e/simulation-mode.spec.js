@@ -151,7 +151,7 @@ test.describe('Simulation Mode — 手動実行', () => {
         }));
 
         await page.locator('#run-btn').click();
-        await expect(page.locator('.sim-penalty-breakdown')).toHaveCount({ minimum: 1 }, { timeout: 5000 });
+        await page.locator('.sim-penalty-breakdown').first().waitFor({ timeout: 5000 });
         await expect(page.locator('.sim-penalty-item').first()).toBeVisible();
     });
 
@@ -220,7 +220,7 @@ test.describe('Simulation Mode — 手動実行', () => {
         await page.locator('#run-btn').click();
         await expect(page.locator('.sim-route-card')).toHaveCount(2, { timeout: 5000 });
         // 「判定不能」が画面に出ている
-        await expect(page.getByText('判定不能')).toBeVisible();
+        await expect(page.locator('.sim-route-risk', { hasText: '判定不能' }).first()).toBeVisible();
     });
 
     test('screenshot: 警戒シナリオの結果', async ({ page }, testInfo) => {
