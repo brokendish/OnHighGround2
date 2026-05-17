@@ -1,0 +1,20 @@
+{
+  "version": "2026-05-phase2a",
+  "source": "jma_nowcast_approximate",
+  "note": "JMA hrpns 高解像度降水ナウキャスト 色→降水強度マッピング。実観測ツール(calibrate_jma_nowcast_colors.py)で校正すること。",
+  "distance_threshold": 40,
+  "background_rgb_min": [230, 230, 230],
+  "alpha_transparent_max": 50,
+  "colors": [
+    {"rgb": [255, 255, 255], "intensity": "none",     "label": "降水なし",       "rain_class": 0},
+    {"rgb": [160, 210, 255], "intensity": "weak",     "label": "弱い雨",         "rain_class": 1},
+    {"rgb": [33,  140, 255], "intensity": "weak",     "label": "弱い雨",         "rain_class": 2},
+    {"rgb": [0,   65,  255], "intensity": "moderate", "label": "雨",             "rain_class": 3},
+    {"rgb": [0,   200, 200], "intensity": "moderate", "label": "雨",             "rain_class": 4},
+    {"rgb": [0,   200, 0  ], "intensity": "strong",   "label": "強い雨",         "rain_class": 5},
+    {"rgb": [255, 215, 0  ], "intensity": "strong",   "label": "強い雨",         "rain_class": 6},
+    {"rgb": [255, 140, 0  ], "intensity": "severe",   "label": "非常に激しい雨", "rain_class": 7},
+    {"rgb": [255, 0,   0  ], "intensity": "severe",   "label": "非常に激しい雨", "rain_class": 8},
+    {"rgb": [180, 0,   180], "intensity": "severe",   "label": "非常に激しい雨", "rain_class": 9}
+  ]
+}

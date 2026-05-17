@@ -19,6 +19,7 @@ import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 import urllib.request
 
@@ -272,7 +273,7 @@ def get_rain_tile_times() -> Optional[dict]:
         return None
 
 
-# ── Phase1.5: PNG タイルピクセル解析 ────────────────────────────────────────
+# ── Phase1.5/Phase2-A: PNG タイルピクセル解析 ───────────────────────────────
 
 _TILE_SIZE_PX = 256
 _NOWCAST_DEFAULT_ZOOM = 8   # JMA hrpns は偶数ズームのみ有効（4, 6, 8, 10）
@@ -282,21 +283,6 @@ _PNG_CACHE_MAX = 200        # エントリ上限（超えたら最古を削除�
 # PNG タイル byte キャッシュ: url → (bytes, monotonic)
 _png_tile_cache: dict[str, tuple[bytes, float]] = {}
 
-# JMA hrpns 降水ナウキャスト 色 → 降水強度マッピング（近似値 / 要実環境校正）
-# (R, G, B, intensity, rain_class)  rain_class は大きいほど強い
-_JMA_RAIN_COLOR_TABLE: list[tuple[int, int, int, str, int]] = [
-    (160, 210, 255, "weak",     1),   # ~0.5-1 mm/h   薄水色
-    ( 33, 140, 255, "weak",     2),   # ~1-5 mm/h     水色
-    (  0,  65, 255, "moderate", 3),   # ~5-10 mm/h    青
-    (  0, 200, 200, "moderate", 4),   # ~10-20 mm/h   シアン
-    (  0, 200,   0, "strong",   5),   # ~20-30 mm/h   緑
-    (255, 215,   0, "strong",   6),   # ~30-50 mm/h   黄
-    (255, 140,   0, "severe",   7),   # ~50-80 mm/h   橙
-    (255,   0,   0, "severe",   8),   # ~80-120 mm/h  赤
-    (180,   0, 180, "severe",   9),   # ~120+ mm/h    紫
-]
-_COLOR_DIST_THRESHOLD_SQ = 50 ** 2   # Euclidean距離^2 の許容上限
-
 _INTENSITY_LABEL: dict[str, str] = {
     "none":     "降水なし",
     "weak":     "弱い雨",
@@ -305,6 +291,80 @@ _INTENSITY_LABEL: dict[str, str] = {
     "severe":   "非常に激しい雨",
     "unknown":  "判定不能",
 }
+
+# ── 色テーブル: 外部 JSON 読み込み（Phase2-A） ─────────────────────────────
+
+_PROJECT_ROOT_SVC = Path(__file__).resolve().parents[2]
+_COLOR_TABLE_PATHS = [
+    _PROJECT_ROOT_SVC / "data_runtime" / "backend" / "weather" / "jma_nowcast_color_table.json",
+    _PROJECT_ROOT_SVC / "data_lake"    / "registry"  / "weather" / "jma_nowcast_color_table.json",
+]
+
+# コード内 fallback（JSON が一切ない場合に使用）
+_COLOR_TABLE_FALLBACK: list[tuple[int, int, int, str, int]] = [
+    (160, 210, 255, "weak",     1),
+    ( 33, 140, 255, "weak",     2),
+    (  0,  65, 255, "moderate", 3),
+    (  0, 200, 200, "moderate", 4),
+    (  0, 200,   0, "strong",   5),
+    (255, 215,   0, "strong",   6),
+    (255, 140,   0, "severe",   7),
+    (255,   0,   0, "severe",   8),
+    (180,   0, 180, "severe",   9),
+]
+
+# モジュール起動時に読み込まれる状態
+_JMA_RAIN_COLOR_TABLE: list[tuple[int, int, int, str, int]] = []
+_COLOR_DIST_THRESHOLD_SQ: int = 40 ** 2
+_COLOR_TABLE_VERSION: str = "fallback"
+_BG_RGB_MIN: int = 230          # R/G/B が全てこれ以上なら背景色（none）
+_ALPHA_TRANSPARENT_MAX: int = 50  # alpha がこれ未満なら透明（none）
+
+# unknown 色ログ抑制: tile URL ごとに最後に WARNING したタイム
+_unknown_log_throttle: dict[str, float] = {}
+_UNKNOWN_LOG_INTERVAL = 300.0   # 5分以内の同一 URL は WARNING しない
+
+
+def _load_color_table() -> None:
+    """外部 JSON から色テーブルを読み込む。失敗時は fallback を使う。"""
+    global _JMA_RAIN_COLOR_TABLE, _COLOR_DIST_THRESHOLD_SQ, _COLOR_TABLE_VERSION
+    global _BG_RGB_MIN, _ALPHA_TRANSPARENT_MAX
+
+    for path in _COLOR_TABLE_PATHS:
+        if not path.exists():
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            entries = [
+                (e["rgb"][0], e["rgb"][1], e["rgb"][2], e["intensity"], e["rain_class"])
+                for e in data.get("colors", [])
+                if e.get("rain_class", 0) >= 1   # rain_class=0 は none 扱い（背景検知で処理）
+            ]
+            if not entries:
+                logger.warning("color table at %s has no rain entries — skipping", path)
+                continue
+            _JMA_RAIN_COLOR_TABLE = entries
+            threshold = int(data.get("distance_threshold", 40))
+            _COLOR_DIST_THRESHOLD_SQ = threshold ** 2
+            _COLOR_TABLE_VERSION = str(data.get("version", "unknown"))
+            _BG_RGB_MIN = int((data.get("background_rgb_min") or [230, 230, 230])[0])
+            _ALPHA_TRANSPARENT_MAX = int(data.get("alpha_transparent_max", 50))
+            logger.info(
+                "color table loaded from %s version=%s entries=%d threshold=%d",
+                path.name, _COLOR_TABLE_VERSION, len(_JMA_RAIN_COLOR_TABLE), threshold,
+            )
+            return
+        except Exception as exc:
+            logger.warning("color table load failed %s: %s", path, exc)
+
+    # fallback
+    _JMA_RAIN_COLOR_TABLE = _COLOR_TABLE_FALLBACK
+    _COLOR_TABLE_VERSION = "fallback"
+    logger.warning("using hardcoded color table fallback (no JSON found)")
+
+
+_load_color_table()   # モジュール読み込み時に実行
 
 
 def _lat_lon_to_tile_pixel(lat: float, lon: float, zoom: int) -> tuple[int, int, int, int]:
@@ -342,12 +402,17 @@ def _fetch_tile_png(url: str) -> Optional[bytes]:
         return None
 
 
-def _rgba_to_intensity(r: int, g: int, b: int, a: int) -> tuple[str, int]:
-    """RGBA 値を (intensity, rain_class) に変換する。"""
-    if a < 50:
-        return "none", 0
-    if r > 230 and g > 230 and b > 230:   # 白系背景
-        return "none", 0
+def _rgba_to_intensity(r: int, g: int, b: int, a: int) -> tuple[str, int, int]:
+    """
+    RGBA 値を (intensity, rain_class, dist_sq) に変換する。
+
+    dist_sq は最近傍色との距離^2（デバッグ用）。
+    透明・背景色の場合は dist_sq=0 を返す。
+    """
+    if a < _ALPHA_TRANSPARENT_MAX:
+        return "none", 0, 0
+    if r >= _BG_RGB_MIN and g >= _BG_RGB_MIN and b >= _BG_RGB_MIN:
+        return "none", 0, 0
 
     best_intensity = "unknown"
     best_class = -1
@@ -360,8 +425,8 @@ def _rgba_to_intensity(r: int, g: int, b: int, a: int) -> tuple[str, int]:
             best_class = rain_class
 
     if best_dist_sq > _COLOR_DIST_THRESHOLD_SQ:
-        return "unknown", -1
-    return best_intensity, best_class
+        return "unknown", -1, int(best_dist_sq)
+    return best_intensity, best_class, int(best_dist_sq)
 
 
 def _sample_max_intensity(
@@ -371,7 +436,7 @@ def _sample_max_intensity(
     radius: int,
     width: int,
     height: int,
-) -> tuple[str, int]:
+) -> tuple[str, int, int, int]:
     """
     (px, py) を中心に (2*radius+1)^2 画素の最大強度を返す。
 
@@ -383,13 +448,15 @@ def _sample_max_intensity(
 
     rain_class=-1 (unknown opaque) を none に倒さないことが重要。
     防災用途では「知らない色 = 安全」とみなさない。
+
+    Returns: (intensity, rain_class, unknown_count, total_count)
     """
     recognized_rain_found = False
     unknown_opaque_found = False
-    recognized_none_found = False
     best_rain_intensity = "none"
     best_rain_class = 0
     pixels_sampled = 0
+    unknown_count = 0
 
     for dy in range(-radius, radius + 1):
         for dx in range(-radius, radius + 1):
@@ -398,7 +465,7 @@ def _sample_max_intensity(
             rgba = pixels[x, y]   # Pillow の load() は (col, row) = (x, y)
             r, g, b = rgba[0], rgba[1], rgba[2]
             a = rgba[3] if len(rgba) > 3 else 255
-            intensity, rain_class = _rgba_to_intensity(r, g, b, a)
+            intensity, rain_class, _ = _rgba_to_intensity(r, g, b, a)
             pixels_sampled += 1
 
             if rain_class >= 1:
@@ -408,16 +475,33 @@ def _sample_max_intensity(
                     best_rain_intensity = intensity
             elif rain_class == -1:
                 unknown_opaque_found = True
-            else:
-                recognized_none_found = True
+                unknown_count += 1
 
     if pixels_sampled == 0:
-        return "unknown", -1
+        return "unknown", -1, 0, 0
     if recognized_rain_found:
-        return best_rain_intensity, best_rain_class
+        return best_rain_intensity, best_rain_class, unknown_count, pixels_sampled
     if unknown_opaque_found:
-        return "unknown", -1
-    return "none", 0
+        return "unknown", -1, unknown_count, pixels_sampled
+    return "none", 0, 0, pixels_sampled
+
+
+def _maybe_log_unknown_colors(url: str, unknown_count: int, total: int) -> None:
+    """unknown 色が多い場合に WARNING ログを出す（タイル URL ごとに 5 分に 1 回まで）。"""
+    if total == 0 or unknown_count == 0:
+        return
+    ratio = unknown_count / total
+    if ratio < 0.3:
+        return
+    now = time.monotonic()
+    last = _unknown_log_throttle.get(url, 0.0)
+    if now - last < _UNKNOWN_LOG_INTERVAL:
+        return
+    _unknown_log_throttle[url] = now
+    logger.warning(
+        "JMA nowcast unknown colors observed: count=%d/%d (%.0f%%) tile=%s",
+        unknown_count, total, ratio * 100, url.split("/")[-1],
+    )
 
 
 def get_precip_intensity_at(
@@ -426,6 +510,7 @@ def get_precip_intensity_at(
     tile_url_template: str,
     zoom: int = _NOWCAST_DEFAULT_ZOOM,
     sample_radius_px: int = 2,
+    debug: bool = False,
 ) -> dict:
     """
     lat/lon 地点の降水強度を PNG タイル解析で返す。
@@ -437,10 +522,11 @@ def get_precip_intensity_at(
 
     Returns:
         {
-            "intensity": "none" | "weak" | "moderate" | "strong" | "severe" | "unknown",
-            "label":     str,
-            "rain_class": int,   # 0=なし, 1-9=強さ, -1=不明
-            "source":    str,
+            "intensity":  str,
+            "label":      str,
+            "rain_class": int,
+            "source":     str,
+            "debug":      dict | None  (debug=True の場合のみ)
         }
     """
     try:
@@ -450,7 +536,6 @@ def get_precip_intensity_at(
         return {"intensity": "unknown", "label": _INTENSITY_LABEL["unknown"], "rain_class": -1, "source": "no_pillow"}
 
     try:
-        # JMA hrpns は偶数ズームのみ
         if zoom % 2 != 0:
             zoom = max(zoom - 1, 4)
 
@@ -464,19 +549,37 @@ def get_precip_intensity_at(
 
         raw = _fetch_tile_png(url)
         if raw is None:
-            return {"intensity": "unknown", "label": _INTENSITY_LABEL["unknown"], "rain_class": -1, "source": "fetch_failed"}
+            result = {"intensity": "unknown", "label": _INTENSITY_LABEL["unknown"], "rain_class": -1, "source": "fetch_failed"}
+            if debug:
+                result["debug"] = {"color_table_version": _COLOR_TABLE_VERSION, "zoom": zoom,
+                                   "sample_radius_px": sample_radius_px, "unknown_pixel_count": 0, "total_pixel_count": 0}
+            return result
 
         img = Image.open(io.BytesIO(raw)).convert("RGBA")
         width, height = img.size
         pixels = img.load()
 
-        intensity, rain_class = _sample_max_intensity(pixels, px, py, sample_radius_px, width, height)
-        return {
+        intensity, rain_class, unknown_count, total_count = _sample_max_intensity(
+            pixels, px, py, sample_radius_px, width, height
+        )
+        _maybe_log_unknown_colors(url, unknown_count, total_count)
+
+        result = {
             "intensity": intensity,
             "label":     _INTENSITY_LABEL.get(intensity, "判定不能"),
             "rain_class": rain_class,
             "source":    "jma_nowcast_tile",
         }
+        if debug:
+            result["debug"] = {
+                "color_table_version": _COLOR_TABLE_VERSION,
+                "zoom":               zoom,
+                "sample_radius_px":   sample_radius_px,
+                "unknown_pixel_count": unknown_count,
+                "total_pixel_count":  total_count,
+                "tile_url":           url,
+            }
+        return result
 
     except Exception as exc:
         logger.warning("get_precip_intensity_at failed lat=%s lon=%s: %s", lat, lon, exc)
@@ -489,6 +592,7 @@ def fetch_precip_intensities(
     time_entries: list[dict],
     max_workers: int = 4,
     max_forecast_min: int = 30,
+    debug: bool = False,
 ) -> dict[int, dict]:
     """
     time_entries（get_rain_tile_times() の times[]）から
@@ -506,7 +610,7 @@ def fetch_precip_intensities(
 
     def _fetch(entry: dict) -> tuple[int, dict]:
         off = entry["offset_minutes"]
-        result = get_precip_intensity_at(lat, lon, entry["tile_url_template"])
+        result = get_precip_intensity_at(lat, lon, entry["tile_url_template"], debug=debug)
         return off, result
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -521,3 +625,8 @@ def fetch_precip_intensities(
                 results[off] = {"intensity": "unknown", "label": _INTENSITY_LABEL["unknown"], "rain_class": -1, "source": "error"}
 
     return results
+
+
+def get_color_table_version() -> str:
+    """現在ロードされている色テーブルのバージョン文字列を返す。"""
+    return _COLOR_TABLE_VERSION

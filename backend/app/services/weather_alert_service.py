@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _ALERT_TTL = 120.0   # 秒
 _PRECIP_TTL = 60.0
+_NOWCAST_DEFAULT_ZOOM = 8   # jma_rain_tile_service と同値（debug レスポンス用）
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _PERSISTENT_CACHE_DIR = _PROJECT_ROOT / "data_runtime" / "backend" / "weather" / "cache"
@@ -189,7 +190,7 @@ def _build_alert_response(
     }
 
 
-def get_precipitation_summary(lat: float, lon: float) -> dict:
+def get_precipitation_summary(lat: float, lon: float, debug: bool = False) -> dict:
     """
     現在地の降水予測サマリーを返す（Phase1.5: PNG タイルピクセル解析）。
 
@@ -209,23 +210,24 @@ def get_precipitation_summary(lat: float, lon: float) -> dict:
     now_iso = datetime.now(timezone.utc).isoformat()
 
     cached = _precip_cache.get(pref_code)
-    if cached is not None:
+    if cached is not None and not debug:
         summary, fetched_at = cached
         if now - fetched_at < _PRECIP_TTL:
             return summary
 
-    summary = _build_precip_summary(lat, lon, now_iso)
-    _precip_cache[pref_code] = (summary, now)
+    summary = _build_precip_summary(lat, lon, now_iso, debug=debug)
+    if not debug:
+        _precip_cache[pref_code] = (summary, now)
     return summary
 
 
-def _build_precip_summary(lat: float, lon: float, now_iso: str) -> dict:
+def _build_precip_summary(lat: float, lon: float, now_iso: str, debug: bool = False) -> dict:
     """
     降水ナウキャストタイルを取得してピクセル解析し、降水強度サマリーを返す。
     タイル取得失敗時は unavailable を返す（API は落とさない）。
     """
     try:
-        from services.jma_rain_tile_service import get_rain_tile_times, fetch_precip_intensities
+        from services.jma_rain_tile_service import get_rain_tile_times, fetch_precip_intensities, get_color_table_version
         tile_data = get_rain_tile_times()
         if tile_data is None:
             raise ValueError("tile_data is None")
@@ -263,7 +265,7 @@ def _build_precip_summary(lat: float, lon: float, now_iso: str) -> dict:
     # 現在 + 予測 30 分以内を並列取得・解析
     all_targets = [current_entry] + forecast_entries[:6]
     try:
-        intensities = fetch_precip_intensities(lat, lon, all_targets, max_workers=4, max_forecast_min=30)
+        intensities = fetch_precip_intensities(lat, lon, all_targets, max_workers=4, max_forecast_min=30, debug=debug)
     except Exception as exc:
         logger.warning("weather_alert_service: precip intensity analysis failed: %s", exc)
         intensities = {}
@@ -291,7 +293,7 @@ def _build_precip_summary(lat: float, lon: float, now_iso: str) -> dict:
     severity = _precip_severity(all_intensities)
     summary_text = _precip_summary_text(severity, all_intensities)
 
-    return {
+    response: dict = {
         "status":   "ok",
         "severity": severity,
         "summary":  summary_text,
@@ -300,6 +302,19 @@ def _build_precip_summary(lat: float, lon: float, now_iso: str) -> dict:
         "updated_at": now_iso,
         "source":   "jma_nowcast",
     }
+    if debug:
+        try:
+            ctv = get_color_table_version()
+        except Exception:
+            ctv = "unknown"
+        cur_dbg = cur_result.get("debug") if isinstance(cur_result, dict) else None
+        response["debug"] = {
+            "color_table_version": ctv,
+            "zoom":               _NOWCAST_DEFAULT_ZOOM,
+            "sample_radius_px":   2,
+            "current_tile_debug": cur_dbg,
+        }
+    return response
 
 
 _INTENSITY_RANK = {"severe": 4, "strong": 3, "moderate": 2, "weak": 1, "none": 0, "unknown": -1}

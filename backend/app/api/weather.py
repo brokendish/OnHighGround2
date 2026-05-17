@@ -126,16 +126,16 @@ async def get_weather_alerts_current(
 async def get_precipitation_summary_endpoint(
     lat: float = Query(..., description="緯度", ge=-90, le=90),
     lon: float = Query(..., description="経度", ge=-180, le=180),
+    debug: bool = Query(False, description="デバッグ情報を含める（開発用）"),
 ):
     """
-    現在地の降水予測サマリーを返す（Phase1: nowcast タイルメタデータベース）。
+    現在地の降水予測サマリーを返す（Phase1.5: PNG タイルピクセル解析）。
 
     intensity: severe > strong > moderate > weak > none > unknown
-    Phase1 では intensity=unknown（ピクセル解析未実装）。
-    将来の本格解析実装後も同じ API 形式を維持する。
+    debug=1 指定時のみ color_table_version / zoom 等のデバッグ情報を付加する。
     """
     try:
-        return get_precipitation_summary(lat, lon)
+        return get_precipitation_summary(lat, lon, debug=debug)
     except Exception as exc:
         logger.exception("precipitation summary endpoint error: %s", exc)
         return {
