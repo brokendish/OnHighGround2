@@ -73,6 +73,7 @@ function _wrrDefaultText(riskLevel) {
     if (riskLevel === 'emergency') return '進行方向で危険な降水を検出';
     if (riskLevel === 'warning')   return '進行方向で強雨リスク';
     if (riskLevel === 'advisory')  return '進行方向に雨域接近';
+    if (riskLevel === 'unknown')   return '進行方向の降水リスクを判定できません';
     return null;
 }
 
@@ -145,7 +146,8 @@ async function _weatherRouteUpdate(route, lat, lon) {
     const riskLevel = (data || {}).risk_level || 'none';
     const summary   = (data || {}).summary    || {};
 
-    if (riskLevel === 'none' || riskLevel === 'unknown') {
+    // none のみ非表示（unknown は判定不能として小さく表示する）
+    if (riskLevel === 'none') {
         _wrrHideBanner();
         _wrrLastLevel = riskLevel;
         return;
@@ -156,7 +158,7 @@ async function _weatherRouteUpdate(route, lat, lon) {
         if (now - _wrrLastLevelAt < _WRR_COOLDOWN_MS) return;
     }
 
-    // レベル変化 → dismissed リセット
+    // レベル変化 → dismissed リセット（warning→unknown 等の遷移でも文言を更新）
     if (riskLevel !== _wrrLastLevel) {
         _wrrDismissed = false;
     }

@@ -67,8 +67,11 @@ def _sample_route(
     current_idx: int,
     interval_m: float = _SAMPLE_INTERVAL_M,
     max_samples: int = _MAX_SAMPLES,
-) -> list[tuple[float, float]]:
-    """current_idx 以降の座標から等間隔サンプリングしてリストを返す。"""
+) -> list[tuple[float, float, float]]:
+    """current_idx 以降の座標から等間隔サンプリングしてリストを返す。
+
+    Returns: [(lat, lon, distance_from_start_m), ...]
+    """
     if not coords:
         return []
     start     = max(0, current_idx)
@@ -76,14 +79,14 @@ def _sample_route(
     if not remaining:
         return []
 
-    samples        = [remaining[0]]
+    samples        = [(remaining[0][0], remaining[0][1], 0.0)]
     accum          = 0.0
     next_threshold = interval_m
 
     for i in range(1, len(remaining)):
         accum += _haversine_m(*remaining[i - 1], *remaining[i])
         if accum >= next_threshold:
-            samples.append(remaining[i])
+            samples.append((remaining[i][0], remaining[i][1], accum))
             next_threshold += interval_m
             if len(samples) >= max_samples:
                 break
@@ -159,11 +162,13 @@ def _assess_point(lat: float, lon: float) -> dict:
     risk_level = _compute_risk_level(weather, hazards, combined)
 
     return {
-        "lat": lat, "lon": lon,
-        "risk_level": risk_level,
-        "weather":  weather,
-        "hazards":  hazards,
-        "combined": combined,
+        "lat":              lat,
+        "lon":              lon,
+        "risk_level":       risk_level,
+        "precip_intensity": weather.get("current_intensity", "unknown"),
+        "weather":          weather,
+        "hazards":          hazards,
+        "combined":         combined,
     }
 
 
@@ -199,31 +204,51 @@ def _build_route_risk(
     if not sample_points:
         return _empty_response(now_iso)
 
+    # futures map: future → (index, lat, lon, distance_m)
     segments: list[dict] = []
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {executor.submit(_assess_point, lat, lon): (lat, lon)
-                   for lat, lon in sample_points}
+        futures = {
+            executor.submit(_assess_point, lat, lon): (idx, lat, lon, dist_m)
+            for idx, (lat, lon, dist_m) in enumerate(sample_points)
+        }
         for future in as_completed(futures, timeout=20):
+            idx, lat, lon, dist_m = futures[future]
             try:
-                segments.append(future.result())
+                result = future.result()
+                result["_idx"]  = idx
+                result["_dist"] = dist_m
+                segments.append(result)
             except Exception as exc:
-                lat, lon = futures[future]
                 logger.warning("route risk: point failed lat=%s lon=%s: %s", lat, lon, exc)
 
     if not segments:
         return _unavailable_response(now_iso)
 
+    # 順序保証（並列完了順が不定のため）
+    segments.sort(key=lambda s: s["_idx"])
+
     max_rank   = max((_RISK_RANK.get(s["risk_level"], 0) for s in segments), default=0)
     risk_level = _RANK_LEVEL.get(max_rank, "none")
     summary    = _build_route_summary(segments)
 
+    # hazards から内部フラグ data_available を除いた公開フィールド
+    _HAZARD_KEYS = ("lowland", "flood", "inland_flood", "landslide", "tsunami", "storm_surge")
+
     return {
-        "status": "ok",
+        "status":     "ok",
         "risk_level": risk_level,
         "segments": [
-            {"lat": s["lat"], "lon": s["lon"],
-             "risk_level": s["risk_level"],
-             "combined": s.get("combined", [])}
+            {
+                "index":           s["_idx"],
+                "distance_m":      round(s["_dist"]),
+                "lat":             s["lat"],
+                "lon":             s["lon"],
+                "precip_intensity": s.get("precip_intensity", "unknown"),
+                "hazards":         {k: s["hazards"].get(k) for k in _HAZARD_KEYS},
+                "combined":        s.get("combined", []),
+                "level":           s["risk_level"],
+                "risk_level":      s["risk_level"],
+            }
             for s in segments
         ],
         "summary":    summary,

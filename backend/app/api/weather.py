@@ -2,8 +2,9 @@
 気象API — アメダス観測点データ / 雨量レーダータイル / 警報・注意報 / 降水予測 / 複合リスク
 """
 import logging
+from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from services.weather_service import get_current_weather
 from services.jma_rain_tile_service import get_rain_tile_latest, get_rain_tile_times
@@ -15,9 +16,23 @@ from app.services.weather_risk_context_service import get_risk_context
 from app.services.weather_route_risk_service import get_route_risk
 
 
-class _RouteRiskRequest(BaseModel):
+class _RouteCoords(BaseModel):
     coordinates: list[list[float]]
+
+
+class _RouteRiskRequest(BaseModel):
+    """route.coordinates 形式と top-level coordinates 形式の両方を受け付ける。"""
+    route: Optional[_RouteCoords] = None
+    coordinates: Optional[list[list[float]]] = None
     current_segment_index: int = 0
+
+    @model_validator(mode='after')
+    def resolve_coordinates(self) -> '_RouteRiskRequest':
+        if self.route is not None and self.coordinates is None:
+            self.coordinates = self.route.coordinates
+        if not self.coordinates:
+            raise ValueError('coordinates required: provide route.coordinates or top-level coordinates')
+        return self
 
 logger = logging.getLogger(__name__)
 
