@@ -154,7 +154,11 @@ async function _routeUiFetchAndShow(origin, destination, selectedIdx) {
         return;
     }
 
-    if (!data || data.status === 'unavailable') return;
+    if (!data || data.status === 'unavailable') {
+        _ruiHide();
+        _ruiComparison = null;
+        return;
+    }
 
     // Churn 抑制: 推奨が変わるがスコア差が閾値未満 → 推奨を維持
     const newRec = data.recommended_route_index ?? 0;

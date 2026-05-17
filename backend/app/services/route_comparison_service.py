@@ -17,6 +17,7 @@ OSRM alternatives を取得し、各ルートを
 import hashlib
 import json
 import logging
+import math
 import os
 import time
 import urllib.request
@@ -35,10 +36,10 @@ from app.services.weather_risk_context_service import (
 
 logger = logging.getLogger(__name__)
 
-# OSRM walking URL: Docker 内部では osrm-walking:5000、環境変数で上書き可能
+# OSRM walking URL: Docker 内部では osrm-walking:5001（--port 5001 起動）
 _OSRM_WALKING_URL = os.environ.get(
     "OSRM_WALKING_URL",
-    "http://osrm-walking:5000/route/v1/walking",
+    "http://osrm-walking:5001/route/v1/walking",
 )
 
 _COMPARE_CACHE: dict = {}
@@ -84,6 +85,16 @@ _SAMPLE_INTERVAL_M = 200
 _MAX_SAMPLES = 8
 
 
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6_371_000.0
+    p = math.pi / 180
+    a = (
+        math.sin((lat2 - lat1) * p / 2) ** 2
+        + math.cos(lat1 * p) * math.cos(lat2 * p) * math.sin((lon2 - lon1) * p / 2) ** 2
+    )
+    return 2 * R * math.asin(math.sqrt(a))
+
+
 def _cache_key(origin: list, destination: list) -> str:
     raw = (
         f"{round(origin[0], 4)},{round(origin[1], 4)}"
@@ -127,19 +138,31 @@ def _osrm_coords(route: dict) -> list[tuple[float, float]]:
 
 # ── ルート評価 ────────────────────────────────────────────────────────────────
 
-def _sample_uniform(
+def _sample_by_distance(
     coords: list[tuple[float, float]],
+    interval_m: float = _SAMPLE_INTERVAL_M,
     max_samples: int = _MAX_SAMPLES,
 ) -> list[tuple[float, float]]:
-    """等間隔サンプリング（シンプル版、cumulative distance 計算なし）。"""
+    """距離ベースサンプリング（interval_m 間隔、最大 max_samples 点）。"""
     n = len(coords)
     if n == 0:
         return []
-    if n <= max_samples:
-        return list(coords)
-    step = max(1, n // max_samples)
-    sampled = [coords[i] for i in range(0, n, step)]
-    if sampled[-1] != coords[-1]:
+    if n == 1:
+        return [coords[0]]
+
+    sampled = [coords[0]]
+    accum = 0.0
+    prev = coords[0]
+    for pt in coords[1:]:
+        accum += _haversine_m(prev[0], prev[1], pt[0], pt[1])
+        if accum >= interval_m:
+            sampled.append(pt)
+            accum = 0.0
+            if len(sampled) >= max_samples:
+                break
+        prev = pt
+
+    if sampled[-1] != coords[-1] and len(sampled) < max_samples:
         sampled.append(coords[-1])
     return sampled[:max_samples]
 
@@ -153,7 +176,7 @@ def _assess_route_hazard(
     - hazard_union:       {short_key: bool|None}
     を返す。
     """
-    sample_points = _sample_uniform(coords)
+    sample_points = _sample_by_distance(coords)
     if not sample_points:
         return {"exposure": {}, "union": {}, "data_available": False}
 
@@ -237,7 +260,10 @@ def _calc_weather_penalty(max_intensity: str, hazard_union: dict) -> float:
 
 
 def _to_risk_level(safety_score: float, weather_risk: str) -> str:
-    """統合 safety_score と weather_risk から route risk_level を決定する。"""
+    """統合 safety_score と weather_risk から route risk_level を決定する。
+    既知ハザードが advisory/warning/emergency を引き起こす場合はそれを優先。
+    既知リスクなし + weather_risk unknown → unknown を保持（false-safe 防止）。
+    """
     wr = _WR_RANK.get(weather_risk, 0)
     if safety_score < 30 or wr >= 4:
         return "emergency"
@@ -245,6 +271,8 @@ def _to_risk_level(safety_score: float, weather_risk: str) -> str:
         return "warning"
     if safety_score < 75 or wr >= 2:
         return "advisory"
+    if weather_risk == "unknown":
+        return "unknown"
     return "none"
 
 
@@ -261,6 +289,7 @@ def _build_risk_summary(
         "strong":   "強雨域接近",
         "moderate": "雨域を通過",
         "weak":     "弱い雨域通過予測",
+        "unknown":  "気象リスク判定不能",
     }
     HAZARD_LABEL = {
         "flood":        "洪水想定区域",
