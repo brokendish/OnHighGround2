@@ -282,6 +282,151 @@ test.describe('Simulation Mode — Auto-Run', () => {
     });
 });
 
+test.describe('Simulation Mode — ポイント検査', () => {
+    const MOCK_INSPECT = {
+        lat: 35.681236, lon: 139.767125,
+        risk_level: 'warning',
+        safety_score: 45.0,
+        penalties: [
+            { type: 'flood', points: 40, reason: '洪水想定区域' },
+        ],
+        combined_risks: ['洪水想定区域'],
+        hazard_union: { flood: true },
+        layer_stack: [
+            { key: 'flood', label: '洪水想定区域', active: true },
+        ],
+        data_source: 'real',
+    };
+
+    test('point-inspect API が呼ばれて結果パネルが表示される', async ({ page }) => {
+        await openSimulation(page);
+        await page.route('/api/simulation/point-inspect', route => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(MOCK_INSPECT),
+        }));
+
+        // 検査ボタンをクリックしてモードをアクティブにする
+        await page.locator('#btn-mode-inspect').click();
+        await expect(page.locator('#btn-mode-inspect')).toHaveClass(/active/);
+
+        // runPointInspect をグローバルから直接トリガー
+        await page.evaluate(() => runPointInspect(35.681236, 139.767125));
+
+        await expect(page.locator('#sim-inspect-panel')).toBeVisible({ timeout: 5000 });
+        await expect(page.locator('.sim-inspect-risk')).toBeVisible();
+    });
+
+    test('point-inspect パネルが閉じられる', async ({ page }) => {
+        await openSimulation(page);
+        await page.route('/api/simulation/point-inspect', route => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify(MOCK_INSPECT),
+        }));
+
+        // パネルを直接表示状態にする
+        await page.evaluate(() => {
+            document.getElementById('sim-inspect-panel').style.display = 'block';
+        });
+
+        await expect(page.locator('#sim-inspect-panel')).toBeVisible();
+        await page.locator('#btn-inspect-close').click();
+        await expect(page.locator('#sim-inspect-panel')).toBeHidden();
+    });
+});
+
+test.describe('Simulation Mode — シナリオ保存・読み込み', () => {
+    test('保存済みシナリオモーダルが開く', async ({ page }) => {
+        await openSimulation(page);
+        await page.route('/api/simulation/scenarios/saved', route => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                status: 'ok',
+                scenarios: [
+                    { scenario_id: 'test001', title: 'テスト保存', origin: [139.767125, 35.681236], destination: [139.780000, 35.690000], weather: {}, hazards: {} },
+                ],
+            }),
+        }));
+
+        await page.locator('#load-btn').click();
+        await expect(page.locator('#saved-scenarios-modal')).toBeVisible({ timeout: 3000 });
+        await expect(page.locator('.sim-saved-item')).toHaveCount(1);
+        await expect(page.locator('.sim-saved-id')).toContainText('test001');
+    });
+
+    test('保存済みシナリオ選択でフォームに値が設定される', async ({ page }) => {
+        await openSimulation(page);
+        await page.route('/api/simulation/scenarios/saved', route => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                status: 'ok',
+                scenarios: [
+                    { scenario_id: 'test001', title: 'テスト保存', origin: [139.767125, 35.681236], destination: [139.780000, 35.690000], weather: { forecast_max_intensity: 'strong' }, hazards: { flood: true } },
+                ],
+            }),
+        }));
+
+        await page.locator('#load-btn').click();
+        await page.locator('.sim-saved-item').first().click();
+        await expect(page.locator('#saved-scenarios-modal')).toBeHidden();
+        await expect(page.locator('#p-forecast-intensity')).toHaveValue('strong');
+        await expect(page.locator('#p-h-flood')).toBeChecked();
+    });
+
+    test('保存済みシナリオモーダルが閉じられる', async ({ page }) => {
+        await openSimulation(page);
+        await page.route('/api/simulation/scenarios/saved', route => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({ status: 'ok', scenarios: [] }),
+        }));
+
+        await page.locator('#load-btn').click();
+        await expect(page.locator('#saved-scenarios-modal')).toBeVisible({ timeout: 3000 });
+        await page.locator('#saved-modal-close').click();
+        await expect(page.locator('#saved-scenarios-modal')).toBeHidden();
+    });
+});
+
+test.describe('Simulation Mode — 地図コントロール', () => {
+    test('出発地ボタンクリックで active になる', async ({ page }) => {
+        await openSimulation(page);
+        await page.locator('#btn-mode-start').click();
+        await expect(page.locator('#btn-mode-start')).toHaveClass(/active/);
+    });
+
+    test('目的地ボタンクリックで active になる', async ({ page }) => {
+        await openSimulation(page);
+        await page.locator('#btn-mode-goal').click();
+        await expect(page.locator('#btn-mode-goal')).toHaveClass(/active/);
+    });
+
+    test('同じボタンを再クリックで active が解除される', async ({ page }) => {
+        await openSimulation(page);
+        await page.locator('#btn-mode-start').click();
+        await expect(page.locator('#btn-mode-start')).toHaveClass(/active/);
+        await page.locator('#btn-mode-start').click();
+        await expect(page.locator('#btn-mode-start')).not.toHaveClass(/active/);
+    });
+
+    test('別のモードボタンを押すと前のボタンの active が解除される', async ({ page }) => {
+        await openSimulation(page);
+        await page.locator('#btn-mode-start').click();
+        await page.locator('#btn-mode-goal').click();
+        await expect(page.locator('#btn-mode-start')).not.toHaveClass(/active/);
+        await expect(page.locator('#btn-mode-goal')).toHaveClass(/active/);
+    });
+
+    test('3ペインレイアウト: 地図コンテナが存在する', async ({ page }) => {
+        await openSimulation(page);
+        await expect(page.locator('#sim-map')).toBeVisible();
+        await expect(page.locator('.sim-pane-left')).toBeVisible();
+        await expect(page.locator('.sim-pane-map')).toBeVisible();
+        await expect(page.locator('.sim-pane-right')).toBeVisible();
+    });
+});
+
 test.describe('Simulation Mode — 本番API非混入確認', () => {
     test('/api/navigation/route/compare は呼ばれない', async ({ page }) => {
         let compareCallCount = 0;

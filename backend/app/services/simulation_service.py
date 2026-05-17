@@ -27,8 +27,11 @@ from app.models.simulation import (
     HazardScenario,
     LayerItem,
     PenaltyItem,
+    PointInspectRequest,
+    PointInspectResult,
     PredefinedScenario,
     ScenarioExpected,
+    ScenarioSaveRequest,
     SimulationResult,
     SimulationRouteResult,
     SimulationRunRequest,
@@ -45,6 +48,7 @@ _OSRM_WALKING_URL = os.environ.get(
 )
 
 _REPORT_DIR = os.environ.get("SIMULATION_REPORT_DIR", "/data_runtime/simulation")
+_SCENARIOS_DIR = os.environ.get("SIMULATION_SCENARIOS_DIR", "/data_runtime/simulation/scenarios")
 
 # 気象ペナルティ（route_comparison_service と同値）
 _WEATHER_PENALTY: dict[str, float] = {
@@ -440,6 +444,7 @@ def _assess_route(
     penalties = _build_penalties(scoring_result, max_intensity, hazard_union, hazards.unavailable)
     risk_summary = _build_risk_summary(max_intensity, hazards)
 
+    coords = _osrm_coords(raw_route)
     return {
         "index":        idx,
         "distance_m":   distance_m,
@@ -449,6 +454,7 @@ def _assess_route(
         "risk_summary": risk_summary,
         "penalties":    penalties,
         "hazards":      hazards,
+        "coordinates":  [[c[0], c[1]] for c in coords],
     }
 
 
@@ -503,6 +509,7 @@ def run_simulation(req: SimulationRunRequest) -> SimulationResult:
             recommendation_reason=reason,
             is_recommended=is_rec,
             is_shortest=is_short,
+            coordinates=r["coordinates"],
         ))
 
     summary = _build_summary(
@@ -607,6 +614,101 @@ PREDEFINED_SCENARIOS: list[PredefinedScenario] = [
 
 def get_scenarios() -> list[PredefinedScenario]:
     return PREDEFINED_SCENARIOS
+
+
+# ── ポイント検査 ───────────────────────────────────────────────────────────────
+
+def point_inspect_simulation(req: PointInspectRequest) -> PointInspectResult:
+    """1 点のリスクを評価して返す。use_real_hazard=True のとき実ハザード API を使用する。"""
+    from app.services.weather_risk_context_service import (
+        _fetch_hazard_assessment,
+        _build_hazard_flags,
+    )
+
+    hazards = req.hazards
+    data_source = "simulation"
+
+    if req.use_real_hazard:
+        assessment = _fetch_hazard_assessment(req.lat, req.lon)
+        flags = _build_hazard_flags(assessment)
+        if flags.get("data_available"):
+            data_source = "real"
+            hazards = HazardScenario(
+                lowland=bool(flags.get("lowland")),
+                flood=bool(flags.get("flood")),
+                inland_flood=bool(flags.get("inland_flood")),
+                landslide=bool(flags.get("landslide")),
+                tsunami=bool(flags.get("tsunami")),
+                storm_surge=bool(flags.get("storm_surge")),
+                unavailable=False,
+            )
+        else:
+            # ハザードサービス未ロード → unavailable 扱い（warning 扱いしない）
+            hazards = HazardScenario(unavailable=True)
+
+    max_intensity = _resolve_max_intensity(req.weather)
+    weather_risk = _make_weather_risk(max_intensity, req.weather.alert_severity)
+    exposure = _build_exposure(hazards)
+    hazard_union = _build_hazard_union(hazards)
+
+    if hazards.unavailable:
+        hazard_safety = 100.0
+        scoring_result: dict = {"risk_summary": {"hazards": [], "notes": []}}
+    else:
+        scoring_result = calc_route_risk_score(exposure)
+        hazard_safety = scoring_result["safety_score"]
+
+    weather_base = _WEATHER_PENALTY.get(max_intensity, 0.0)
+    combined_extra = 0.0
+    if not hazards.unavailable:
+        for short_key, active in hazard_union.items():
+            if active:
+                combined_extra += _COMBINED_EXTRA.get(f"{max_intensity}+{short_key}", 0.0)
+    combined_safety = max(0.0, min(100.0, hazard_safety - weather_base - combined_extra))
+    risk_level = _to_risk_level(combined_safety, weather_risk, hazards.unavailable)
+
+    penalties = _build_penalties(scoring_result, max_intensity, hazard_union, hazards.unavailable)
+    combined_risks = _build_risk_summary(max_intensity, hazards)
+    layer_stack = _build_layer_stack(req.weather, hazards)
+
+    return PointInspectResult(
+        lat=req.lat,
+        lon=req.lon,
+        risk_level=risk_level,
+        safety_score=round(combined_safety, 1),
+        penalties=penalties,
+        combined_risks=combined_risks,
+        hazard_union=hazard_union,
+        layer_stack=layer_stack,
+        data_source=data_source,
+    )
+
+
+# ── シナリオ保存・読み込み ─────────────────────────────────────────────────────
+
+def save_scenario(req: ScenarioSaveRequest) -> str:
+    os.makedirs(_SCENARIOS_DIR, exist_ok=True)
+    path = os.path.join(_SCENARIOS_DIR, f"{req.scenario_id}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(req.model_dump(), f, ensure_ascii=False, indent=2)
+    logger.info("scenario saved: %s", path)
+    return path
+
+
+def get_saved_scenarios() -> list[dict]:
+    if not os.path.isdir(_SCENARIOS_DIR):
+        return []
+    result: list[dict] = []
+    for fname in sorted(os.listdir(_SCENARIOS_DIR)):
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(_SCENARIOS_DIR, fname)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                result.append(json.load(f))
+        except Exception as exc:
+            logger.warning("saved scenario load failed: %s: %s", fname, exc)
+    return result
 
 
 # ── auto-run ──────────────────────────────────────────────────────────────────

@@ -1,19 +1,33 @@
 """
-simulation.py — Simulation / Inspection Mode v1 API (Phase3-B)
+simulation.py — Simulation / Inspection Mode v1.5 API
 
 本番ナビ挙動を変えない。simulation mock は本番 API に混入しない。
 
 エンドポイント:
-  POST /api/simulation/run        — 手動シナリオ実行
-  GET  /api/simulation/scenarios  — 定義済みシナリオ一覧
-  POST /api/simulation/auto-run   — 定義済みシナリオ一括実行
+  POST /api/simulation/run              — 手動シナリオ実行
+  GET  /api/simulation/scenarios        — 定義済みシナリオ一覧
+  POST /api/simulation/auto-run         — 定義済みシナリオ一括実行
+  POST /api/simulation/point-inspect    — 1点リスク検査
+  POST /api/simulation/scenarios/save   — シナリオ保存
+  GET  /api/simulation/scenarios/saved  — 保存済みシナリオ一覧
 """
 import logging
 from fastapi import APIRouter
-from pydantic import BaseModel
 
-from app.models.simulation import SimulationRunRequest, AutoRunResult
-from app.services.simulation_service import run_simulation, get_scenarios, run_auto
+from app.models.simulation import (
+    AutoRunResult,
+    PointInspectRequest,
+    ScenarioSaveRequest,
+    SimulationRunRequest,
+)
+from app.services.simulation_service import (
+    get_saved_scenarios,
+    get_scenarios,
+    point_inspect_simulation,
+    run_auto,
+    run_simulation,
+    save_scenario,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -105,3 +119,62 @@ async def simulation_auto_run():
             "results": [],
             "report_path": None,
         }
+
+
+@router.post("/api/simulation/point-inspect")
+async def simulation_point_inspect(body: PointInspectRequest):
+    """
+    指定点のリスクを検査して返す。
+    use_real_hazard=true のとき実ハザード API を使用（利用不可なら unavailable 扱い）。
+
+    request:
+      lat, lon: 検査座標
+      weather:  WeatherScenario（気象モック）
+      hazards:  HazardScenario（use_real_hazard=false 時のモック）
+      use_real_hazard: bool
+
+    response:
+      lat, lon, risk_level, safety_score
+      penalties[], combined_risks[], hazard_union, layer_stack[]
+      data_source: "real" | "simulation"
+    """
+    try:
+        return point_inspect_simulation(body)
+    except Exception as exc:
+        logger.exception("simulation point-inspect error: %s", exc)
+        return {
+            "lat": body.lat, "lon": body.lon,
+            "risk_level": "unknown",
+            "safety_score": 0.0,
+            "penalties": [],
+            "combined_risks": ["検査エラー"],
+            "hazard_union": {},
+            "layer_stack": [],
+            "data_source": "simulation",
+        }
+
+
+@router.post("/api/simulation/scenarios/save")
+async def simulation_scenario_save(body: ScenarioSaveRequest):
+    """
+    シナリオを data_runtime/simulation/scenarios/{id}.json に保存する。
+    """
+    try:
+        path = save_scenario(body)
+        return {"status": "ok", "path": path}
+    except Exception as exc:
+        logger.exception("simulation scenario save error: %s", exc)
+        return {"status": "error", "message": str(exc)}
+
+
+@router.get("/api/simulation/scenarios/saved")
+async def simulation_scenarios_saved():
+    """
+    保存済みシナリオ一覧を返す。
+    """
+    try:
+        scenarios = get_saved_scenarios()
+        return {"status": "ok", "scenarios": scenarios}
+    except Exception as exc:
+        logger.exception("simulation scenarios saved error: %s", exc)
+        return {"status": "unavailable", "scenarios": []}

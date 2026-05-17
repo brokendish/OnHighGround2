@@ -1,6 +1,6 @@
 'use strict';
 
-// ── リスク色 ────────────────────────────────────────────────────────────────
+// ── リスク色・ラベル ──────────────────────────────────────────────────────────
 const _SIM_RISK_COLOR = {
     none:      '#2e7d32',
     advisory:  '#b45309',
@@ -15,6 +15,66 @@ const _SIM_RISK_LABEL = {
     emergency: '危険',
     unknown:   '判定不能',
 };
+
+// ── 地図初期化 ────────────────────────────────────────────────────────────────
+let _mapAvailable = false;
+
+function initMap() {
+    // マップコントロールボタンのイベント登録は地図の有無に関わらず行う
+    document.querySelectorAll('.sim-map-ctrl-btn[data-mode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mode = btn.dataset.mode;
+            const isActive = btn.classList.contains('active');
+            document.querySelectorAll('.sim-map-ctrl-btn[data-mode]').forEach(b => b.classList.remove('active'));
+            if (isActive) {
+                if (_mapAvailable) SimMap.setClickMode(null);
+            } else {
+                btn.classList.add('active');
+                if (_mapAvailable) SimMap.setClickMode(mode);
+            }
+        });
+    });
+
+    document.getElementById('btn-fit-map').addEventListener('click', () => {
+        if (_mapAvailable) SimMap.fitToMarkers();
+    });
+
+    document.getElementById('btn-inspect-close').addEventListener('click', () => {
+        document.getElementById('sim-inspect-panel').style.display = 'none';
+        if (_mapAvailable) SimMap.clearInspect();
+    });
+
+    // Leaflet 地図初期化 (失敗してもその他の UI は動作させる)
+    try {
+        SimMap.init('sim-map', {
+            onMarkerUpdate: (type, lat, lon) => {
+                if (type === 'start') {
+                    document.getElementById('p-origin-lat').value = lat.toFixed(6);
+                    document.getElementById('p-origin-lon').value = lon.toFixed(6);
+                } else if (type === 'goal') {
+                    document.getElementById('p-dest-lat').value = lat.toFixed(6);
+                    document.getElementById('p-dest-lon').value = lon.toFixed(6);
+                }
+            },
+            onInspect: (lat, lon) => {
+                runPointInspect(lat, lon);
+            },
+        });
+
+        const oLon = parseFloat(document.getElementById('p-origin-lon').value);
+        const oLat = parseFloat(document.getElementById('p-origin-lat').value);
+        const dLon = parseFloat(document.getElementById('p-dest-lon').value);
+        const dLat = parseFloat(document.getElementById('p-dest-lat').value);
+        if (oLat && oLon) SimMap.placeMarker('start', oLat, oLon);
+        if (dLat && dLon) SimMap.placeMarker('goal',  dLat, dLon);
+
+        _mapAvailable = true;
+    } catch (err) {
+        console.warn('SimMap init failed, continuing without map:', err);
+        const mapEl = document.getElementById('sim-map');
+        if (mapEl) mapEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:13px;">地図の読み込みに失敗しました</div>';
+    }
+}
 
 // ── 定義済みシナリオ読み込み ─────────────────────────────────────────────────
 async function loadScenarios() {
@@ -60,6 +120,17 @@ function applyScenario(sc) {
     document.getElementById('p-h-storm-surge').checked  = !!h.storm_surge;
     document.getElementById('p-hazard-unavailable').checked = !!h.unavailable;
 
+    // 地図マーカー更新
+    if (_mapAvailable) {
+        const oLon = parseFloat((sc.origin || [])[0]);
+        const oLat = parseFloat((sc.origin || [])[1]);
+        const dLon = parseFloat((sc.destination || [])[0]);
+        const dLat = parseFloat((sc.destination || [])[1]);
+        if (oLat && oLon) SimMap.placeMarker('start', oLat, oLon);
+        if (dLat && dLon) SimMap.placeMarker('goal',  dLat, dLon);
+        SimMap.fitToMarkers();
+    }
+
     // ハイライト
     document.querySelectorAll('.sim-scenario-btn').forEach(b => b.classList.remove('active'));
     const btn = document.querySelector(`.sim-scenario-btn[data-scenario-id="${sc.scenario_id}"]`);
@@ -97,6 +168,28 @@ function buildRequestBody(scenarioId = 'manual') {
     };
 }
 
+function buildWeatherBody() {
+    return {
+        alert_severity:         document.getElementById('p-alert-severity').value,
+        current_intensity:      document.getElementById('p-current-intensity').value,
+        forecast_max_intensity: document.getElementById('p-forecast-intensity').value,
+        forecast_minutes:       30,
+        unknown:                document.getElementById('p-weather-unknown').checked,
+    };
+}
+
+function buildHazardBody() {
+    return {
+        lowland:      document.getElementById('p-h-lowland').checked,
+        flood:        document.getElementById('p-h-flood').checked,
+        inland_flood: document.getElementById('p-h-inland-flood').checked,
+        landslide:    document.getElementById('p-h-landslide').checked,
+        tsunami:      document.getElementById('p-h-tsunami').checked,
+        storm_surge:  document.getElementById('p-h-storm-surge').checked,
+        unavailable:  document.getElementById('p-hazard-unavailable').checked,
+    };
+}
+
 // ── シミュレーション実行 ──────────────────────────────────────────────────────
 async function runSimulation() {
     const btn = document.getElementById('run-btn');
@@ -105,6 +198,17 @@ async function runSimulation() {
 
     const resultsEl = document.getElementById('sim-results');
     resultsEl.innerHTML = '<div class="sim-loading">シミュレーション実行中…</div>';
+
+    // フォーム値でマーカーを同期
+    if (_mapAvailable) {
+        const oLon = parseFloat(document.getElementById('p-origin-lon').value);
+        const oLat = parseFloat(document.getElementById('p-origin-lat').value);
+        const dLon = parseFloat(document.getElementById('p-dest-lon').value);
+        const dLat = parseFloat(document.getElementById('p-dest-lat').value);
+        if (oLat && oLon) SimMap.placeMarker('start', oLat, oLon);
+        if (dLat && dLon) SimMap.placeMarker('goal',  dLat, dLon);
+        SimMap.clearRoutes();
+    }
 
     try {
         const body = buildRequestBody();
@@ -116,8 +220,19 @@ async function runSimulation() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         renderResults(resultsEl, data);
+
+        // ルートを地図に描画
+        if (_mapAvailable) {
+            if (data.status === 'ok' && Array.isArray(data.routes)) {
+                SimMap.drawRoutes(data.routes, data.recommended_route_index);
+                SimMap.fitToMarkers();
+            } else {
+                SimMap.clearRoutes();
+            }
+        }
     } catch (err) {
         resultsEl.innerHTML = `<div class="sim-error">エラー: ${escHtml(err.message)}</div>`;
+        if (_mapAvailable) SimMap.clearRoutes();
     } finally {
         btn.disabled = false;
         btn.textContent = 'シミュレーション実行';
@@ -134,7 +249,6 @@ function renderResults(container, data) {
         return;
     }
 
-    // サマリーバナー
     if (data.summary) {
         const banner = document.createElement('div');
         banner.className = 'sim-summary-banner';
@@ -148,7 +262,6 @@ function renderResults(container, data) {
     const grid = document.createElement('div');
     grid.className = 'sim-result-grid';
 
-    // ルートカード
     const cardsWrap = document.createElement('div');
     cardsWrap.className = 'sim-route-cards';
     data.routes.forEach(route => {
@@ -156,7 +269,6 @@ function renderResults(container, data) {
     });
     grid.appendChild(cardsWrap);
 
-    // レイヤースタック
     if (Array.isArray(data.layer_stack) && data.layer_stack.length > 0) {
         grid.appendChild(buildLayerStack(data.layer_stack));
     }
@@ -176,7 +288,6 @@ function buildRouteCard(route, recIdx) {
     const card = document.createElement('div');
     card.className = 'sim-route-card' + (isRec ? ' sim-route-card--rec' : '');
 
-    // ヘッダー行
     const header = document.createElement('div');
     header.className = 'sim-route-card-header';
     header.innerHTML = `
@@ -186,13 +297,11 @@ function buildRouteCard(route, recIdx) {
     `;
     card.appendChild(header);
 
-    // 距離・時間
     const meta = document.createElement('div');
     meta.className = 'sim-route-meta';
     meta.textContent = `${distKm} / 約${durMin}分`;
     card.appendChild(meta);
 
-    // リスクサマリー
     if (Array.isArray(route.risk_summary) && route.risk_summary.length > 0) {
         const sum = document.createElement('div');
         sum.className = 'sim-route-summary';
@@ -201,7 +310,6 @@ function buildRouteCard(route, recIdx) {
         card.appendChild(sum);
     }
 
-    // 推奨理由
     if (route.recommendation_reason) {
         const reason = document.createElement('div');
         reason.className = 'sim-route-reason';
@@ -209,7 +317,6 @@ function buildRouteCard(route, recIdx) {
         card.appendChild(reason);
     }
 
-    // ペナルティ内訳
     if (Array.isArray(route.penalties) && route.penalties.length > 0) {
         const breakdown = document.createElement('div');
         breakdown.className = 'sim-penalty-breakdown';
@@ -264,6 +371,77 @@ function buildLayerStack(layerStack) {
     return wrap;
 }
 
+// ── ポイント検査 ───────────────────────────────────────────────────────────────
+async function runPointInspect(lat, lon) {
+    const panel = document.getElementById('sim-inspect-panel');
+    const body  = document.getElementById('sim-inspect-body');
+    panel.style.display = 'block';
+    body.innerHTML = '<div class="sim-loading">検査中…</div>';
+
+    // クリックモードボタンの active を解除
+    document.querySelectorAll('.sim-map-ctrl-btn[data-mode]').forEach(b => b.classList.remove('active'));
+    if (_mapAvailable) SimMap.setClickMode(null);
+
+    try {
+        const res = await fetch('/api/simulation/point-inspect', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+                lat,
+                lon,
+                weather:         buildWeatherBody(),
+                hazards:         buildHazardBody(),
+                use_real_hazard: true,
+            }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderPointInspection(body, data);
+    } catch (err) {
+        body.innerHTML = `<div class="sim-error">検査エラー: ${escHtml(err.message)}</div>`;
+    }
+}
+
+function renderPointInspection(container, data) {
+    const color    = _SIM_RISK_COLOR[data.risk_level] || '#64748b';
+    const riskLbl  = _SIM_RISK_LABEL[data.risk_level] || data.risk_level;
+    const srcBadge = data.data_source === 'real'
+        ? '<span class="sim-inspect-source sim-inspect-source--real">実データ</span>'
+        : '<span class="sim-inspect-source sim-inspect-source--sim">モック</span>';
+
+    let html = `
+        <div class="sim-inspect-coord">${data.lat.toFixed(5)}, ${data.lon.toFixed(5)} ${srcBadge}</div>
+        <div class="sim-inspect-risk" style="color:${color};">${escHtml(riskLbl)}</div>
+        <div class="sim-inspect-score">安全度: <strong>${data.safety_score}</strong></div>
+    `;
+
+    // 複合リスク
+    if (Array.isArray(data.combined_risks) && data.combined_risks.length > 0) {
+        html += `<div class="sim-inspect-risks-title">リスク要因</div>`;
+        html += `<ul class="sim-inspect-risks-list">`;
+        data.combined_risks.forEach(r => {
+            html += `<li>${escHtml(r)}</li>`;
+        });
+        html += `</ul>`;
+    }
+
+    // ペナルティ
+    if (Array.isArray(data.penalties) && data.penalties.length > 0) {
+        html += `<div class="sim-penalty-breakdown">`;
+        html += `<div class="sim-penalty-title">ペナルティ内訳</div>`;
+        data.penalties.forEach(p => {
+            if (p.points > 0) {
+                html += `<div class="sim-penalty-item"><span class="sim-penalty-pts">+${p.points}</span><span class="sim-penalty-reason">${escHtml(p.reason)}</span></div>`;
+            } else {
+                html += `<div class="sim-penalty-item"><span class="sim-penalty-note">${escHtml(p.reason)}</span></div>`;
+            }
+        });
+        html += `</div>`;
+    }
+
+    container.innerHTML = html;
+}
+
 // ── Auto-Run ─────────────────────────────────────────────────────────────────
 async function runAuto() {
     const btn = document.getElementById('auto-run-btn');
@@ -308,6 +486,11 @@ function renderAutoRunResult(container, data) {
         html += `<div class="sim-autorun-report">レポート: <code>${escHtml(data.report_path)}</code></div>`;
     }
 
+    // JSON エクスポートボタン
+    html += `<div style="margin-bottom:10px;">
+        <button class="sim-json-export-btn" id="btn-export-json" type="button">JSONをダウンロード</button>
+    </div>`;
+
     if (Array.isArray(data.results)) {
         html += '<table class="sim-autorun-table"><thead><tr><th>ID</th><th>タイトル</th><th>結果</th><th>risk_level</th><th>備考</th></tr></thead><tbody>';
         data.results.forEach(r => {
@@ -324,6 +507,95 @@ function renderAutoRunResult(container, data) {
     }
 
     container.innerHTML = html;
+
+    // JSON エクスポートボタンにクリックハンドラを付ける
+    const exportBtn = container.querySelector('#btn-export-json');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', () => _downloadJson(data, 'simulation_auto_run.json'));
+    }
+}
+
+function _downloadJson(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ── シナリオ保存 ───────────────────────────────────────────────────────────────
+async function saveScenario() {
+    const id    = document.getElementById('save-scenario-id').value.trim();
+    const title = document.getElementById('save-scenario-title').value.trim();
+    if (!id || !title) { alert('ID とタイトルを入力してください'); return; }
+
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    try {
+        const body = buildRequestBody(id);
+        const res = await fetch('/api/simulation/scenarios/save', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ ...body, title }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.status === 'ok') {
+            alert(`保存しました: ${id}`);
+            document.getElementById('save-scenario-id').value = '';
+            document.getElementById('save-scenario-title').value = '';
+        } else {
+            alert(`保存失敗: ${data.message || 'unknown error'}`);
+        }
+    } catch (err) {
+        alert(`保存エラー: ${err.message}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ── 保存済みシナリオ読み込み ───────────────────────────────────────────────────
+async function openSavedScenariosModal() {
+    const modal = document.getElementById('saved-scenarios-modal');
+    const body  = document.getElementById('saved-modal-body');
+    body.innerHTML = '<div class="sim-loading">読み込み中…</div>';
+    modal.style.display = 'flex';
+
+    try {
+        const res = await fetch('/api/simulation/scenarios/saved');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const scenarios = (data || {}).scenarios || [];
+
+        if (scenarios.length === 0) {
+            body.innerHTML = '<p style="color:#94a3b8;text-align:center;padding:20px;">保存済みシナリオはありません</p>';
+            return;
+        }
+
+        let html = '<div class="sim-saved-list">';
+        scenarios.forEach(sc => {
+            html += `
+                <div class="sim-saved-item" data-sc='${JSON.stringify(sc).replace(/'/g, '&#39;')}'>
+                    <div class="sim-saved-id">[${escHtml(sc.scenario_id)}]</div>
+                    <div class="sim-saved-title">${escHtml(sc.title)}</div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        body.innerHTML = html;
+
+        body.querySelectorAll('.sim-saved-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const sc = JSON.parse(item.dataset.sc);
+                applyScenario(sc);
+                modal.style.display = 'none';
+            });
+        });
+    } catch (err) {
+        body.innerHTML = `<div class="sim-error">読み込みエラー: ${escHtml(err.message)}</div>`;
+    }
 }
 
 // ── ユーティリティ ─────────────────────────────────────────────────────────────
@@ -337,14 +609,25 @@ function escHtml(str) {
 
 // ── イベント登録 ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    initMap();
     loadScenarios();
 
     document.getElementById('run-btn').addEventListener('click', runSimulation);
     document.getElementById('auto-run-btn').addEventListener('click', runAuto);
+    document.getElementById('save-btn').addEventListener('click', saveScenario);
+    document.getElementById('load-btn').addEventListener('click', openSavedScenariosModal);
+
     document.getElementById('auto-run-modal-close').addEventListener('click', () => {
         document.getElementById('auto-run-modal').style.display = 'none';
     });
     document.getElementById('auto-run-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+    });
+
+    document.getElementById('saved-modal-close').addEventListener('click', () => {
+        document.getElementById('saved-scenarios-modal').style.display = 'none';
+    });
+    document.getElementById('saved-scenarios-modal').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
     });
 });

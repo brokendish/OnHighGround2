@@ -91,6 +91,7 @@ data_runtime/system/config_overrides.json
 data_runtime/simulation/*.json
 data_runtime/simulation/*.md
 data_runtime/simulation/screenshots/*.png
+data_runtime/simulation/scenarios/*.json
 
 # ---- frontend/layers: deploy_to_runtime.sh で同期される GeoJSON (deploy artifact) ----
 frontend/layers/*.geojson

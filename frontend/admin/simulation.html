@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>シミュレーション — OnHighGround2</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="/admin/simulation.css">
 </head>
 <body>
@@ -21,7 +22,7 @@
 
 <div class="sim-body">
 
-  <!-- 定義済みシナリオ -->
+  <!-- 定義済みシナリオバー -->
   <section class="sim-scenario-bar">
     <div class="sim-scenario-bar-title">定義済みシナリオ</div>
     <div id="scenario-buttons" class="sim-scenario-buttons">
@@ -35,7 +36,7 @@
   <div class="sim-main">
 
     <!-- 左: パラメータパネル -->
-    <aside class="sim-params">
+    <aside class="sim-pane-left sim-params">
       <h2 class="sim-panel-title">シナリオパラメータ</h2>
 
       <div class="sim-param-group">
@@ -115,15 +116,51 @@
       <button class="sim-run-btn" id="run-btn" type="button">
         シミュレーション実行
       </button>
+
+      <!-- シナリオ保存 -->
+      <div class="sim-save-section">
+        <div class="sim-param-label" style="margin-top:14px;">シナリオ保存</div>
+        <input id="save-scenario-id" type="text" class="sim-save-input" placeholder="ID (英数字・_-)">
+        <input id="save-scenario-title" type="text" class="sim-save-input" placeholder="タイトル" style="margin-top:4px;">
+        <button class="sim-save-btn" id="save-btn" type="button">保存</button>
+        <button class="sim-load-btn" id="load-btn" type="button">保存済みを読み込む</button>
+      </div>
     </aside>
 
-    <!-- 右: 結果パネル -->
-    <main class="sim-results" id="sim-results">
-      <div class="sim-results-empty">
-        <p>パラメータを設定して「シミュレーション実行」を押してください</p>
-        <p style="font-size:12px;color:#94a3b8;">または上部の定義済みシナリオをクリックして読み込み後、実行してください</p>
+    <!-- 中央: 地図 -->
+    <div class="sim-pane-map">
+      <div id="sim-map"></div>
+      <div class="sim-map-controls">
+        <button class="sim-map-ctrl-btn" id="btn-mode-start" title="出発地を地図上で選択" data-mode="start">S 出発地</button>
+        <button class="sim-map-ctrl-btn" id="btn-mode-goal"  title="目的地を地図上で選択"  data-mode="goal">G 目的地</button>
+        <button class="sim-map-ctrl-btn" id="btn-mode-inspect" title="地点リスクを検査" data-mode="inspect">? 検査</button>
+        <button class="sim-map-ctrl-btn sim-map-ctrl-btn--fit" id="btn-fit-map" title="マーカーに合わせてズーム">[ ] フィット</button>
       </div>
-    </main>
+    </div>
+
+    <!-- 右: 結果パネル -->
+    <aside class="sim-pane-right">
+
+      <!-- ルート結果 -->
+      <main class="sim-results" id="sim-results">
+        <div class="sim-results-empty">
+          <p>パラメータを設定して「シミュレーション実行」を押してください</p>
+          <p style="font-size:12px;color:#94a3b8;">定義済みシナリオをクリック後、実行してください</p>
+        </div>
+      </main>
+
+      <!-- ポイント検査パネル -->
+      <section class="sim-inspect-panel" id="sim-inspect-panel" style="display:none;">
+        <div class="sim-inspect-header">
+          <span class="sim-inspect-title">地点リスク検査</span>
+          <button class="sim-inspect-close" id="btn-inspect-close" type="button">×</button>
+        </div>
+        <div id="sim-inspect-body" class="sim-inspect-body">
+          <div class="sim-loading">検査中…</div>
+        </div>
+      </section>
+
+    </aside>
 
   </div><!-- /.sim-main -->
 
@@ -140,6 +177,19 @@
   </div>
 </div>
 
+<!-- 保存済みシナリオ選択モーダル -->
+<div id="saved-scenarios-modal" class="sim-modal" style="display:none;">
+  <div class="sim-modal-inner" style="max-width:480px;">
+    <div class="sim-modal-header">
+      <h2>保存済みシナリオ</h2>
+      <button id="saved-modal-close" type="button" class="sim-modal-close">×</button>
+    </div>
+    <div id="saved-modal-body" class="sim-modal-body"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="/admin/simulation-map.js"></script>
 <script src="/admin/simulation.js"></script>
 </body>
 </html>

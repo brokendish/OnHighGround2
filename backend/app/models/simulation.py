@@ -1,5 +1,5 @@
 """
-simulation.py — Simulation / Inspection Mode v1 Pydantic models
+simulation.py — Simulation / Inspection Mode v1.5 Pydantic models
 """
 from typing import Optional
 from pydantic import BaseModel, field_validator
@@ -29,8 +29,6 @@ class SimulationRunRequest(BaseModel):
     destination: list[float]  # [lon, lat]
     weather: WeatherScenario = WeatherScenario()
     hazards: HazardScenario = HazardScenario()
-    # per-route hazard override: {"0": HazardScenario, ...}
-    # ルートインデックスごとに hazard を上書き（scenario 008 等の差分デモ用）
     route_hazard_overrides: Optional[dict[str, HazardScenario]] = None
 
     @field_validator("origin", "destination")
@@ -62,6 +60,7 @@ class SimulationRouteResult(BaseModel):
     recommendation_reason: str
     is_recommended: bool = False
     is_shortest: bool = False
+    coordinates: list[list[float]] = []  # [[lat, lon], ...] Leaflet 用
 
 
 class LayerItem(BaseModel):
@@ -80,9 +79,9 @@ class SimulationResult(BaseModel):
 
 
 class ScenarioExpected(BaseModel):
-    risk_level: Optional[str] = None            # exact risk_level for recommended route
-    min_risk_level: Optional[str] = None        # recommended route risk >= this
-    recommended_not_shortest: Optional[bool] = None  # recommended ≠ shortest
+    risk_level: Optional[str] = None
+    min_risk_level: Optional[str] = None
+    recommended_not_shortest: Optional[bool] = None
 
 
 class PredefinedScenario(BaseModel):
@@ -113,3 +112,49 @@ class AutoRunResult(BaseModel):
     skipped: int
     results: list[AutoRunScenarioResult]
     report_path: Optional[str] = None
+
+
+# ── v1.5 追加モデル ────────────────────────────────────────────────────────────
+
+class PointInspectRequest(BaseModel):
+    lat: float
+    lon: float
+    weather: WeatherScenario = WeatherScenario()
+    hazards: HazardScenario = HazardScenario()
+    use_real_hazard: bool = True  # True: 実ハザードAPI使用、False: シナリオ mock 使用
+
+
+class PointInspectResult(BaseModel):
+    lat: float
+    lon: float
+    risk_level: str
+    safety_score: float
+    penalties: list[PenaltyItem]
+    combined_risks: list[str]
+    hazard_union: dict
+    layer_stack: list[LayerItem]
+    data_source: str = "simulation"  # "real" | "simulation"
+
+
+class ScenarioSaveRequest(BaseModel):
+    scenario_id: str
+    title: str
+    origin: list[float]
+    destination: list[float]
+    weather: WeatherScenario = WeatherScenario()
+    hazards: HazardScenario = HazardScenario()
+
+    @field_validator("scenario_id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        import re
+        if not re.match(r'^[a-zA-Z0-9_\-]{1,64}$', v):
+            raise ValueError("scenario_id must be alphanumeric/underscore/hyphen, 1-64 chars")
+        return v
+
+    @field_validator("origin", "destination")
+    @classmethod
+    def validate_lonlat(cls, v: list[float]) -> list[float]:
+        if len(v) < 2:
+            raise ValueError("must have [lon, lat]")
+        return [float(v[0]), float(v[1])]
