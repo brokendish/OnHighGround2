@@ -1,5 +1,5 @@
 """
-気象API — アメダス観測点データ / 雨量レーダータイル / 警報・注意報 / 降水予測
+気象API — アメダス観測点データ / 雨量レーダータイル / 警報・注意報 / 降水予測 / 複合リスク
 """
 import logging
 from fastapi import APIRouter, Query, HTTPException
@@ -10,6 +10,7 @@ from app.services.weather_alert_service import (
     get_alerts_for_location,
     get_precipitation_summary,
 )
+from app.services.weather_risk_context_service import get_risk_context
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,39 @@ async def get_precipitation_summary_endpoint(
             "forecast": [],
             "updated_at": None,
             "source": "jma_nowcast",
+        }
+
+
+@router.get("/api/weather/risk/context")
+async def get_weather_risk_context(
+    lat: float = Query(..., description="緯度", ge=-90, le=90),
+    lon: float = Query(..., description="経度", ge=-180, le=180),
+):
+    """
+    現在地の気象 × ハザード統合リスクコンテキストを返す（Phase2-C）。
+
+    気象警報・降水予測 × ハザードゾーン（flood/inland_flood/landslide/lowland）を統合し、
+    避難判断向けの複合リスク（combined risk）と統合リスクレベルを返す。
+
+    risk_level: none | advisory | warning | emergency | unknown
+    combined:   [{type, level, headline, message}]
+    hazards:    {lowland, flood, inland_flood, landslide, tsunami, storm_surge, data_available}
+
+    hazard data_available=false の場合はハザード判定なし（API は落とさない）。
+    """
+    try:
+        return get_risk_context(lat, lon)
+    except Exception as exc:
+        logger.exception("risk context endpoint error: %s", exc)
+        return {
+            "status":     "unavailable",
+            "risk_level": "unknown",
+            "weather":    {"alert_severity": "unknown", "precip_severity": "unknown",
+                           "current_intensity": "unknown", "forecast_max_intensity": None, "forecast_max_minutes": None},
+            "hazards":    {"lowland": None, "flood": None, "inland_flood": None, "landslide": None,
+                           "tsunami": None, "storm_surge": None, "data_available": False},
+            "combined":   [],
+            "updated_at": None,
         }
 
 

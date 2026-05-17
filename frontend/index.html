@@ -3473,17 +3473,22 @@
         #tsunami-warning-banner ~ .weather-alert-banner {
             top: 0;  /* tsunami banner が display:none の場合の基本位置 */
         }
+        @keyframes wa-emergency-pulse {
+            0%, 100% { background-color: #b71c1c; }
+            50%       { background-color: #c62828; }
+        }
         .wa-banner--emergency {
             background: #b71c1c;
             color: #fff;
+            animation: wa-emergency-pulse 2s ease-in-out infinite;
         }
         .wa-banner--warning {
             background: #c62828;
             color: #fff;
         }
         .wa-banner--advisory {
-            background: #e65100;
-            color: #fff;
+            background: #f9a825;
+            color: #3e2000;
             font-weight: 500;
         }
         .wa-banner-text { flex: 1; }
@@ -3509,12 +3514,12 @@
         }
         .wc-badge--emergency { background: #b71c1c; color: #fff; }
         .wc-badge--warning   { background: #c62828; color: #fff; }
-        .wc-badge--advisory  { background: #e65100; color: #fff; }
+        .wc-badge--advisory  { background: #f9a825; color: #3e2000; }
         .wc-badge--unknown   { background: #78909c; color: #fff; }
         .wc-badge--none      { display: none !important; }
         .wc-header--emergency .lip-card-hdr-title,
         .wc-header--warning   .lip-card-hdr-title { color: #c62828; }
-        .wc-header--advisory  .lip-card-hdr-title { color: #e65100; }
+        .wc-header--advisory  .lip-card-hdr-title { color: #b45309; }
         .wc-area-row {
             display: flex;
             justify-content: space-between;
@@ -3542,15 +3547,70 @@
         .wc-alert-status { font-size: 10px; color: #94a3b8; }
         .wc-precip-row {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 6px;
             font-size: 11px;
             color: #64748b;
             padding-top: 4px;
             border-top: 1px solid #f1f5f9;
         }
-        .wc-precip-label { color: #94a3b8; white-space: nowrap; }
+        .wc-precip-label { color: #94a3b8; white-space: nowrap; padding-top: 1px; }
         .wc-precip-summary { flex: 1; }
+        .wc-precip-unknown { font-size: 11px; color: #78909c; margin-bottom: 2px; }
+        .wc-precip-current { line-height: 1.5; }
+        .wc-precip-current[data-intensity="weak"]     { color: #1565c0; }
+        .wc-precip-current[data-intensity="moderate"] { color: #0277bd; font-weight: 500; }
+        .wc-precip-current[data-intensity="strong"]   { color: #c62828; font-weight: 600; }
+        .wc-precip-current[data-intensity="severe"]   { color: #b71c1c; font-weight: 700; }
+        .wc-precip-forecast { font-size: 10px; color: #64748b; margin-top: 2px; }
+        .wc-precip-forecast[data-intensity="strong"],
+        .wc-precip-forecast[data-intensity="severe"]  { color: #c62828; font-weight: 600; }
+        /* ── 複合リスク（Phase2-C） ──────────────────────────────────────── */
+        .wc-combined-list { margin-top: 4px; }
+        .wc-combined-row {
+            padding: 4px 6px;
+            border-radius: 4px;
+            margin-bottom: 3px;
+            border-left: 3px solid #94a3b8;
+            background: #f8fafc;
+        }
+        .wc-combined--emergency {
+            border-left-color: #b71c1c;
+            background: #fff5f5;
+        }
+        .wc-combined--warning {
+            border-left-color: #c62828;
+            background: #fff5f5;
+        }
+        .wc-combined--advisory {
+            border-left-color: #f9a825;
+            background: #fffdf0;
+        }
+        .wc-combined-headline {
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+        .wc-combined--emergency .wc-combined-headline { color: #b71c1c; }
+        .wc-combined--warning   .wc-combined-headline { color: #c62828; }
+        .wc-combined--advisory  .wc-combined-headline { color: #b45309; }
+        .wc-combined-message {
+            font-size: 10px;
+            color: #64748b;
+            margin-top: 2px;
+            line-height: 1.4;
+        }
+        /* ── 避難行動メッセージ ──────────────────────────────────────────── */
+        .wc-risk-msg {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 5px 0 2px;
+            border-top: 1px solid #f1f5f9;
+            margin-top: 4px;
+        }
+        .wc-risk-msg--emergency { color: #b71c1c; }
+        .wc-risk-msg--warning   { color: #c62828; }
+        .wc-risk-msg--advisory  { color: #b45309; }
         .wc-message {
             font-size: 11px;
             color: #94a3b8;
@@ -4194,6 +4254,8 @@
                                         <span class="wc-precip-label">降水</span>
                                         <span class="wc-precip-summary" id="lip-wc-precip-summary">レーダー参照</span>
                                     </div>
+                                    <div class="wc-combined-list" id="lip-wc-combined-risk" style="display:none;"></div>
+                                    <div class="wc-risk-msg" id="lip-wc-risk-msg" style="display:none;"></div>
                                     <div class="wc-message" id="lip-wc-message" style="display:none;"></div>
                                 </div>
                             </div>
