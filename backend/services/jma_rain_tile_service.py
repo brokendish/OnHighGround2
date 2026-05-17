@@ -326,9 +326,17 @@ _UNKNOWN_LOG_INTERVAL = 300.0   # 5分以内の同一 URL は WARNING しない
 
 
 def _load_color_table() -> None:
-    """外部 JSON から色テーブルを読み込む。失敗時は fallback を使う。"""
+    """
+    外部 JSON から色テーブルを読み込む。優先順: runtime → registry → fallback。
+
+    registry から読み込んだとき、runtime ファイルが存在しなければ自動コピーする。
+    これにより git pull + 再起動だけで VPS の runtime も最新になる。
+    キャリブレーションツールで runtime を上書きした場合はそちらが優先される。
+    """
     global _JMA_RAIN_COLOR_TABLE, _COLOR_DIST_THRESHOLD_SQ, _COLOR_TABLE_VERSION
     global _BG_RGB_MIN, _ALPHA_TRANSPARENT_MAX
+
+    runtime_path = _COLOR_TABLE_PATHS[0]
 
     for path in _COLOR_TABLE_PATHS:
         if not path.exists():
@@ -354,6 +362,15 @@ def _load_color_table() -> None:
                 "color table loaded from %s version=%s entries=%d threshold=%d",
                 path.name, _COLOR_TABLE_VERSION, len(_JMA_RAIN_COLOR_TABLE), threshold,
             )
+            # registry から読んだとき、runtime がなければ自動コピーして次回以降に使う
+            if path != runtime_path and not runtime_path.exists():
+                try:
+                    runtime_path.parent.mkdir(parents=True, exist_ok=True)
+                    import shutil
+                    shutil.copy2(path, runtime_path)
+                    logger.info("color table auto-seeded to runtime: %s", runtime_path)
+                except Exception as copy_exc:
+                    logger.warning("color table auto-seed failed: %s", copy_exc)
             return
         except Exception as exc:
             logger.warning("color table load failed %s: %s", path, exc)
