@@ -3503,6 +3503,42 @@
             line-height: 1;
         }
         .wa-banner-close:hover { opacity: 1; }
+        /* ── ルート気象リスクバナー（weather-route-service.js） ──────────── */
+        .nav-route-weather-banner {
+            display: none;
+            position: absolute;
+            bottom: 308px;
+            left: 0;
+            right: 0;
+            z-index: 1100;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.4;
+            pointer-events: auto;
+            box-shadow: 0 -2px 6px rgba(0,0,0,0.2);
+        }
+        .nrw-banner--emergency {
+            background: #b71c1c;
+            color: #fff;
+            animation: wa-emergency-pulse 2s ease-in-out infinite;
+        }
+        .nrw-banner--warning  { background: #c62828; color: #fff; }
+        .nrw-banner--advisory { background: #f9a825; color: #3e2000; font-weight: 500; }
+        .nrw-banner-text  { flex: 1; }
+        .nrw-banner-close {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0 4px;
+            opacity: 0.7;
+            line-height: 1;
+        }
+        .nrw-banner-close:hover { opacity: 1; }
         /* ── 気象カード（weather-card.js） ──────────────────────────────── */
         .wc-status-badge {
             display: inline-block;
@@ -4473,6 +4509,8 @@
             <div id="tsunami-warning-banner" class="tsunami-warning-banner"></div>
             <!-- 気象警報バナー（津波バナーの下） -->
             <div id="weather-alert-banner" class="weather-alert-banner" style="display:none;"></div>
+            <!-- ルート気象リスクバナー（ナビ中のみ・地図下部） -->
+            <div id="nav-route-weather-banner" class="nav-route-weather-banner" style="display:none;"></div>
             <!-- ナビ警告バナー -->
             <div id="navBanner" class="nav-banner" style="display:none;"></div>
             <!-- 音声ナビ テキスト案内バー（音声と同内容を文字表示） -->
@@ -4602,6 +4640,7 @@
     <script src="js/weather-service.js"></script>
     <script src="js/weather-card.js"></script>
     <script src="js/weather-alert-ui.js"></script>
+    <script src="js/weather-route-service.js"></script>
     <!-- 行政界レイヤー管理 -->
     <script src="js/boundary-layers.js"></script>
     <!-- 雨量レーダーレイヤー（Phase2B） -->

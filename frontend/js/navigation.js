@@ -1566,6 +1566,9 @@ function fetchCurrentLocInfo(lat, lon, elevation, accuracyMeters) {
     _checkCurrentHazard(lat, lon);
     if (typeof _weatherUpdate === 'function') _weatherUpdate(lat, lon);
     if (typeof _weatherServiceUpdate === 'function') _weatherServiceUpdate(lat, lon);
+    if (typeof _weatherRouteUpdate === 'function' && navActiveRoute && !navHasArrived) {
+        _weatherRouteUpdate(navActiveRoute, lat, lon);
+    }
     if (typeof _astroUpdate === 'function') _astroUpdate(lat, lon);
     if (typeof _tideUpdate === 'function') _tideUpdate(lat, lon);
 }
@@ -1824,6 +1827,7 @@ function stopNavigation() {
     // 処理中バナー（再計算中・再ルート中など）が残らないよう停止時に非表示化
     const banner = document.getElementById('navBanner');
     if (banner) banner.style.display = 'none';
+    if (typeof _weatherRouteClear === 'function') _weatherRouteClear();
     if (typeof voiceNav !== 'undefined') voiceNav.clear();
 
     // 停止直後に現在地のハザード情報・標高を再取得して表示

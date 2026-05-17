@@ -3,6 +3,7 @@
 """
 import logging
 from fastapi import APIRouter, Query, HTTPException
+from pydantic import BaseModel
 
 from services.weather_service import get_current_weather
 from services.jma_rain_tile_service import get_rain_tile_latest, get_rain_tile_times
@@ -11,6 +12,12 @@ from app.services.weather_alert_service import (
     get_precipitation_summary,
 )
 from app.services.weather_risk_context_service import get_risk_context
+from app.services.weather_route_risk_service import get_route_risk
+
+
+class _RouteRiskRequest(BaseModel):
+    coordinates: list[list[float]]
+    current_segment_index: int = 0
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +186,32 @@ async def get_weather_risk_context(
             "hazards":    {"lowland": None, "flood": None, "inland_flood": None, "landslide": None,
                            "tsunami": None, "storm_surge": None, "data_available": False},
             "combined":   [],
+            "updated_at": None,
+        }
+
+
+@router.post("/api/weather/risk/route")
+async def get_weather_risk_route(body: _RouteRiskRequest):
+    """
+    ルート前方の気象リスクを返す（Phase2-D）。
+
+    ルート座標列をサンプリングし、降水強度 × ハザードゾーンで複合リスクを評価。
+    coordinates: [[lon, lat], ...] (GeoJSON 形式)
+    current_segment_index: 現在位置に最も近いルート座標インデックス
+
+    risk_level: none | advisory | warning | emergency | unknown
+    summary: {headline, message} — ナビバナー文言
+    segments: [{lat, lon, risk_level, combined}] — サンプル点ごとの結果
+    """
+    try:
+        return get_route_risk(body.coordinates, body.current_segment_index)
+    except Exception as exc:
+        logger.exception("weather risk route endpoint error: %s", exc)
+        return {
+            "status":     "unavailable",
+            "risk_level": "unknown",
+            "segments":   [],
+            "summary":    {"headline": None, "message": None},
             "updated_at": None,
         }
 
