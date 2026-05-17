@@ -88,6 +88,9 @@ data_runtime/manifests/*.json
 data_runtime/manifests/*.log
 data_runtime/system/config_history.json
 data_runtime/system/config_overrides.json
+data_runtime/simulation/*.json
+data_runtime/simulation/*.md
+data_runtime/simulation/screenshots/*.png
 
 # ---- frontend/layers: deploy_to_runtime.sh で同期される GeoJSON (deploy artifact) ----
 frontend/layers/*.geojson

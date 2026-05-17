@@ -1,0 +1,397 @@
+/* simulation.css — Simulation / Inspection Mode v1 */
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; color: #1e293b; background: #f1f5f9; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.sim-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    background: #0f172a;
+    color: #e2e8f0;
+    gap: 16px;
+}
+.sim-header h1 { margin: 0; font-size: 18px; font-weight: 700; }
+.sim-header-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.sim-header-links { display: flex; gap: 16px; white-space: nowrap; }
+.sim-header-links a { color: #94a3b8; text-decoration: none; font-size: 13px; }
+.sim-header-links a:hover { color: #e2e8f0; }
+
+/* ── Body ───────────────────────────────────────────────────────────────── */
+.sim-body { display: flex; flex-direction: column; height: calc(100vh - 56px); overflow: hidden; }
+
+/* ── Scenario Bar ───────────────────────────────────────────────────────── */
+.sim-scenario-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+    flex-wrap: wrap;
+}
+.sim-scenario-bar-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.sim-scenario-buttons { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+.sim-scenario-loading { font-size: 12px; color: #94a3b8; }
+.sim-scenario-btn {
+    padding: 4px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.1s;
+}
+.sim-scenario-btn:hover { background: #e2e8f0; }
+.sim-scenario-btn.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+.sim-auto-run-btn {
+    padding: 5px 14px;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    background: #334155;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.sim-auto-run-btn:hover { background: #1e293b; }
+.sim-auto-run-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ── Main layout ────────────────────────────────────────────────────────── */
+.sim-main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ── Params panel ───────────────────────────────────────────────────────── */
+.sim-params {
+    width: 280px;
+    min-width: 240px;
+    background: #fff;
+    border-right: 1px solid #e2e8f0;
+    overflow-y: auto;
+    padding: 16px;
+    flex-shrink: 0;
+}
+.sim-panel-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #475569;
+    margin: 0 0 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.sim-param-group { margin-bottom: 14px; }
+.sim-param-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 5px;
+}
+.sim-param-row { display: flex; gap: 6px; }
+.sim-params input[type="number"],
+.sim-params select {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #1e293b;
+    background: #f8fafc;
+}
+.sim-param-row input[type="number"] { width: 50%; }
+.sim-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 0;
+    font-size: 12px;
+    cursor: pointer;
+}
+.sim-toggle-row input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
+.sim-run-btn {
+    width: 100%;
+    padding: 10px;
+    background: #1d4ed8;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 8px;
+}
+.sim-run-btn:hover { background: #1e40af; }
+.sim-run-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ── Results panel ──────────────────────────────────────────────────────── */
+.sim-results {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    background: #f8fafc;
+}
+.sim-results-empty { text-align: center; margin-top: 80px; color: #94a3b8; }
+.sim-loading { text-align: center; margin-top: 60px; color: #64748b; font-size: 13px; }
+.sim-error { text-align: center; margin-top: 60px; color: #ef4444; font-size: 13px; }
+.sim-unavailable { text-align: center; margin-top: 60px; color: #64748b; font-size: 13px; }
+
+/* ── Summary Banner ─────────────────────────────────────────────────────── */
+.sim-summary-banner {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+.sim-summary-headline { font-size: 14px; font-weight: 700; }
+.sim-summary-message  { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+
+/* ── Result Grid ────────────────────────────────────────────────────────── */
+.sim-result-grid {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+.sim-route-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+    min-width: 280px;
+}
+
+/* ── Route Card ─────────────────────────────────────────────────────────── */
+.sim-route-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+.sim-route-card--rec {
+    border-left: 4px solid #16a34a;
+}
+.sim-route-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+.sim-route-label {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e293b;
+}
+.sim-rec-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    background: #16a34a;
+    color: #fff;
+    padding: 1px 5px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+.sim-shortest-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    background: #475569;
+    color: #fff;
+    padding: 1px 5px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+.sim-route-score {
+    font-size: 12px;
+    color: #475569;
+    margin-left: auto;
+}
+.sim-route-score strong { font-size: 14px; color: #1e293b; }
+.sim-route-risk {
+    font-size: 13px;
+    font-weight: 700;
+}
+.sim-route-meta {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 5px;
+}
+.sim-route-summary {
+    font-size: 12px;
+    margin-bottom: 6px;
+    line-height: 1.4;
+    font-weight: 500;
+}
+.sim-route-reason {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 8px;
+    line-height: 1.4;
+    font-style: italic;
+}
+
+/* ── Penalty Breakdown ──────────────────────────────────────────────────── */
+.sim-penalty-breakdown {
+    border-top: 1px solid #f1f5f9;
+    padding-top: 8px;
+    margin-top: 6px;
+}
+.sim-penalty-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 5px;
+}
+.sim-penalty-item {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 2px 0;
+    font-size: 12px;
+}
+.sim-penalty-pts {
+    font-weight: 700;
+    color: #c62828;
+    min-width: 32px;
+    text-align: right;
+}
+.sim-penalty-reason { color: #374151; }
+.sim-penalty-note {
+    color: #64748b;
+    font-size: 11px;
+    font-style: italic;
+}
+.sim-penalty-total {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 5px;
+    margin-top: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+/* ── Layer Stack ────────────────────────────────────────────────────────── */
+.sim-layer-stack {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    min-width: 180px;
+    max-width: 240px;
+}
+.sim-layer-stack-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+}
+.sim-layer-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 0;
+    font-size: 12px;
+}
+.sim-layer-icon {
+    font-size: 13px;
+    font-weight: 700;
+    width: 16px;
+    text-align: center;
+}
+.sim-layer-on      { color: #16a34a; }
+.sim-layer-off     { color: #cbd5e1; }
+.sim-layer-unknown { color: #64748b; }
+.sim-layer-label   { color: #374151; }
+
+/* ── Auto-Run Modal ─────────────────────────────────────────────────────── */
+.sim-modal {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 9000;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+.sim-modal-inner {
+    background: #fff;
+    border-radius: 10px;
+    width: 100%;
+    max-width: 720px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.sim-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.sim-modal-header h2 { margin: 0; font-size: 16px; }
+.sim-modal-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #64748b;
+    padding: 0 4px;
+}
+.sim-modal-body { overflow-y: auto; padding: 16px 20px; }
+
+/* Auto-run result */
+.sim-autorun-summary {
+    padding: 10px 16px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 14px;
+}
+.sim-autorun-pass { background: #dcfce7; color: #16a34a; }
+.sim-autorun-fail { background: #fee2e2; color: #b91c1c; }
+.sim-autorun-report { font-size: 12px; color: #64748b; margin-bottom: 12px; }
+.sim-autorun-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.sim-autorun-table th {
+    text-align: left;
+    padding: 5px 8px;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 700;
+    color: #475569;
+}
+.sim-autorun-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #374151;
+}
+.sim-autorun-row--fail td { background: #fff5f5; }
