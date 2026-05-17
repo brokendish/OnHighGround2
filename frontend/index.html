@@ -3453,6 +3453,109 @@
             font-weight: 400;
             white-space: nowrap;
         }
+        /* ── 気象警報バナー（weather-alert-ui.js） ───────────────────────── */
+        .weather-alert-banner {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1190;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.4;
+            pointer-events: auto;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+        }
+        #tsunami-warning-banner ~ .weather-alert-banner {
+            top: 0;  /* tsunami banner が display:none の場合の基本位置 */
+        }
+        .wa-banner--emergency {
+            background: #b71c1c;
+            color: #fff;
+        }
+        .wa-banner--warning {
+            background: #c62828;
+            color: #fff;
+        }
+        .wa-banner--advisory {
+            background: #e65100;
+            color: #fff;
+            font-weight: 500;
+        }
+        .wa-banner-text { flex: 1; }
+        .wa-banner-close {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0 4px;
+            opacity: 0.7;
+            line-height: 1;
+        }
+        .wa-banner-close:hover { opacity: 1; }
+        /* ── 気象カード（weather-card.js） ──────────────────────────────── */
+        .wc-status-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+        .wc-badge--emergency { background: #b71c1c; color: #fff; }
+        .wc-badge--warning   { background: #c62828; color: #fff; }
+        .wc-badge--advisory  { background: #e65100; color: #fff; }
+        .wc-badge--unknown   { background: #78909c; color: #fff; }
+        .wc-badge--none      { display: none !important; }
+        .wc-header--emergency .lip-card-hdr-title,
+        .wc-header--warning   .lip-card-hdr-title { color: #c62828; }
+        .wc-header--advisory  .lip-card-hdr-title { color: #e65100; }
+        .wc-area-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 11px;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+        .wc-updated-at { font-size: 10px; color: #94a3b8; }
+        .wc-alert-list { margin-bottom: 8px; }
+        .wc-alert-none { font-size: 12px; color: #64748b; padding: 4px 0; }
+        .wc-alert-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 3px 0;
+            font-size: 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .wc-alert-row:last-child { border-bottom: none; }
+        .wc-alert--emergency .wc-alert-kind { color: #b71c1c; font-weight: 700; }
+        .wc-alert--warning   .wc-alert-kind { color: #c62828; font-weight: 600; }
+        .wc-alert--advisory  .wc-alert-kind { color: #e65100; }
+        .wc-alert--high-priority .wc-alert-kind { font-weight: 700; }
+        .wc-alert-status { font-size: 10px; color: #94a3b8; }
+        .wc-precip-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #64748b;
+            padding-top: 4px;
+            border-top: 1px solid #f1f5f9;
+        }
+        .wc-precip-label { color: #94a3b8; white-space: nowrap; }
+        .wc-precip-summary { flex: 1; }
+        .wc-message {
+            font-size: 11px;
+            color: #94a3b8;
+            padding-top: 4px;
+        }
     </style>
 </head>
 <body>
@@ -4069,18 +4172,29 @@
                                 <div class="lip-section-title">🏃 周辺の安全情報</div>
                                 <div class="lip-row"><span class="lip-row-label">最寄り避難場所</span><span class="lip-row-value" id="lip-nearest-shelter">--</span></div>
                             </div>
-                            <!-- 気象（将来予報） -->
-                            <div class="lip-card-section lip-accordion lip-accordion-collapsed">
-                                <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
-                                    <span class="lip-card-hdr-icon"></span>
-                                    <span class="lip-card-hdr-title">☁ 気象（将来予報）</span>
+                            <!-- 気象カード（Phase1: 警報・注意報 + 降水予測） -->
+                            <div class="lip-card-section lip-accordion lip-accordion-collapsed" id="lip-weather-card-section">
+                                <div class="lip-accordion-header" id="lip-weather-card-header" onclick="_lipAccordionToggle(this)">
+                                    <span class="lip-card-hdr-icon">☁</span>
+                                    <span class="lip-card-hdr-title">気象</span>
                                     <div style="display:flex;align-items:center;gap:6px;">
-                                        <span class="lip-badge-pending">準備中</span>
+                                        <span class="wc-status-badge wc-badge--none" id="lip-wc-status-badge" style="display:none;"></span>
                                         <span class="lip-accordion-arrow">▾</span>
                                     </div>
                                 </div>
                                 <div class="lip-accordion-body">
-                                    <div class="lip-row"><span class="lip-row-label" style="color:#94a3b8;">実装予定</span><span class="lip-row-value"></span></div>
+                                    <div class="wc-area-row">
+                                        <span class="wc-area-name" id="lip-wc-area-name"></span>
+                                        <span class="wc-updated-at" id="lip-wc-updated-at"></span>
+                                    </div>
+                                    <div id="lip-wc-alert-list" class="wc-alert-list">
+                                        <div class="wc-alert-none">現在地取得後に表示します</div>
+                                    </div>
+                                    <div class="wc-precip-row">
+                                        <span class="wc-precip-label">降水</span>
+                                        <span class="wc-precip-summary" id="lip-wc-precip-summary">レーダー参照</span>
+                                    </div>
+                                    <div class="wc-message" id="lip-wc-message" style="display:none;"></div>
                                 </div>
                             </div>
                             <!-- 地震（周辺観測） -->
@@ -4295,6 +4409,8 @@
             <div id="map-toast"></div>
             <!-- 津波警報バナー（地図最上部・動的アラート） -->
             <div id="tsunami-warning-banner" class="tsunami-warning-banner"></div>
+            <!-- 気象警報バナー（津波バナーの下） -->
+            <div id="weather-alert-banner" class="weather-alert-banner" style="display:none;"></div>
             <!-- ナビ警告バナー -->
             <div id="navBanner" class="nav-banner" style="display:none;"></div>
             <!-- 音声ナビ テキスト案内バー（音声と同内容を文字表示） -->
@@ -4420,6 +4536,10 @@
     <script src="js/tide-markers.js"></script>
     <script src="js/location-info-panel.js"></script>
     <!-- weather.js — AMeDAS精度問題により一時無効化 -->
+    <!-- 気象カード Phase1 -->
+    <script src="js/weather-service.js"></script>
+    <script src="js/weather-card.js"></script>
+    <script src="js/weather-alert-ui.js"></script>
     <!-- 行政界レイヤー管理 -->
     <script src="js/boundary-layers.js"></script>
     <!-- 雨量レーダーレイヤー（Phase2B） -->
@@ -4436,6 +4556,8 @@
     <script src="js/tsunami-warning.js"></script>
     <script>
         if (typeof _tsunamiWarningInit === 'function') _tsunamiWarningInit();
+        if (typeof _weatherAlertUiInit === 'function') _weatherAlertUiInit();
+        if (typeof _weatherCardSetNoLocation === 'function') _weatherCardSetNoLocation();
     </script>
     <script>
         (function() {

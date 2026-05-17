@@ -99,7 +99,7 @@ test.describe('Info tab card UI', () => {
     await expect(page.locator('#lip-env-dark-start')).toHaveText('18:39');
     await expect(page.locator('#lip-env-dark-end')).toHaveText('03:35');
 
-    const weather = page.locator('.lip-card-hdr-title').filter({ hasText: '気象（将来予報）' });
+    const weather = page.locator('.lip-card-hdr-title').filter({ hasText: '気象' });
     await expect(weather).toBeVisible();
     const weatherCard = weather.locator('xpath=ancestor::*[contains(@class, "lip-card-section")]');
     await expect(weatherCard).toHaveClass(/lip-accordion-collapsed/);

@@ -92,7 +92,7 @@ class ReverseGeocodeService:
                 cache_hit=False,
                 provider=provider,
             )
-            return self._build_response(None, None, "disabled", rounded_lat, rounded_lon)
+            return self._build_response(None, None, None, "disabled", rounded_lat, rounded_lon)
 
         with self._lock:
             cache = self._load_cache()
@@ -108,6 +108,7 @@ class ReverseGeocodeService:
                 return self._build_response(
                     entry.get("address"),
                     entry.get("postcode"),
+                    entry.get("city"),
                     "cache",
                     rounded_lat,
                     rounded_lon,
@@ -118,6 +119,7 @@ class ReverseGeocodeService:
                 cache[key] = {
                     "address": result.get("address"),
                     "postcode": result.get("postcode"),
+                    "city": result.get("city"),
                     "provider": provider,
                     "fetched_at": _utc_now_iso(),
                     "raw": result.get("raw"),
@@ -133,6 +135,7 @@ class ReverseGeocodeService:
                 return self._build_response(
                     result.get("address"),
                     result.get("postcode"),
+                    result.get("city"),
                     "provider",
                     rounded_lat,
                     rounded_lon,
@@ -162,6 +165,7 @@ class ReverseGeocodeService:
                     return self._build_response(
                         entry.get("address"),
                         entry.get("postcode"),
+                        entry.get("city"),
                         "cache",
                         rounded_lat,
                         rounded_lon,
@@ -174,7 +178,7 @@ class ReverseGeocodeService:
                     provider=provider,
                     error_detail=error_detail,
                 )
-                return self._build_response(None, None, "unknown", rounded_lat, rounded_lon)
+                return self._build_response(None, None, None, "unknown", rounded_lat, rounded_lon)
 
     def _fetch_from_provider(self, lat: float, lon: float, provider: str) -> Dict[str, Any]:
         if provider != "nominatim":
@@ -201,12 +205,25 @@ class ReverseGeocodeService:
 
         address = data.get("display_name")
         postcode = None
+        city = None
         if isinstance(data.get("address"), dict):
-            postcode = data["address"].get("postcode")
+            addr = data["address"]
+            postcode = addr.get("postcode")
+            # 市区町村レベルの名称を優先順位で取得（警報エリア照合用）
+            city = (
+                addr.get("ward") or
+                addr.get("suburb") or
+                addr.get("city") or
+                addr.get("town") or
+                addr.get("village") or
+                addr.get("hamlet") or
+                None
+            )
 
         return {
             "address": address,
             "postcode": postcode,
+            "city": city,
             "raw": data,
         }
 
@@ -279,10 +296,11 @@ class ReverseGeocodeService:
         return f"{lat:.{precision}f},{lon:.{precision}f}"
 
     @staticmethod
-    def _build_response(address: Optional[str], postcode: Optional[str], source: str, lat: float, lon: float) -> Dict[str, Any]:
+    def _build_response(address: Optional[str], postcode: Optional[str], city: Optional[str], source: str, lat: float, lon: float) -> Dict[str, Any]:
         return {
             "address": address,
             "postcode": postcode,
+            "city": city,
             "source": source,
             "lat": lat,
             "lon": lon,

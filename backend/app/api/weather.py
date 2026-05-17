@@ -1,11 +1,15 @@
 """
-気象API — 現在地の最寄りアメダス観測点データ / 雨量レーダータイルを返す。
+気象API — アメダス観測点データ / 雨量レーダータイル / 警報・注意報 / 降水予測
 """
 import logging
 from fastapi import APIRouter, Query, HTTPException
 
 from services.weather_service import get_current_weather
 from services.jma_rain_tile_service import get_rain_tile_latest, get_rain_tile_times
+from app.services.weather_alert_service import (
+    get_alerts_for_location,
+    get_precipitation_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +92,61 @@ async def get_rain_tile_latest_endpoint():
     except Exception as exc:
         logger.exception("rain tile endpoint error: %s", exc)
         raise HTTPException(status_code=500, detail={"error": "internal_error"})
+
+
+@router.get("/api/weather/alerts/current")
+async def get_weather_alerts_current(
+    lat: float = Query(..., description="緯度", ge=-90, le=90),
+    lon: float = Query(..., description="経度", ge=-180, le=180),
+):
+    """
+    現在地の気象警報・注意報を返す。
+
+    現在地の lat/lon から都道府県を推定し、JMA 警報・注意報 API から
+    正規化済みのアラート一覧を返す。120秒 TTL キャッシュ付き。
+
+    severity: emergency > warning > advisory > unknown > none
+    status:   ok | stale | unavailable
+    """
+    try:
+        return get_alerts_for_location(lat, lon)
+    except Exception as exc:
+        logger.exception("weather alerts endpoint error: %s", exc)
+        return {
+            "status": "unavailable",
+            "severity": "none",
+            "location": {"lat": lat, "lon": lon, "area_name": None, "pref_code": None},
+            "alerts": [],
+            "updated_at": None,
+            "message": "気象情報を取得できません",
+        }
+
+
+@router.get("/api/weather/precipitation/summary")
+async def get_precipitation_summary_endpoint(
+    lat: float = Query(..., description="緯度", ge=-90, le=90),
+    lon: float = Query(..., description="経度", ge=-180, le=180),
+):
+    """
+    現在地の降水予測サマリーを返す（Phase1: nowcast タイルメタデータベース）。
+
+    intensity: severe > strong > moderate > weak > none > unknown
+    Phase1 では intensity=unknown（ピクセル解析未実装）。
+    将来の本格解析実装後も同じ API 形式を維持する。
+    """
+    try:
+        return get_precipitation_summary(lat, lon)
+    except Exception as exc:
+        logger.exception("precipitation summary endpoint error: %s", exc)
+        return {
+            "status": "unavailable",
+            "severity": "none",
+            "summary": "降水情報を取得できません",
+            "current": {"label": "不明", "intensity": "unknown"},
+            "forecast": [],
+            "updated_at": None,
+            "source": "jma_nowcast",
+        }
 
 
 @router.get("/api/weather/rain/tile/times")
