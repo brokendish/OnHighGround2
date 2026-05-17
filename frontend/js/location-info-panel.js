@@ -840,20 +840,32 @@ function _astroMoonSvg(phase) {
     const base  = `width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"` +
                   ` style="display:inline-block;vertical-align:middle;margin-right:3px"`;
 
-    const p = ((phase % 28) + 28) % 28 / 28; // 0..1 (0/1=新月, 0.5=満月)
+    // 段階式月相（_tlDrawMoonPhaseIcon と同じ判定）
+    const p = ((phase % 28) + 28) % 28;
+    let lit, waxing;
+    if      (p <  1.0 || p >= 27.5) { lit = 0.00; waxing = true;  }
+    else if (p <  3.5)               { lit = 0.08; waxing = true;  }
+    else if (p <  6.5)               { lit = 0.28; waxing = true;  }
+    else if (p <  8.5)               { lit = 0.50; waxing = true;  }
+    else if (p < 12.5)               { lit = 0.72; waxing = true;  }
+    else if (p < 16.5)               { lit = 1.00; waxing = true;  }
+    else if (p < 20.5)               { lit = 0.72; waxing = false; }
+    else if (p < 23.5)               { lit = 0.50; waxing = false; }
+    else                             { lit = 0.08; waxing = false; }
 
-    if (p < 0.03 || p > 0.97) {
+    if (lit === 0) {
         return `<svg ${base}><circle cx="${cx}" cy="${cy}" r="${r}" fill="${dark}" stroke="#6b7280" stroke-width="0.5"/></svg>`;
     }
-    if (p > 0.47 && p < 0.53) {
+    if (lit === 1) {
         return `<svg ${base}><circle cx="${cx}" cy="${cy}" r="${r}" fill="${light}" stroke="#9ca3af" stroke-width="0.5"/></svg>`;
     }
 
-    // 朔望線の楕円 x 半径: 新月→r、上弦→0、満月→-r、下弦→0、新月→r
-    const termRx   = r * Math.cos(p * Math.PI * 2);
-    const termSwp  = termRx > 0 ? 0 : 1;   // 凹（三日月）= 0、凸（十三夜）= 1
-    const absRx    = Math.max(Math.abs(termRx), 0.5);
-    const litSwp   = p < 0.5 ? 1 : 0;      // 上弦側(右)=1、下弦側(左)=0
+    // 朔望線の楕円 x 半径を段階値から計算
+    // waxing=右側点灯(litSwp=1), waning=左側点灯(litSwp=0)
+    const termRx  = r * (1 - 2 * lit);          // 正=凹(三日月), 負=凸(十三夜)
+    const termSwp = (termRx > 0) === waxing ? 0 : 1;
+    const absRx   = Math.max(Math.abs(termRx), 0.5);
+    const litSwp  = waxing ? 1 : 0;
 
     const path = `M ${cx} ${cy - r} A ${r} ${r} 0 0 ${litSwp} ${cx} ${cy + r} A ${absRx} ${r} 0 0 ${termSwp} ${cx} ${cy - r}`;
 
@@ -1542,9 +1554,20 @@ function _sunMoonTimelineDraw(canvas, todayData, tomorrowData, tMin, tMax, prevD
 }
 
 function _tlDrawMoonPhaseIcon(ctx, cx, cy, r, phase, glowPulse) {
-    const theta  = (phase / 28) * 2 * Math.PI;   // Astral は 0-28 スケール
-    const lit    = 0.5 - 0.5 * Math.cos(theta);
-    const waxing = phase < 14;
+    // 段階式月相 — 連続計算は小サイズで sub-pixel になるため段階値を使う
+    // phase: Astral 0-28 スケール (0/28=新月, 14=満月)
+    const p = ((phase % 28) + 28) % 28;
+    let lit, waxing;
+    if      (p <  1.0 || p >= 27.5) { lit = 0.00; waxing = true;  } // 新月
+    else if (p <  3.5)               { lit = 0.08; waxing = true;  } // 細い右三日月
+    else if (p <  6.5)               { lit = 0.28; waxing = true;  } // 右三日月
+    else if (p <  8.5)               { lit = 0.50; waxing = true;  } // 上弦
+    else if (p < 12.5)               { lit = 0.72; waxing = true;  } // 満ちていく月
+    else if (p < 16.5)               { lit = 1.00; waxing = true;  } // 満月
+    else if (p < 20.5)               { lit = 0.72; waxing = false; } // 欠けていく月
+    else if (p < 23.5)               { lit = 0.50; waxing = false; } // 下弦
+    else                             { lit = 0.08; waxing = false; } // 細い左三日月
+
     const kappa  = 0.5523;
     const sign   = waxing ? 1 : -1;
     const ex     = sign * (1 - 2 * lit) * r;
