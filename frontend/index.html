@@ -2409,6 +2409,64 @@
         .shelter-cluster--sm { background: #5c6bc0; width: 30px; height: 30px; font-size: 11px; }
         .shelter-cluster--md { background: #3949ab; width: 36px; height: 36px; font-size: 12px; }
         .shelter-cluster--lg { background: #283593; width: 44px; height: 44px; font-size: 13px; }
+
+        /* ── 近傍ルーティング候補: 避難所マーカー ── */
+        .shelter-icon {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: visible;
+            cursor: pointer;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            filter: drop-shadow(0 1px 3px rgba(0,0,0,0.28));
+        }
+        .shelter-icon svg { width: 100%; height: 100%; display: block; }
+        .shelter-icon--eee { border-radius: 50%; }
+        .shelter-icon--es  { border-radius: 6px; }
+
+        /* 近傍（現在地から3km・上位5件）: 強調 */
+        .shelter-icon--near {
+            opacity: 1 !important;
+            transform: scale(1.18);
+            filter: drop-shadow(0 2px 6px rgba(0,0,0,0.38));
+        }
+        /* 遠方: 控えめ表示 */
+        .shelter-icon--far { opacity: 0.48; }
+
+        /* 選択中: 白縁リング + パルス */
+        .shelter-icon--selected::after {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: inherit;
+            border: 2.5px solid white;
+            pointer-events: none;
+            animation: shelter-ring-pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes shelter-ring-pulse {
+            0%, 100% { box-shadow: 0 0 0 2px rgba(67,160,71,0.55); }
+            50%       { box-shadow: 0 0 0 7px rgba(67,160,71,0.14); }
+        }
+
+        /* 近傍ルーティング候補クラスター */
+        .shelter-cluster-icon {
+            width: 36px;
+            height: 36px;
+            background: #43a047;
+            border: 2.5px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        .shelter-cluster-count {
+            color: white;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1;
+        }
         .shelter-browse-status {
             font-size: 10px;
             color: #999;
