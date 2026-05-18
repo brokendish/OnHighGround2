@@ -93,14 +93,19 @@ function switchMbcTab(tab) {
     if (btnLegend)     btnLegend.classList.remove('mbc-tab-btn--active');
     if (btnEarthquake) btnEarthquake.classList.remove('mbc-tab-btn--active');
 
-    // 地震タブ以外では高さ拡張クラスを解除
+    // 地震タブ以外では地震拡張クラスを解除、情報タブ以外では情報拡張クラスを解除
     controls.classList.remove('mbc-earthquake-active');
     controls.classList.remove('mbc-earthquake-expanded');
+    controls.classList.remove('mbc-info-active');
+    controls.classList.remove('mbc-info-expanded');
 
     if (tab === 'info') {
         panelInfo.style.display = 'block';
         btnInfo.classList.add('mbc-tab-btn--active');
         controls.classList.remove('mbc-collapsed');
+        controls.classList.add('mbc-info-active');
+        const expandHint = document.getElementById('mbc-expand-hint');
+        if (expandHint) expandHint.textContent = '一覧を広げる';
     } else if (tab === 'layer') {
         if (panelLayer) panelLayer.style.display = 'block';
         if (btnLayer)   btnLayer.classList.add('mbc-tab-btn--active');

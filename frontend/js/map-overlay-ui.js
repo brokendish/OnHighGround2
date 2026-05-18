@@ -169,6 +169,10 @@ function bindBottomPanelToggle() {
         return controls.classList.contains('mbc-earthquake-active');
     }
 
+    function _isInfoMode() {
+        return controls.classList.contains('mbc-info-active');
+    }
+
     // 地震モードの3段階: 'collapsed' | 'normal' | 'expanded'
     function _getEqState() {
         if (controls.classList.contains('mbc-collapsed')) return 'collapsed';
@@ -184,17 +188,42 @@ function bindBottomPanelToggle() {
         _updateExpandHint();
     }
 
+    // 情報タブの3段階: 'collapsed' | 'normal' | 'expanded'
+    function _getInfoState() {
+        if (controls.classList.contains('mbc-collapsed')) return 'collapsed';
+        if (controls.classList.contains('mbc-info-expanded')) return 'expanded';
+        return 'normal';
+    }
+
+    function _setInfoState(state) {
+        controls.classList.remove('mbc-collapsed');
+        controls.classList.remove('mbc-info-expanded');
+        if (state === 'collapsed') controls.classList.add('mbc-collapsed');
+        else if (state === 'expanded') controls.classList.add('mbc-info-expanded');
+        _updateExpandHint();
+        window.dispatchEvent(new CustomEvent('mbc-info-resize'));
+    }
+
     function _updateExpandHint() {
         const hint = document.getElementById('mbc-expand-hint');
         if (!hint) return;
         const labels = { collapsed: '一覧を開く', normal: '一覧を広げる', expanded: '一覧を縮める' };
-        hint.textContent = labels[_getEqState()] || '';
+        if (_isInfoMode()) {
+            hint.textContent = labels[_getInfoState()] || '';
+        } else {
+            hint.textContent = labels[_getEqState()] || '';
+        }
     }
 
     // クリック（デスクトップ / 短タップ）
-    // 地震モード: collapsed → normal → expanded → collapsed のサイクル
+    // 地震・情報モード: collapsed → normal → expanded → collapsed のサイクル
     handle.addEventListener('click', () => {
-        if (_isEarthquakeMode()) {
+        if (_isInfoMode()) {
+            const state = _getInfoState();
+            if (state === 'collapsed') _setInfoState('normal');
+            else if (state === 'normal')   _setInfoState('expanded');
+            else                           _setInfoState('collapsed');
+        } else if (_isEarthquakeMode()) {
             const state = _getEqState();
             if (state === 'collapsed') _setEqState('normal');
             else if (state === 'normal')   _setEqState('expanded');
@@ -220,14 +249,21 @@ function bindBottomPanelToggle() {
         if (touchStartY === null) return;
         const dy = touchStartY - e.changedTouches[0].clientY;
         if (Math.abs(dy) >= SWIPE_THRESHOLD) {
-            if (_isEarthquakeMode()) {
+            if (_isInfoMode()) {
+                const state = _getInfoState();
+                if (dy > 0) {
+                    if (state === 'collapsed') _setInfoState('normal');
+                    else if (state === 'normal') _setInfoState('expanded');
+                } else {
+                    if (state === 'expanded') _setInfoState('normal');
+                    else if (state === 'normal') _setInfoState('collapsed');
+                }
+            } else if (_isEarthquakeMode()) {
                 const state = _getEqState();
                 if (dy > 0) {
-                    // 上スワイプ → より大きく
                     if (state === 'collapsed') _setEqState('normal');
                     else if (state === 'normal') _setEqState('expanded');
                 } else {
-                    // 下スワイプ → より小さく
                     if (state === 'expanded') _setEqState('normal');
                     else if (state === 'normal') _setEqState('collapsed');
                 }

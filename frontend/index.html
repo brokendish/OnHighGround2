@@ -1760,7 +1760,8 @@
             color: rgba(0, 0, 0, 0.4);
             margin-top: 1px;
         }
-        #map-bottom-controls.mbc-earthquake-active .mbc-expand-hint {
+        #map-bottom-controls.mbc-earthquake-active .mbc-expand-hint,
+        #map-bottom-controls.mbc-info-active .mbc-expand-hint {
             display: block;
         }
         /* タブパネル本体 */
@@ -4161,7 +4162,6 @@
                             <div class="lip-level-bar">
                                 <span class="lip-level-label" id="lip-level-label">標準</span>
                                 <div style="display:flex;gap:5px;align-items:center;">
-                                    <button class="lip-level-btn" id="lip-maximize-btn" onclick="_lipToggleMaximize()" title="情報タブを最大化">⤢</button>
                                     <button class="lip-level-btn" id="lip-level-btn" onclick="_lipCycleLevel()">詳細▾</button>
                                 </div>
                             </div>

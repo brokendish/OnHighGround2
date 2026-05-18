@@ -1926,13 +1926,8 @@ function _lipCycleLevel() {
     _lipApplyLevel();
 }
 
-function _lipToggleMaximize() {
-    const ctrl = document.getElementById('map-bottom-controls');
-    if (!ctrl) return;
-    const expanded = ctrl.classList.toggle('mbc-info-expanded');
-    const btn = document.getElementById('lip-maximize-btn');
-    if (btn) btn.textContent = expanded ? '⤡' : '⤢';
-    // パネル高さ変化後にグラフ再描画
+// パネル高さ変化後にグラフ再描画（map-overlay-ui.js の mbc-info-resize イベントで呼ばれる）
+window.addEventListener('mbc-info-resize', () => {
     setTimeout(() => {
         const stationId = _selectedTideStation
             ? _selectedTideStation.id
@@ -1940,7 +1935,7 @@ function _lipToggleMaximize() {
                 ? _tideCache.data.station.id : null);
         if (stationId) _tideGraphUpdate(stationId);
     }, 280);
-}
+});
 
 function _lipApplyLevel() {
     const el = document.getElementById('loc-info-nonnav');
