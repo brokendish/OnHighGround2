@@ -519,8 +519,8 @@ function _appendRouteRiskBlock(panel, route) {
         block.appendChild(list);
     }
 
-    // 危険・注意区間がある場合のみ凡例を表示（安全ルートでは地図上に色線が出ないため省略）
-    if (level !== 'safe') {
+    // ハザードゾーンを通過する場合は凡例を表示（risk_level が safe でも色線が描かれるため）
+    if (notes.length > 0) {
         const legend = document.createElement('div');
         legend.className = 'route-risk-outline-legend';
         legend.innerHTML =
