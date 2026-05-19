@@ -297,24 +297,52 @@ function _lipRenderRouteSelector(transportMode) {
 
     section.style.display = '';
     container.innerHTML = '';
+    const selectedRoute = routeList[_lipRouteSelection.selectedRouteIndex] || null;
+    const selectedModel = typeof createRoutePresentationModel === 'function'
+        ? createRoutePresentationModel(selectedRoute, {
+            index: _lipRouteSelection.selectedRouteIndex ?? 0,
+            selectedRouteIndex: _lipRouteSelection.selectedRouteIndex
+        })
+        : null;
+    const selectedRouteId = selectedModel?.route_id ?? _lipRouteSelection.selectedRouteIndex;
     routeList.forEach((candidateRoute, routeIndex) => {
+        const model = typeof createRoutePresentationModel === 'function'
+            ? createRoutePresentationModel(candidateRoute, { index: routeIndex, selectedRouteId })
+            : null;
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'route-option-button';
-        if (routeIndex === _lipRouteSelection.selectedRouteIndex) {
+        const isSelected = model?.selected ?? (routeIndex === _lipRouteSelection.selectedRouteIndex);
+        if (isSelected) {
             button.classList.add('active');
         }
         const color = _lipRouteSelection.routeColors[routeIndex]
             || (typeof getRouteColorByIndex === 'function' ? getRouteColorByIndex(routeIndex) : '#1e88e5');
-        const distance = _lipFormatDistance(_lipRouteMetric(candidateRoute, 'distance'));
-        const duration = _lipFormatDuration(_lipRouteMetric(candidateRoute, 'time'));
-        const badge = _lipResolveRouteBadge(candidateRoute, routeIndex, routeList);
+        const distance = _lipFormatDistance(model?.distance_m ?? _lipRouteMetric(candidateRoute, 'distance'));
+        const duration = _lipFormatDuration(model?.duration_s ?? _lipRouteMetric(candidateRoute, 'time'));
+        const badge = model?.badge || _lipResolveRouteBadge(candidateRoute, routeIndex, routeList);
+        const scoreText = typeof formatRouteSafetyScore === 'function'
+            ? formatRouteSafetyScore(model?.safety_score)
+            : '';
+        const riskText = typeof routeRiskLevelText === 'function'
+            ? routeRiskLevelText(model?.risk_level)
+            : (model?.risk_level || '');
+        const riskLabel = scoreText ? ` / 安全度 ${scoreText} / ${riskText}` : '';
         const modeLabel = transportMode === 'walking' ? '徒歩' : transportMode === 'driving' ? '車' : '';
+        console.log('[route-ui]', {
+            surface: 'selection',
+            route_id: model?.route_id ?? routeIndex,
+            label: model?.label || `候補${routeIndex + 1}`,
+            score: model?.safety_score ?? null,
+            risk_level: model?.risk_level || 'unknown',
+            selected: isSelected,
+            recommended: model?.recommended ?? routeIndex === 0,
+        });
         button.innerHTML = `
             <span class="route-color-chip" style="background: ${color};"></span>
-            候補${routeIndex + 1}
-            <span style="margin-left:6px;font-size:11px;color:#64748b;">${distance} / ${duration}${modeLabel ? ` / ${modeLabel}` : ''}</span>
-            <span style="margin-left:auto;font-size:11px;font-weight:700;color:${routeIndex === _lipRouteSelection.selectedRouteIndex ? '#fff' : '#1d4ed8'};">${badge}</span>
+            ${model?.label || `候補${routeIndex + 1}`}
+            <span style="margin-left:6px;font-size:11px;color:#64748b;">${distance} / ${duration}${modeLabel ? ` / ${modeLabel}` : ''}${riskLabel}</span>
+            <span style="margin-left:auto;font-size:11px;font-weight:700;color:${isSelected ? '#fff' : '#1d4ed8'};">${badge}</span>
         `;
         button.addEventListener('click', (event) => {
             event.preventDefault();

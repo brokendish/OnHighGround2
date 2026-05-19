@@ -6763,14 +6763,25 @@ function rankRouteCandidates(candidates) {
     });
 
     sorted.forEach((candidate, rankIndex) => {
+        const riskSummary = candidate.route.__riskSummary || null;
         candidate.route.__rankedRouteIndex = rankIndex;
         candidate.route.__displayLabel = _buildRankedRouteLabel(candidate, rankIndex, sorted);
+        candidate.route.route_id = candidate.route.route_id ?? rankIndex;
+        candidate.route.label = `候補${rankIndex + 1}`;
+        candidate.route.safety_score = typeof riskSummary?.safety_score === 'number'
+            ? riskSummary.safety_score
+            : null;
+        candidate.route.risk_level = riskSummary?.risk_level || 'unknown';
+        candidate.route.risk_summary = riskSummary?.risk_summary?.notes || [];
+        candidate.route.recommended = rankIndex === 0;
+        candidate.route.distance_m = candidate.distance;
+        candidate.route.duration_s = candidate.duration;
         const totalUnsafe = (candidate.crossingRisk?.unsafeMajorRoadCrossings ?? 0)
             + (candidate.crossingRisk?.unsafeSecondaryCrossings ?? 0);
         console.log(
             `[route-candidates] raw=${candidate.index} rank=${rankIndex} distance=${Math.round(candidate.distance)} ` +
             `risk_level=${candidate.route.__riskSummary?.risk_level ?? 'n/a'} ` +
-            `hazard_score=${candidate.route.__riskSummary?.safety_score != null ? Math.round(candidate.route.__riskSummary.safety_score) : 'n/a'} ` +
+            `hazard_score=${candidate.route.__riskSummary?.safety_score != null && typeof formatRouteSafetyScore === 'function' ? formatRouteSafetyScore(candidate.route.__riskSummary.safety_score) : 'n/a'} ` +
             `unsafe=${totalUnsafe} crossing_score=${Math.round(candidate.safetyScore)} label=${candidate.route.__displayLabel}`
         );
     });

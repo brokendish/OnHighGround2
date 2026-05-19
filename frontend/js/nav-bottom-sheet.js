@@ -123,14 +123,18 @@ const _navSheet = (() => {
 
     function _ringSVG(score, color) {
         const r = 18, circ = 2 * Math.PI * r;
-        const dash = (score / 100) * circ;
+        const numericScore = Number(score);
+        const dash = (Number.isFinite(numericScore) ? numericScore / 100 : 0) * circ;
+        const scoreText = typeof formatRouteSafetyScore === 'function'
+            ? formatRouteSafetyScore(score)
+            : String(score ?? '');
         return (
             `<svg width="50" height="50" viewBox="0 0 50 50">` +
             `<circle cx="25" cy="25" r="${r}" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="4"/>` +
             `<circle cx="25" cy="25" r="${r}" fill="none" stroke="${color}" stroke-width="4"` +
             ` stroke-dasharray="${dash.toFixed(1)} ${circ.toFixed(1)}" stroke-dashoffset="${(circ * 0.25).toFixed(1)}"` +
             ` stroke-linecap="round" style="transition:stroke-dasharray 1s ease"/>` +
-            `<text x="25" y="30" text-anchor="middle" fill="${C_PRIMARY}" font-size="11" font-weight="700">${score}</text>` +
+            `<text x="25" y="30" text-anchor="middle" fill="${C_PRIMARY}" font-size="11" font-weight="700">${scoreText}</text>` +
             `</svg>`
         );
     }
@@ -181,7 +185,7 @@ const _navSheet = (() => {
         const route = (typeof navActiveRoute !== 'undefined') ? navActiveRoute : null;
         const riskSummary = route?.__riskSummary;
         if (riskSummary && typeof riskSummary.safety_score === 'number') {
-            const score = Math.round(riskSummary.safety_score);
+            const score = riskSummary.safety_score;
             const level = riskSummary.risk_level || 'safe';
             const color = level === 'danger' ? '#ef4444'
                 : level === 'caution' ? '#f59e0b'

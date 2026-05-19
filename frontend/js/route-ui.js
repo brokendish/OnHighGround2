@@ -3,26 +3,19 @@
 /**
  * route-ui.js — ルート比較UI (Phase3-A)
  *
- * POST /api/navigation/route/compare からの気象×ハザード比較結果を受け取り、
- * #lip-route-weather-compare に比較カードを表示する。
+ * 評価済み route candidates を受け取り、#lip-route-weather-compare に比較カードを表示する。
  *
  * 重要:
  *   - 自動 reroute は行わない（比較提示のみ）
  *   - unknown を none に倒さない
- *   - route churn 抑制: safety_score 差 < 10 の場合は推奨変更しない
  *
  * 外部から呼ぶ:
- *   _routeUiFetchAndShow(origin, destination, selectedIdx) — 比較取得・表示
+ *   _routeUiFetchAndShow(origin, destination, selectedIdx) — 後方互換stub（独立fetch禁止）
  *   _routeUiClearComparison()                              — 比較クリア
  *   _routeUiOnRouteSelected(selectedIdx)                   — 選択変更時の再描画
  */
 
-const _RUI_COOLDOWN_MS      = 60_000;  // フェッチ間隔
-const _RUI_CHURN_THRESHOLD  = 10;      // 推奨変更のスコア差閾値
-
 let _ruiLastFetchAt       = 0;
-let _ruiLastRecommended   = null;
-let _ruiLastRecScore      = null;
 let _ruiComparison        = null;  // 最新の比較データ
 
 function _ruiSection() {
@@ -63,6 +56,7 @@ function _ruiRender(data, selectedIdx) {
         return;
     }
 
+    const selectedRouteId = data.selected_route_id;
     const routes     = data.routes;
     const recIdx     = data.recommended_route_index ?? 0;
 
@@ -88,19 +82,36 @@ function _ruiRender(data, selectedIdx) {
     routes.forEach((route, i) => {
         const row = document.createElement('div');
         row.className = 'rui-compare-row';
-        if (i === selectedIdx)   row.classList.add('rui-compare-row--selected');
-        if (i === recIdx)        row.classList.add('rui-compare-row--recommended');
+        const isSelected = selectedRouteId !== undefined && selectedRouteId !== null
+            ? route.route_id === selectedRouteId
+            : (route.selected === true || i === selectedIdx);
+        const isRecommended = route.recommended || i === recIdx;
+        if (isSelected)      row.classList.add('rui-compare-row--selected');
+        if (isRecommended)   row.classList.add('rui-compare-row--recommended');
 
         // ルートラベル（ルート選択ボタンの「候補N」と統一）
-        const badge = `候補${i + 1}`;
+        const badge = route.label || `候補${i + 1}`;
         const riskLabel = _RUI_RISK_LABEL[route.risk_level] || route.risk_level;
         const riskColor = _RUI_RISK_COLOR[route.risk_level] || '#64748b';
+        const scoreText = typeof formatRouteSafetyScore === 'function'
+            ? formatRouteSafetyScore(route.safety_score)
+            : String(route.safety_score ?? '');
+
+        console.log('[route-ui]', {
+            surface: 'comparison',
+            route_id: route.route_id,
+            label: badge,
+            score: route.safety_score,
+            risk_level: route.risk_level,
+            selected: isSelected,
+            recommended: isRecommended,
+        });
 
         const topLine = document.createElement('div');
         topLine.className = 'rui-compare-topline';
         topLine.innerHTML =
             `<span class="rui-compare-badge">${String.fromCharCode(65 + i)}: ${badge}</span>` +
-            `<span class="rui-compare-score">安全度 ${Math.round(route.safety_score)}</span>` +
+            `<span class="rui-compare-score">安全度 ${scoreText || '—'}</span>` +
             `<span class="rui-compare-risk" style="color:${riskColor};">${riskLabel}</span>`;
         row.appendChild(topLine);
 
@@ -130,64 +141,29 @@ function _ruiRender(data, selectedIdx) {
 }
 
 async function _routeUiFetchAndShow(origin, destination, selectedIdx) {
-    if (!Array.isArray(origin) || origin.length < 2) return;
-    if (!Array.isArray(destination) || destination.length < 2) return;
-
-    const now = Date.now();
-
-    // フェッチ間隔チェック（ただし origin/destination が変わった場合はリセット済み）
-    if (now - _ruiLastFetchAt < _RUI_COOLDOWN_MS) {
-        if (_ruiComparison) _ruiRender(_ruiComparison, selectedIdx);
+    console.warn('[route-ui] _routeUiFetchAndShow is disabled; use routeUiShowFromCandidates(routeCandidates, selectedIdx).');
+    if (_ruiComparison) {
+        _ruiRender(_ruiComparison, selectedIdx);
         return;
     }
-    _ruiLastFetchAt = now;
-
-    let data;
-    try {
-        const res = await fetch('/api/navigation/route/compare', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ origin, destination }),
-        });
-        if (!res.ok) return;
-        data = await res.json();
-    } catch (err) {
-        console.warn('[route-ui] comparison fetch error:', err);
-        return;
-    }
-
-    if (!data || data.status === 'unavailable') {
-        _ruiHide();
-        _ruiComparison = null;
-        return;
-    }
-
-    // Churn 抑制: 推奨が変わるがスコア差が閾値未満 → 推奨を維持
-    const newRec = data.recommended_route_index ?? 0;
-    if (_ruiLastRecommended !== null && newRec !== _ruiLastRecommended) {
-        const newScore = (data.routes[newRec] || {}).safety_score ?? 0;
-        const oldScore = _ruiLastRecScore ?? 0;
-        if (Math.abs(newScore - oldScore) < _RUI_CHURN_THRESHOLD) {
-            data.recommended_route_index = _ruiLastRecommended;
-        }
-    }
-
-    _ruiLastRecommended = data.recommended_route_index;
-    _ruiLastRecScore    = (data.routes[data.recommended_route_index] || {}).safety_score ?? null;
-    _ruiComparison      = data;
-
-    _ruiRender(data, selectedIdx);
+    _ruiHide();
 }
 
 function _routeUiOnRouteSelected(selectedIdx) {
-    if (_ruiComparison) _ruiRender(_ruiComparison, selectedIdx);
+    if (!_ruiComparison) return;
+    const selectedRoute = _ruiComparison.routes?.[selectedIdx] || null;
+    if (selectedRoute) {
+        _ruiComparison.selected_route_id = selectedRoute.route_id;
+        _ruiComparison.routes.forEach(route => {
+            route.selected = route.route_id === selectedRoute.route_id;
+        });
+    }
+    _ruiRender(_ruiComparison, selectedIdx);
 }
 
 function _routeUiClearComparison() {
     _ruiHide();
     _ruiLastFetchAt     = 0;
-    _ruiLastRecommended = null;
-    _ruiLastRecScore    = null;
     _ruiComparison      = null;
 }
 
@@ -206,35 +182,32 @@ function routeUiShowFromCandidates(candidateRoutes, selectedIdx) {
         return;
     }
 
-    const routes = candidateRoutes.map((route, i) => {
-        const rs    = route?.__riskSummary || {};
-        const notes = rs.risk_summary?.notes || [];
-        const score = typeof rs.safety_score === 'number' ? rs.safety_score : 100;
-        const level = rs.risk_level || 'safe';
-        const dist  = Math.round(Number(route?.summary?.totalDistance ?? route?.totalDistance ?? 0));
-        const dur   = Math.round(Number(route?.summary?.totalTime    ?? route?.totalTime    ?? 0));
-
-        console.log('[route-ui] candidate', i, {
-            route_id:   i,
-            score,
-            risk_level: level,
-            selected:   i === selectedIdx,
-        });
-
-        return {
-            index:        i,
-            distance_m:   dist,
-            duration_s:   dur,
-            risk_level:   level,
-            safety_score: score,
-            risk_summary: notes,
-            status:       rs.risk_level ? 'ok' : 'unknown',
-        };
-    });
+    const selectedRoute = candidateRoutes[selectedIdx] || null;
+    const selectedBaseModel = typeof createRoutePresentationModel === 'function'
+        ? createRoutePresentationModel(selectedRoute, { index: selectedIdx, selectedRouteIndex: selectedIdx })
+        : null;
+    const selectedRouteId = selectedBaseModel?.route_id ?? selectedIdx;
+    const routes = candidateRoutes.map((route, i) => (
+        typeof createRoutePresentationModel === 'function'
+            ? createRoutePresentationModel(route, { index: i, selectedRouteId })
+            : {
+                route_id: i,
+                label: `候補${i + 1}`,
+                distance_m: Number(route?.summary?.totalDistance ?? route?.totalDistance),
+                duration_s: Number(route?.summary?.totalTime ?? route?.totalTime),
+                risk_level: route?.__riskSummary?.risk_level || 'unknown',
+                safety_score: route?.__riskSummary?.safety_score ?? null,
+                risk_summary: route?.__riskSummary?.risk_summary?.notes || [],
+                selected: i === selectedIdx,
+                recommended: i === 0,
+            }
+    ));
+    const recommendedIndex = routes.findIndex(route => route.recommended);
 
     const data = {
         status:                  'ok',
-        recommended_route_index: 0,  // navigation.js ランク済み: index 0 が推奨
+        selected_route_id:       selectedRouteId,
+        recommended_route_index: recommendedIndex >= 0 ? recommendedIndex : 0,
         routes,
     };
 

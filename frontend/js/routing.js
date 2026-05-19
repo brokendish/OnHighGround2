@@ -433,12 +433,92 @@ function buildRouteInstructionItems(route, formatter) {
         .filter(Boolean);
 }
 
+function formatRouteSafetyScore(value) {
+    const score = Number(value);
+    if (!Number.isFinite(score)) return '';
+    return Number.isInteger(score)
+        ? String(score)
+        : String(score).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+}
+
+function routeRiskLevelText(level) {
+    const labels = {
+        none: '安全',
+        safe: '安全',
+        advisory: '注意',
+        caution: '注意',
+        warning: '警戒',
+        danger: '危険',
+        emergency: '危険',
+        unknown: '判定不能'
+    };
+    return labels[level] || level || '判定不能';
+}
+
+function routeRiskLevelIcon(level) {
+    const icons = {
+        none: '🟢',
+        safe: '🟢',
+        advisory: '🟡',
+        caution: '🟡',
+        warning: '🔴',
+        danger: '🔴',
+        emergency: '🔴',
+        unknown: ''
+    };
+    return icons[level] || '';
+}
+
+function _routeRiskNotesFromSummary(riskSummary) {
+    if (Array.isArray(riskSummary?.risk_summary)) return riskSummary.risk_summary;
+    if (Array.isArray(riskSummary?.risk_summary?.notes)) return riskSummary.risk_summary.notes;
+    if (Array.isArray(riskSummary?.notes)) return riskSummary.notes;
+    return [];
+}
+
+function createRoutePresentationModel(route, options = {}) {
+    const index = Number.isFinite(Number(options.index)) ? Number(options.index) : 0;
+    const riskSummary = route?.__riskSummary || null;
+    const routeId = route?.route_id ?? route?.__routeId ?? route?.__rankedRouteIndex ?? index;
+    const selectedRouteId = options.selectedRouteId;
+    const hasSelectedRouteId = selectedRouteId !== undefined && selectedRouteId !== null;
+    const selectedIndex = Number(options.selectedRouteIndex);
+    const selected = hasSelectedRouteId
+        ? routeId === selectedRouteId
+        : (Number.isFinite(selectedIndex) ? index === selectedIndex : false);
+    const safetyScore = route?.safety_score ?? riskSummary?.safety_score ?? null;
+    const riskLevel = route?.risk_level ?? riskSummary?.risk_level ?? 'unknown';
+    const distanceM = Number(route?.distance_m ?? route?.summary?.totalDistance ?? route?.totalDistance);
+    const durationS = Number(route?.duration_s ?? route?.summary?.totalTime ?? route?.totalTime);
+
+    const riskNotes = Array.isArray(route?.risk_summary)
+        ? route.risk_summary
+        : _routeRiskNotesFromSummary(riskSummary);
+
+    return {
+        route,
+        route_id: routeId,
+        label: route?.label || `候補${index + 1}`,
+        badge: route?.__displayLabel || route?.badge || (index === 0 ? '推奨' : ''),
+        safety_score: Number.isFinite(Number(safetyScore)) ? Number(safetyScore) : null,
+        risk_level: riskLevel,
+        risk_summary: riskNotes,
+        selected,
+        recommended: route?.recommended === true || index === 0,
+        distance_m: Number.isFinite(distanceM) ? distanceM : null,
+        duration_s: Number.isFinite(durationS) ? durationS : null,
+        weather_risk: route?.weather_risk ?? null,
+        hazards: route?.hazards ?? riskSummary?.hazards ?? null
+    };
+}
+
 function buildRouteCandidateSummary(route, routeIndex, formatter) {
-    const label = route?.__displayLabel || `候補${routeIndex + 1}`;
+    const model = createRoutePresentationModel(route, { index: routeIndex });
+    const label = model.badge || model.label;
     const reason = route?.__displayReason || '';
     const score = Number(route?.__safetyScore);
-    const distance = Number(route?.summary?.totalDistance ?? route?.totalDistance);
-    const duration = Number(route?.summary?.totalTime ?? route?.totalTime);
+    const distance = Number(model.distance_m);
+    const duration = Number(model.duration_s);
     const distanceLabel = Number.isFinite(distance)
         ? (formatter && typeof formatter.formatDistance === 'function'
             ? formatter.formatDistance(distance)
@@ -451,7 +531,7 @@ function buildRouteCandidateSummary(route, routeIndex, formatter) {
     return {
         label,
         reason,
-        scoreLabel: Number.isFinite(score) ? `安全スコア ${Math.round(score)}` : '',
+        scoreLabel: Number.isFinite(score) ? `安全スコア ${formatRouteSafetyScore(score)}` : '',
         safetyLabel,
         riskLabel,
         metricLabel: `${distanceLabel} / ${durationLabel}`
@@ -483,9 +563,9 @@ const ROUTE_RISK_LEVEL_ICON = { safe: '🟢', caution: '🟡', danger: '🔴' };
 
 function _buildRiskLabel(riskSummary) {
     if (!riskSummary || typeof riskSummary.safety_score !== 'number') return '';
-    const score = Math.round(riskSummary.safety_score);
     const level = riskSummary.risk_level || 'safe';
-    const text = ROUTE_RISK_LEVEL_TEXT[level] || level;
+    const text = routeRiskLevelText(level);
+    const score = formatRouteSafetyScore(riskSummary.safety_score);
     return `安全度 ${score}（${text}）`;
 }
 
@@ -493,15 +573,15 @@ function _appendRouteRiskBlock(panel, route) {
     const riskSummary = route?.__riskSummary;
     if (!riskSummary) return;
 
-    const notes = riskSummary.risk_summary?.notes || [];
-    const score = Math.round(riskSummary.safety_score ?? 100);
+    const notes = _routeRiskNotesFromSummary(riskSummary);
+    const score = formatRouteSafetyScore(riskSummary.safety_score);
     const level = riskSummary.risk_level || 'safe';
 
     const block = document.createElement('div');
     block.className = `route-risk-block ${level}`;
 
-    const icon = ROUTE_RISK_LEVEL_ICON[level] || '';
-    const text = ROUTE_RISK_LEVEL_TEXT[level] || level;
+    const icon = routeRiskLevelIcon(level);
+    const text = routeRiskLevelText(level);
     const header = document.createElement('div');
     header.className = 'route-risk-header';
     header.innerHTML =
@@ -589,11 +669,17 @@ function renderDestinationRouteGuidance(index, routes, selectedRouteIndex, forma
         const buttons = document.createElement('div');
         buttons.className = 'route-option-buttons';
         if (routeList.length > 1) {
+            const selectedModel = createRoutePresentationModel(route, {
+                index: safeSelectedRouteIndex,
+                selectedRouteIndex: safeSelectedRouteIndex
+            });
+            const selectedRouteId = selectedModel.route_id;
             routeList.forEach((candidateRoute, routeIndex) => {
+                const model = createRoutePresentationModel(candidateRoute, { index: routeIndex, selectedRouteId });
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'route-option-button';
-                if (routeIndex === safeSelectedRouteIndex) {
+                if (model.selected) {
                     button.classList.add('active');
                 }
                 const color = routeColors[routeIndex] || getRouteColorByIndex(routeIndex);
@@ -723,11 +809,17 @@ function _renderRouteGuidanceToPanelId(panelId, routes, selectedRouteIndex, form
     const buttons = document.createElement('div');
     buttons.className = 'route-option-buttons';
     if (routeList.length > 1) {
+        const selectedModel = createRoutePresentationModel(route, {
+            index: safeSelectedRouteIndex,
+            selectedRouteIndex: safeSelectedRouteIndex
+        });
+        const selectedRouteId = selectedModel.route_id;
         routeList.forEach((candidateRoute, routeIndex) => {
+            const model = createRoutePresentationModel(candidateRoute, { index: routeIndex, selectedRouteId });
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'route-option-button';
-            if (routeIndex === safeSelectedRouteIndex) {
+            if (model.selected) {
                 button.classList.add('active');
             }
             const color = routeColors[routeIndex] || getRouteColorByIndex(routeIndex);
