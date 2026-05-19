@@ -23,17 +23,8 @@ const SHELTER_ZOOM_SIZE = [
 ];
 
 // ── SVGアイコン ───────────────────────────────────────────────────────────
-// 指定緊急避難場所（EES）: 緑の円背景 + 白い走り人形 + 楕円（地面）
-const _SVG_EES = `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="20" cy="20" r="19" fill="#43a047"/>
-  <circle cx="25.5" cy="7.5" r="3.5" fill="white"/>
-  <line x1="23.5" y1="11" x2="16.5" y2="20.5" stroke="white" stroke-width="2.8" stroke-linecap="round"/>
-  <line x1="21.5" y1="13" x2="28.5" y2="10" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-  <line x1="21.5" y1="13" x2="13.5" y2="16.5" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-  <line x1="16.5" y1="20.5" x2="25" y2="28.5" stroke="white" stroke-width="2.8" stroke-linecap="round"/>
-  <line x1="16.5" y1="20.5" x2="10" y2="27.5" stroke="white" stroke-width="2.8" stroke-linecap="round"/>
-  <ellipse cx="17" cy="33.5" rx="9.5" ry="3.5" fill="white" opacity="0.88"/>
-</svg>`;
+// 指定緊急避難場所（EES）: 提供SVGファイルをimg参照で使用
+const _SVG_EES = `<img src="指定緊急避難場所.svg" style="width:100%;height:100%;display:block;object-fit:contain;">`;
 
 // 指定避難所（ES）: 濃い緑の角丸四角形背景 + 白い家の形（屋根＋壁＋扉）
 const _SVG_ES = `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
