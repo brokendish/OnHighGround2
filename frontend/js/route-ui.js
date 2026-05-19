@@ -88,9 +88,8 @@ function _ruiRender(data, selectedIdx) {
         if (i === selectedIdx)   row.classList.add('rui-compare-row--selected');
         if (i === recIdx)        row.classList.add('rui-compare-row--recommended');
 
-        // ルートラベル（A/B/C）
-        const badge = i === recIdx ? '推奨'
-            : (route.distance_m === shortest.distance_m ? '最短' : `候補${i + 1}`);
+        // ルートラベル（ルート選択ボタンの「候補N」と統一）
+        const badge = `候補${i + 1}`;
         const riskLabel = _RUI_RISK_LABEL[route.risk_level] || route.risk_level;
         const riskColor = _RUI_RISK_COLOR[route.risk_level] || '#64748b';
 
