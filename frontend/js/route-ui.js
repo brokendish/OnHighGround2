@@ -36,18 +36,20 @@ function _ruiHide() {
     el.style.display = 'none';
 }
 
+// /api/route-risk 語彙（safe/caution/danger）と
+// /api/navigation/route/compare 語彙（none/advisory/warning/emergency）を両方サポート
 const _RUI_RISK_COLOR = {
-    none:      '#2e7d32',
-    advisory:  '#b45309',
-    warning:   '#c62828',
+    none:      '#2e7d32', safe:    '#2e7d32',
+    advisory:  '#b45309', caution: '#b45309',
+    warning:   '#c62828', danger:  '#c62828',
     emergency: '#b71c1c',
     unknown:   '#64748b',
 };
 
 const _RUI_RISK_LABEL = {
-    none:      '安全',
-    advisory:  '注意',
-    warning:   '警戒',
+    none:      '安全', safe:    '安全',
+    advisory:  '注意', caution: '注意',
+    warning:   '警戒', danger:  '警戒',
     emergency: '危険',
     unknown:   '判定不能',
 };
@@ -65,7 +67,8 @@ function _ruiRender(data, selectedIdx) {
     const recIdx     = data.recommended_route_index ?? 0;
 
     // 全ルートが同一リスク・スコア差小さい場合はカード非表示（静かにする）
-    const hasRisk    = routes.some(r => r.risk_level !== 'none' && r.risk_level !== 'unknown');
+    const _SAFE_LEVELS = new Set(['none', 'safe', 'unknown']);
+    const hasRisk    = routes.some(r => !_SAFE_LEVELS.has(r.risk_level));
     const shortest   = routes.reduce((a, b) => (a.distance_m <= b.distance_m ? a : b));
     const recRoute   = routes[recIdx];
     const isChurning = routes.length <= 1;
@@ -186,4 +189,56 @@ function _routeUiClearComparison() {
     _ruiLastRecommended = null;
     _ruiLastRecScore    = null;
     _ruiComparison      = null;
+}
+
+/**
+ * navigation.js が評価済みの route candidates から直接比較カードを描画する。
+ * /api/navigation/route/compare への独立フェッチを行わず、
+ * route.__riskSummary（/api/route-risk 結果）を単一ソースとして使用。
+ * これにより「ルート選択」と「ルート気象・ハザード比較」のスコアが必ず一致する。
+ *
+ * @param {object[]} candidateRoutes - _lipRouteSelection.routes 相当のルート配列
+ * @param {number}   selectedIdx     - 現在選択中のルートインデックス
+ */
+function routeUiShowFromCandidates(candidateRoutes, selectedIdx) {
+    if (!Array.isArray(candidateRoutes) || candidateRoutes.length < 2) {
+        _ruiHide();
+        return;
+    }
+
+    const routes = candidateRoutes.map((route, i) => {
+        const rs    = route?.__riskSummary || {};
+        const notes = rs.risk_summary?.notes || [];
+        const score = typeof rs.safety_score === 'number' ? rs.safety_score : 100;
+        const level = rs.risk_level || 'safe';
+        const dist  = Math.round(Number(route?.summary?.totalDistance ?? route?.totalDistance ?? 0));
+        const dur   = Math.round(Number(route?.summary?.totalTime    ?? route?.totalTime    ?? 0));
+
+        console.log('[route-ui] candidate', i, {
+            route_id:   i,
+            score,
+            risk_level: level,
+            selected:   i === selectedIdx,
+        });
+
+        return {
+            index:        i,
+            distance_m:   dist,
+            duration_s:   dur,
+            risk_level:   level,
+            safety_score: score,
+            risk_summary: notes,
+            status:       rs.risk_level ? 'ok' : 'unknown',
+        };
+    });
+
+    const data = {
+        status:                  'ok',
+        recommended_route_index: 0,  // navigation.js ランク済み: index 0 が推奨
+        routes,
+    };
+
+    _ruiComparison  = data;
+    _ruiLastFetchAt = Date.now();
+    _ruiRender(data, selectedIdx);
 }

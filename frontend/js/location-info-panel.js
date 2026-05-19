@@ -327,19 +327,11 @@ function _lipRenderRouteSelector(transportMode) {
 
     _lipRenderRouteRiskInfo();
 
-    // ルート比較カード（Phase3-A）
-    const dest = _lipRouteSelection.destination;
-    if (
-        routeList.length > 1 &&
-        _lipLat != null && _lipLon != null &&
-        dest && dest.lon != null && dest.lat != null &&
-        typeof _routeUiFetchAndShow === 'function'
-    ) {
-        _routeUiFetchAndShow(
-            [_lipLon, _lipLat],
-            [dest.lon, dest.lat],
-            _lipRouteSelection.selectedRouteIndex ?? 0
-        );
+    // ルート比較カード: 評価済み route candidates を単一ソースとして使用。
+    // 旧: _routeUiFetchAndShow → /api/navigation/route/compare（独立フェッチ）
+    // 新: routeUiShowFromCandidates → route.__riskSummary（ルート選択と同一データ）
+    if (routeList.length > 1 && typeof routeUiShowFromCandidates === 'function') {
+        routeUiShowFromCandidates(routeList, _lipRouteSelection.selectedRouteIndex ?? 0);
     }
 }
 
