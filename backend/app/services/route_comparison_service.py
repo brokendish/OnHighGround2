@@ -17,7 +17,6 @@ OSRM alternatives を取得し、各ルートを
 import hashlib
 import json
 import logging
-import math
 import os
 import time
 import urllib.request
@@ -80,19 +79,8 @@ _WR_RANK: dict[str, int] = {
     "emergency": 4, "warning": 3, "advisory": 2, "none": 0, "unknown": -1,
 }
 
-# サンプリング設定
-_SAMPLE_INTERVAL_M = 200
-_MAX_SAMPLES = 8
-
-
-def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6_371_000.0
-    p = math.pi / 180
-    a = (
-        math.sin((lat2 - lat1) * p / 2) ** 2
-        + math.cos(lat1 * p) * math.cos(lat2 * p) * math.sin((lon2 - lon1) * p / 2) ** 2
-    )
-    return 2 * R * math.asin(math.sqrt(a))
+# サンプリング設定（/api/route-risk と同じ均等サンプリング・同点数に統一）
+_MAX_SAMPLES = 30
 
 
 def _cache_key(origin: list, destination: list) -> str:
@@ -138,31 +126,19 @@ def _osrm_coords(route: dict) -> list[tuple[float, float]]:
 
 # ── ルート評価 ────────────────────────────────────────────────────────────────
 
-def _sample_by_distance(
+def _sample_uniform(
     coords: list[tuple[float, float]],
-    interval_m: float = _SAMPLE_INTERVAL_M,
     max_samples: int = _MAX_SAMPLES,
 ) -> list[tuple[float, float]]:
-    """距離ベースサンプリング（interval_m 間隔、最大 max_samples 点）。"""
+    """均等サンプリング（/api/route-risk と同じ方式）。"""
     n = len(coords)
     if n == 0:
         return []
-    if n == 1:
-        return [coords[0]]
-
-    sampled = [coords[0]]
-    accum = 0.0
-    prev = coords[0]
-    for pt in coords[1:]:
-        accum += _haversine_m(prev[0], prev[1], pt[0], pt[1])
-        if accum >= interval_m:
-            sampled.append(pt)
-            accum = 0.0
-            if len(sampled) >= max_samples:
-                break
-        prev = pt
-
-    if sampled[-1] != coords[-1] and len(sampled) < max_samples:
+    if n <= max_samples:
+        return list(coords)
+    step = max(1, n // max_samples)
+    sampled = list(coords[::step])
+    if sampled[-1] != coords[-1]:
         sampled.append(coords[-1])
     return sampled[:max_samples]
 
@@ -176,7 +152,7 @@ def _assess_route_hazard(
     - hazard_union:       {short_key: bool|None}
     を返す。
     """
-    sample_points = _sample_by_distance(coords)
+    sample_points = _sample_uniform(coords)
     if not sample_points:
         return {"exposure": {}, "union": {}, "data_available": False}
 
