@@ -130,6 +130,7 @@ let _shelterEntries      = [];  // [{site, marker}] 近傍強調の計算に使�
 function _getOrCreateShelterCluster() {
     if (_shelterClusterGroup) return _shelterClusterGroup;
     _shelterClusterGroup = L.markerClusterGroup({
+        clusterPane:             'shelterPane',
         showCoverageOnHover:     false,
         maxClusterRadius:        SHELTER_CLUSTER_RADIUS,
         disableClusteringAtZoom: SHELTER_CLUSTER_DISABLE_ZOOM,
@@ -228,6 +229,7 @@ async function refreshEmergencyShelters() {
 
             const marker = L.marker([site.lat, site.lon], {
                 icon:                _makeShelterIcon(isEES),
+                pane:                'shelterPane',
                 bubblingMouseEvents: false,
             });
 

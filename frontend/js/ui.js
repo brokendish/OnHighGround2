@@ -234,7 +234,6 @@ function displayDestinations(dests, recommended) {
         };
         const marker = L.circleMarker([dest.lat, dest.lon], {
             ...baseStyle,
-            pane:                'destinationPane',
             bubblingMouseEvents: false
         }).addTo(map);
 

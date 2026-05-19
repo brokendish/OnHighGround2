@@ -8,9 +8,11 @@
 // ── マップ初期化 ──────────────────────────────────────────────────────────
 const map = L.map('map').setView([35.6762, 139.6503], 13); // 東京都心を初期位置
 
-// 避難先候補マーカーを避難所アイコン（markerPane z-index:600）より前面に表示するカスタムペイン
-map.createPane('destinationPane');
-map.getPane('destinationPane').style.zIndex = 650;
+// 避難所アイコンを overlayPane(400) より背面に配置し、
+// 避難先候補マーカー(circleMarker/overlayPane:400)が常に前面に来るようにする
+map.createPane('shelterPane');
+map.getPane('shelterPane').style.zIndex = 390;
+map.getPane('shelterPane').style.pointerEvents = 'auto';
 
 // ── ダブルタップ / ダブルタップ＋ドラッグズーム（Google Maps 風） ──────────
 // 短いダブルタップ → 1 段階ズームイン（既存動作）
