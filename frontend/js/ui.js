@@ -216,13 +216,13 @@ function displayDestinations(dests, recommended) {
 
         let color, fillColor, radius;
         if (isRecommended) {
-            color = '#e65100'; fillColor = '#ffd600'; radius = 14;
+            color = '#e65100'; fillColor = '#ffd600'; radius = 18;
         } else if (dest.hazard_safe === true) {
-            color = '#2e7d32'; fillColor = '#4caf50'; radius = 9;
+            color = '#2e7d32'; fillColor = '#4caf50'; radius = 13;
         } else if (dest.hazard_safe === false) {
-            color = '#e65100'; fillColor = '#ff9800'; radius = 9;
+            color = '#e65100'; fillColor = '#ff9800'; radius = 13;
         } else {
-            color = '#546e7a'; fillColor = '#78909c'; radius = 10; // 後方互換: hazard_safe 不明
+            color = '#546e7a'; fillColor = '#78909c'; radius = 14; // 後方互換: hazard_safe 不明
         }
 
         const baseStyle = {
@@ -234,6 +234,7 @@ function displayDestinations(dests, recommended) {
         };
         const marker = L.circleMarker([dest.lat, dest.lon], {
             ...baseStyle,
+            pane:                'destinationPane',
             bubblingMouseEvents: false
         }).addTo(map);
 
