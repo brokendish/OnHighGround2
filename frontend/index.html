@@ -2237,6 +2237,7 @@
         }
         .lip-rain-slider {
             flex: 1;
+            min-width: 0;
             height: 4px;
             accent-color: #1565c0;
             cursor: pointer;
@@ -2263,6 +2264,7 @@
             font-size: 11px;
             color: #64748b;
             flex: 1;
+            min-width: 0;
         }
         .lip-rain-anim-btn {
             padding: 4px 10px;
@@ -2284,6 +2286,12 @@
         .lip-rain-anim-btn--playing {
             background: rgba(21,101,192,0.18);
             border-color: rgba(21,101,192,0.5);
+        }
+
+        .weather-rain-radar-section {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(148, 163, 184, 0.25);
         }
 
         /* ── 情報タブ内: 音声・振動設定ボタン ──────────────── */
@@ -2803,8 +2811,7 @@
         /* standard(2): A(位置詳細)・C(天体)・グラフ・Eを非表示 */
         #loc-info-nonnav[data-lip-level="2"] .lip-section-a,
         #loc-info-nonnav[data-lip-level="2"] .lip-section-c,
-        #loc-info-nonnav[data-lip-level="2"] .lip-level-detail-only,
-        #loc-info-nonnav[data-lip-level="2"] #lip-rain-radar-ctrl-section { display: none !important; }
+        #loc-info-nonnav[data-lip-level="2"] .lip-level-detail-only { display: none !important; }
 
         /* compact(1): 全セクション非表示、compact-summary のみ */
         #loc-info-nonnav[data-lip-level="1"] .lip-section { display: none !important; }
@@ -4411,6 +4418,22 @@
                                     <div class="wc-combined-list" id="lip-wc-combined-risk" style="display:none;"></div>
                                     <div class="wc-risk-msg" id="lip-wc-risk-msg" style="display:none;"></div>
                                     <div class="wc-message" id="lip-wc-message" style="display:none;"></div>
+                                    <!-- 雨量レーダー予測（rain-layer.js が表示制御） -->
+                                    <div class="weather-rain-radar-section" id="lip-rain-radar-ctrl-section" style="display:none;">
+                                        <div class="lip-section-title">🌧 雨量レーダー予測</div>
+                                        <div class="lip-rain-ctrl">
+                                            <div class="lip-rain-slider-row">
+                                                <input type="range" id="lip-rain-slider" class="lip-rain-slider"
+                                                       min="-60" max="60" step="5" value="0" disabled>
+                                                <span id="lip-rain-offset-label" class="lip-rain-offset-label">現在</span>
+                                            </div>
+                                            <div class="lip-rain-time-and-btn">
+                                                <span id="lip-rain-time-text" class="lip-rain-time-text"></span>
+                                                <button id="lip-rain-now-btn"  class="lip-rain-anim-btn" disabled>現在</button>
+                                                <button id="lip-rain-anim-btn" class="lip-rain-anim-btn" disabled>▶ 再生</button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <!-- 地震（周辺観測） -->
@@ -4439,22 +4462,6 @@
                                 </div>
                                 <div class="lip-accordion-body">
                                     <div class="lip-row"><span class="lip-row-label" style="color:#94a3b8;">実装予定</span><span class="lip-row-value"></span></div>
-                                </div>
-                            </div>
-                            <!-- E: 雨量レーダー予測コントロール（rain-layer.js が表示制御） -->
-                            <div class="lip-section" id="lip-rain-radar-ctrl-section" style="display:none;">
-                                <div class="lip-section-title">🌧 雨量レーダー予測</div>
-                                <div class="lip-rain-ctrl">
-                                    <div class="lip-rain-slider-row">
-                                        <input type="range" id="lip-rain-slider" class="lip-rain-slider"
-                                               min="-60" max="60" step="5" value="0" disabled>
-                                        <span id="lip-rain-offset-label" class="lip-rain-offset-label">現在</span>
-                                    </div>
-                                    <div class="lip-rain-time-and-btn">
-                                        <span id="lip-rain-time-text" class="lip-rain-time-text"></span>
-                                        <button id="lip-rain-now-btn"  class="lip-rain-anim-btn" disabled>現在</button>
-                                        <button id="lip-rain-anim-btn" class="lip-rain-anim-btn" disabled>▶ 再生</button>
-                                    </div>
                                 </div>
                             </div>
                         </div>
