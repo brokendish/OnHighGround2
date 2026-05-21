@@ -281,7 +281,7 @@ test.describe('Tide panel: sun/moon timeline', () => {
       };
 
       const dpr = window.devicePixelRatio || 1;
-      const tideExpectedX = Math.round((36 + (400 - 36 - 10) / 2) * dpr);
+      const tideExpectedX = Math.round((68 + (400 - 68 - 10) / 2) * dpr);
       const timelineExpectedX = Math.round((68 + (400 - 68 - 10) / 2) * dpr);
       const result = {
         tideLine: hasRedNear(tideCanvas, tideExpectedX, 0, tideCanvas.height - 1),

@@ -41,6 +41,22 @@ def _iso_or_none(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat() if dt else None
 
 
+def _safe_moonrise(observer: Observer, target_date, tzinfo) -> Optional[datetime]:
+    """月の出時刻を返す。その日に月が昇らない場合（astral ValueError）は None。"""
+    try:
+        return moonrise(observer, date=target_date, tzinfo=tzinfo)
+    except ValueError:
+        return None
+
+
+def _safe_moonset(observer: Observer, target_date, tzinfo) -> Optional[datetime]:
+    """月の入時刻を返す。その日に月が沈まない場合（astral ValueError）は None。"""
+    try:
+        return moonset(observer, date=target_date, tzinfo=tzinfo)
+    except ValueError:
+        return None
+
+
 @router.get("/api/astro/current")
 async def get_astro_current(
     lat: float = Query(..., description="緯度", ge=-90, le=90),
@@ -57,8 +73,8 @@ async def get_astro_current(
         else:
             target_date = datetime.now(JST).date()
         s = sun(observer, date=target_date, tzinfo=JST)
-        mr = moonrise(observer, date=target_date, tzinfo=JST)
-        ms = moonset(observer, date=target_date, tzinfo=JST)
+        mr = _safe_moonrise(observer, target_date, JST)
+        ms = _safe_moonset(observer, target_date, JST)
         phase = moon_phase(target_date)
         label = _moon_label(phase)
         return {

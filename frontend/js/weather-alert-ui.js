@@ -212,9 +212,30 @@ function _weatherAlertUiUpdate(alertsData, precipData, riskInfo) {
 function _weatherAlertUiInit() {
     if (typeof _weatherServiceSetCallback === 'function') {
         _weatherServiceSetCallback(function(alerts, precip, riskInfo) {
+            console.debug('[weather-ui] update weather card only');
             _weatherAlertUiUpdate(alerts, precip, riskInfo);
             if (typeof _weatherCardRender === 'function') {
                 _weatherCardRender(alerts, precip, riskInfo);
+            }
+            // バナー表示・気象カード更新後にレイアウトが安定してから日月タイムラインを再描画
+            if (typeof _queueSunMoonTimelineRefresh === 'function') {
+                _queueSunMoonTimelineRefresh();
+            } else {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (typeof window.refreshSunMoonTimeline === 'function') {
+                            window.refreshSunMoonTimeline();
+                        }
+                    });
+                });
+            }
+            // 天文情報カードが未表示の場合は再取得を試みる
+            const astroSection = document.getElementById('lip-astro-section');
+            if (astroSection && astroSection.style.display === 'none') {
+                if (typeof window.refreshAstroSection === 'function') {
+                    console.debug('[weather-ui] astro section hidden, re-triggering refreshAstroSection');
+                    window.refreshAstroSection();
+                }
             }
         });
     }

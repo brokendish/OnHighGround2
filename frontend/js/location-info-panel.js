@@ -824,12 +824,16 @@ async function _astroFetch(lat, lon) {
     }
     try {
         const res = await fetch(`/api/astro/current?lat=${lat}&lon=${lon}`);
-        if (!res.ok) return null;
+        if (!res.ok) {
+            console.warn('[astro] fetch non-ok, falling back to cache:', res.status);
+            return _astroCache ? _astroCache.data : null;
+        }
         const data = await res.json();
         _astroCache = { lat, lon, data, fetchedAt: now };
         return data;
-    } catch {
-        return null;
+    } catch (err) {
+        console.warn('[astro] fetch error, falling back to cache:', err);
+        return _astroCache ? _astroCache.data : null;
     }
 }
 
@@ -923,14 +927,36 @@ function _computeDarkPeriod(data) {
     return { start: darkStart, end: darkEnd };
 }
 
+let _astroRetryTimer = null;
+
 async function _astroUpdate(lat, lon) {
     const data = await _astroFetch(lat, lon);
     const section = document.getElementById('lip-astro-section');
     if (!section) return;
 
+    console.debug('[astro] update data=%s section_computed=%s',
+        data ? 'ok' : 'null',
+        window.getComputedStyle(section).display
+    );
+
     if (!data) {
+        // データ取得失敗：セクションは非表示のままにするが 5 秒後に1回リトライ
         section.style.display = 'none';
+        if (_astroRetryTimer == null) {
+            _astroRetryTimer = setTimeout(() => {
+                _astroRetryTimer = null;
+                if (_lipLat != null && _lipLon != null) {
+                    console.debug('[astro] retry after fetch failure');
+                    _astroUpdate(_lipLat, _lipLon);
+                }
+            }, 5000);
+        }
         return;
+    }
+
+    if (_astroRetryTimer != null) {
+        clearTimeout(_astroRetryTimer);
+        _astroRetryTimer = null;
     }
 
     section.style.display = '';
@@ -1434,12 +1460,14 @@ async function _astroTlFetchDay(lat, lon, dateStr) {
     if (cached && now - cached.fetchedAt < _ASTRO_TL_CACHE_TTL_MS) return cached.data;
     try {
         const res = await fetch(`/api/astro/current?lat=${lat}&lon=${lon}&date=${dateStr}`);
-        if (!res.ok) return null;
+        if (!res.ok) {
+            return cached ? cached.data : null;
+        }
         const data = await res.json();
         _astroTlCache[key] = { data, fetchedAt: now };
         return data;
     } catch {
-        return null;
+        return cached ? cached.data : null;
     }
 }
 
@@ -1626,8 +1654,13 @@ function _tlDrawCore(p, elapsed) {
 
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    // リフロー未完（width=0）の場合は描画をスキップし、次フレームで再描画
-    if (rect.width === 0) return;
+    console.debug('[sunmoon]', {
+        width: rect.width,
+        height: rect.height,
+        visible: !!canvas.offsetParent,
+    });
+    // リフロー未完や閉じたパネルの仮サイズでは、次の RAF tick まで描画を待つ。
+    if (!rect.width || rect.width < 100) return;
     const needW = Math.round(rect.width  * dpr);
     const needH = Math.round(rect.height * dpr);
     if (canvas.width !== needW || canvas.height !== needH) {
@@ -1939,6 +1972,9 @@ function _lipAccordionToggle(headerEl) {
     const collapsed = section.classList.toggle('lip-accordion-collapsed');
     const arrow = headerEl.querySelector('.lip-accordion-arrow');
     if (arrow) arrow.textContent = collapsed ? '▾' : '▴';
+    if (!collapsed && section.querySelector('#lip-tide-graph, #lip-sun-moon-timeline')) {
+        _queueSunMoonTimelineRefresh();
+    }
 }
 
 function _lipCycleLevel() {
@@ -1946,16 +1982,47 @@ function _lipCycleLevel() {
     _lipApplyLevel();
 }
 
+// レイアウト変化直後の canvas 測定を避け、表示サイズが安定した RAF で描き直す。
+let _sunMoonRefreshRaf = null;
+
+function _queueSunMoonTimelineRefresh() {
+    if (_sunMoonRefreshRaf != null) return;
+    _sunMoonRefreshRaf = requestAnimationFrame(() => {
+        _sunMoonRefreshRaf = requestAnimationFrame(() => {
+            _sunMoonRefreshRaf = null;
+            window.refreshSunMoonTimeline();
+        });
+    });
+}
+
+// 外部から日月タイムラインを再描画させるためのグローバル関数。
+// 気象更新・バナー表示後など、レイアウト変化が起きた後に呼ぶ。
+window.refreshSunMoonTimeline = function() {
+    if (_lipLat == null || _lipLon == null) return;
+    const stationId = _selectedTideStation
+        ? _selectedTideStation.id
+        : (_tideCache && _tideCache.data && _tideCache.data.station
+            ? _tideCache.data.station.id : null);
+    if (stationId) {
+        _tideGraphUpdate(stationId);
+    } else if (_tlAnimParams) {
+        _tlDrawCore(_tlAnimParams, 0);
+    }
+};
+
+// 天文情報カードの再取得を外部からトリガーするグローバル関数。
+// 気象更新後などにカードが非表示のままの場合に呼ぶ。
+window.refreshAstroSection = function() {
+    if (_lipLat != null && _lipLon != null) {
+        _astroUpdate(_lipLat, _lipLon);
+    }
+};
+
 // パネル高さ変化後にグラフ再描画（map-overlay-ui.js の mbc-info-resize イベントで呼ばれる）
 window.addEventListener('mbc-info-resize', () => {
-    setTimeout(() => {
-        const stationId = _selectedTideStation
-            ? _selectedTideStation.id
-            : (_tideCache && _tideCache.data && _tideCache.data.station
-                ? _tideCache.data.station.id : null);
-        if (stationId) _tideGraphUpdate(stationId);
-    }, 280);
+    setTimeout(_queueSunMoonTimelineRefresh, 280);
 });
+window.addEventListener('resize', _queueSunMoonTimelineRefresh);
 
 function _lipApplyLevel() {
     const el = document.getElementById('loc-info-nonnav');
