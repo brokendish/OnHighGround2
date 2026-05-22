@@ -245,4 +245,114 @@ test.describe('Kikikuru display layer', () => {
     expect(layout.overflow).toBeLessThanOrEqual(1);
     expect(layout.rowFitsPanel).toBe(true);
   });
+
+  // ── Phase 2: 危険度要約 ───────────────────────────────────────────────────
+
+  test('現在地リスクセクションが常に表示される', async ({ page }) => {
+    await openInfoTab(page);
+    await expect(page.locator('#kkk-risk-current')).toBeVisible();
+    await expect(page.locator('#kkk-risk-current .kkk-risk-title')).toContainText('現在地周辺');
+  });
+
+  test('目的地未設定時はリスクセクションが非表示', async ({ page }) => {
+    await openInfoTab(page);
+    await expect(page.locator('#kkk-risk-dest')).toBeHidden();
+  });
+
+  test('目的地設定時に目的地リスクセクションが表示される', async ({ page }) => {
+    await openInfoTab(page);
+    await page.evaluate(() => {
+      userDestination = { lat: 35.6812, lon: 139.7671, name: 'テスト目的地' };
+      _kkkUpdateRiskUI('dest');
+    });
+    await expect(page.locator('#kkk-risk-dest')).toBeVisible();
+    await expect(page.locator('#kkk-risk-dest .kkk-risk-title')).toContainText('目的地周辺');
+  });
+
+  test('透明タイルの現在地サンプリングで「なし」が表示される', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+
+    await openInfoTab(page);
+    await page.locator('#kkk-toggle-inund').click();
+
+    // currentLocation をモックしてサンプリングを強制起動
+    await page.evaluate(async () => {
+      currentLocation = { lat: 35.6812, lon: 139.7671, accuracyMeters: 10 };
+      _kkkCurrentSampleLastAt = 0;
+      await _kkkSampleLocation('current', 35.6812, 139.7671);
+    });
+
+    await expect(page.locator('#kkk-risk-current .kkk-risk-rows')).toContainText('なし');
+    await expect(page.locator('#kkk-risk-current .kkk-risk-rows')).not.toContainText('取得不可');
+    expect(errors).toEqual([]);
+  });
+
+  test('目的地サンプリングで「なし」が表示され取得不可にならない', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+
+    await openInfoTab(page);
+    await page.locator('#kkk-toggle-inund').click();
+
+    await page.evaluate(async () => {
+      userDestination = { lat: 35.6580, lon: 139.7454, name: '六本木' };
+      await _kkkSampleLocation('dest', 35.6580, 139.7454);
+    });
+
+    await expect(page.locator('#kkk-risk-dest')).toBeVisible();
+    await expect(page.locator('#kkk-risk-dest .kkk-risk-rows')).toContainText('なし');
+    await expect(page.locator('#kkk-risk-dest .kkk-risk-rows')).not.toContainText('取得不可');
+    expect(errors).toEqual([]);
+  });
+
+  test('タイル取得失敗時は取得不可を表示して safe 扱いしない', async ({ page }) => {
+    await page.route('/api/**', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: '{}',
+    }));
+    await page.route('/emergency-shelters**', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: [], count: 0, total_count: 0 }),
+    }));
+    await page.route('**/jmatile/data/risk/targetTimes.json**', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify([KIKIKURU_TIME]),
+    }));
+    // タイル画像だけ 503 で失敗させる
+    await page.route('**/jmatile/data/risk/**/surf/**/*.png', route => route.fulfill({
+      status: 503, body: '',
+    }));
+
+    await page.goto('/');
+    await page.evaluate(() => switchMbcTab('info'));
+    await page.locator('#kkk-card-section .lip-accordion-header').click();
+    await page.locator('#kkk-toggle-inund').click();
+
+    await page.evaluate(async () => {
+      currentLocation = { lat: 35.6812, lon: 139.7671, accuracyMeters: 10 };
+      _kkkCurrentSampleLastAt = 0;
+      await _kkkSampleLocation('current', 35.6812, 139.7671);
+    });
+
+    // 取得不可が出て「なし」や「危険度なし」になっていない
+    const rowText = await page.locator('#kkk-risk-current .kkk-risk-rows').textContent();
+    expect(rowText).toContain('取得不可');
+    expect(rowText).not.toMatch(/^なし$/);
+  });
+
+  test('Phase2: モバイル幅でリスク要約が崩れない', async ({ page }) => {
+    await openInfoTab(page, { width: 390, height: 844 });
+    const layout = await page.evaluate(() => {
+      const panel = document.getElementById('mbc-tab-panel-info');
+      const riskEl = document.getElementById('kkk-risk-current');
+      const panelRect = panel.getBoundingClientRect();
+      const riskRect = riskEl.getBoundingClientRect();
+      return {
+        overflow: panel.scrollWidth - panel.clientWidth,
+        fits: riskRect.right <= panelRect.right + 2,
+      };
+    });
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    expect(layout.fits).toBe(true);
+  });
 });

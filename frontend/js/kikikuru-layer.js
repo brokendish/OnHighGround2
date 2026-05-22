@@ -178,6 +178,7 @@ async function _kikikuruRefresh() {
         }
 
         _kikikuruSetSharedStatusUI('ok');
+        _kkkSampleAll();
 
     } catch (err) {
         console.warn('[kikikuru] fetch failed:', err);
@@ -291,8 +292,10 @@ function _kikikuruSyncPanelVisibility() {
 
     if (anyOn) {
         if (!_kikikuruTimer) _kikikuruStartAutoRefresh();
+        _kkkStartLocationPoll();
     } else {
         _kikikuruStopAutoRefresh();
+        _kkkStopLocationPoll();
     }
 }
 
@@ -399,10 +402,229 @@ window.addEventListener('load', () => {
     for (const kind of Object.keys(_KIKIKURU_KINDS)) {
         _kikikuruUpdateKindStatusUI(kind);
     }
+    _kkkUpdateRiskUI('current');
+    _kkkUpdateRiskUI('dest');
 });
 
 function _kikikuruCheckLegendHide() {
     if (!Object.values(_kikikuruEnabled).some(Boolean)) {
         _kikikuruLegendHide();
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 2 — 現在地・目的地 危険度サンプリング
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// JMA危険度色（気象庁公式カラーコードに準拠）
+const _KKK_RISK_COLORS = [
+    { r: 123, g: 0,   b: 212, level: 'danger'  }, // #7b00d4 レベル5
+    { r: 255, g: 40,  b: 0,   level: 'danger'  }, // #ff2800 レベル4
+    { r: 255, g: 153, b: 0,   level: 'danger'  }, // #ff9900 レベル3
+    { r: 240, g: 224, b: 0,   level: 'caution' }, // #f0e000 レベル2
+    { r: 0,   g: 170, b: 0,   level: 'caution' }, // #00aa00 レベル1
+];
+
+const _kkkTileCache = new Map();
+const _KKK_CACHE_MAX = 40;
+
+// lat/lng → タイル座標 + タイル内ピクセル座標
+function _kkkLatLngToTile(lat, lng, zoom) {
+    const n = Math.pow(2, zoom);
+    const tileX = Math.floor((lng + 180) / 360 * n);
+    const latRad = lat * Math.PI / 180;
+    const mercY = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+    const tileY = Math.floor(mercY);
+    const px = Math.min(255, Math.max(0, Math.floor((mercY - tileY) * 256)));
+    const py = Math.min(255, Math.max(0, Math.floor(((lng + 180) / 360 * n - tileX) * 256)));
+    return { x: tileX, y: tileY, px: py, py: px };
+}
+
+// RGB → risk level（最近傍色マッチング）
+function _kkkColorToLevel(r, g, b, a) {
+    if (a < 64) return 'none';
+    let bestDist = Infinity, bestLevel = 'caution';
+    for (const c of _KKK_RISK_COLORS) {
+        const d = Math.abs(r - c.r) + Math.abs(g - c.g) + Math.abs(b - c.b);
+        if (d < bestDist) { bestDist = d; bestLevel = c.level; }
+    }
+    return bestDist < 120 ? bestLevel : 'none';
+}
+
+// タイル画像をフェッチして ImageData を返す（キャッシュ付き）
+function _kkkFetchTilePixels(url) {
+    if (_kkkTileCache.has(url)) return Promise.resolve(_kkkTileCache.get(url));
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 256; canvas.height = 256;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const data = ctx.getImageData(0, 0, 256, 256);
+                if (_kkkTileCache.size >= _KKK_CACHE_MAX) {
+                    _kkkTileCache.delete(_kkkTileCache.keys().next().value);
+                }
+                _kkkTileCache.set(url, data);
+                resolve(data);
+            } catch (e) { reject(e); }
+        };
+        img.onerror = () => reject(new Error(`tile fetch failed: ${url}`));
+        img.src = url;
+    });
+}
+
+// 1地点・1種別のリスクレベルをサンプリング
+async function _kkkSampleKind(lat, lng, entry, kind) {
+    const def = _KIKIKURU_KINDS[kind];
+    if (!entry.elements || !entry.elements.includes(def.elem)) return 'unavailable';
+    const zoom = 10; // 偶数ズーム、maxNativeZoom=11 内
+    const { x, y, px, py } = _kkkLatLngToTile(lat, lng, zoom);
+    const url = `${_KIKIKURU_TILE_BASE}/${entry.basetime}/${entry.member}/${entry.validtime}/surf/${def.elem}/${zoom}/${x}/${y}.png`;
+    try {
+        const imgData = await _kkkFetchTilePixels(url);
+        const idx = (py * 256 + px) * 4;
+        const [r, g, b, a] = [
+            imgData.data[idx], imgData.data[idx + 1],
+            imgData.data[idx + 2], imgData.data[idx + 3],
+        ];
+        return _kkkColorToLevel(r, g, b, a);
+    } catch (_) {
+        return 'unavailable';
+    }
+}
+
+// ── リスク状態 ───────────────────────────────────────────────────────────────
+
+// status: 'off'|'loading'|'ok'|'unavailable'
+const _kkkRisk = {
+    current: { status: 'off', inund: null, flood: null, land: null },
+    dest:    { status: 'off', inund: null, flood: null, land: null },
+};
+
+async function _kkkSampleLocation(target, lat, lng) {
+    const entry = _kikikuruCurrentEntry;
+    if (!entry) {
+        _kkkRisk[target].status = 'unavailable';
+        _kkkUpdateRiskUI(target);
+        return;
+    }
+    _kkkRisk[target].status = 'loading';
+    _kkkUpdateRiskUI(target);
+
+    try {
+        const kinds = Object.keys(_KIKIKURU_KINDS);
+        const levels = await Promise.all(
+            kinds.map(k => _kkkSampleKind(lat, lng, entry, k))
+        );
+        kinds.forEach((k, i) => { _kkkRisk[target][k] = levels[i]; });
+        _kkkRisk[target].status = 'ok';
+    } catch (_) {
+        _kkkRisk[target].status = 'unavailable';
+    }
+    _kkkUpdateRiskUI(target);
+}
+
+// スロットル管理
+let _kkkCurrentSampleLastAt = 0;
+const _KKK_THROTTLE_MS = 60_000;
+
+function _kkkTriggerCurrentSample(force) {
+    if (typeof currentLocation === 'undefined' || !currentLocation) return;
+    const now = Date.now();
+    if (!force && now - _kkkCurrentSampleLastAt < _KKK_THROTTLE_MS) return;
+    _kkkCurrentSampleLastAt = now;
+    _kkkSampleLocation('current', currentLocation.lat, currentLocation.lon).catch(() => {});
+}
+
+function _kkkTriggerDestSample() {
+    const dest = (typeof navDestination !== 'undefined' && navDestination)
+        || (typeof userDestination !== 'undefined' && userDestination)
+        || null;
+    if (!dest) {
+        _kkkRisk.dest.status = 'off';
+        _kkkUpdateRiskUI('dest');
+        return;
+    }
+    _kkkSampleLocation('dest', dest.lat, dest.lon).catch(() => {});
+}
+
+// refreshKikikuru 成功後に呼ぶ — キャッシュを無効化して再サンプリング
+function _kkkSampleAll() {
+    _kkkTileCache.clear();
+    _kkkCurrentSampleLastAt = 0;
+    _kkkTriggerCurrentSample(true);
+    _kkkTriggerDestSample();
+}
+
+// 現在地ポーリング（30秒）
+let _kkkLocationPollTimer = null;
+
+function _kkkStartLocationPoll() {
+    if (_kkkLocationPollTimer) return;
+    _kkkLocationPollTimer = setInterval(() => {
+        _kkkTriggerCurrentSample(false);
+        _kkkTriggerDestSample();
+    }, 30_000);
+}
+
+function _kkkStopLocationPoll() {
+    if (_kkkLocationPollTimer) {
+        clearInterval(_kkkLocationPollTimer);
+        _kkkLocationPollTimer = null;
+    }
+}
+
+// ── リスクUI ─────────────────────────────────────────────────────────────────
+
+function _kkkRiskLabel(level) {
+    switch (level) {
+        case 'danger':      return { text: '危険',    cls: 'kkk-risk--danger'  };
+        case 'caution':     return { text: '注意',    cls: 'kkk-risk--caution' };
+        case 'none':        return { text: 'なし',    cls: 'kkk-risk--none'    };
+        case 'unavailable': return { text: '取得不可', cls: 'kkk-risk--unavail' };
+        default:            return { text: '確認中',  cls: 'kkk-risk--loading' };
+    }
+}
+
+function _kkkUpdateRiskUI(target) {
+    const el = document.getElementById(`kkk-risk-${target}`);
+    if (!el) return;
+    const rows = el.querySelector('.kkk-risk-rows');
+    if (!rows) return;
+
+    if (target === 'dest') {
+        const hasDest = (typeof navDestination !== 'undefined' && navDestination)
+            || (typeof userDestination !== 'undefined' && userDestination);
+        el.style.display = hasDest ? '' : 'none';
+        if (!hasDest) return;
+    } else {
+        el.style.display = '';
+    }
+
+    const st = _kkkRisk[target].status;
+    if (st === 'off') {
+        rows.innerHTML = '<span class="kkk-risk-msg">取得前</span>';
+        return;
+    }
+    if (st === 'unavailable') {
+        rows.innerHTML = '<span class="kkk-risk-msg">取得不可</span>';
+        return;
+    }
+    if (st === 'loading') {
+        rows.innerHTML = '<span class="kkk-risk-msg">確認中…</span>';
+        return;
+    }
+    rows.innerHTML = Object.keys(_KIKIKURU_KINDS).map(kind => {
+        const kindLabel = _KIKIKURU_KINDS[kind].label.replace('キキクル', '');
+        const { text, cls } = _kkkRiskLabel(_kkkRisk[target][kind]);
+        return `<span class="kkk-risk-item">${kindLabel}:<span class="kkk-risk-badge ${cls}">${text}</span></span>`;
+    }).join('');
+}
+
+// 公開: 目的地変更時に外部から呼べるフック
+function kikikuruOnDestinationChange() {
+    _kkkTriggerDestSample();
 }
