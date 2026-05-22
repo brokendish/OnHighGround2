@@ -2303,6 +2303,21 @@
             color: #fff !important;
             border-color: #7b00d4 !important;
         }
+        .kkk-kind-st {
+            display: inline-block;
+            font-size: 9px;
+            margin-left: 3px;
+            line-height: 1;
+            vertical-align: middle;
+        }
+        .kkk-kind-st--ok       { color: #16a34a; }
+        .kkk-kind-st--error    { color: #dc2626; }
+        .kkk-kind-st--checking { color: #94a3b8; }
+        .kkk-legend-kinds {
+            font-size: 10px;
+            color: #7c3aed;
+            margin-bottom: 3px;
+        }
         .kkk-note {
             font-size: 10px;
             color: #94a3b8;
@@ -4548,9 +4563,9 @@
                                     <!-- レイヤー ON/OFF -->
                                     <div class="kkk-panel-section" id="kkk-panel-section">
                                         <div class="kkk-toggle-row">
-                                            <button id="kkk-toggle-inund" class="kkk-toggle-btn">浸水</button>
-                                            <button id="kkk-toggle-land"  class="kkk-toggle-btn">土砂</button>
-                                            <button id="kkk-toggle-flood" class="kkk-toggle-btn">洪水</button>
+                                            <button id="kkk-toggle-inund" class="kkk-toggle-btn">浸水<span id="kkk-kind-st-inund" class="kkk-kind-st"></span></button>
+                                            <button id="kkk-toggle-land"  class="kkk-toggle-btn">土砂<span id="kkk-kind-st-land"  class="kkk-kind-st"></span></button>
+                                            <button id="kkk-toggle-flood" class="kkk-toggle-btn">洪水<span id="kkk-kind-st-flood" class="kkk-kind-st"></span></button>
                                         </div>
                                     </div>
                                     <div class="kkk-note">気象庁 危険度分布（10分更新）</div>

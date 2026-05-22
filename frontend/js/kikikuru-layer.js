@@ -4,7 +4,7 @@
  * kikikuru-layer.js — 気象庁キキクル（危険度分布）表示レイヤー
  *
  * 外部エントリポイント:
- *   _kikikuruSetVisible(kind, visible)  — kind: 'inund'|'land'|'flood'
+ *   _kikikuruSetVisible(kind, visible)  — kind: 'inund'|'flood'|'land'
  *   refreshKikikuru()                   — 最新時刻に更新（手動・自動共用）
  *
  * タイルURL形式:
@@ -19,10 +19,11 @@ const _KIKIKURU_TIMES_URL = 'https://www.jma.go.jp/bosai/jmatile/data/risk/targe
 const _KIKIKURU_TILE_BASE  = 'https://www.jma.go.jp/bosai/jmatile/data/risk';
 
 // キキクルの各レイヤー定義
+// flood: flood_mesh を第一候補。利用できない環境では elem を 'flood' に変更する。
 const _KIKIKURU_KINDS = {
-    inund: { label: '浸水キキクル', elem: 'inund', zIndex: 440 },
-    land:  { label: '土砂キキクル', elem: 'land',  zIndex: 441 },
-    flood: { label: '洪水キキクル', elem: 'flood', zIndex: 442 },
+    inund: { label: '浸水キキクル', elem: 'inund',      zIndex: 440 },
+    flood: { label: '洪水キキクル', elem: 'flood_mesh', zIndex: 442 },
+    land:  { label: '土砂キキクル', elem: 'land',       zIndex: 441 },
 };
 
 // 危険度凡例（気象庁の危険度色に準拠）
@@ -34,16 +35,18 @@ const _KIKIKURU_LEGEND = [
     { color: '#00aa00', label: '今後の情報等に留意'  },
 ];
 
-// 状態
+// 共通取得状態
 let _kikikuruCurrentEntry = null;   // targetTimesの最新エントリ
 let _kikikuruLastUpdated  = null;   // 最終取得成功時刻（Date）
-let _kikikuruStatus       = 'init'; // 'init'|'ok'|'stale'|'error'
 let _kikikuruTimer        = null;
 
+// 種別ごとの状態: 'off'|'checking'|'ok'|'error'
+const _kikikuruKindStatus = { inund: 'off', flood: 'off', land: 'off' };
+
 // レイヤーインスタンス（kind → TileLayer | null）
-const _kikikuruLayers = { inund: null, land: null, flood: null };
+const _kikikuruLayers = { inund: null, flood: null, land: null };
 // 有効フラグ（kind → bool）
-const _kikikuruEnabled = { inund: false, land: false, flood: false };
+const _kikikuruEnabled = { inund: false, flood: false, land: false };
 
 // ── カスタム TileLayer（偶数ズーム clamp）───────────────────────────────────
 
@@ -112,22 +115,40 @@ function _kikikuruSetVisible(kind, visible) {
     _kikikuruUpdateToggleBtnState(kind, visible);
 
     if (visible) {
+        _kikikuruKindStatus[kind] = 'checking';
+        _kikikuruUpdateKindStatusUI(kind);
         if (!_kikikuruCurrentEntry) {
             refreshKikikuru();
         } else {
-            _kikikuruUpdateLayer(kind);
+            const def = _KIKIKURU_KINDS[kind];
+            const avail = _kikikuruCurrentEntry.elements
+                && _kikikuruCurrentEntry.elements.includes(def.elem);
+            _kikikuruKindStatus[kind] = avail ? 'ok' : 'error';
+            _kikikuruUpdateKindStatusUI(kind);
+            if (avail) _kikikuruUpdateLayer(kind);
         }
     } else {
+        _kikikuruKindStatus[kind] = 'off';
+        _kikikuruUpdateKindStatusUI(kind);
         _kikikuruRemoveLayer(kind);
     }
 
     _kikikuruSyncPanelVisibility();
+    _kikikuruLegendUpdateKinds();
 }
 
 // ── 更新処理 ────────────────────────────────────────────────────────────────
 
 async function refreshKikikuru() {
-    _kikikuruSetStatusUI('checking');
+    // 全有効種別を checking に
+    for (const kind of Object.keys(_kikikuruEnabled)) {
+        if (_kikikuruEnabled[kind]) {
+            _kikikuruKindStatus[kind] = 'checking';
+            _kikikuruUpdateKindStatusUI(kind);
+        }
+    }
+    _kikikuruSetSharedStatusUI('checking');
+
     try {
         const entry = await _kikikuruFetchLatest();
 
@@ -136,25 +157,28 @@ async function refreshKikikuru() {
 
         _kikikuruCurrentEntry = entry;
         _kikikuruLastUpdated  = new Date();
-        _kikikuruStatus       = 'ok';
 
-        if (isNew) {
-            for (const kind of Object.keys(_kikikuruEnabled)) {
-                if (_kikikuruEnabled[kind]) _kikikuruUpdateLayer(kind);
+        for (const kind of Object.keys(_kikikuruEnabled)) {
+            if (_kikikuruEnabled[kind]) {
+                const def   = _KIKIKURU_KINDS[kind];
+                const avail = entry.elements && entry.elements.includes(def.elem);
+                _kikikuruKindStatus[kind] = avail ? 'ok' : 'error';
+                _kikikuruUpdateKindStatusUI(kind);
+                if (isNew && avail) _kikikuruUpdateLayer(kind);
             }
         }
 
-        _kikikuruSetStatusUI('ok');
+        _kikikuruSetSharedStatusUI('ok');
 
     } catch (err) {
         console.warn('[kikikuru] fetch failed:', err);
-        if (_kikikuruCurrentEntry) {
-            _kikikuruStatus = 'stale';
-            _kikikuruSetStatusUI('stale');
-        } else {
-            _kikikuruStatus = 'error';
-            _kikikuruSetStatusUI('error');
+        for (const kind of Object.keys(_kikikuruEnabled)) {
+            if (_kikikuruEnabled[kind]) {
+                _kikikuruKindStatus[kind] = _kikikuruCurrentEntry ? 'error' : 'error';
+                _kikikuruUpdateKindStatusUI(kind);
+            }
         }
+        _kikikuruSetSharedStatusUI(_kikikuruCurrentEntry ? 'stale' : 'error');
     }
 }
 
@@ -170,12 +194,12 @@ function _kikikuruStopAutoRefresh() {
     }
 }
 
-// ── UI 状態 ──────────────────────────────────────────────────────────────────
+// ── 共通ステータスUI（更新時刻・バッジ） ─────────────────────────────────────
 
-function _kikikuruSetStatusUI(status) {
-    const statusEl  = document.getElementById('kkk-status-text');
-    const timeEl    = document.getElementById('kkk-updated-time');
-    const badgeEl   = document.getElementById('kkk-status-badge');
+function _kikikuruSetSharedStatusUI(status) {
+    const statusEl = document.getElementById('kkk-status-text');
+    const timeEl   = document.getElementById('kkk-updated-time');
+    const badgeEl  = document.getElementById('kkk-status-badge');
 
     const timeStr = _kikikuruLastUpdated
         ? _kikikuruLastUpdated.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
@@ -187,40 +211,46 @@ function _kikikuruSetStatusUI(status) {
 
     if (statusEl) {
         switch (status) {
-            case 'checking':
-                statusEl.textContent = '更新確認中…';
-                break;
-            case 'ok':
-                statusEl.textContent = validtimeStr ? `${validtimeStr} 時点` : '取得済み';
-                break;
-            case 'stale':
-                statusEl.textContent = '情報が古い可能性があります';
-                break;
-            case 'error':
-                statusEl.textContent = '取得不可';
-                break;
+            case 'checking': statusEl.textContent = '更新確認中…'; break;
+            case 'ok':       statusEl.textContent = validtimeStr ? `${validtimeStr} 時点` : '取得済み'; break;
+            case 'stale':    statusEl.textContent = '情報が古い可能性があります'; break;
+            case 'error':    statusEl.textContent = '取得不可'; break;
         }
     }
-
     if (timeEl) {
         timeEl.textContent = timeStr ? `（取得: ${timeStr}）` : '';
     }
-
     if (badgeEl) {
-        badgeEl.className    = 'kkk-status-badge';
+        badgeEl.className     = 'kkk-status-badge';
         badgeEl.style.display = '';
         switch (status) {
-            case 'ok':       badgeEl.classList.add('kkk-badge--ok');      badgeEl.textContent = '正常'; break;
-            case 'checking': badgeEl.classList.add('kkk-badge--check');   badgeEl.textContent = '確認中'; break;
-            case 'stale':    badgeEl.classList.add('kkk-badge--stale');   badgeEl.textContent = '古い可能性'; break;
-            case 'error':    badgeEl.classList.add('kkk-badge--error');   badgeEl.textContent = '取得不可'; break;
+            case 'ok':       badgeEl.classList.add('kkk-badge--ok');    badgeEl.textContent = '正常'; break;
+            case 'checking': badgeEl.classList.add('kkk-badge--check'); badgeEl.textContent = '確認中'; break;
+            case 'stale':    badgeEl.classList.add('kkk-badge--stale'); badgeEl.textContent = '古い可能性'; break;
+            case 'error':    badgeEl.classList.add('kkk-badge--error'); badgeEl.textContent = '取得不可'; break;
         }
     }
 
-    // 凡例パネル内の時刻も更新
     const legendTime = document.getElementById('kkk-legend-time');
     if (legendTime) legendTime.textContent = validtimeStr ? `${validtimeStr} 時点の危険度` : '';
 }
+
+// ── 種別ごとのステータスUI ─────────────────────────────────────────────────
+
+function _kikikuruUpdateKindStatusUI(kind) {
+    const span = document.getElementById(`kkk-kind-st-${kind}`);
+    if (!span) return;
+    const st = _kikikuruKindStatus[kind];
+    span.className = `kkk-kind-st kkk-kind-st--${st}`;
+    switch (st) {
+        case 'ok':       span.textContent = '●'; break;
+        case 'error':    span.textContent = '！'; break;
+        case 'checking': span.textContent = '…'; break;
+        default:         span.textContent = ''; break;
+    }
+}
+
+// ── フォーマット ─────────────────────────────────────────────────────────────
 
 function _kikikuruFmtValidtime(vt) {
     if (!vt || vt.length < 12) return '';
@@ -250,7 +280,6 @@ function _kikikuruSyncPanelVisibility() {
     const mapBtn = document.getElementById('kikikuru-map-btn');
     if (mapBtn) mapBtn.classList.toggle('map-overlay-btn--active', _kikikuruEnabled.inund);
 
-    // 自動更新の開始/停止
     if (anyOn) {
         if (!_kikikuruTimer) _kikikuruStartAutoRefresh();
     } else {
@@ -268,6 +297,12 @@ function _kikikuruLegendBuild() {
     title.className   = 'kkk-legend-title';
     title.textContent = 'キキクル（現在の危険度）';
     el.appendChild(title);
+
+    // 表示中レイヤー一覧（動的更新）
+    const kindsEl = document.createElement('div');
+    kindsEl.id        = 'kkk-legend-kinds';
+    kindsEl.className = 'kkk-legend-kinds';
+    el.appendChild(kindsEl);
 
     const timeEl = document.createElement('div');
     timeEl.id        = 'kkk-legend-time';
@@ -293,6 +328,15 @@ function _kikikuruLegendBuild() {
     el.dataset.built = '1';
 }
 
+function _kikikuruLegendUpdateKinds() {
+    const el = document.getElementById('kkk-legend-kinds');
+    if (!el) return;
+    const activeLabels = Object.entries(_kikikuruEnabled)
+        .filter(([, v]) => v)
+        .map(([k]) => _KIKIKURU_KINDS[k].label.replace('キキクル', ''));
+    el.textContent = activeLabels.length > 0 ? `表示中: ${activeLabels.join('・')}` : '';
+}
+
 function _kikikuruLegendShow() {
     const el = document.getElementById('kkk-legend');
     if (!el) return;
@@ -315,7 +359,6 @@ window.addEventListener('load', () => {
             e.stopPropagation();
             const next = !_kikikuruEnabled.inund;
             _kikikuruSetVisible('inund', next);
-            mapBtn.classList.toggle('map-overlay-btn--active', next);
             if (next) _kikikuruLegendShow(); else _kikikuruCheckLegendHide();
         });
     }
