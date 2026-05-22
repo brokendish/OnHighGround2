@@ -269,6 +269,22 @@ test.describe('Kikikuru display layer', () => {
     await expect(page.locator('#kkk-risk-dest .kkk-risk-title')).toContainText('目的地周辺');
   });
 
+  test('目的地変更フックで更新し clear で目的地要約が消える', async ({ page }) => {
+    await openInfoTab(page);
+    await page.locator('#kkk-toggle-inund').click();
+
+    await page.evaluate(async () => {
+      userDestination = { lat: 35.6812, lon: 139.7671, name: 'テスト目的地' };
+      kikikuruOnDestinationChange();
+    });
+
+    await expect(page.locator('#kkk-risk-dest')).toBeVisible();
+    await expect(page.locator('#kkk-risk-dest .kkk-risk-rows')).toContainText('なし');
+
+    await page.evaluate(() => clearUserDestination());
+    await expect(page.locator('#kkk-risk-dest')).toBeHidden();
+  });
+
   test('透明タイルの現在地サンプリングで「なし」が表示される', async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -340,6 +356,58 @@ test.describe('Kikikuru display layer', () => {
     expect(rowText).not.toMatch(/^なし$/);
   });
 
+  test('未知の不透明色は none 扱いしない', async ({ page }) => {
+    await openInfoTab(page);
+    const levels = await page.evaluate(() => ({
+      unknownOpaque: _kkkColorToLevel(18, 52, 86, 255),
+      transparent: _kkkColorToLevel(18, 52, 86, 0),
+    }));
+
+    expect(levels.unknownOpaque).toBe('unavailable');
+    expect(levels.transparent).toBe('none');
+  });
+
+  test('時刻更新失敗後に以前のなし要約を残さない', async ({ page }) => {
+    let failTimes = false;
+    await page.route('/api/**', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: '{}',
+    }));
+    await page.route('/emergency-shelters**', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: [], count: 0, total_count: 0 }),
+    }));
+    await page.route('**/jmatile/data/risk/**', route => {
+      if (route.request().url().includes('targetTimes.json')) {
+        return route.fulfill({
+          status: failTimes ? 503 : 200,
+          contentType: 'application/json',
+          body: failTimes ? '{}' : JSON.stringify([KIKIKURU_TIME]),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: TRANSPARENT_PNG,
+      });
+    });
+
+    await page.goto('/');
+    await page.evaluate(() => switchMbcTab('info'));
+    await page.locator('#kkk-card-section .lip-accordion-header').click();
+    await page.locator('#kkk-toggle-inund').click();
+    await page.evaluate(async () => {
+      currentLocation = { lat: 35.6812, lon: 139.7671, accuracyMeters: 10 };
+      await _kkkSampleLocation('current', 35.6812, 139.7671);
+    });
+    await expect(page.locator('#kkk-risk-current .kkk-risk-rows')).toContainText('なし');
+
+    failTimes = true;
+    await page.evaluate(() => refreshKikikuru());
+
+    await expect(page.locator('#kkk-risk-current .kkk-risk-rows')).toHaveText(/取得不可/);
+    await expect(page.locator('#kkk-risk-current .kkk-risk-rows')).not.toContainText('なし');
+  });
+
   test('Phase2: モバイル幅でリスク要約が崩れない', async ({ page }) => {
     await openInfoTab(page, { width: 390, height: 844 });
     const layout = await page.evaluate(() => {
@@ -350,6 +418,125 @@ test.describe('Kikikuru display layer', () => {
       return {
         overflow: panel.scrollWidth - panel.clientWidth,
         fits: riskRect.right <= panelRect.right + 2,
+      };
+    });
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    expect(layout.fits).toBe(true);
+  });
+
+  // ── Phase 3-A: ルート周辺危険度要約 ─────────────────────────────────────────
+
+  test('ルート未選択時はルートセクションが非表示', async ({ page }) => {
+    await openInfoTab(page);
+    await expect(page.locator('#kkk-risk-route')).toBeHidden();
+  });
+
+  test('ルート設定でルートセクションが表示され透明タイルは「なし」', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+
+    await openInfoTab(page);
+
+    // _kikikuruCurrentEntry を直接注入してからルートをサンプリング
+    await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      const coords = [
+        { lat: 35.6812, lng: 139.7671 },
+        { lat: 35.6850, lng: 139.7700 },
+        { lat: 35.6890, lng: 139.7730 },
+      ];
+      await _kkkSampleRoute(coords);
+    });
+
+    await expect(page.locator('#kkk-risk-route')).toBeVisible();
+    await expect(page.locator('#kkk-risk-route .kkk-risk-rows')).toContainText('なし');
+    await expect(page.locator('#kkk-risk-route .kkk-risk-rows')).not.toContainText('取得不可');
+    expect(errors).toEqual([]);
+  });
+
+  test('ルートクリアでルートセクションが非表示になる', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+
+    await openInfoTab(page);
+    await page.locator('#kkk-toggle-inund').click();
+
+    await page.evaluate(async () => {
+      await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+    });
+    await expect(page.locator('#kkk-risk-route')).toBeVisible();
+
+    await page.evaluate(() => { kikikuruOnRouteChange(null); });
+    await expect(page.locator('#kkk-risk-route')).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+
+  test('ルート変更で古いサンプリング結果を上書きしない（バージョンガード）', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+
+    await openInfoTab(page);
+
+    await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      const coordsA = [{ lat: 35.6812, lng: 139.7671 }];
+      const coordsB = [{ lat: 35.6900, lng: 139.7750 }];
+      // A の完了を待たずに B を開始（B が後勝ち）
+      _kkkSampleRoute(coordsA);
+      await _kkkSampleRoute(coordsB);
+    });
+
+    // B の結果が表示され、A の古い結果に戻っていない（両方透明タイルなので 'なし' が正常）
+    await expect(page.locator('#kkk-risk-route')).toBeVisible();
+    await expect(page.locator('#kkk-risk-route .kkk-risk-rows')).toContainText('なし');
+    expect(errors).toEqual([]);
+  });
+
+  test('kikikuruOnRouteChange(route) でルート要約が起動する', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+
+    await openInfoTab(page);
+    await page.locator('#kkk-toggle-inund').click();
+
+    // 公開APIとして呼べることを確認
+    await page.evaluate(async () => {
+      const mockRoute = {
+        coordinates: [
+          { lat: 35.6812, lng: 139.7671 },
+          { lat: 35.6850, lng: 139.7700 },
+        ],
+      };
+      kikikuruOnRouteChange(mockRoute);
+      // サンプリング完了を待つ
+      await new Promise(resolve => setTimeout(resolve, 500));
+    });
+
+    await expect(page.locator('#kkk-risk-route')).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('Phase3-A: ルートセクション含めモバイル幅で崩れない', async ({ page }) => {
+    await openInfoTab(page, { width: 390, height: 844 });
+    await page.locator('#kkk-toggle-inund').click();
+    await page.evaluate(async () => {
+      await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+    });
+
+    const layout = await page.evaluate(() => {
+      const panel = document.getElementById('mbc-tab-panel-info');
+      const routeEl = document.getElementById('kkk-risk-route');
+      const panelRect = panel.getBoundingClientRect();
+      const routeRect = routeEl.getBoundingClientRect();
+      return {
+        overflow: panel.scrollWidth - panel.clientWidth,
+        fits: routeRect.right <= panelRect.right + 2,
       };
     });
     expect(layout.overflow).toBeLessThanOrEqual(1);

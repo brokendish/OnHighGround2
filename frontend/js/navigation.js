@@ -1856,7 +1856,9 @@ function onNavRouteSelected(route, destination, meta = {}) {
     if (destination) {
         navDestination = destination;
         if (!navOriginalDestination) navOriginalDestination = destination;
+        if (typeof kikikuruOnDestinationChange === 'function') kikikuruOnDestinationChange();
     }
+    if (typeof kikikuruOnRouteChange === 'function') kikikuruOnRouteChange(route || null);
     if (typeof _lipUpdateRouteSelection === 'function') {
         _lipUpdateRouteSelection({
             route: route === null ? null : (route || navActiveRoute || null),

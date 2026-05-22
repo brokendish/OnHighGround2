@@ -188,6 +188,8 @@ async function _kikikuruRefresh() {
                 _kikikuruUpdateKindStatusUI(kind);
             }
         }
+        _kkkSetRiskUnavailable('current');
+        _kkkSetRiskUnavailable('dest');
         _kikikuruSetSharedStatusUI(_kikikuruCurrentEntry ? 'stale' : 'error');
     }
 }
@@ -404,6 +406,7 @@ window.addEventListener('load', () => {
     }
     _kkkUpdateRiskUI('current');
     _kkkUpdateRiskUI('dest');
+    _kkkUpdateRouteRiskUI();
 });
 
 function _kikikuruCheckLegendHide() {
@@ -448,7 +451,8 @@ function _kkkColorToLevel(r, g, b, a) {
         const d = Math.abs(r - c.r) + Math.abs(g - c.g) + Math.abs(b - c.b);
         if (d < bestDist) { bestDist = d; bestLevel = c.level; }
     }
-    return bestDist < 120 ? bestLevel : 'none';
+    // 不透明だがJMA危険度色として読めない色は safe 側へ倒さない。
+    return bestDist < 120 ? bestLevel : 'unavailable';
 }
 
 // タイル画像をフェッチして ImageData を返す（キャッシュ付き）
@@ -503,12 +507,21 @@ const _kkkRisk = {
     current: { status: 'off', inund: null, flood: null, land: null },
     dest:    { status: 'off', inund: null, flood: null, land: null },
 };
+const _kkkRiskSampleVersion = { current: 0, dest: 0 };
+
+function _kkkSetRiskUnavailable(target) {
+    ++_kkkRiskSampleVersion[target];
+    _kkkRisk[target] = { status: 'unavailable', inund: null, flood: null, land: null };
+    _kkkUpdateRiskUI(target);
+}
 
 async function _kkkSampleLocation(target, lat, lng) {
+    const sampleVersion = ++_kkkRiskSampleVersion[target];
     const entry = _kikikuruCurrentEntry;
     if (!entry) {
-        _kkkRisk[target].status = 'unavailable';
-        _kkkUpdateRiskUI(target);
+        if (sampleVersion === _kkkRiskSampleVersion[target]) {
+            _kkkSetRiskUnavailable(target);
+        }
         return;
     }
     _kkkRisk[target].status = 'loading';
@@ -519,9 +532,11 @@ async function _kkkSampleLocation(target, lat, lng) {
         const levels = await Promise.all(
             kinds.map(k => _kkkSampleKind(lat, lng, entry, k))
         );
+        if (sampleVersion !== _kkkRiskSampleVersion[target]) return;
         kinds.forEach((k, i) => { _kkkRisk[target][k] = levels[i]; });
         _kkkRisk[target].status = 'ok';
     } catch (_) {
+        if (sampleVersion !== _kkkRiskSampleVersion[target]) return;
         _kkkRisk[target].status = 'unavailable';
     }
     _kkkUpdateRiskUI(target);
@@ -544,7 +559,11 @@ function _kkkTriggerDestSample() {
         || (typeof userDestination !== 'undefined' && userDestination)
         || null;
     if (!dest) {
+        ++_kkkRiskSampleVersion.dest;
         _kkkRisk.dest.status = 'off';
+        _kkkRisk.dest.inund = null;
+        _kkkRisk.dest.flood = null;
+        _kkkRisk.dest.land = null;
         _kkkUpdateRiskUI('dest');
         return;
     }
@@ -557,6 +576,11 @@ function _kkkSampleAll() {
     _kkkCurrentSampleLastAt = 0;
     _kkkTriggerCurrentSample(true);
     _kkkTriggerDestSample();
+    if (typeof navActiveRoute !== 'undefined' && navActiveRoute
+            && Array.isArray(navActiveRoute.coordinates)
+            && navActiveRoute.coordinates.length > 0) {
+        _kkkSampleRoute(navActiveRoute.coordinates).catch(() => {});
+    }
 }
 
 // 現在地ポーリング（30秒）
@@ -627,4 +651,116 @@ function _kkkUpdateRiskUI(target) {
 // 公開: 目的地変更時に外部から呼べるフック
 function kikikuruOnDestinationChange() {
     _kkkTriggerDestSample();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 3-A — ルート周辺 危険度サンプリング
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// 危険度集約（最悪レベル優先）
+const _KKK_LEVEL_ORDER = { unavailable: 4, danger: 3, caution: 2, none: 1 };
+
+function _kkkWorseLevel(a, b) {
+    return (_KKK_LEVEL_ORDER[a] || 0) >= (_KKK_LEVEL_ORDER[b] || 0) ? a : b;
+}
+
+// ルート座標を最大 maxPts 点に均等間引き（現在地があれば前方優先）
+function _kkkSubsampleRoute(coords, maxPts) {
+    if (!coords.length) return [];
+    let startIdx = 0;
+    if (typeof currentLocation !== 'undefined' && currentLocation) {
+        let bestDist = Infinity;
+        for (let i = 0; i < coords.length; i++) {
+            const dlat = coords[i].lat - currentLocation.lat;
+            const dlng = coords[i].lng - currentLocation.lon;
+            const d = dlat * dlat + dlng * dlng;
+            if (d < bestDist) { bestDist = d; startIdx = i; }
+        }
+    }
+    const pool = coords.slice(startIdx);
+    if (pool.length <= maxPts) return pool;
+    const step = pool.length / maxPts;
+    return Array.from({ length: maxPts }, (_, i) =>
+        pool[Math.min(Math.floor(i * step), pool.length - 1)]
+    );
+}
+
+// ルートリスク状態
+const _kkkRouteRisk = { status: 'off', inund: null, flood: null, land: null };
+let _kkkRouteVersion = 0;
+
+async function _kkkSampleRoute(coords) {
+    const version = ++_kkkRouteVersion;
+    _kkkRouteRisk.status = 'loading';
+    _kkkUpdateRouteRiskUI();
+
+    const entry = _kikikuruCurrentEntry;
+    if (!entry) {
+        if (version === _kkkRouteVersion) {
+            _kkkRouteRisk.status = 'unavailable';
+            _kkkUpdateRouteRiskUI();
+        }
+        return;
+    }
+
+    const sample = _kkkSubsampleRoute(coords, 12);
+    const kinds = Object.keys(_KIKIKURU_KINDS);
+    const worst = { inund: null, flood: null, land: null };
+
+    for (const pt of sample) {
+        if (version !== _kkkRouteVersion) return; // 新しいルートに切り替わった
+        const levels = await Promise.all(kinds.map(k => _kkkSampleKind(pt.lat, pt.lng, entry, k)));
+        kinds.forEach((k, i) => {
+            worst[k] = worst[k] === null ? levels[i] : _kkkWorseLevel(worst[k], levels[i]);
+        });
+    }
+
+    if (version !== _kkkRouteVersion) return;
+    Object.assign(_kkkRouteRisk, worst);
+    _kkkRouteRisk.status = 'ok';
+    _kkkUpdateRouteRiskUI();
+}
+
+// 公開: ルート変更時に外部から呼ぶフック
+function kikikuruOnRouteChange(route) {
+    if (!route || !Array.isArray(route.coordinates) || route.coordinates.length === 0) {
+        ++_kkkRouteVersion; // in-flight を無効化
+        _kkkRouteRisk.status = 'off';
+        _kkkRouteRisk.inund = null;
+        _kkkRouteRisk.flood = null;
+        _kkkRouteRisk.land  = null;
+        _kkkUpdateRouteRiskUI();
+        return;
+    }
+    _kkkSampleRoute(route.coordinates).catch(() => {
+        if (_kkkRouteRisk.status === 'loading') {
+            _kkkRouteRisk.status = 'unavailable';
+            _kkkUpdateRouteRiskUI();
+        }
+    });
+}
+
+function _kkkUpdateRouteRiskUI() {
+    const el = document.getElementById('kkk-risk-route');
+    if (!el) return;
+    const rows = el.querySelector('.kkk-risk-rows');
+    if (!rows) return;
+
+    const st = _kkkRouteRisk.status;
+    el.style.display = st === 'off' ? 'none' : '';
+    if (st === 'off') return;
+
+    if (st === 'unavailable') {
+        rows.innerHTML = '<span class="kkk-risk-msg">取得不可</span>';
+        return;
+    }
+    if (st === 'loading') {
+        rows.innerHTML = '<span class="kkk-risk-msg">確認中…</span>';
+        return;
+    }
+    rows.innerHTML = Object.keys(_KIKIKURU_KINDS).map(kind => {
+        const kindLabel = _KIKIKURU_KINDS[kind].label.replace('キキクル', '');
+        const { text, cls } = _kkkRiskLabel(_kkkRouteRisk[kind]);
+        return `<span class="kkk-risk-item">${kindLabel}:<span class="kkk-risk-badge ${cls}">${text}</span></span>`;
+    }).join('');
 }
