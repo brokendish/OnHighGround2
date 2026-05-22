@@ -2225,6 +2225,90 @@
             margin-top: 4px;
         }
 
+        /* ── キキクル凡例（凡例パネル内） ──────────────── */
+        #kkk-legend { padding: 8px 4px; }
+        .kkk-legend-title {
+            font-size: 11px;
+            font-weight: bold;
+            color: #1e293b;
+            margin-bottom: 3px;
+        }
+        .kkk-legend-time {
+            font-size: 10px;
+            color: #64748b;
+            margin-bottom: 5px;
+        }
+        .kkk-legend-rows { display: flex; flex-direction: column; gap: 3px; }
+        .kkk-legend-row  { display: flex; align-items: center; gap: 6px; }
+        .kkk-legend-swatch {
+            width: 14px; height: 14px;
+            border-radius: 2px;
+            flex-shrink: 0;
+            border: 1px solid rgba(0,0,0,0.12);
+        }
+        .kkk-legend-label { font-size: 11px; color: #334155; }
+        .kkk-legend-source {
+            font-size: 9px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        /* ── キキクル 情報タブパネル ──────────────── */
+        .kkk-status-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        .kkk-status-text  { font-size: 11px; color: #475569; flex: 1; }
+        .kkk-updated-time { font-size: 10px; color: #94a3b8; }
+        .kkk-refresh-btn  {
+            font-size: 14px;
+            background: none;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            padding: 0 2px;
+            line-height: 1;
+        }
+        .kkk-refresh-btn:hover { color: #0ea5e9; }
+        .kkk-status-badge {
+            font-size: 10px;
+            padding: 1px 5px;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        .kkk-badge--ok    { background: #d1fae5; color: #065f46; }
+        .kkk-badge--check { background: #dbeafe; color: #1e40af; }
+        .kkk-badge--stale { background: #fef3c7; color: #92400e; }
+        .kkk-badge--error { background: #fee2e2; color: #991b1b; }
+        .kkk-toggle-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 6px;
+        }
+        .kkk-toggle-btn {
+            padding: 4px 10px;
+            font-size: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #f8fafc;
+            color: #475569;
+            cursor: pointer;
+        }
+        .kkk-toggle-btn:hover    { background: #e2e8f0; }
+        .kkk-toggle--active      {
+            background: #7b00d4 !important;
+            color: #fff !important;
+            border-color: #7b00d4 !important;
+        }
+        .kkk-note {
+            font-size: 10px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+
         /* ── 雨量レーダー予測コントロール（情報タブ内） ──────────────── */
         .lip-rain-ctrl {
             padding: 2px 0 0;
@@ -4112,6 +4196,14 @@
                         <span>雨量</span>
                     </button>
 
+                    <!-- キキクル（危険度分布） -->
+                    <button id="kikikuru-map-btn" class="map-overlay-btn" title="キキクル（浸水危険度）">
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                        </svg>
+                        <span>危険度</span>
+                    </button>
+
                     <!-- 現在地（センタリング） -->
                     <button id="locate-map-btn" class="map-overlay-btn" title="現在地に移動">
                         <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -4434,6 +4526,34 @@
                                             </div>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                            <!-- キキクル（現在の危険度） -->
+                            <div class="lip-card-section lip-accordion lip-accordion-collapsed" id="kkk-card-section">
+                                <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
+                                    <span class="lip-card-hdr-icon">⚠</span>
+                                    <span class="lip-card-hdr-title">キキクル（現在の危険度）</span>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span class="kkk-status-badge" id="kkk-status-badge" style="display:none;"></span>
+                                        <span class="lip-accordion-arrow">▾</span>
+                                    </div>
+                                </div>
+                                <div class="lip-accordion-body">
+                                    <!-- ステータス表示 -->
+                                    <div class="kkk-status-row">
+                                        <span id="kkk-status-text" class="kkk-status-text">未取得</span>
+                                        <span id="kkk-updated-time" class="kkk-updated-time"></span>
+                                        <button id="kkk-refresh-btn" class="kkk-refresh-btn" title="更新">↻</button>
+                                    </div>
+                                    <!-- レイヤー ON/OFF -->
+                                    <div class="kkk-panel-section" id="kkk-panel-section">
+                                        <div class="kkk-toggle-row">
+                                            <button id="kkk-toggle-inund" class="kkk-toggle-btn">浸水</button>
+                                            <button id="kkk-toggle-land"  class="kkk-toggle-btn">土砂</button>
+                                            <button id="kkk-toggle-flood" class="kkk-toggle-btn">洪水</button>
+                                        </div>
+                                    </div>
+                                    <div class="kkk-note">気象庁 危険度分布（10分更新）</div>
                                 </div>
                             </div>
                             <!-- 地震（周辺観測） -->
@@ -4781,6 +4901,8 @@
     <script src="js/boundary-layers.js"></script>
     <!-- 雨量レーダーレイヤー（Phase2B） -->
     <script src="js/rain-layer.js"></script>
+    <!-- キキクル（危険度分布）レイヤー -->
+    <script src="js/kikikuru-layer.js"></script>
     <!-- 地図オーバーレイUI -->
     <script src="js/map-overlay-ui.js"></script>
     <!-- Magnitudeモード（地震情報） -->

@@ -463,6 +463,10 @@ async function setupBasicMocks(page, datasets = ALL_DATASETS) {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONFIG_HISTORY) });
       return;
     }
+    if (route.request().url().includes('/stream')) {
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
+      return;
+    }
     if (route.request().method() !== 'PUT') {
       await route.continue();
       return;
@@ -1055,6 +1059,9 @@ test.describe('7. 失敗時エラー表示', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     );
     await page.route('/api/admin/datasets', route => route.abort('failed'));
+    await page.route('/api/admin/config/stream', route =>
+      route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' })
+    );
     await page.goto(PAGE_URL);
     await page.waitForTimeout(1000);
     await expect(page.locator('#notice-bar.error')).toBeVisible({ timeout: 3000 });
@@ -1239,7 +1246,7 @@ test.describe('11. Config タブ', () => {
 
     const input = page.locator('#config-input-navigation-arrival_distance_m');
     await input.fill('14');
-    await page.locator('tr[data-config-key="navigation.arrival_distance_m"] button').click();
+    await page.locator('[data-config-key="navigation.arrival_distance_m"] button.btn-primary').click();
 
     await expect(page.locator('#notice-bar')).toContainText('設定を保存しました');
   });
@@ -1252,7 +1259,7 @@ test.describe('11. Config タブ', () => {
     const input = page.locator('#config-input-logging-level');
     await expect(input).toBeVisible();
     await input.selectOption('ERROR');
-    await page.locator('tr[data-config-key="logging.level"] button').click();
+    await page.locator('[data-config-key="logging.level"] button.btn-primary').click();
 
     await expect(page.locator('#notice-bar')).toContainText('設定を保存しました');
   });
@@ -1264,7 +1271,7 @@ test.describe('11. Config タブ', () => {
 
     const input = page.locator('#config-input-navigation-arrival_distance_m');
     await input.fill('100');
-    await page.locator('tr[data-config-key="navigation.arrival_distance_m"] button').click();
+    await page.locator('[data-config-key="navigation.arrival_distance_m"] button.btn-primary').click();
 
     await expect(page.locator('#notice-bar')).toContainText('設定の保存に失敗しました');
     await expect(page.locator('#config-status-navigation-arrival_distance_m')).toContainText('50 以下');
@@ -1332,7 +1339,7 @@ test.describe('12. Logs タブ', () => {
     await expect(page.locator('#logs-connection-status')).toContainText('接続中');
 
     await page.evaluate(() => {
-      window.__emitEventSourceEvent(0, 'log', {
+      window.__emitEventSourceEvent(1, 'log', {
         line: '[2026-04-24T09:00:03Z] [navigation] reroute:success duration_ms=842',
         ts: '2026-04-24T09:00:03Z',
       });
@@ -1351,7 +1358,7 @@ test.describe('12. Logs タブ', () => {
 
     await page.evaluate(() => {
       for (let i = 0; i < 1105; i += 1) {
-        window.__emitEventSourceEvent(0, 'log', {
+        window.__emitEventSourceEvent(1, 'log', {
           line: `bulk-line-${i}`,
           ts: '2026-04-24T09:00:03Z',
         });

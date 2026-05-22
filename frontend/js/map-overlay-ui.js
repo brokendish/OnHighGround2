@@ -795,6 +795,16 @@ function buildLegendPanel() {
     rainLegendEl.id = 'rain-legend';
     rainLegendEl.style.display = 'none';
     panel.appendChild(rainLegendEl);
+
+    // キキクル凡例スロット（kikikuru-layer.js が内容を管理）
+    const kkkSep = document.createElement('hr');
+    kkkSep.className = 'legend-section-sep';
+    panel.appendChild(kkkSep);
+
+    const kkkLegendEl = document.createElement('div');
+    kkkLegendEl.id = 'kkk-legend';
+    kkkLegendEl.style.display = 'none';
+    panel.appendChild(kkkLegendEl);
 }
 
 // ── レイヤーパネル トグル ─────────────────────────────────────────────────

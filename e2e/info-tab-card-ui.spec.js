@@ -85,13 +85,13 @@ test.describe('Info tab card UI', () => {
     await expect(page.locator('#lip-tide-card-low-time')).toHaveCSS('color', 'rgb(14, 165, 233)');
   });
 
-  test('時間変化カード・環境カード・拡張カードがカード構造で表示される', async ({ page }) => {
+  test('潮位時間変化・日の出と月・気象カードがカード構造で表示される', async ({ page }) => {
     await openInfoTab(page);
 
     await expect(page.locator('.lip-card-hdr-title').filter({ hasText: '時間変化カード' })).toBeVisible();
     await expect(page.locator('#lip-tide-graph')).toBeVisible();
     await expect(page.locator('#lip-sun-moon-timeline')).toBeVisible();
-    await expect(page.locator('.lip-card-hdr-title').filter({ hasText: '環境カード' })).toBeVisible();
+    await expect(page.locator('.lip-card-hdr-title').filter({ hasText: '日の出と月カード' })).toBeVisible();
     await expect(page.locator('#lip-astro-sunrise')).toHaveText('04:35');
     await expect(page.locator('#lip-astro-sunset')).toHaveText('18:39');
     await expect(page.locator('#lip-astro-moonrise')).toHaveText('03:35');
