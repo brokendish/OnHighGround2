@@ -39,6 +39,7 @@ const _KIKIKURU_LEGEND = [
 let _kikikuruCurrentEntry = null;   // targetTimesの最新エントリ
 let _kikikuruLastUpdated  = null;   // 最終取得成功時刻（Date）
 let _kikikuruTimer        = null;
+let _kikikuruRefreshPromise = null; // 同時ON時の時刻取得を束ねる
 
 // 種別ごとの状態: 'off'|'checking'|'ok'|'error'
 const _kikikuruKindStatus = { inund: 'off', flood: 'off', land: 'off' };
@@ -139,7 +140,15 @@ function _kikikuruSetVisible(kind, visible) {
 
 // ── 更新処理 ────────────────────────────────────────────────────────────────
 
-async function refreshKikikuru() {
+function refreshKikikuru() {
+    if (_kikikuruRefreshPromise) return _kikikuruRefreshPromise;
+
+    _kikikuruRefreshPromise = _kikikuruRefresh()
+        .finally(() => { _kikikuruRefreshPromise = null; });
+    return _kikikuruRefreshPromise;
+}
+
+async function _kikikuruRefresh() {
     // 全有効種別を checking に
     for (const kind of Object.keys(_kikikuruEnabled)) {
         if (_kikikuruEnabled[kind]) {
@@ -243,10 +252,10 @@ function _kikikuruUpdateKindStatusUI(kind) {
     const st = _kikikuruKindStatus[kind];
     span.className = `kkk-kind-st kkk-kind-st--${st}`;
     switch (st) {
-        case 'ok':       span.textContent = '●'; break;
-        case 'error':    span.textContent = '！'; break;
-        case 'checking': span.textContent = '…'; break;
-        default:         span.textContent = ''; break;
+        case 'ok':       span.textContent = '正常'; break;
+        case 'error':    span.textContent = '取得不可'; break;
+        case 'checking': span.textContent = '確認中'; break;
+        default:         span.textContent = 'OFF'; break;
     }
 }
 
@@ -387,6 +396,9 @@ window.addEventListener('load', () => {
 
     _kikikuruLegendBuild();
     _kikikuruLegendHide();
+    for (const kind of Object.keys(_KIKIKURU_KINDS)) {
+        _kikikuruUpdateKindStatusUI(kind);
+    }
 });
 
 function _kikikuruCheckLegendHide() {

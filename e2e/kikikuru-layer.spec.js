@@ -125,7 +125,8 @@ test.describe('Kikikuru display layer', () => {
       _kikikuruLayers.flood && _kikikuruLayers.flood._url
     )).toContain('/surf/flood_mesh/');
 
-    await expect(page.locator('#kkk-kind-st-flood')).toContainText('●');
+    await expect(page.locator('#kkk-kind-st-flood')).toHaveText('正常');
+    await expect.poll(() => tileUrls.some(url => url.includes('/surf/flood_mesh/'))).toBe(true);
 
     // OFF
     await page.locator('#kkk-toggle-flood').click();
@@ -138,6 +139,13 @@ test.describe('Kikikuru display layer', () => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
 
+    const tileUrls = [];
+    page.on('request', req => {
+      if (req.url().includes('jmatile/data/risk') && !req.url().includes('targetTimes')) {
+        tileUrls.push(req.url());
+      }
+    });
+
     await openInfoTab(page);
 
     await page.locator('#kkk-toggle-land').click();
@@ -147,7 +155,8 @@ test.describe('Kikikuru display layer', () => {
       _kikikuruLayers.land && _kikikuruLayers.land._url
     )).toContain('/surf/land/');
 
-    await expect(page.locator('#kkk-kind-st-land')).toContainText('●');
+    await expect(page.locator('#kkk-kind-st-land')).toHaveText('正常');
+    await expect.poll(() => tileUrls.some(url => url.includes('/surf/land/'))).toBe(true);
 
     // OFF
     await page.locator('#kkk-toggle-land').click();
@@ -159,6 +168,12 @@ test.describe('Kikikuru display layer', () => {
   test('3種同時 ON でも JS エラーが発生しない', async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
+    const timesRequests = [];
+    page.on('request', req => {
+      if (req.url().includes('jmatile/data/risk/targetTimes.json')) {
+        timesRequests.push(req.url());
+      }
+    });
 
     await openInfoTab(page);
 
@@ -180,35 +195,36 @@ test.describe('Kikikuru display layer', () => {
     await expect(page.locator('#kkk-legend-kinds')).toContainText('洪水');
     await expect(page.locator('#kkk-legend-kinds')).toContainText('土砂');
 
+    expect(timesRequests).toHaveLength(1);
     expect(errors).toEqual([]);
   });
 
   test('種別ごとのステータスインジケーターが正しく表示される', async ({ page }) => {
     await openInfoTab(page);
 
-    // ON前はテキストなし（off状態）
-    await expect(page.locator('#kkk-kind-st-inund')).toHaveText('');
-    await expect(page.locator('#kkk-kind-st-flood')).toHaveText('');
-    await expect(page.locator('#kkk-kind-st-land')).toHaveText('');
+    // ON前は種別ごとに OFF 状態が読める。
+    await expect(page.locator('#kkk-kind-st-inund')).toHaveText('OFF');
+    await expect(page.locator('#kkk-kind-st-flood')).toHaveText('OFF');
+    await expect(page.locator('#kkk-kind-st-land')).toHaveText('OFF');
 
-    // 浸水ON → ● 表示
+    // 浸水ON → 正常 表示
     await page.locator('#kkk-toggle-inund').click();
-    await expect(page.locator('#kkk-kind-st-inund')).toContainText('●');
+    await expect(page.locator('#kkk-kind-st-inund')).toHaveText('正常');
     // 洪水/土砂はまだ off
-    await expect(page.locator('#kkk-kind-st-flood')).toHaveText('');
-    await expect(page.locator('#kkk-kind-st-land')).toHaveText('');
+    await expect(page.locator('#kkk-kind-st-flood')).toHaveText('OFF');
+    await expect(page.locator('#kkk-kind-st-land')).toHaveText('OFF');
 
-    // 洪水ON → ●
+    // 洪水ON → 正常
     await page.locator('#kkk-toggle-flood').click();
-    await expect(page.locator('#kkk-kind-st-flood')).toContainText('●');
+    await expect(page.locator('#kkk-kind-st-flood')).toHaveText('正常');
 
-    // 土砂ON → ●
+    // 土砂ON → 正常
     await page.locator('#kkk-toggle-land').click();
-    await expect(page.locator('#kkk-kind-st-land')).toContainText('●');
+    await expect(page.locator('#kkk-kind-st-land')).toHaveText('正常');
 
-    // 浸水OFF → テキストなしに戻る
+    // 浸水OFF → OFF に戻る
     await page.locator('#kkk-toggle-inund').click();
-    await expect(page.locator('#kkk-kind-st-inund')).toHaveText('');
+    await expect(page.locator('#kkk-kind-st-inund')).toHaveText('OFF');
   });
 
   test('モバイル幅でキキクル UI が情報タブに収まる', async ({ page }) => {
