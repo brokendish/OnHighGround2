@@ -717,19 +717,19 @@ test.describe('Kikikuru display layer', () => {
     expect(result.kikikuru_adjustment.penalty).toBe(4);
   });
 
-  test('Phase3-B: kikikuruSetBackendAdjustment でルートカードに補正行が表示される', async ({ page }) => {
+  test('Phase3-B/3-C: kikikuruSetBackendAdjustment でルートカードに補正ブロックが表示される', async ({ page }) => {
     await openInfoTab(page);
     await page.evaluate(async () => {
       _kikikuruCurrentEntry = {
         basetime: '20260522111000', validtime: '20260522111000',
         member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
       };
-      // ルートを設定してサンプリング
       await _kkkSampleRoute([
         { lat: 35.6812, lng: 139.7671 },
         { lat: 35.6850, lng: 139.7700 },
       ]);
-      // バックエンド補正結果を注入
+      // route risk を注意にして adj が発火するようにする
+      _kkkRouteRisk.flood = 'caution';
       kikikuruSetBackendAdjustment({
         enabled: true,
         status: 'normal',
@@ -740,14 +740,24 @@ test.describe('Kikikuru display layer', () => {
       });
     });
 
-    const adjRow = await page.locator('.kkk-adj-row').first();
-    await expect(adjRow).toBeVisible();
-    const text = await adjRow.textContent();
-    expect(text).toContain('補正');
-    expect(text).toContain('−8pt');
+    // Phase 3-C: .kkk-adj-block が表示される
+    const adjBlock = await page.locator('.kkk-adj-block').first();
+    await expect(adjBlock).toBeVisible();
+
+    // ラベルに「リアルタイム補正」
+    const label = await page.locator('.kkk-adj-label').first().textContent();
+    expect(label).toContain('リアルタイム補正');
+
+    // メインメッセージに「注意」または「上昇」
+    const main = await page.locator('.kkk-adj-main').first().textContent();
+    expect(main).toMatch(/注意|上昇|危険/);
+
+    // 固定ハザード重複時はコンテキスト行が出る
+    const context = await page.locator('.kkk-adj-context').first().textContent();
+    expect(context).toContain('重なっています');
   });
 
-  test('Phase3-B: kikikuruSetBackendAdjustment で取得不可時は unavail 行が表示される', async ({ page }) => {
+  test('Phase3-B/3-C: kikikuruSetBackendAdjustment で取得不可時は unavail 行が表示される', async ({ page }) => {
     await openInfoTab(page);
     await page.evaluate(async () => {
       _kikikuruCurrentEntry = {
@@ -771,7 +781,7 @@ test.describe('Kikikuru display layer', () => {
     expect(text).toContain('取得不可');
   });
 
-  test('Phase3-B: penalty 0 の補正は adj 行を表示しない', async ({ page }) => {
+  test('Phase3-B/3-C: penalty 0 の補正は補正ブロックを表示しない', async ({ page }) => {
     await openInfoTab(page);
     await page.evaluate(async () => {
       _kikikuruCurrentEntry = {
@@ -789,11 +799,11 @@ test.describe('Kikikuru display layer', () => {
       });
     });
 
-    const adjRows = await page.locator('.kkk-adj-row').count();
-    expect(adjRows).toBe(0);
+    const adjBlocks = await page.locator('.kkk-adj-block').count();
+    expect(adjBlocks).toBe(0);
   });
 
-  test('Phase3-B: ルート clear で _kkkBackendAdj がリセットされ adj 行が消える', async ({ page }) => {
+  test('Phase3-B/3-C: ルート clear で _kkkBackendAdj がリセットされ補正ブロックが消える', async ({ page }) => {
     await openInfoTab(page);
     await page.evaluate(async () => {
       _kikikuruCurrentEntry = {
@@ -801,6 +811,7 @@ test.describe('Kikikuru display layer', () => {
         member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
       };
       await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+      _kkkRouteRisk.flood = 'caution';
       kikikuruSetBackendAdjustment({
         enabled: true, status: 'normal', penalty: 8,
         max_level: 'danger', matched_hazards: ['flood'],
@@ -808,8 +819,8 @@ test.describe('Kikikuru display layer', () => {
       });
     });
 
-    // 補正行があることを確認
-    await expect(page.locator('.kkk-adj-row').first()).toBeVisible();
+    // 補正ブロックがあることを確認
+    await expect(page.locator('.kkk-adj-block').first()).toBeVisible();
 
     // ルートをクリア
     await page.evaluate(() => kikikuruOnRouteChange(null));
@@ -819,7 +830,7 @@ test.describe('Kikikuru display layer', () => {
     await expect(routeEl).toHaveCSS('display', 'none');
   });
 
-  test('Phase3-B: 補正あり表示のモバイル幅崩れなし', async ({ page }) => {
+  test('Phase3-B/3-C: 補正あり表示のモバイル幅崩れなし', async ({ page }) => {
     await openInfoTab(page, { width: 390, height: 844 });
     await page.evaluate(async () => {
       _kikikuruCurrentEntry = {
@@ -827,6 +838,7 @@ test.describe('Kikikuru display layer', () => {
         member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
       };
       await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+      _kkkRouteRisk.flood = 'danger';
       kikikuruSetBackendAdjustment({
         enabled: true, status: 'normal', penalty: 16,
         max_level: 'danger', matched_hazards: ['flood'],
@@ -842,6 +854,69 @@ test.describe('Kikikuru display layer', () => {
       return {
         overflow: panel.scrollWidth - panel.clientWidth,
         fits: routeRect.right <= panelRect.right + 2,
+      };
+    });
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    expect(layout.fits).toBe(true);
+  });
+
+  // ─── Phase 3-C 追加テスト ─────────────────────────────────────────────────
+
+  test('Phase3-C: HAZARD_DISPLAY_NAMES が内部IDを持たない（lowland_poor_drainage など）', async ({ page }) => {
+    await openInfoTab(page);
+    const result = await page.evaluate(() => {
+      const raw = ['lowland_poor_drainage', 'flood', 'inland_flood', 'landslide', 'inund', 'flood_mesh', 'land'];
+      return raw.map(id => ({ id, display: getHazardDisplayName(id) }));
+    });
+    // 内部IDがそのままUI表示名にならない
+    for (const item of result) {
+      expect(item.display).not.toBe('');
+      // "lowland_poor_dra..." のような切れ目が出ない
+      expect(item.display).not.toMatch(/lowland_poor_drainage|flood_mesh|inland_flood/);
+    }
+  });
+
+  test('Phase3-C: STATUS_DISPLAY_NAMES がすべての状態をカバーする', async ({ page }) => {
+    await openInfoTab(page);
+    const result = await page.evaluate(() => {
+      return ['safe', 'caution', 'danger', 'unavailable', 'unknown', 'loading', 'none', 'ok', 'error']
+        .map(s => getStatusDisplayName(s));
+    });
+    // すべて日本語に変換済み（英語のままでない）
+    for (const name of result) {
+      expect(name).not.toMatch(/^(safe|caution|danger|unavailable|unknown|loading|none|ok|error)$/);
+    }
+  });
+
+  test('Phase3-C: キキクルボタンに公式JMA名称が含まれる', async ({ page }) => {
+    await openInfoTab(page);
+    const inundText = await page.locator('#kkk-toggle-inund').textContent();
+    const landText  = await page.locator('#kkk-toggle-land').textContent();
+    const floodText = await page.locator('#kkk-toggle-flood').textContent();
+    expect(inundText).toContain('浸水キキクル');
+    expect(landText).toContain('土砂キキクル');
+    expect(floodText).toContain('洪水キキクル');
+  });
+
+  test('Phase3-C: kkk-explain-text が情報タブに表示される', async ({ page }) => {
+    await openInfoTab(page);
+    const explain = page.locator('.kkk-explain-text').first();
+    await expect(explain).toBeVisible();
+    const text = await explain.textContent();
+    expect(text).toContain('固定ハザード');
+    expect(text).toContain('キキクル');
+  });
+
+  test('Phase3-C: モバイル幅でキキクル公式名ボタンが収まる', async ({ page }) => {
+    await openInfoTab(page, { width: 390, height: 844 });
+    const layout = await page.evaluate(() => {
+      const panel = document.getElementById('mbc-tab-panel-info');
+      const toggleRow = document.querySelector('.kkk-toggle-row');
+      const panelRect = panel.getBoundingClientRect();
+      const rowRect = toggleRow ? toggleRow.getBoundingClientRect() : panelRect;
+      return {
+        overflow: panel.scrollWidth - panel.clientWidth,
+        fits: rowRect.right <= panelRect.right + 2,
       };
     });
     expect(layout.overflow).toBeLessThanOrEqual(1);

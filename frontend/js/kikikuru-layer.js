@@ -340,15 +340,24 @@ function _kikikuruLegendBuild() {
     src.textContent = '表示なしは危険度分布なしまたはデータなし。取得不可時は状態欄で通知します。出典: 気象庁';
     el.appendChild(src);
 
+    // Phase 3-C: 凡例説明
+    const explain = document.createElement('div');
+    explain.className = 'kkk-legend-explain';
+    explain.innerHTML =
+        '<strong>取得不可</strong>は安全を意味しません。' +
+        'キキクルのみで危険を確定するものではありません。';
+    el.appendChild(explain);
+
     el.dataset.built = '1';
 }
 
 function _kikikuruLegendUpdateKinds() {
     const el = document.getElementById('kkk-legend-kinds');
     if (!el) return;
+    // フルJMA公式名で表示（Phase 3-C）
     const activeLabels = Object.entries(_kikikuruEnabled)
         .filter(([, v]) => v)
-        .map(([k]) => _KIKIKURU_KINDS[k].label.replace('キキクル', ''));
+        .map(([k]) => _KIKIKURU_KINDS[k].label);
     el.textContent = activeLabels.length > 0 ? `表示中: ${activeLabels.join('・')}` : '';
 }
 
@@ -362,6 +371,97 @@ function _kikikuruLegendShow() {
 function _kikikuruLegendHide() {
     const el = document.getElementById('kkk-legend');
     if (el) el.style.display = 'none';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Phase 3-C — 表示名辞書・ユーザー向け翻訳レイヤー
+// ══════════════════════════════════════════════════════════════════════════════
+
+// 固定ハザード・キキクル種別の表示名（内部IDをUIに出さない）
+const HAZARD_DISPLAY_NAMES = {
+    // 固定ハザード
+    lowland_poor_drainage: '低地・排水困難エリア',
+    inland_flood:          '内水浸水エリア',
+    pseudo_inland_flood:   '推定内水浸水エリア',
+    flood:                 '洪水浸水エリア',
+    tsunami:               '津波エリア',
+    landslide:             '土砂災害エリア',
+    storm_surge:           '高潮エリア',
+    // キキクル種別（気象庁公式表記）
+    inund:                 '浸水キキクル',
+    flood_mesh:            '洪水キキクル',
+    land:                  '土砂キキクル',
+};
+
+// ステータス値の表示名
+const STATUS_DISPLAY_NAMES = {
+    safe:        '安全寄り',
+    caution:     '注意',
+    danger:      '危険',
+    unavailable: '取得不可',
+    unknown:     '判定不可',
+    loading:     '確認中',
+    none:        'なし',
+    ok:          '正常',
+    error:       '取得失敗',
+};
+
+function getHazardDisplayName(id) {
+    return HAZARD_DISPLAY_NAMES[id] || id;
+}
+
+function getStatusDisplayName(status) {
+    return STATUS_DISPLAY_NAMES[status] || status;
+}
+
+// バックエンド補正をユーザー向け自然言語HTMLへ変換（Phase 3-C）
+function _kkkAdjNaturalHtml(adj) {
+    if (!adj?.enabled) return '';
+
+    if (adj.status === 'unavailable') {
+        return '<span class="kkk-adj-row kkk-adj-unavail">キキクル取得不可（補正なし）</span>';
+    }
+    if (adj.penalty <= 0) return '';
+
+    const hasOverlap = Array.isArray(adj.matched_hazards) && adj.matched_hazards.length > 0;
+    const hasDanger  = ['inund', 'flood', 'land'].some(k => _kkkRouteRisk[k] === 'danger');
+
+    // 関与しているキキクル種別（caution / danger のもの）
+    const activeKinds = ['inund', 'flood', 'land'].filter(k => {
+        const lv = _kkkRouteRisk[k];
+        return lv === 'caution' || lv === 'danger';
+    });
+    const kindText = activeKinds.length > 0
+        ? activeKinds.map(k => _KIKIKURU_KINDS[k].label.replace('キキクル', '')).join('・')
+        : 'キキクル';
+
+    // メインメッセージ
+    let mainMsg;
+    if (hasOverlap && hasDanger) {
+        mainMsg = `${kindText}リスクが上昇しています`;
+    } else if (hasOverlap) {
+        mainMsg = `${kindText}に注意が必要です`;
+    } else if (hasDanger) {
+        mainMsg = `${kindText}キキクルで危険を検出`;
+    } else {
+        mainMsg = `${kindText}に注意が必要です`;
+    }
+
+    const blockCls = hasOverlap
+        ? 'kkk-adj-block kkk-adj-block--overlap'
+        : 'kkk-adj-block';
+
+    let html = `<div class="${blockCls}">`;
+    html += `<span class="kkk-adj-label">リアルタイム補正</span>`;
+    html += `<span class="kkk-adj-main">${mainMsg}</span>`;
+    if (hasOverlap) {
+        const hazardNames = adj.matched_hazards
+            .map(h => getHazardDisplayName(h))
+            .join('・');
+        html += `<span class="kkk-adj-context">固定ハザード（${hazardNames}）とキキクルが重なっています</span>`;
+    }
+    html += '</div>';
+    return html;
 }
 
 // ── 初期化 ───────────────────────────────────────────────────────────────────
@@ -811,15 +911,8 @@ function _kkkUpdateRouteRiskUI() {
         return `<span class="kkk-risk-item">${kindLabel}:<span class="kkk-risk-badge ${cls}">${text}</span></span>`;
     }).join('');
 
-    // バックエンド補正サマリー（Phase 3-B）
-    const adj = _kkkBackendAdj;
-    if (adj?.enabled && adj?.penalty > 0 && Array.isArray(adj.summary) && adj.summary.length > 0) {
-        const penaltyText = `−${adj.penalty}pt`;
-        const details = adj.summary.join(' / ');
-        html += `<span class="kkk-adj-row">補正: ${penaltyText} <span class="kkk-adj-detail">${details}</span></span>`;
-    } else if (adj?.status === 'unavailable') {
-        html += `<span class="kkk-adj-row kkk-adj-unavail">キキクル取得不可（補正なし）</span>`;
-    }
+    // バックエンド補正（Phase 3-C: 自然文表示）
+    html += _kkkAdjNaturalHtml(_kkkBackendAdj);
 
     rows.innerHTML = html;
 }

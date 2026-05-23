@@ -2289,13 +2289,14 @@
             margin-bottom: 6px;
         }
         .kkk-toggle-btn {
-            padding: 4px 10px;
-            font-size: 12px;
+            padding: 4px 8px;
+            font-size: 11px;
             border: 1px solid #cbd5e1;
             border-radius: 6px;
             background: #f8fafc;
             color: #475569;
             cursor: pointer;
+            word-break: keep-all;
         }
         .kkk-toggle-btn:hover    { background: #e2e8f0; }
         .kkk-toggle--active      {
@@ -2368,21 +2369,54 @@
             font-size: 11px;
             color: #94a3b8;
         }
-        /* Phase 3-B: キキクル補正行 */
-        .kkk-adj-row {
-            display: block;
-            margin-top: 4px;
-            font-size: 11px;
-            color: #b45309;
-            font-weight: 500;
+        /* Phase 3-C: キキクル補正ブロック（自然文表示） */
+        .kkk-adj-block {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-top: 6px;
+            padding: 6px 8px;
+            background: #fffbeb;
+            border: 1px solid #fcd34d;
+            border-radius: 6px;
         }
-        .kkk-adj-detail {
-            font-weight: 400;
+        .kkk-adj-block--overlap {
+            background: #fff7ed;
+            border-color: #fdba74;
+        }
+        .kkk-adj-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: #92400e;
+            letter-spacing: 0.02em;
+        }
+        .kkk-adj-main {
+            font-size: 12px;
+            font-weight: 600;
             color: #78350f;
+            word-break: break-all;
         }
-        .kkk-adj-unavail {
+        .kkk-adj-context {
+            font-size: 11px;
+            color: #92400e;
+            word-break: break-all;
+        }
+        /* 取得不可（旧 kkk-adj-unavail との互換維持） */
+        .kkk-adj-row { display: block; margin-top: 4px; }
+        .kkk-adj-unavail { font-size: 11px; color: #94a3b8; }
+        /* 説明文（Phase 3-C） */
+        .kkk-explain-text {
+            font-size: 10px;
+            color: #64748b;
+            line-height: 1.5;
+            margin-top: 6px;
+        }
+        /* 凡例説明（Phase 3-C） */
+        .kkk-legend-explain {
+            font-size: 9px;
             color: #94a3b8;
-            font-weight: 400;
+            margin-top: 5px;
+            line-height: 1.4;
         }
 
         /* ── 雨量レーダー予測コントロール（情報タブ内） ──────────────── */
@@ -4688,9 +4722,9 @@
                                 <!-- レイヤー ON/OFF -->
                                 <div class="kkk-panel-section" id="kkk-panel-section">
                                     <div class="kkk-toggle-row">
-                                        <button id="kkk-toggle-inund" class="kkk-toggle-btn">浸水<span id="kkk-kind-st-inund" class="kkk-kind-st"></span></button>
-                                        <button id="kkk-toggle-land"  class="kkk-toggle-btn">土砂<span id="kkk-kind-st-land"  class="kkk-kind-st"></span></button>
-                                        <button id="kkk-toggle-flood" class="kkk-toggle-btn">洪水<span id="kkk-kind-st-flood" class="kkk-kind-st"></span></button>
+                                        <button id="kkk-toggle-inund" class="kkk-toggle-btn" title="浸水キキクル（気象庁危険度分布）">浸水キキクル<span id="kkk-kind-st-inund" class="kkk-kind-st"></span></button>
+                                        <button id="kkk-toggle-land"  class="kkk-toggle-btn" title="土砂キキクル（気象庁危険度分布）">土砂キキクル<span id="kkk-kind-st-land"  class="kkk-kind-st"></span></button>
+                                        <button id="kkk-toggle-flood" class="kkk-toggle-btn" title="洪水キキクル（気象庁危険度分布）">洪水キキクル<span id="kkk-kind-st-flood" class="kkk-kind-st"></span></button>
                                     </div>
                                 </div>
                                 <!-- 危険度要約 -->
@@ -4707,6 +4741,9 @@
                                     <div class="kkk-risk-rows"></div>
                                 </div>
                                 <div class="kkk-note">気象庁 危険度分布（10分更新）</div>
+                                <div class="kkk-explain-text">
+                                    固定ハザードと気象庁キキクルを組み合わせて現在の危険度を補正しています。キキクルのみで危険を確定するものではありません。
+                                </div>
                             </div>
                         </div>
                         <!-- ナビ中：既存の避難先情報（wrap） -->
