@@ -465,11 +465,12 @@ test.describe('Kikikuru display layer', () => {
     await page.locator('#kkk-toggle-inund').click();
 
     await page.evaluate(async () => {
+      userDestination = { lat: 35.6812, lon: 139.7671, name: 'clear route destination' };
       await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
     });
     await expect(page.locator('#kkk-risk-route')).toBeVisible();
 
-    await page.evaluate(() => { kikikuruOnRouteChange(null); });
+    await page.evaluate(() => clearUserDestination());
     await expect(page.locator('#kkk-risk-route')).toBeHidden();
     expect(errors).toEqual([]);
   });
@@ -498,14 +499,14 @@ test.describe('Kikikuru display layer', () => {
     expect(errors).toEqual([]);
   });
 
-  test('kikikuruOnRouteChange(route) でルート要約が起動する', async ({ page }) => {
+  test('route preview でもルート要約カードが表示される', async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
 
     await openInfoTab(page);
     await page.locator('#kkk-toggle-inund').click();
 
-    // 公開APIとして呼べることを確認
+    // 実アプリの route selection フローから route preview に切り替える。
     await page.evaluate(async () => {
       const mockRoute = {
         coordinates: [
@@ -513,13 +514,153 @@ test.describe('Kikikuru display layer', () => {
           { lat: 35.6850, lng: 139.7700 },
         ],
       };
-      kikikuruOnRouteChange(mockRoute);
+      onNavRouteSelected(mockRoute, null, {});
       // サンプリング完了を待つ
       await new Promise(resolve => setTimeout(resolve, 500));
     });
 
+    await expect(page.locator('#kkk-card-section')).toBeVisible();
     await expect(page.locator('#kkk-risk-route')).toBeVisible();
     expect(errors).toEqual([]);
+  });
+
+  test('ルート tile 取得失敗時は取得不可を表示して safe 扱いしない', async ({ page }) => {
+    await page.route('/api/**', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: '{}',
+    }));
+    await page.route('/emergency-shelters**', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: [], count: 0, total_count: 0 }),
+    }));
+    await page.route('**/jmatile/data/risk/targetTimes.json**', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify([KIKIKURU_TIME]),
+    }));
+    await page.route('**/jmatile/data/risk/**/surf/**/*.png', route => route.fulfill({
+      status: 503, body: '',
+    }));
+
+    await page.goto('/');
+    await page.evaluate(() => switchMbcTab('info'));
+    await page.locator('#kkk-card-section .lip-accordion-header').click();
+    await page.locator('#kkk-toggle-inund').click();
+    await expect(page.locator('#kkk-status-badge')).toContainText('正常');
+    await page.evaluate(async () => {
+      await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+    });
+
+    const rowText = await page.locator('#kkk-risk-route .kkk-risk-rows').textContent();
+    expect(rowText).toContain('取得不可');
+    expect(rowText).not.toContain('なし');
+  });
+
+  test('時刻更新失敗後にルートの以前のなし要約を残さない', async ({ page }) => {
+    let failTimes = false;
+    await page.route('/api/**', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: '{}',
+    }));
+    await page.route('/emergency-shelters**', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: [], count: 0, total_count: 0 }),
+    }));
+    await page.route('**/jmatile/data/risk/**', route => {
+      if (route.request().url().includes('targetTimes.json')) {
+        return route.fulfill({
+          status: failTimes ? 503 : 200,
+          contentType: 'application/json',
+          body: failTimes ? '{}' : JSON.stringify([KIKIKURU_TIME]),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: TRANSPARENT_PNG,
+      });
+    });
+
+    await page.goto('/');
+    await page.evaluate(() => switchMbcTab('info'));
+    await page.locator('#kkk-card-section .lip-accordion-header').click();
+    await page.locator('#kkk-toggle-inund').click();
+    await expect(page.locator('#kkk-status-badge')).toContainText('正常');
+    await page.evaluate(async () => {
+      await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+    });
+    await expect(page.locator('#kkk-risk-route .kkk-risk-rows')).toContainText('なし');
+
+    failTimes = true;
+    await page.evaluate(() => refreshKikikuru());
+
+    await expect(page.locator('#kkk-risk-route .kkk-risk-rows')).toHaveText(/取得不可/);
+    await expect(page.locator('#kkk-risk-route .kkk-risk-rows')).not.toContainText('なし');
+  });
+
+  test('ルート要約は route-risk を呼ばずルート危険度値を変更しない', async ({ page }) => {
+    const routeRiskRequests = [];
+    page.on('request', request => {
+      if (request.url().includes('/api/route-risk')) routeRiskRequests.push(request.url());
+    });
+
+    await openInfoTab(page);
+    const result = await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      const route = {
+        coordinates: [{ lat: 35.6812, lng: 139.7671 }],
+        safety_score: 87,
+        risk_level: 'caution',
+        risk_summary: ['固定ハザードのみ'],
+        __riskSummary: { safety_score: 87, risk_level: 'caution' },
+      };
+      await _kkkSampleRoute(route.coordinates);
+      return {
+        safetyScore: route.safety_score,
+        riskLevel: route.risk_level,
+        riskSummary: route.risk_summary.join('/'),
+        nestedScore: route.__riskSummary.safety_score,
+        nestedLevel: route.__riskSummary.risk_level,
+      };
+    });
+
+    expect(routeRiskRequests).toEqual([]);
+    expect(result).toEqual({
+      safetyScore: 87,
+      riskLevel: 'caution',
+      riskSummary: '固定ハザードのみ',
+      nestedScore: 87,
+      nestedLevel: 'caution',
+    });
+  });
+
+  test('ルート要約後の map move 連続で sampling request が増えない', async ({ page }) => {
+    const tileUrls = [];
+    page.on('request', request => {
+      if (request.url().includes('/jmatile/data/risk/') && request.url().endsWith('.png')) {
+        tileUrls.push(request.url());
+      }
+    });
+
+    await openInfoTab(page);
+    await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      await _kkkSampleRoute([
+        { lat: 35.6812, lng: 139.7671 },
+        { lat: 35.6850, lng: 139.7700 },
+      ]);
+    });
+
+    const beforeMove = tileUrls.length;
+    await page.evaluate(() => {
+      for (let index = 0; index < 25; index += 1) map.fire('move');
+    });
+    await page.waitForTimeout(250);
+
+    expect(tileUrls).toHaveLength(beforeMove);
   });
 
   test('Phase3-A: ルートセクション含めモバイル幅で崩れない', async ({ page }) => {

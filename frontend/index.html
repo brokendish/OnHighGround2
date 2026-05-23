@@ -4588,47 +4588,6 @@
                                     </div>
                                 </div>
                             </div>
-                            <!-- キキクル（現在の危険度） -->
-                            <div class="lip-card-section lip-accordion lip-accordion-collapsed" id="kkk-card-section">
-                                <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
-                                    <span class="lip-card-hdr-icon">⚠</span>
-                                    <span class="lip-card-hdr-title">キキクル（現在の危険度）</span>
-                                    <div style="display:flex;align-items:center;gap:6px;">
-                                        <span class="kkk-status-badge" id="kkk-status-badge" style="display:none;"></span>
-                                        <span class="lip-accordion-arrow">▾</span>
-                                    </div>
-                                </div>
-                                <div class="lip-accordion-body">
-                                    <!-- ステータス表示 -->
-                                    <div class="kkk-status-row">
-                                        <span id="kkk-status-text" class="kkk-status-text">未取得</span>
-                                        <span id="kkk-updated-time" class="kkk-updated-time"></span>
-                                        <button id="kkk-refresh-btn" class="kkk-refresh-btn" title="更新">↻</button>
-                                    </div>
-                                    <!-- レイヤー ON/OFF -->
-                                    <div class="kkk-panel-section" id="kkk-panel-section">
-                                        <div class="kkk-toggle-row">
-                                            <button id="kkk-toggle-inund" class="kkk-toggle-btn">浸水<span id="kkk-kind-st-inund" class="kkk-kind-st"></span></button>
-                                            <button id="kkk-toggle-land"  class="kkk-toggle-btn">土砂<span id="kkk-kind-st-land"  class="kkk-kind-st"></span></button>
-                                            <button id="kkk-toggle-flood" class="kkk-toggle-btn">洪水<span id="kkk-kind-st-flood" class="kkk-kind-st"></span></button>
-                                        </div>
-                                    </div>
-                                    <!-- 危険度要約 -->
-                                    <div id="kkk-risk-current" class="kkk-risk-section">
-                                        <div class="kkk-risk-title">現在地周辺</div>
-                                        <div class="kkk-risk-rows"></div>
-                                    </div>
-                                    <div id="kkk-risk-dest" class="kkk-risk-section" style="display:none;">
-                                        <div class="kkk-risk-title">目的地周辺</div>
-                                        <div class="kkk-risk-rows"></div>
-                                    </div>
-                                    <div id="kkk-risk-route" class="kkk-risk-section" style="display:none;">
-                                        <div class="kkk-risk-title">ルート周辺</div>
-                                        <div class="kkk-risk-rows"></div>
-                                    </div>
-                                    <div class="kkk-note">気象庁 危険度分布（10分更新）</div>
-                                </div>
-                            </div>
                             <!-- 地震（周辺観測） -->
                             <div class="lip-card-section lip-accordion lip-accordion-collapsed">
                                 <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
@@ -4691,6 +4650,47 @@
                                 <div class="lip-row"><span class="lip-row-label">現在地ハザード</span><span class="lip-row-value" id="lip-current-hazard-summary">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">目的地ハザード</span><span class="lip-row-value" id="lip-dest-hazard">--</span></div>
                                 <div class="lip-row"><span class="lip-row-label">注意情報</span><span class="lip-row-value" id="lip-route-caution">--</span></div>
+                            </div>
+                        </div>
+                        <!-- キキクル（現在の危険度）: browse / route preview 共通 -->
+                        <div class="lip-card-section lip-accordion lip-accordion-collapsed" id="kkk-card-section">
+                            <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
+                                <span class="lip-card-hdr-icon">⚠</span>
+                                <span class="lip-card-hdr-title">キキクル（現在の危険度）</span>
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <span class="kkk-status-badge" id="kkk-status-badge" style="display:none;"></span>
+                                    <span class="lip-accordion-arrow">▾</span>
+                                </div>
+                            </div>
+                            <div class="lip-accordion-body">
+                                <!-- ステータス表示 -->
+                                <div class="kkk-status-row">
+                                    <span id="kkk-status-text" class="kkk-status-text">未取得</span>
+                                    <span id="kkk-updated-time" class="kkk-updated-time"></span>
+                                    <button id="kkk-refresh-btn" class="kkk-refresh-btn" title="更新">↻</button>
+                                </div>
+                                <!-- レイヤー ON/OFF -->
+                                <div class="kkk-panel-section" id="kkk-panel-section">
+                                    <div class="kkk-toggle-row">
+                                        <button id="kkk-toggle-inund" class="kkk-toggle-btn">浸水<span id="kkk-kind-st-inund" class="kkk-kind-st"></span></button>
+                                        <button id="kkk-toggle-land"  class="kkk-toggle-btn">土砂<span id="kkk-kind-st-land"  class="kkk-kind-st"></span></button>
+                                        <button id="kkk-toggle-flood" class="kkk-toggle-btn">洪水<span id="kkk-kind-st-flood" class="kkk-kind-st"></span></button>
+                                    </div>
+                                </div>
+                                <!-- 危険度要約 -->
+                                <div id="kkk-risk-current" class="kkk-risk-section">
+                                    <div class="kkk-risk-title">現在地周辺</div>
+                                    <div class="kkk-risk-rows"></div>
+                                </div>
+                                <div id="kkk-risk-dest" class="kkk-risk-section" style="display:none;">
+                                    <div class="kkk-risk-title">目的地周辺</div>
+                                    <div class="kkk-risk-rows"></div>
+                                </div>
+                                <div id="kkk-risk-route" class="kkk-risk-section" style="display:none;">
+                                    <div class="kkk-risk-title">ルート周辺</div>
+                                    <div class="kkk-risk-rows"></div>
+                                </div>
+                                <div class="kkk-note">気象庁 危険度分布（10分更新）</div>
                             </div>
                         </div>
                         <!-- ナビ中：既存の避難先情報（wrap） -->

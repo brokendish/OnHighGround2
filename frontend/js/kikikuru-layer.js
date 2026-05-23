@@ -190,6 +190,7 @@ async function _kikikuruRefresh() {
         }
         _kkkSetRiskUnavailable('current');
         _kkkSetRiskUnavailable('dest');
+        _kkkSetRouteRiskUnavailable();
         _kikikuruSetSharedStatusUI(_kikikuruCurrentEntry ? 'stale' : 'error');
     }
 }
@@ -688,6 +689,15 @@ function _kkkSubsampleRoute(coords, maxPts) {
 // ルートリスク状態
 const _kkkRouteRisk = { status: 'off', inund: null, flood: null, land: null };
 let _kkkRouteVersion = 0;
+
+function _kkkSetRouteRiskUnavailable() {
+    ++_kkkRouteVersion;
+    _kkkRouteRisk.status = 'unavailable';
+    _kkkRouteRisk.inund = null;
+    _kkkRouteRisk.flood = null;
+    _kkkRouteRisk.land = null;
+    _kkkUpdateRouteRiskUI();
+}
 
 async function _kkkSampleRoute(coords) {
     const version = ++_kkkRouteVersion;

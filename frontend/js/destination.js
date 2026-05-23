@@ -186,12 +186,17 @@ function clearUserDestination() {
     clearRouteCandidateLayers();
     clearSelectedRouteHighlight();
     if (typeof clearUserDestRouteGuidance === 'function') clearUserDestRouteGuidance();
+    if (typeof navDestination !== 'undefined') navDestination = null;
+    if (typeof navOriginalDestination !== 'undefined') navOriginalDestination = null;
+    if (typeof navActiveRoute !== 'undefined') navActiveRoute = null;
 
     const input = document.getElementById('destinationSearchInput');
     if (input) input.value = '';
 
     _renderSearchResults();
     _updateDestinationUI();
+    if (typeof kikikuruOnDestinationChange === 'function') kikikuruOnDestinationChange();
+    if (typeof kikikuruOnRouteChange === 'function') kikikuruOnRouteChange(null);
 
     // route_preview / finished のナビ状態をリセット
     if (typeof setNavMode === 'function' &&
@@ -205,6 +210,7 @@ function clearUserDestination() {
 function _applyUserDestination() {
     _setUserDestinationMarker(userDestination.lat, userDestination.lon, userDestination.name);
     _updateDestinationUI();
+    if (typeof kikikuruOnDestinationChange === 'function') kikikuruOnDestinationChange();
     _drawRouteToUserDestination();
 }
 

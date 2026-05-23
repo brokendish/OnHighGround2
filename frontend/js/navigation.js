@@ -1852,7 +1852,11 @@ function toggleNavAutoReroute() {
 
 // ── ルート選択時に呼ばれる（routing.js から） ─────────────────────────────
 function onNavRouteSelected(route, destination, meta = {}) {
-    if (route) navActiveRoute = route;
+    if (route === null) {
+        navActiveRoute = null;
+    } else if (route) {
+        navActiveRoute = route;
+    }
     if (destination) {
         navDestination = destination;
         if (!navOriginalDestination) navOriginalDestination = destination;
