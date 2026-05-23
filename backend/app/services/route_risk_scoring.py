@@ -8,8 +8,10 @@
   - 中程度 (inland_flood/pseudo_inland_flood) は中程度減点
   - 補助要因 (lowland_poor_drainage) は単独では小さなペナルティのみ。
     他の浸水系ハザードと重なった場合にオーバーラップボーナスを加算する。
+  - キキクル補正 (Phase 3-B): リアルタイム気象危険度を控えめなペナルティとして反映する。
+    キキクル単独では danger にしない。固定ハザードと重なった場合のみ強めの補正を適用する。
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # ハザード別ペナルティ定義
 # base: exposure_ratio=1.0 のときのペナルティ上限
@@ -31,6 +33,112 @@ LOWLAND_OVERLAP_BONUS: Dict[str, int] = {
     "storm_surge":         4,
     "pseudo_inland_flood": 4,
 }
+
+
+# ── キキクル補正 (Phase 3-B) ──────────────────────────────────────────────────
+
+# キキクル kind と対応する固定ハザード
+_KKK_HAZARD_MAP: Dict[str, set] = {
+    "inund": {"inland_flood", "pseudo_inland_flood"},
+    "flood": {"flood", "lowland_poor_drainage"},
+    "land":  {"landslide"},
+}
+
+# キキクルペナルティ（単体 / 固定ハザード重複時）
+_KKK_PENALTY: Dict[str, Dict[str, Dict[str, float]]] = {
+    "standalone": {
+        "inund": {"caution": 3.0, "danger": 6.0},
+        "flood": {"caution": 4.0, "danger": 8.0},
+        "land":  {"caution": 4.0, "danger": 8.0},
+    },
+    "overlap": {
+        "inund": {"caution": 6.0,  "danger": 12.0},
+        "flood": {"caution": 8.0,  "danger": 16.0},
+        "land":  {"caution": 8.0,  "danger": 16.0},
+    },
+}
+_KKK_CAP_STANDALONE = 20.0
+_KKK_CAP_OVERLAP    = 30.0
+_KKK_KIND_LABEL     = {"inund": "浸水", "flood": "洪水", "land": "土砂"}
+
+
+def calc_kikikuru_adjustment(
+    kikikuru: Optional[Dict],
+    exposure_by_hazard: Dict[str, float],
+) -> dict:
+    """キキクルリアルタイム補正を計算する。
+
+    Args:
+        kikikuru: {status, inund, flood, land} (フロントエンドの _kkkRouteRisk から)
+        exposure_by_hazard: {hazard_type: exposure_ratio} (固定ハザード通過率)
+
+    Returns:
+        {enabled, status, penalty, max_level, matched_hazards, summary}
+    """
+    if not isinstance(kikikuru, dict):
+        return {
+            "enabled": False, "status": "off", "penalty": 0.0,
+            "max_level": None, "matched_hazards": [], "summary": [],
+        }
+
+    status = kikikuru.get("status")
+    if not status or status in ("off", "loading"):
+        return {
+            "enabled": False, "status": status or "off", "penalty": 0.0,
+            "max_level": None, "matched_hazards": [], "summary": [],
+        }
+
+    if status == "unavailable":
+        return {
+            "enabled": True, "status": "unavailable", "penalty": 0.0,
+            "max_level": None, "matched_hazards": [], "summary": ["キキクル取得不可（補正なし）"],
+        }
+    if status != "ok":
+        return {
+            "enabled": True, "status": "unknown", "penalty": 0.0,
+            "max_level": None, "matched_hazards": [], "summary": ["キキクル判定不可（補正なし）"],
+        }
+
+    # status == "ok" → ペナルティ計算
+    active_hazards = {h for h, r in exposure_by_hazard.items() if r > 0.0}
+    total_penalty  = 0.0
+    matched:  List[str] = []
+    summary:  List[str] = []
+    has_overlap = False
+
+    for kind in ("inund", "flood", "land"):
+        level = kikikuru.get(kind)
+        if not level or level not in ("caution", "danger"):
+            if level == "unavailable":
+                summary.append(f"{_KKK_KIND_LABEL[kind]}キキクル取得不可")
+            elif level == "unknown":
+                summary.append(f"{_KKK_KIND_LABEL[kind]}キキクル判定不可")
+            continue
+
+        overlap = _KKK_HAZARD_MAP[kind] & active_hazards
+        lv_label = "危険" if level == "danger" else "注意"
+        if overlap:
+            has_overlap = True
+            p = _KKK_PENALTY["overlap"][kind].get(level, 0.0)
+            matched.extend(overlap)
+            summary.append(f"{_KKK_KIND_LABEL[kind]}キキクル{lv_label}（固定ハザード重複）")
+        else:
+            p = _KKK_PENALTY["standalone"][kind].get(level, 0.0)
+            summary.append(f"{_KKK_KIND_LABEL[kind]}キキクル{lv_label}")
+        total_penalty += p
+
+    cap = _KKK_CAP_OVERLAP if has_overlap else _KKK_CAP_STANDALONE
+    total_penalty = min(total_penalty, cap)
+
+    return {
+        "enabled":         True,
+        "status":          "normal",
+        "penalty":         round(total_penalty, 1),
+        # 固定ハザード重複なし → max caution、重複あり → danger まで許可
+        "max_level":       "danger" if has_overlap else "caution",
+        "matched_hazards": list(set(matched)),
+        "summary":         summary,
+    }
 
 
 def _risk_level(score: float) -> str:

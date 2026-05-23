@@ -701,6 +701,7 @@ function _kkkSetRouteRiskUnavailable() {
 
 async function _kkkSampleRoute(coords) {
     const version = ++_kkkRouteVersion;
+    _kkkBackendAdj = null;
     _kkkRouteRisk.status = 'loading';
     _kkkUpdateRouteRiskUI();
 
@@ -731,6 +732,30 @@ async function _kkkSampleRoute(coords) {
     _kkkUpdateRouteRiskUI();
 }
 
+async function _kkkSampleRouteForBackend(coords) {
+    const entry = _kikikuruCurrentEntry;
+    if (!entry || !Array.isArray(coords) || coords.length === 0) {
+        return { status: 'unavailable', inund: null, flood: null, land: null };
+    }
+
+    const sample = _kkkSubsampleRoute(coords, 12);
+    const kinds = Object.keys(_KIKIKURU_KINDS);
+    const worst = { inund: null, flood: null, land: null };
+
+    try {
+        for (const pt of sample) {
+            const levels = await Promise.all(kinds.map(k => _kkkSampleKind(pt.lat, pt.lng, entry, k)));
+            kinds.forEach((k, i) => {
+                worst[k] = worst[k] === null ? levels[i] : _kkkWorseLevel(worst[k], levels[i]);
+            });
+        }
+    } catch (_) {
+        return { status: 'unavailable', inund: null, flood: null, land: null };
+    }
+
+    return { status: 'ok', inund: worst.inund, flood: worst.flood, land: worst.land };
+}
+
 // 公開: ルート変更時に外部から呼ぶフック
 function kikikuruOnRouteChange(route) {
     if (!route || !Array.isArray(route.coordinates) || route.coordinates.length === 0) {
@@ -739,6 +764,7 @@ function kikikuruOnRouteChange(route) {
         _kkkRouteRisk.inund = null;
         _kkkRouteRisk.flood = null;
         _kkkRouteRisk.land  = null;
+        _kkkBackendAdj = null; // Phase 3-B: 旧補正をクリア
         _kkkUpdateRouteRiskUI();
         return;
     }
@@ -748,6 +774,15 @@ function kikikuruOnRouteChange(route) {
             _kkkUpdateRouteRiskUI();
         }
     });
+}
+
+// Phase 3-B — バックエンドから受け取ったキキクル補正結果
+let _kkkBackendAdj = null;
+
+// 公開: navigation.js から _assessRouteHazardRisk のレスポンスで呼ばれる
+function kikikuruSetBackendAdjustment(adj) {
+    _kkkBackendAdj = adj || null;
+    _kkkUpdateRouteRiskUI();
 }
 
 function _kkkUpdateRouteRiskUI() {
@@ -768,9 +803,23 @@ function _kkkUpdateRouteRiskUI() {
         rows.innerHTML = '<span class="kkk-risk-msg">確認中…</span>';
         return;
     }
-    rows.innerHTML = Object.keys(_KIKIKURU_KINDS).map(kind => {
+
+    // 種別ごとのリスク行
+    let html = Object.keys(_KIKIKURU_KINDS).map(kind => {
         const kindLabel = _KIKIKURU_KINDS[kind].label.replace('キキクル', '');
         const { text, cls } = _kkkRiskLabel(_kkkRouteRisk[kind]);
         return `<span class="kkk-risk-item">${kindLabel}:<span class="kkk-risk-badge ${cls}">${text}</span></span>`;
     }).join('');
+
+    // バックエンド補正サマリー（Phase 3-B）
+    const adj = _kkkBackendAdj;
+    if (adj?.enabled && adj?.penalty > 0 && Array.isArray(adj.summary) && adj.summary.length > 0) {
+        const penaltyText = `−${adj.penalty}pt`;
+        const details = adj.summary.join(' / ');
+        html += `<span class="kkk-adj-row">補正: ${penaltyText} <span class="kkk-adj-detail">${details}</span></span>`;
+    } else if (adj?.status === 'unavailable') {
+        html += `<span class="kkk-adj-row kkk-adj-unavail">キキクル取得不可（補正なし）</span>`;
+    }
+
+    rows.innerHTML = html;
 }

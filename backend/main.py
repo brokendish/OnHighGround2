@@ -41,7 +41,7 @@ from app.services.earthquake_realtime_service import get_realtime_service
 from app.services.job_manager import get_job_manager
 from app.services.admin_log_service import write_app_log
 from app.services.reverse_geocode_service import get_reverse_geocode_service
-from app.services.route_risk_scoring import calc_route_risk_score
+from app.services.route_risk_scoring import calc_route_risk_score, calc_kikikuru_adjustment, _risk_level as _route_risk_level
 from app.services.shelter_service import (
     HAZARD_COLUMN_MAP,
     REGION_PATH_MAP,
@@ -639,6 +639,14 @@ class RecommendedDestination(BaseModel):
     reason: str
 
 
+class KikikuruRouteInput(BaseModel):
+    """キキクルルート要約（フロントエンドからの補正入力）Phase 3-B"""
+    status: Optional[str] = None  # "ok" | "unavailable" | "loading" | "off"
+    inund:  Optional[str] = None  # "none" | "caution" | "danger" | "unavailable"
+    flood:  Optional[str] = None
+    land:   Optional[str] = None
+
+
 class RouteRiskRequest(BaseModel):
     """ルート危険度評価リクエスト"""
     coordinates: List[List[float]] = Field(
@@ -646,6 +654,10 @@ class RouteRiskRequest(BaseModel):
         description="ルート座標列 [[lat, lon], ...] (2点以上)"
     )
     sample_count: int = Field(default=40, ge=5, le=100, description="サンプリング点数")
+    kikikuru: Optional[KikikuruRouteInput] = Field(
+        default=None,
+        description="キキクル補正入力（Phase 3-B）。省略時は補正なし"
+    )
 
 
 class ElevationProfileRequest(BaseModel):
@@ -1603,15 +1615,41 @@ async def assess_route_risk(request: RouteRiskRequest):
 
         if valid_samples == 0:
             result = calc_route_risk_score({})
+            result["kikikuru_adjustment"] = calc_kikikuru_adjustment(None, {})
             result["sampled_points"] = []
             return result
 
         exposure_by_hazard = {k: v / valid_samples for k, v in inside_counts.items()}
         result = calc_route_risk_score(exposure_by_hazard)
+
+        # キキクル補正 (Phase 3-B)
+        kikikuru_data = request.kikikuru.model_dump() if request.kikikuru else None
+        kikikuru_adj  = calc_kikikuru_adjustment(kikikuru_data, exposure_by_hazard)
+        if kikikuru_adj["enabled"] and kikikuru_adj["penalty"] > 0:
+            adjusted_score = max(0.0, result["safety_score"] - kikikuru_adj["penalty"])
+            new_level = _route_risk_level(adjusted_score)
+            # キキクル単独では danger にしない（max_level == "caution"）
+            if kikikuru_adj["max_level"] == "caution" and new_level == "danger":
+                new_level = "caution"
+            result["safety_score"] = round(adjusted_score, 1)
+            result["risk_level"]   = new_level
+
+        if kikikuru_adj["enabled"] and kikikuru_adj.get("summary"):
+            notes = result.setdefault("risk_summary", {}).setdefault("notes", [])
+            if kikikuru_adj["penalty"] > 0:
+                notes.append(
+                    f"キキクル補正（リアルタイム）: -{kikikuru_adj['penalty']:.1f}点 / "
+                    + " / ".join(kikikuru_adj["summary"])
+                )
+            else:
+                notes.append(" / ".join(kikikuru_adj["summary"]))
+
+        result["kikikuru_adjustment"] = kikikuru_adj
         result["sampled_points"] = sampled_points
         logger.debug(
-            "route-risk: samples=%d score=%.1f level=%s",
+            "route-risk: samples=%d score=%.1f level=%s kkk_penalty=%.1f",
             valid_samples, result["safety_score"], result["risk_level"],
+            kikikuru_adj["penalty"],
         )
         return result
 

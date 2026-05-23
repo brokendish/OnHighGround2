@@ -663,6 +663,191 @@ test.describe('Kikikuru display layer', () => {
     expect(tileUrls).toHaveLength(beforeMove);
   });
 
+  // ─── Phase 3-B: バックエンド補正連携 ─────────────────────────────────────────
+
+  test('Phase3-B: _assessRouteHazardRisk がキキクルデータを /api/route-risk に含める', async ({ page }) => {
+    const routeRiskBodies = [];
+    await openInfoTab(page);
+
+    await page.route('/api/route-risk', async route => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      routeRiskBodies.push(body);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          safety_score: 96,
+          risk_level: 'safe',
+          risk_summary: { total_penalty: 0, hazards: [], notes: [] },
+          sampled_points: [],
+          kikikuru_adjustment: {
+            enabled: true,
+            status: 'normal',
+            penalty: 4,
+            max_level: 'caution',
+            matched_hazards: [],
+            summary: ['洪水キキクル注意'],
+          },
+        }),
+      });
+    });
+
+    const result = await page.evaluate(async () => {
+      _kkkSampleRouteForBackend = async () => ({
+        status: 'ok',
+        inund: 'none',
+        flood: 'caution',
+        land: 'none',
+      });
+      return _assessRouteHazardRisk({
+        coordinates: [
+          { lat: 35.6812, lng: 139.7671 },
+          { lat: 35.6850, lng: 139.7700 },
+        ],
+      });
+    });
+
+    expect(routeRiskBodies).toHaveLength(1);
+    expect(routeRiskBodies[0].kikikuru).toEqual({
+      status: 'ok',
+      inund: 'none',
+      flood: 'caution',
+      land: 'none',
+    });
+    expect(result.kikikuru_adjustment.penalty).toBe(4);
+  });
+
+  test('Phase3-B: kikikuruSetBackendAdjustment でルートカードに補正行が表示される', async ({ page }) => {
+    await openInfoTab(page);
+    await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      // ルートを設定してサンプリング
+      await _kkkSampleRoute([
+        { lat: 35.6812, lng: 139.7671 },
+        { lat: 35.6850, lng: 139.7700 },
+      ]);
+      // バックエンド補正結果を注入
+      kikikuruSetBackendAdjustment({
+        enabled: true,
+        status: 'normal',
+        penalty: 8,
+        max_level: 'danger',
+        matched_hazards: ['flood'],
+        summary: ['洪水キキクル注意（固定ハザード重複）'],
+      });
+    });
+
+    const adjRow = await page.locator('.kkk-adj-row').first();
+    await expect(adjRow).toBeVisible();
+    const text = await adjRow.textContent();
+    expect(text).toContain('補正');
+    expect(text).toContain('−8pt');
+  });
+
+  test('Phase3-B: kikikuruSetBackendAdjustment で取得不可時は unavail 行が表示される', async ({ page }) => {
+    await openInfoTab(page);
+    await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+      kikikuruSetBackendAdjustment({
+        enabled: true,
+        status: 'unavailable',
+        penalty: 0,
+        max_level: null,
+        matched_hazards: [],
+        summary: ['キキクル取得不可（補正なし）'],
+      });
+    });
+
+    const unavailRow = await page.locator('.kkk-adj-unavail').first();
+    await expect(unavailRow).toBeVisible();
+    const text = await unavailRow.textContent();
+    expect(text).toContain('取得不可');
+  });
+
+  test('Phase3-B: penalty 0 の補正は adj 行を表示しない', async ({ page }) => {
+    await openInfoTab(page);
+    await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+      kikikuruSetBackendAdjustment({
+        enabled: true,
+        status: 'normal',
+        penalty: 0,
+        max_level: 'caution',
+        matched_hazards: [],
+        summary: [],
+      });
+    });
+
+    const adjRows = await page.locator('.kkk-adj-row').count();
+    expect(adjRows).toBe(0);
+  });
+
+  test('Phase3-B: ルート clear で _kkkBackendAdj がリセットされ adj 行が消える', async ({ page }) => {
+    await openInfoTab(page);
+    await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+      kikikuruSetBackendAdjustment({
+        enabled: true, status: 'normal', penalty: 8,
+        max_level: 'danger', matched_hazards: ['flood'],
+        summary: ['洪水キキクル注意'],
+      });
+    });
+
+    // 補正行があることを確認
+    await expect(page.locator('.kkk-adj-row').first()).toBeVisible();
+
+    // ルートをクリア
+    await page.evaluate(() => kikikuruOnRouteChange(null));
+
+    // ルートセクション自体が非表示になる
+    const routeEl = page.locator('#kkk-risk-route');
+    await expect(routeEl).toHaveCSS('display', 'none');
+  });
+
+  test('Phase3-B: 補正あり表示のモバイル幅崩れなし', async ({ page }) => {
+    await openInfoTab(page, { width: 390, height: 844 });
+    await page.evaluate(async () => {
+      _kikikuruCurrentEntry = {
+        basetime: '20260522111000', validtime: '20260522111000',
+        member: 'immed0', elements: ['inund', 'land', 'flood', 'flood_mesh'],
+      };
+      await _kkkSampleRoute([{ lat: 35.6812, lng: 139.7671 }]);
+      kikikuruSetBackendAdjustment({
+        enabled: true, status: 'normal', penalty: 16,
+        max_level: 'danger', matched_hazards: ['flood'],
+        summary: ['洪水キキクル危険（固定ハザード重複）'],
+      });
+    });
+
+    const layout = await page.evaluate(() => {
+      const panel = document.getElementById('mbc-tab-panel-info');
+      const routeEl = document.getElementById('kkk-risk-route');
+      const panelRect = panel.getBoundingClientRect();
+      const routeRect = routeEl.getBoundingClientRect();
+      return {
+        overflow: panel.scrollWidth - panel.clientWidth,
+        fits: routeRect.right <= panelRect.right + 2,
+      };
+    });
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    expect(layout.fits).toBe(true);
+  });
+
   test('Phase3-A: ルートセクション含めモバイル幅で崩れない', async ({ page }) => {
     await openInfoTab(page, { width: 390, height: 844 });
     await page.locator('#kkk-toggle-inund').click();

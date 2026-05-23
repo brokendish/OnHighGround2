@@ -1863,6 +1863,9 @@ function onNavRouteSelected(route, destination, meta = {}) {
         if (typeof kikikuruOnDestinationChange === 'function') kikikuruOnDestinationChange();
     }
     if (typeof kikikuruOnRouteChange === 'function') kikikuruOnRouteChange(route || null);
+    if (typeof kikikuruSetBackendAdjustment === 'function') {
+        kikikuruSetBackendAdjustment(route?.__riskSummary?.kikikuru_adjustment || null);
+    }
     if (typeof _lipUpdateRouteSelection === 'function') {
         _lipUpdateRouteSelection({
             route: route === null ? null : (route || navActiveRoute || null),
@@ -6212,11 +6215,21 @@ async function _assessRouteHazardRisk(route) {
 
     if (coordPairs.length < 2) return null;
 
+    // Phase 3-B: route-risk 用には UI 更新と分離したキキクル route sampling を使う。
+    let kikikuruBody = null;
+    if (typeof _kkkSampleRouteForBackend === 'function') {
+        try {
+            kikikuruBody = await _kkkSampleRouteForBackend(rawCoords);
+        } catch (_) {
+            kikikuruBody = { status: 'unavailable', inund: null, flood: null, land: null };
+        }
+    }
+
     try {
         const res = await apiFetch('/api/route-risk', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ coordinates: coordPairs, sample_count: 40 })
+            body: JSON.stringify({ coordinates: coordPairs, sample_count: 40, kikikuru: kikikuruBody })
         });
         if (!res.ok) return null;
         return await res.json();
