@@ -340,12 +340,14 @@ function _kikikuruLegendBuild() {
     src.textContent = '表示なしは危険度分布なしまたはデータなし。取得不可時は状態欄で通知します。出典: 気象庁';
     el.appendChild(src);
 
-    // Phase 3-C: 凡例説明
+    // Phase 3-C: 判定の役割を短く説明し、取得不可を安全と誤読させない。
     const explain = document.createElement('div');
     explain.className = 'kkk-legend-explain';
     explain.innerHTML =
-        '<strong>取得不可</strong>は安全を意味しません。' +
-        'キキクルのみで危険を確定するものではありません。';
+        '<div><strong>固定ハザード</strong>: 地形・浸水想定区域などの基本リスク</div>' +
+        '<div><strong>キキクル</strong>: 気象庁のリアルタイム危険度分布</div>' +
+        '<div><strong>リアルタイム補正</strong>: 固定ハザードと現在の危険度を組み合わせた補正</div>' +
+        '<div><strong>取得不可</strong>: 判定できない状態であり、安全を意味しません</div>';
     el.appendChild(explain);
 
     el.dataset.built = '1';
@@ -371,47 +373,6 @@ function _kikikuruLegendShow() {
 function _kikikuruLegendHide() {
     const el = document.getElementById('kkk-legend');
     if (el) el.style.display = 'none';
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Phase 3-C — 表示名辞書・ユーザー向け翻訳レイヤー
-// ══════════════════════════════════════════════════════════════════════════════
-
-// 固定ハザード・キキクル種別の表示名（内部IDをUIに出さない）
-const HAZARD_DISPLAY_NAMES = {
-    // 固定ハザード
-    lowland_poor_drainage: '低地・排水困難エリア',
-    inland_flood:          '内水浸水エリア',
-    pseudo_inland_flood:   '推定内水浸水エリア',
-    flood:                 '洪水浸水エリア',
-    tsunami:               '津波エリア',
-    landslide:             '土砂災害エリア',
-    storm_surge:           '高潮エリア',
-    // キキクル種別（気象庁公式表記）
-    inund:                 '浸水キキクル',
-    flood_mesh:            '洪水キキクル',
-    land:                  '土砂キキクル',
-};
-
-// ステータス値の表示名
-const STATUS_DISPLAY_NAMES = {
-    safe:        '安全寄り',
-    caution:     '注意',
-    danger:      '危険',
-    unavailable: '取得不可',
-    unknown:     '判定不可',
-    loading:     '確認中',
-    none:        'なし',
-    ok:          '正常',
-    error:       '取得失敗',
-};
-
-function getHazardDisplayName(id) {
-    return HAZARD_DISPLAY_NAMES[id] || id;
-}
-
-function getStatusDisplayName(status) {
-    return STATUS_DISPLAY_NAMES[status] || status;
 }
 
 // バックエンド補正をユーザー向け自然言語HTMLへ変換（Phase 3-C）

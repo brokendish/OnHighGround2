@@ -109,3 +109,6 @@ test-results/
 artifacts/reroute_harness_summary.json
 artifacts/reroute_harness_run_summary.json
 artifacts/reroute_snap_empty_breakdown.json
+
+# ---- test screenshots ----
+tasks/screenshots

@@ -56,7 +56,7 @@ function getHazardLabel(key) {
         flood: '洪水', tsunami: '津波', storm_surge: '高潮',
         inland_flood: '内水氾濫', landslide: '土砂災害', urban_flood: '内水'
     };
-    return map[key] || key;
+    return map[key] || getHazardDisplayName(key);
 }
 
 // 文字列または構造化 dict から表示ラベルを生成する
@@ -373,7 +373,7 @@ function displayHazardStatus(hazardStatus) {
 
         const hazardTags = hazards
             .map(h => {
-                const label    = labelMap[h] || h;
+                const label    = labelMap[h] || getHazardDisplayName(h);
                 const asmValue = assessment[h];
                 // dict 形式は level から、string 'inside' は danger 相当でランク付け
                 const level = (asmValue && typeof asmValue === 'object' && asmValue.status === 'inside')
@@ -399,7 +399,7 @@ function displayHazardStatus(hazardStatus) {
             })
             .join('');
 
-        const activeLabels = hazards.map(h => labelMap[h] || h);
+        const activeLabels = hazards.map(h => labelMap[h] || getHazardDisplayName(h));
         const mainMessage  = `現在地は${activeLabels.join('・')}の危険区域内です`;
 
         panel.innerHTML = `
@@ -932,7 +932,7 @@ function showSelectedEmergencyShelter(site) {
                 '<div id="shelter-hazard-label" style="font-size:10px;color:#888;margin-bottom:2px;">対応ハザード</div>' +
                 '<div>' +
                 hazardTypes.map(h =>
-                    `<span class="shelter-hazard-tag">${HAZARD_ICON[h] || h}</span>`
+                    `<span class="shelter-hazard-tag">${HAZARD_ICON[h] || getHazardDisplayName(h)}</span>`
                 ).join('') +
                 '</div>';
         } else {

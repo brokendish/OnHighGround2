@@ -220,7 +220,7 @@ function _lipDescribeDestinationHazard(dest) {
     if (dest.hazard_safe === true) return '✅ 危険区域外';
     if (dest.hazard_safe === false) return '⚠️ 危険区域内の可能性';
     if (Array.isArray(dest.hazard_types) && dest.hazard_types.length > 0) {
-        return `対応ハザード: ${dest.hazard_types.join(', ')}`;
+        return `対応ハザード: ${dest.hazard_types.map(getHazardDisplayName).join(' / ')}`;
     }
     if (dest.hazard_assessment) return '判定あり';
     return '';
@@ -422,7 +422,7 @@ function _lipDescribeCurrentHazardSummary() {
     let hasUnknown = false;
     Object.entries(assessment).forEach(([key, value]) => {
         const status = typeof value === 'string' ? value : value?.status;
-        if (status === 'inside') inside.push(labels[key] || key);
+        if (status === 'inside') inside.push(labels[key] || getHazardDisplayName(key));
         if (status === 'unknown') hasUnknown = true;
     });
     if (inside.length > 0) return `⚠️ ${inside.join('・')} に注意`;

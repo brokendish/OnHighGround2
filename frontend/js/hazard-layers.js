@@ -510,7 +510,7 @@ function getHazardUiState(layerKey) {
     let title = '';
     switch (hazard.availabilityState) {
     case 'coming-soon':
-        title = `${hazard.regionLabel} ${HAZARD_CATEGORY_CONFIG[hazard.type]?.label || hazard.type}データは準備中です`;
+        title = `${hazard.regionLabel} ${HAZARD_CATEGORY_CONFIG[hazard.type]?.label || getHazardDisplayName(hazard.type)}データは準備中です`;
         break;
     case 'martin-unavailable-fallback':
         title = 'Martin 利用不可のため GeoJSON fallback で動作します';

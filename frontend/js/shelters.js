@@ -309,7 +309,7 @@ function _buildShelterPopupHtml(site) {
                ${hazardTypes.map(h =>
                    `<span style="display:inline-block;padding:1px 7px;border-radius:999px;
                                  font-size:11px;font-weight:600;background:#e3f2fd;color:#1565c0;
-                                 margin-right:3px;">${_HAZARD_LABEL_JP[h] || h}</span>`
+                                 margin-right:3px;">${_HAZARD_LABEL_JP[h] || getHazardDisplayName(h)}</span>`
                ).join('')}
            </div>`
         : '';

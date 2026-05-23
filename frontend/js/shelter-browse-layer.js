@@ -129,7 +129,7 @@ function _buildBrowsePopupHtml(site) {
         ? `<div style="font-size:11px;color:#555;margin-bottom:4px;">📍 ${site.address}</div>`
         : '';
     const hazards = (site.hazard_types || [])
-        .map(h => _BROWSE_HAZARD_LABEL[h] || h).join(' / ');
+        .map(h => _BROWSE_HAZARD_LABEL[h] || getHazardDisplayName(h)).join(' / ');
     const hazardHtml = hazards
         ? `<div style="font-size:11px;color:#555;margin-bottom:5px;">対応: ${hazards}</div>`
         : '';

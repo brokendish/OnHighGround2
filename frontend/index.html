@@ -2281,7 +2281,7 @@
         .kkk-badge--ok    { background: #d1fae5; color: #065f46; }
         .kkk-badge--check { background: #dbeafe; color: #1e40af; }
         .kkk-badge--stale { background: #fef3c7; color: #92400e; }
-        .kkk-badge--error { background: #fee2e2; color: #991b1b; }
+        .kkk-badge--error { background: #f1f5f9; color: #64748b; }
         .kkk-toggle-row {
             display: flex;
             gap: 6px;
@@ -2316,7 +2316,7 @@
             color: #475569;
         }
         .kkk-kind-st--ok       { color: #166534; background: #dcfce7; }
-        .kkk-kind-st--error    { color: #991b1b; background: #fee2e2; }
+        .kkk-kind-st--error    { color: #64748b; background: #f1f5f9; }
         .kkk-kind-st--checking { color: #475569; background: #e2e8f0; }
         .kkk-legend-kinds {
             font-size: 10px;
@@ -2394,12 +2394,12 @@
             font-size: 12px;
             font-weight: 600;
             color: #78350f;
-            word-break: break-all;
+            overflow-wrap: anywhere;
         }
         .kkk-adj-context {
             font-size: 11px;
             color: #92400e;
-            word-break: break-all;
+            overflow-wrap: anywhere;
         }
         /* 取得不可（旧 kkk-adj-unavail との互換維持） */
         .kkk-adj-row { display: block; margin-top: 4px; }
@@ -4989,6 +4989,8 @@
     <!-- Leaflet マップ初期化・現在地管理 -->
     <script src="js/map.js"></script>
     <script src="js/navigation-debug-layer.js"></script>
+    <!-- 一般 UI 向け表示名辞書 -->
+    <script src="js/display-labels.js"></script>
     <!-- ハザードレイヤー管理 -->
     <script src="js/hazard-layers.js"></script>
     <!-- ルート危険区間アウトライン -->

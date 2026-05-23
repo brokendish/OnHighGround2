@@ -63,6 +63,9 @@ test.describe('Kikikuru display layer', () => {
     await page.evaluate(() => switchMbcTab('legend'));
     await expect(page.locator('#kkk-legend')).toBeVisible();
     await expect(page.locator('#kkk-legend')).toContainText('キキクル（現在の危険度）');
+    await expect(page.locator('#kkk-legend')).toContainText('固定ハザード');
+    await expect(page.locator('#kkk-legend')).toContainText('リアルタイム補正');
+    await expect(page.locator('#kkk-legend')).toContainText('安全を意味しません');
     await expect(page.locator('#kkk-status-badge')).toContainText('正常');
     await expect(page.locator('#kkk-status-text')).toContainText('時点');
     await expect.poll(() => page.evaluate(() => _kikikuruLayers.inund && _kikikuruLayers.inund._url))
@@ -101,6 +104,7 @@ test.describe('Kikikuru display layer', () => {
 
     await expect(page.locator('#kkk-status-badge')).toContainText('取得不可');
     await expect(page.locator('#kkk-status-text')).toHaveText('取得不可');
+    await expect(page.locator('#kkk-status-badge')).toHaveCSS('color', 'rgb(100, 116, 139)');
     await expect(page.locator('#map')).toBeVisible();
     await expect.poll(() => page.evaluate(() => _kikikuruLayers.inund)).toBeNull();
   });
@@ -874,6 +878,17 @@ test.describe('Kikikuru display layer', () => {
       // "lowland_poor_dra..." のような切れ目が出ない
       expect(item.display).not.toMatch(/lowland_poor_drainage|flood_mesh|inland_flood/);
     }
+  });
+
+  test('Phase3-C: 情報タブの対応ハザードは内部IDを表示しない', async ({ page }) => {
+    await openInfoTab(page);
+    const text = await page.evaluate(() => _lipDescribeDestinationHazard({
+      hazard_types: ['lowland_poor_drainage', 'flood_mesh', 'not_registered'],
+    }));
+    expect(text).toContain('低地・排水困難エリア');
+    expect(text).toContain('洪水キキクル');
+    expect(text).toContain('対象ハザード');
+    expect(text).not.toMatch(/lowland_poor_drainage|flood_mesh|not_registered/);
   });
 
   test('Phase3-C: STATUS_DISPLAY_NAMES がすべての状態をカバーする', async ({ page }) => {
