@@ -237,6 +237,50 @@ test.describe('Simulation Mode — キキクル検証パネル (Phase 3-D)', () 
     await expect(page.locator('#kkk-adj-preview .kkk-adj-preview--neutral')).toBeVisible({ timeout: 5000 });
   });
 
+  test('Phase4-A: 洪水危険で前方距離と固定ハザード重複を再現できる', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    const warning = page.locator('#phase4-forward-preview');
+    await expect(warning).toContainText('ナビ中警告');
+    await expect(warning).toContainText('約250m先');
+    await expect(warning).toContainText('固定ハザードとキキクルが重なっています');
+    await expect(warning).not.toContainText('避難してください');
+  });
+
+  test('Phase4-A: 取得不可・判定不可を danger/safe 表現にしない', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    for (const key of ['unavailable', 'unknown']) {
+      await page.locator(`.kkk-scenario-btn[data-key="${key}"]`).click();
+      const warning = await page.locator('#phase4-forward-preview').textContent();
+      expect(warning).toContain('安全を意味するものではありません');
+      expect(warning).not.toMatch(/危険度が高まっています|安全です/);
+    }
+  });
+
+  test('Phase4-B: 現在地危険と目的地危険から行動検討と理由を再現できる', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="current_danger_dest_caution"]').click();
+    await expect(page.locator('#phase4-situation-preview')).toContainText('早めの移動検討');
+    await expect(page.locator('#phase4-situation-preview')).toContainText('現在地周辺の危険度が上昇しています');
+    await page.locator('.kkk-scenario-btn[data-key="current_caution_dest_danger"]').click();
+    await expect(page.locator('#phase4-situation-preview')).toContainText('待機検討');
+    await expect(page.locator('#phase4-situation-preview')).toContainText('目的地周辺で洪水リスクが高まっています');
+  });
+
+  test('Phase4-B: 20分後改善と強雨継続の時間変化を再現できる', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="improve_20min"]').click();
+    await expect(page.locator('#phase4-situation-preview')).toContainText('20分後: 雨が弱まる予測');
+    await expect(page.locator('#phase4-situation-preview')).toContainText('待機検討');
+    await page.locator('.kkk-scenario-btn[data-key="strong_rain_continues"]').click();
+    await expect(page.locator('#phase4-situation-preview')).toContainText('20分後も強い雨の見込み');
+    await expect(page.locator('#phase4-situation-preview')).not.toContainText('待機を検討してください');
+  });
+
   test('通常画面 / ではキキクル検証パネルが存在しない', async ({ page }) => {
     await page.route('/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
     await page.route('/emergency-shelters**', route => route.fulfill({
@@ -268,6 +312,7 @@ test.describe('Simulation Mode — キキクル検証パネル (Phase 3-D)', () 
     await expect(page.locator('#kkk-scenario-buttons')).toBeVisible();
     await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
     await expect(page.locator('#kkk-summary-route')).toContainText('洪水 危険');
+    await expect(page.locator('#phase4-forward-preview')).toContainText('約250m先');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
   });

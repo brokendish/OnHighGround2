@@ -56,6 +56,16 @@ const RISK_KKK_UNAVAILABLE = {
     sampled_points: [],
 };
 
+const RISK_KKK_UNKNOWN = {
+    safety_score: 80, risk_level: 'safe',
+    risk_summary: { notes: [], hazards: [] },
+    kikikuru_adjustment: {
+        enabled: true, status: 'unknown', penalty: 0, max_level: null,
+        matched_hazards: [], summary: [],
+    },
+    sampled_points: [],
+};
+
 const RISK_KKK_OVERLAP = {
     safety_score: 35, risk_level: 'danger',
     risk_summary: { notes: ['固定ハザード区域'], hazards: ['flood', 'inundation'] },
@@ -82,6 +92,7 @@ async function setupPage(page) {
     await page.goto('/');
     // nav-forward-warning.js がロードされるまで待つ
     await page.waitForFunction(() => typeof navForwardWarningUpdate === 'function');
+    await page.evaluate(() => setNavMode('navigation_active'));
 }
 
 // ── テスト ────────────────────────────────────────────────────────────────────
@@ -92,6 +103,16 @@ test.describe('Phase 4-A: 前方危険警告パネル', () => {
         await setupPage(page);
         await page.evaluate(d => navForwardWarningUpdate(d, d.sampled_points), RISK_SAFE);
         await expect(page.locator('#nav-forward-warning')).toBeHidden();
+    });
+
+    test('ルート選択プレビューでは前方警告を表示しない', async ({ page }) => {
+        await setupPage(page);
+        await page.evaluate(() => setNavMode('route_preview'));
+        await page.evaluate(d => navForwardWarningUpdate(d, d.sampled_points), RISK_FLOOD_DANGER);
+        await expect(page.locator('#nav-forward-warning')).toBeHidden();
+        await page.evaluate(() => setNavMode('navigation_active'));
+        await page.evaluate(() => navForwardWarningRefresh());
+        await expect(page.locator('#nav-forward-warning')).toBeVisible();
     });
 
     test('danger シナリオで警告パネルが表示される', async ({ page }) => {
@@ -130,6 +151,16 @@ test.describe('Phase 4-A: 前方危険警告パネル', () => {
         const cls = await page.locator('#nav-forward-warning').getAttribute('class');
         expect(cls).not.toContain('nav-fwd-warning--danger');
         expect(cls).toContain('nav-fwd-warning--unavailable');
+    });
+
+    test('unknown を danger/safe 扱いせず判定不可で表示する', async ({ page }) => {
+        await setupPage(page);
+        await page.evaluate(d => navForwardWarningUpdate(d, d.sampled_points), RISK_KKK_UNKNOWN);
+        const panel = page.locator('#nav-forward-warning');
+        await expect(panel).toContainText('判定不可');
+        await expect(panel).toContainText('安全を意味するものではありません');
+        await expect(panel).toHaveClass(/nav-fwd-warning--unknown/);
+        await expect(panel).not.toHaveClass(/nav-fwd-warning--danger/);
     });
 
     test('固定ハザードとキキクル重複説明が表示される', async ({ page }) => {

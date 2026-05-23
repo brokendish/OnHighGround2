@@ -13,6 +13,54 @@ const _KKK_SIM_SCENARIOS = {
     three_danger: { label: '3種同時 危険', status: 'ok',          values: { inund: 'danger',  flood: 'danger',  land: 'danger' } },
     unavailable:  { label: '取得不可',     status: 'unavailable', values: null },
     unknown:      { label: '判定不可',     status: 'unknown',     values: null },
+    current_danger_dest_caution: {
+        label: '現在地危険 / 目的地注意',
+        status: 'ok',
+        values: { inund: 'none', flood: 'danger', land: 'none' },
+        situation: {
+            current: { inund: 'none', flood: 'danger', land: 'none' },
+            destination: { inund: 'none', flood: 'caution', land: 'none' },
+            route: '注意',
+            action: 'move',
+            reason: '現在地周辺の危険度が上昇しています',
+        },
+    },
+    current_caution_dest_danger: {
+        label: '現在地注意 / 目的地危険',
+        status: 'ok',
+        values: { inund: 'none', flood: 'danger', land: 'none' },
+        situation: {
+            current: { inund: 'none', flood: 'caution', land: 'none' },
+            destination: { inund: 'none', flood: 'danger', land: 'none' },
+            route: '注意',
+            action: 'wait',
+            reason: '目的地周辺で洪水リスクが高まっています',
+        },
+    },
+    improve_20min: {
+        label: '20分後改善',
+        status: 'ok',
+        values: { inund: 'none', flood: 'caution', land: 'none' },
+        situation: {
+            current: { inund: 'none', flood: 'caution', land: 'none' },
+            destination: { inund: 'none', flood: 'caution', land: 'none' },
+            rain: '強い雨',
+            time: '20分後: 雨が弱まる予測',
+            action: 'wait',
+            reason: '雨が20分後に弱まる予測があります',
+        },
+    },
+    strong_rain_continues: {
+        label: '強雨継続',
+        status: 'ok',
+        values: { inund: 'caution', flood: 'none', land: 'none' },
+        situation: {
+            current: { inund: 'caution', flood: 'none', land: 'none' },
+            destination: { inund: 'caution', flood: 'none', land: 'none' },
+            rain: '強い雨',
+            time: '20分後も強い雨の見込み',
+        },
+    },
 };
 
 const _KKK_LEVEL_LABEL = { none: 'なし', caution: '注意', danger: '危険', unavailable: '取得不可', unknown: '判定不可' };
@@ -665,6 +713,7 @@ function _kkkUpdateDisplay() {
     if (!section) return;
     if (!_kkkSimState) {
         section.style.display = 'none';
+        _phase4UpdatePreviews();
         return;
     }
     section.style.display = 'block';
@@ -693,6 +742,7 @@ function _kkkUpdateDisplay() {
     }
     disp.innerHTML = html;
     _kkkUpdateSummaries();
+    _phase4UpdatePreviews();
 }
 
 function _kkkUpdateSummaries() {
@@ -719,6 +769,90 @@ function _kkkUpdateSummaries() {
         html = active.length > 0 ? active.join(' / ') : '対象リスクなし';
     }
     targets.forEach(target => { target.innerHTML = html; });
+}
+
+function _phase4RiskText(values) {
+    const kindLabel = { inund: '浸水キキクル', flood: '洪水キキクル', land: '土砂キキクル' };
+    const active = Object.entries(values || {})
+        .filter(([, level]) => level === 'caution' || level === 'danger')
+        .map(([kind, level]) => `${kindLabel[kind]}: ${_KKK_LEVEL_LABEL[level]}`);
+    return active.length > 0 ? active.join(' / ') : '該当リスク検出なし';
+}
+
+function _phase4HazardNames(values) {
+    const kindLabel = { inund: '浸水', flood: '洪水', land: '土砂' };
+    return Object.entries(values || {})
+        .filter(([, level]) => level === 'caution' || level === 'danger')
+        .map(([kind]) => kindLabel[kind] || kind)
+        .join('・');
+}
+
+function _phase4MaxLevel(values) {
+    return Object.values(values || {}).includes('danger')
+        ? 'danger'
+        : Object.values(values || {}).includes('caution') ? 'caution' : 'none';
+}
+
+function _phase4UpdatePreviews(adj = null) {
+    const warningEl = document.getElementById('phase4-forward-preview');
+    const situationEl = document.getElementById('phase4-situation-preview');
+    if (!warningEl || !situationEl) return;
+    if (!_kkkSimState) {
+        warningEl.innerHTML = '';
+        situationEl.innerHTML = '';
+        return;
+    }
+
+    const state = _kkkSimState;
+    const neutral = state.status === 'unavailable' || state.status === 'unknown';
+    if (neutral) {
+        const text = state.status === 'unavailable' ? '取得不可' : '判定不可';
+        warningEl.innerHTML = `
+            <div class="phase4-preview-title">ナビ中警告</div>
+            <div class="phase4-forward-neutral">前方ルート: ${text}</div>
+            <div class="phase4-preview-note">安全を意味するものではありません</div>`;
+        situationEl.innerHTML = `
+            <div class="phase4-preview-title">状況理解</div>
+            <div class="phase4-sit-row"><span>現在地</span><strong>${text}</strong></div>
+            <div class="phase4-sit-row"><span>目的地</span><strong>${text}</strong></div>
+            <div class="phase4-preview-note">情報を確認できず、安全・危険を断定できません</div>`;
+        return;
+    }
+
+    const forwardLevel = adj?.max_level || _phase4MaxLevel(state.values);
+    if (forwardLevel === 'none') {
+        warningEl.innerHTML = `
+            <div class="phase4-preview-title">ナビ中警告</div>
+            <div class="phase4-preview-note">警告表示なし（安全確定を意味しません）</div>`;
+    } else {
+        const overlap = Array.isArray(adj?.matched_hazards) && adj.matched_hazards.length > 0;
+        const hazardNames = _phase4HazardNames(state.values);
+        warningEl.innerHTML = `
+            <div class="phase4-preview-title">ナビ中警告</div>
+            <div class="phase4-forward-alert phase4-forward-alert--${forwardLevel}">
+              <strong>この先 約250m先</strong>
+              <div>${escHtml(hazardNames)}リスクが上昇しています</div>
+              ${overlap ? '<div>固定ハザードとキキクルが重なっています</div>' : ''}
+              <small>周囲の状況に注意してください</small>
+            </div>`;
+    }
+
+    const sit = state.situation || {
+        current: state.values,
+        destination: state.values,
+        route: forwardLevel === 'danger' ? '注意' : '問題なし',
+    };
+    const actionLabel = sit.action === 'wait'
+        ? '待機検討'
+        : sit.action === 'move' ? '早めの移動検討' : '';
+    situationEl.innerHTML = `
+        <div class="phase4-preview-title">状況理解${actionLabel ? `<b class="phase4-action phase4-action--${sit.action}">${actionLabel}</b>` : ''}</div>
+        <div class="phase4-sit-row"><span>現在地</span><strong>${escHtml(_phase4RiskText(sit.current))}</strong></div>
+        <div class="phase4-sit-row"><span>目的地</span><strong>${escHtml(_phase4RiskText(sit.destination))}</strong></div>
+        ${sit.route ? `<div class="phase4-sit-row"><span>ルート</span><strong>${escHtml(sit.route)}</strong></div>` : ''}
+        ${sit.rain ? `<div class="phase4-sit-row"><span>降水</span><strong>${escHtml(sit.rain)}</strong></div>` : ''}
+        ${sit.time ? `<div class="phase4-time">${escHtml(sit.time)}</div>` : ''}
+        ${sit.reason ? `<div class="phase4-reason">${escHtml(sit.reason)}<br>可能であれば${sit.action === 'wait' ? '待機' : '早めの移動'}を検討してください</div>` : ''}`;
 }
 
 async function _kkkRouteRiskPreview() {
@@ -799,6 +933,7 @@ function _kkkRenderAdjPreview(container, adj) {
     }
 
     container.innerHTML = html;
+    _phase4UpdatePreviews(adj);
 }
 
 window.setKikikuruSimulationScenario = function(config) {

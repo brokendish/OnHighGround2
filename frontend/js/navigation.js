@@ -1772,6 +1772,7 @@ function startNavigation() {
     }
     if (typeof _startLocationWatch === 'function') _startLocationWatch(true);
     setNavMode('navigation_active');
+    if (typeof navForwardWarningRefresh === 'function') navForwardWarningRefresh();
 
     // ナビシート表示後すぐに可視領域中央へセンタリング（GPS コールバックを待たない）
     if (currentLocation) {
@@ -2101,6 +2102,7 @@ function _onNavPosition(position) {
 
     if (_doFullUpdate) {
         _updateNavMarker(lat, lon, accuracy, heading);
+        if (typeof navForwardWarningRefresh === 'function') navForwardWarningRefresh();
     }
 
     // 精度は常に保存（_doFullUpdate 外・静止中も最新値を維持）

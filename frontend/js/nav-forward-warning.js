@@ -63,7 +63,7 @@ function _nfwActiveHazardNames(sampledPoints) {
         .map(h => typeof getHazardDisplayName === 'function' ? getHazardDisplayName(h) : h);
 }
 
-// 警告レベルを決定: null=非表示 / 'unavailable' / 'caution' / 'danger'
+// 警告レベルを決定: null=非表示 / 'unavailable' / 'unknown' / 'caution' / 'danger'
 function _nfwDetermineLevel(riskSummary) {
     if (!riskSummary) return null;
     const rl  = riskSummary.risk_level;
@@ -74,8 +74,8 @@ function _nfwDetermineLevel(riskSummary) {
     else if (rl === 'caution') level = 'caution';
 
     if (adj?.enabled) {
-        if (adj.status === 'unavailable' && !level) {
-            level = 'unavailable';
+        if ((adj.status === 'unavailable' || adj.status === 'unknown') && !level) {
+            level = adj.status;
         } else if (adj.penalty > 0) {
             const adjLvl = adj.max_level === 'danger' ? 'danger' : 'caution';
             if (!level || (adjLvl === 'danger' && level !== 'danger')) level = adjLvl;
@@ -93,10 +93,12 @@ function _nfwBuildHtml(level, riskSummary, sampledPoints) {
     let html = '<div class="nfw-inner">';
     html += '<button class="nfw-close" onclick="navForwardWarningDismiss()" aria-label="閉じる">✕</button>';
 
-    if (level === 'unavailable') {
+    if (level === 'unavailable' || level === 'unknown') {
         html += '<div class="nfw-title">⚠ キキクル判定不可</div>';
         html += `<div class="nfw-dist">${_nfwEsc(distText)}</div>`;
-        html += '<div class="nfw-msg">キキクル情報を取得できませんでした</div>';
+        html += `<div class="nfw-msg">${level === 'unavailable'
+            ? 'キキクル情報を取得できませんでした'
+            : 'キキクル情報を判定できませんでした'}</div>`;
         html += '<div class="nfw-note">安全を意味するものではありません</div>';
     } else {
         const isDanger = level === 'danger';
@@ -139,12 +141,17 @@ let _nfwCurrentRisk   = null;
 let _nfwCurrentPoints = null;
 let _nfwDismissed     = false;
 
+function _nfwIsNavigating() {
+    return typeof navigationMode !== 'undefined'
+        && ['navigation_active', 'navigation_warning', 'navigation_paused'].includes(navigationMode);
+}
+
 function _nfwRender() {
     const el = document.getElementById('nav-forward-warning');
     if (!el) return;
 
     const level = _nfwDetermineLevel(_nfwCurrentRisk);
-    if (!level || _nfwDismissed) {
+    if (!level || _nfwDismissed || !_nfwIsNavigating()) {
         el.style.display = 'none';
         return;
     }
@@ -178,4 +185,8 @@ function navForwardWarningDismiss() {
     _nfwDismissed = true;
     const el = document.getElementById('nav-forward-warning');
     if (el) el.style.display = 'none';
+}
+
+function navForwardWarningRefresh() {
+    _nfwRender();
 }

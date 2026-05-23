@@ -774,6 +774,62 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
 .kkk-adj-preview-main    { font-size: 12px; font-weight: 600; color: #78350f; margin-bottom: 2px; }
 .kkk-adj-preview-context { font-size: 11px; color: #92400e; margin-bottom: 3px; }
 .kkk-adj-preview-detail  { font-size: 10px; color: #b45309; }
+.phase4-preview-grid {
+    display: grid;
+    gap: 8px;
+    margin-top: 9px;
+}
+.phase4-preview-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 8px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: #334155;
+}
+.phase4-preview-title {
+    color: #475569;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    margin-bottom: 5px;
+}
+.phase4-forward-alert {
+    border-left: 3px solid #d97706;
+    background: #fffbeb;
+    padding: 6px 7px;
+}
+.phase4-forward-alert--danger {
+    border-left-color: #dc2626;
+    background: #fef2f2;
+}
+.phase4-forward-alert small,
+.phase4-preview-note { display: block; color: #64748b; margin-top: 3px; }
+.phase4-forward-neutral { color: #64748b; font-weight: 700; }
+.phase4-sit-row {
+    display: flex;
+    gap: 7px;
+    border-bottom: 1px solid #f1f5f9;
+    padding: 3px 0;
+}
+.phase4-sit-row span { flex: 0 0 44px; color: #64748b; }
+.phase4-sit-row strong { font-weight: 500; overflow-wrap: anywhere; }
+.phase4-action {
+    float: right;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+}
+.phase4-action--wait { background: #fef3c7; color: #92400e; }
+.phase4-action--move { background: #fee2e2; color: #991b1b; }
+.phase4-time { color: #57534e; padding: 4px 0; }
+.phase4-reason {
+    background: #fffbeb;
+    border-left: 3px solid #d97706;
+    padding: 5px 7px;
+    margin-top: 6px;
+}
 
 @media (max-width: 720px) {
     .sim-header {

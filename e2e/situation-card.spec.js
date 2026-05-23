@@ -17,6 +17,7 @@ const KKK_RISK_OK_NONE = { status: 'ok',           inund: 'none',     flood: 'no
 const KKK_RISK_OK_CAUTION = { status: 'ok',        inund: 'caution',  flood: 'none',    land: 'none' };
 const KKK_RISK_OK_DANGER  = { status: 'ok',        inund: 'danger',   flood: 'danger',  land: 'none' };
 const KKK_RISK_UNAVAIL    = { status: 'unavailable', inund: null, flood: null, land: null };
+const KKK_RISK_UNKNOWN    = { status: 'unknown', inund: null, flood: null, land: null };
 
 const ADJ_OFF  = { enabled: false, status: 'off', penalty: 0, max_level: null, matched_hazards: [], summary: [] };
 const ADJ_UVAL = { enabled: true, status: 'unavailable', penalty: 0, max_level: null, matched_hazards: [], summary: [] };
@@ -91,13 +92,13 @@ test.describe('Phase 4-B: 状況理解カード', () => {
         await expect(page.locator('#sit-action-badge')).toContainText('待機検討');
     });
 
-    test('current danger + dest caution + route caution で「移動検討」バッジが表示される', async ({ page }) => {
+    test('current danger + dest caution + route caution で「早めの移動検討」バッジが表示される', async ({ page }) => {
         await setupPage(page);
         await setKkkSnapshot(page, KKK_RISK_OK_DANGER, KKK_RISK_OK_CAUTION);
         await page.evaluate(r => situationCardOnRouteUpdate(r), routeRisk('caution'));
         await activateRoutePreview(page);
         await page.evaluate(() => situationCardOnKkkUpdate());
-        await expect(page.locator('#sit-action-badge')).toContainText('移動検討');
+        await expect(page.locator('#sit-action-badge')).toContainText('早めの移動検討');
     });
 
     test('強雨 + 20分後に改善予測で「待機検討」が表示される', async ({ page }) => {
@@ -127,6 +128,18 @@ test.describe('Phase 4-B: 状況理解カード', () => {
         await page.evaluate(() => situationCardOnKkkUpdate());
         const text = await page.locator('#sit-card-body').textContent();
         expect(text).toMatch(/取得不可/);
+        expect(text).not.toMatch(/リスク検出なし/);
+    });
+
+    test('キキクル判定不可を safe 扱いしない（判定不可表示）', async ({ page }) => {
+        await setupPage(page);
+        await setKkkSnapshot(page, KKK_RISK_UNKNOWN, KKK_RISK_UNKNOWN);
+        await page.evaluate(r => situationCardOnRouteUpdate(r), routeRisk('safe'));
+        await activateRoutePreview(page);
+        await page.evaluate(() => situationCardOnKkkUpdate());
+        const text = await page.locator('#sit-card-body').textContent();
+        expect(text).toMatch(/判定不可/);
+        expect(text).toMatch(/安全を意味しません/);
         expect(text).not.toMatch(/リスク検出なし/);
     });
 

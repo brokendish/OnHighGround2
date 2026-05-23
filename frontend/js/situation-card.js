@@ -12,7 +12,7 @@
 
 // ── 定数 ─────────────────────────────────────────────────────────────────────
 
-const _SC_LEVEL_RANK = { danger: 4, caution: 3, none: 2, unavailable: 1, off: 0 };
+const _SC_LEVEL_RANK = { danger: 4, caution: 3, none: 2, unavailable: 1, unknown: 1, off: 0 };
 
 const _SC_PRECIP_RANK = { severe: 5, strong: 4, moderate: 3, weak: 2, none: 1, unknown: 0 };
 
@@ -32,7 +32,7 @@ function _scEsc(s) {
 // リスクオブジェクトから最大危険度レベルを返す
 function _scMaxLevel(risk) {
     if (!risk || risk.status === 'off' || risk.status === 'loading') return 'off';
-    if (risk.status === 'unavailable') return 'unavailable';
+    if (risk.status === 'unavailable' || risk.status === 'unknown') return risk.status;
     let maxRank = 0;
     let maxLevel = 'none';
     for (const k of ['inund', 'flood', 'land']) {
@@ -56,7 +56,7 @@ function _scActiveKindTexts(risk) {
 function _scLevelClass(level) {
     if (level === 'danger')      return 'sit-level--danger';
     if (level === 'caution')     return 'sit-level--caution';
-    if (level === 'unavailable') return 'sit-level--unavailable';
+    if (level === 'unavailable' || level === 'unknown') return 'sit-level--unavailable';
     return 'sit-level--none';
 }
 
@@ -144,7 +144,7 @@ function _scRender() {
             badge.className   = 'sit-action-badge sit-badge--wait';
             badge.style.display = '';
         } else if (action?.action === 'move') {
-            badge.textContent = '移動検討';
+            badge.textContent = '早めの移動検討';
             badge.className   = 'sit-action-badge sit-badge--move';
             badge.style.display = '';
         } else {
@@ -220,6 +220,8 @@ function _scRowHtml(label, risk, level) {
         valHtml = '<span class="sit-row-val sit-level--none">取得前</span>';
     } else if (level === 'unavailable') {
         valHtml = '<span class="sit-row-val sit-level--unavailable">取得不可（安全を意味しません）</span>';
+    } else if (level === 'unknown') {
+        valHtml = '<span class="sit-row-val sit-level--unavailable">判定不可（安全を意味しません）</span>';
     } else if (kinds.length > 0) {
         valHtml = `<span class="sit-row-val ${_scLevelClass(level)}">${_scEsc(kinds.join(' / '))}</span>`;
     } else {
