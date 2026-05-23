@@ -3830,6 +3830,64 @@
         @media (max-width: 480px) {
             .nav-fwd-warning { left: 4px; right: 4px; }
         }
+        /* ── 状況理解カード（Phase 4-B） ───────────────────────────────── */
+        #sit-card-section { border-top: 2px solid #e2e8f0; margin-top: 4px; }
+        .sit-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 4px 0;
+            font-size: 12px;
+            line-height: 1.45;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .sit-row:last-of-type { border-bottom: none; }
+        .sit-row-label {
+            flex: 0 0 52px;
+            color: #64748b;
+            font-size: 11px;
+            padding-top: 1px;
+        }
+        .sit-row-val { flex: 1; font-weight: 500; }
+        .sit-level--danger      { color: #b91c1c; }
+        .sit-level--caution     { color: #b45309; }
+        .sit-level--unavailable { color: #64748b; }
+        .sit-level--none        { color: #475569; }
+        .sit-precip-forecast {
+            flex: none;
+            font-size: 10px;
+            color: #78716c;
+            padding-left: 4px;
+        }
+        .sit-overlap {
+            font-size: 11px;
+            color: #78350f;
+            padding: 4px 0 2px;
+        }
+        .sit-action-block {
+            margin-top: 8px;
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .sit-action--wait {
+            background: #fef9c3;
+            border-left: 3px solid #ca8a04;
+        }
+        .sit-action--move {
+            background: #fee2e2;
+            border-left: 3px solid #dc2626;
+        }
+        .sit-action-reason { color: #44403c; margin-bottom: 2px; }
+        .sit-action-label  { color: #57534e; font-weight: 600; }
+        .sit-action-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 3px;
+        }
+        .sit-badge--wait { background: #fef3c7; color: #92400e; }
+        .sit-badge--move { background: #fee2e2; color: #991b1b; }
         /* ── ルート気象リスクバナー（weather-route-service.js） ──────────── */
         .nav-route-weather-banner {
             display: none;
@@ -4735,6 +4793,18 @@
                             </div>
                         </div>
                         <div id="loc-info-route" style="display:none;">
+                            <!-- Phase 4-B: 状況理解カード（ルート設定時に表示） -->
+                            <div class="lip-card-section lip-accordion" id="sit-card-section" style="display:none;">
+                                <div class="lip-accordion-header" onclick="_lipAccordionToggle(this)">
+                                    <span class="lip-card-hdr-icon">🧭</span>
+                                    <span class="lip-card-hdr-title">状況理解</span>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span class="sit-action-badge" id="sit-action-badge" style="display:none;"></span>
+                                        <span class="lip-accordion-arrow">▾</span>
+                                    </div>
+                                </div>
+                                <div class="lip-accordion-body" id="sit-card-body"></div>
+                            </div>
                             <div class="lip-section" id="lip-route-selector-section" style="display:none;">
                                 <div class="lip-section-title">🛣 ルート選択</div>
                                 <div id="lip-route-options"></div>
@@ -5102,6 +5172,8 @@
     <script src="js/kikikuru-layer.js"></script>
     <!-- Phase 4-A: ナビ中前方危険警告 -->
     <script src="js/nav-forward-warning.js"></script>
+    <!-- Phase 4-B: 状況理解カード -->
+    <script src="js/situation-card.js"></script>
     <!-- 地図オーバーレイUI -->
     <script src="js/map-overlay-ui.js"></script>
     <!-- Magnitudeモード（地震情報） -->

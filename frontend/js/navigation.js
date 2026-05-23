@@ -1829,6 +1829,8 @@ function stopNavigation() {
     if (banner) banner.style.display = 'none';
     // Phase 4-A: 前方危険警告をクリア
     if (typeof navForwardWarningClear === 'function') navForwardWarningClear();
+    // Phase 4-B: 状況理解カードをクリア
+    if (typeof situationCardClear === 'function') situationCardClear();
     if (typeof _weatherRouteClear === 'function') _weatherRouteClear();
     if (typeof voiceNav !== 'undefined') voiceNav.clear();
 
@@ -1874,6 +1876,10 @@ function onNavRouteSelected(route, destination, meta = {}) {
             route?.__riskSummary   || null,
             route?.__riskSampledPoints || null
         );
+    }
+    // Phase 4-B: 状況理解カードを更新
+    if (typeof situationCardOnRouteUpdate === 'function') {
+        situationCardOnRouteUpdate(route?.__riskSummary || null);
     }
     if (typeof _lipUpdateRouteSelection === 'function') {
         _lipUpdateRouteSelection({

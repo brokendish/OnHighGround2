@@ -270,6 +270,11 @@ function _weatherCardRender(alertsData, precipData, riskInfo) {
     // 避難行動メッセージ（riskLevel ベース）
     _wcRenderRiskMsg(riskLevel);
 
+    // Phase 4-B: 状況理解カードへ降水情報を通知
+    if (typeof situationCardOnWeatherUpdate === 'function') {
+        situationCardOnWeatherUpdate(precipInfo || null);
+    }
+
     // stale / unavailable メッセージ
     const msg = _wcEl('lip-wc-message');
     if (msg) {

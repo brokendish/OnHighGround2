@@ -708,6 +708,18 @@ function _kkkUpdateRiskUI(target) {
         const { text, cls } = _kkkRiskLabel(_kkkRisk[target][kind]);
         return `<span class="kkk-risk-item">${kindLabel}:<span class="kkk-risk-badge ${cls}">${text}</span></span>`;
     }).join('');
+
+    // Phase 4-B: 状況理解カードへ通知
+    if (typeof situationCardOnKkkUpdate === 'function') situationCardOnKkkUpdate();
+}
+
+// 公開: キキクルリスクスナップショット（Phase 4-B 状況理解カード用）
+function kikikuruGetRiskSnapshot() {
+    return {
+        current: { ..._kkkRisk.current },
+        dest:    { ..._kkkRisk.dest    },
+        route:   { ..._kkkRouteRisk   },
+    };
 }
 
 // 公開: 目的地変更時に外部から呼べるフック
