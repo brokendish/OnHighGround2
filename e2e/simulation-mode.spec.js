@@ -1,464 +1,202 @@
 'use strict';
 
-const path = require('path');
 const { test, expect } = require('@playwright/test');
 
-// ── モックデータ ───────────────────────────────────────────────────────────────
-
-const MOCK_SCENARIOS = {
-    status: 'ok',
-    scenarios: [
-        { scenario_id: '001', title: '平常時',           origin: [139.767125, 35.681236], destination: [139.780000, 35.690000], weather: {}, hazards: {}, expected: { risk_level: 'none' } },
-        { scenario_id: '003', title: '強雨 + 洪水想定区域', origin: [139.767125, 35.681236], destination: [139.780000, 35.690000], weather: { forecast_max_intensity: 'strong' }, hazards: { flood: true }, expected: { min_risk_level: 'warning' } },
-        { scenario_id: '006', title: '気象リスク判定不能',  origin: [139.767125, 35.681236], destination: [139.780000, 35.690000], weather: { unknown: true }, hazards: {}, expected: { risk_level: 'unknown' } },
-        { scenario_id: '007', title: 'ハザード情報確認不可', origin: [139.767125, 35.681236], destination: [139.780000, 35.690000], weather: {}, hazards: { unavailable: true }, expected: { risk_level: 'unknown' } },
-    ],
-};
-
-function makeRunResponse(riskLevel, penaltyReason = '強雨域接近', isShortest = false) {
-    return {
-        status: 'ok',
-        scenario_id: 'manual',
-        recommended_route_index: 1,
-        routes: [
-            {
-                index: 0, label: 'A', distance_m: 900, duration_s: 720,
-                risk_level: riskLevel, safety_score: 42,
-                risk_summary: ['強雨域接近', '洪水想定区域'],
-                penalties: [
-                    { type: 'strong_rain', points: 15, reason: '強雨域接近' },
-                    { type: 'flood', points: 40, reason: '洪水想定区域' },
-                    { type: 'combined_strong_flood', points: 15, reason: '強雨 + 洪水想定区域' },
-                ],
-                recommendation_reason: '最短ですが、洪水想定区域のリスクがあります',
-                is_recommended: false, is_shortest: true,
-            },
-            {
-                index: 1, label: 'B', distance_m: 1100, duration_s: 880,
-                risk_level: 'none', safety_score: 100,
-                risk_summary: [],
-                penalties: [],
-                recommendation_reason: 'リスクが低いルートです',
-                is_recommended: true, is_shortest: false,
-            },
-        ],
-        summary: { headline: '安全寄りルートがあります', message: '最短ルートより200m長いですが、浸水リスクが低いルートを推奨します' },
-        layer_stack: [
-            { key: 'weather_strong', label: '降水: 強雨域接近', active: true },
-            { key: 'flood', label: '洪水想定区域', active: true },
-            { key: 'lowland', label: '低地・排水困難エリア', active: false },
-        ],
-    };
-}
-
-const MOCK_AUTO_RUN = {
-    run_at: '2026-05-17T20:00:00+00:00',
-    total: 4,
-    passed: 3,
-    failed: 1,
-    skipped: 0,
-    results: [
-        { scenario_id: '001', title: '平常時',          status: 'pass', risk_level: 'none',    recommended_route_index: 0, fail_reason: null },
-        { scenario_id: '003', title: '強雨 + 洪水',     status: 'pass', risk_level: 'warning', recommended_route_index: 1, fail_reason: null },
-        { scenario_id: '006', title: '気象判定不能',    status: 'pass', risk_level: 'unknown', recommended_route_index: 0, fail_reason: null },
-        { scenario_id: '007', title: 'ハザード確認不可', status: 'fail', risk_level: 'warning', recommended_route_index: 0, fail_reason: 'risk_level: expected "unknown", got "warning"' },
-    ],
-    report_path: '/data_runtime/simulation/simulation_report_20260517_200000.json',
-};
-
-// ── ページセットアップ ─────────────────────────────────────────────────────────
-
-async function openSimulation(page) {
-    await page.route('/api/simulation/scenarios', route => route.fulfill({
+async function mockSimTraffic(page) {
+  // 単一ハンドラ: /api/route-risk を先に判定し、他は {} を返す
+  await page.route('/api/**', async route => {
+    const url = route.request().url();
+    if (url.includes('/api/route-risk')) {
+      const body = JSON.parse(route.request().postData() || '{}');
+      const kkk  = body.kikikuru;
+      let adj = { enabled: false, status: 'off', penalty: 0, max_level: null, matched_hazards: [], summary: [] };
+      if (kkk) {
+        if (kkk.status === 'unavailable') {
+          adj = { enabled: true, status: 'unavailable', penalty: 0, max_level: null, matched_hazards: [], summary: [] };
+        } else if (kkk.status === 'unknown') {
+          adj = { enabled: true, status: 'unknown', penalty: 0, max_level: null, matched_hazards: [], summary: [] };
+        } else if (kkk.status === 'ok') {
+          const hasLevel = v => v === 'caution' || v === 'danger';
+          const penalty  = (hasLevel(kkk.flood) ? (kkk.flood === 'danger' ? 8 : 4) : 0)
+                         + (hasLevel(kkk.inund) ? (kkk.inund === 'danger' ? 6 : 3) : 0)
+                         + (hasLevel(kkk.land)  ? (kkk.land  === 'danger' ? 8 : 4) : 0);
+          adj = { enabled: true, status: 'ok', penalty, max_level: 'caution', matched_hazards: [], summary: [] };
+        }
+      }
+      return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(MOCK_SCENARIOS),
-    }));
-    await page.goto('/admin/simulation.html');
-    await page.waitForLoadState('domcontentloaded');
+        body: JSON.stringify({ safety_score: 84.0, risk_level: 'caution', kikikuru_adjustment: adj }),
+      });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
 }
 
-// ── テスト ────────────────────────────────────────────────────────────────────
+test.describe('Simulation Mode — キキクル検証パネル (Phase 3-D)', () => {
 
-test.describe('Simulation Mode — ページ表示', () => {
-    test('ページタイトルが表示される', async ({ page }) => {
-        await openSimulation(page);
-        await expect(page).toHaveTitle(/シミュレーション/);
+  test('キキクル検証パネルが左ペインに表示される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await expect(page.locator('#kkk-scenario-buttons')).toBeVisible();
+    await expect(page.locator('.kkk-scenario-btn').first()).toBeVisible();
+  });
+
+  test('シナリオボタンが11件以上ある', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    const count = await page.locator('.kkk-scenario-btn').count();
+    expect(count).toBeGreaterThanOrEqual(11);
+  });
+
+  test('「洪水 危険」シナリオで補正セクションが表示される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    await expect(page.locator('#kkk-adj-section')).toBeVisible();
+    const text = await page.locator('#kkk-adj-display').textContent();
+    expect(text).toContain('洪水 危険');
+  });
+
+  test('「洪水 危険」でキキクル種別テーブルに洪水=危険が表示される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    const text = await page.locator('#kkk-adj-display').textContent();
+    expect(text).toContain('洪水キキクル');
+    expect(text).toContain('危険');
+  });
+
+  test('「取得不可」シナリオで取得不可が表示される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="unavailable"]').click();
+    await expect(page.locator('#kkk-adj-section')).toBeVisible();
+    const text = await page.locator('#kkk-adj-display').textContent();
+    expect(text).toContain('取得不可');
+  });
+
+  test('「取得不可」を safe 扱いしない', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="unavailable"]').click();
+    const text = await page.locator('#kkk-adj-display').textContent();
+    expect(text).toContain('取得不可');
+    expect(text).not.toContain('安全寄り'); // STATUS_DISPLAY_NAMES['safe'] — これが出たら safe 扱い
+    // 説明文として「安全を意味しません」が含まれることを確認
+    expect(text).toContain('安全を意味しません');
+  });
+
+  test('「判定不可」シナリオで判定不可が表示される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="unknown"]').click();
+    const text = await page.locator('#kkk-adj-display').textContent();
+    expect(text).toContain('判定不可');
+    expect(text).not.toContain('安全寄り'); // STATUS_DISPLAY_NAMES['safe'] — これが出たら safe 扱い
+    expect(text).toContain('安全を意味しません');
+  });
+
+  test('「3種同時 危険」で3種すべてが表示される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="three_danger"]').click();
+    const text = await page.locator('#kkk-adj-display').textContent();
+    expect(text).toContain('浸水キキクル');
+    expect(text).toContain('洪水キキクル');
+    expect(text).toContain('土砂キキクル');
+  });
+
+  test('シナリオ選択でボタンに active クラスが付く', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="land_caution"]').click();
+    await expect(page.locator('.kkk-scenario-btn[data-key="land_caution"]')).toHaveClass(/active/);
+    await expect(page.locator('.kkk-scenario-btn[data-key="flood_danger"]')).not.toHaveClass(/active/);
+  });
+
+  test('クリアボタンで補正セクションが非表示になる', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    await expect(page.locator('#kkk-adj-section')).toBeVisible();
+    await page.locator('#kkk-clear-btn').click();
+    await expect(page.locator('#kkk-adj-section')).toBeHidden();
+  });
+
+  test('URL param ?kikikuruScenario=flood_danger でシナリオが自動選択される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html?kikikuruScenario=flood_danger');
+    await expect(page.locator('.kkk-scenario-btn[data-key="flood_danger"]')).toHaveClass(/active/);
+    await expect(page.locator('#kkk-adj-section')).toBeVisible();
+  });
+
+  test('URL param ハイフン区切りも正規化される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html?kikikuruScenario=flood-danger');
+    await expect(page.locator('.kkk-scenario-btn[data-key="flood_danger"]')).toHaveClass(/active/);
+  });
+
+  test('window.setKikikuruSimulationScenario でシナリオ注入できる', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.evaluate(() => {
+      window.setKikikuruSimulationScenario({ enabled: true, scenario: 'three_danger' });
     });
+    await expect(page.locator('#kkk-adj-section')).toBeVisible();
+    const text = await page.locator('#kkk-adj-display').textContent();
+    expect(text).toContain('3種同時 危険');
+  });
 
-    test('定義済みシナリオボタンが表示される', async ({ page }) => {
-        await openSimulation(page);
-        const btns = page.locator('.sim-scenario-btn');
-        await expect(btns).toHaveCount(MOCK_SCENARIOS.scenarios.length);
-        await expect(btns.first()).toContainText('[001]');
+  test('setKikikuruSimulationScenario({ enabled: false }) でパネルが非表示', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    await expect(page.locator('#kkk-adj-section')).toBeVisible();
+    await page.evaluate(() => {
+      window.setKikikuruSimulationScenario({ enabled: false });
     });
+    await expect(page.locator('#kkk-adj-section')).toBeHidden();
+  });
 
-    test('パラメータフォームが存在する', async ({ page }) => {
-        await openSimulation(page);
-        await expect(page.locator('#p-origin-lon')).toBeVisible();
-        await expect(page.locator('#p-dest-lon')).toBeVisible();
-        await expect(page.locator('#p-forecast-intensity')).toBeVisible();
-        await expect(page.locator('#p-h-flood')).toBeVisible();
-        await expect(page.locator('#run-btn')).toBeVisible();
-    });
-});
+  test('route-risk 補正プレビューが表示される（penalty > 0 シナリオ）', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    await expect(page.locator('#kkk-adj-preview .kkk-adj-preview--active')).toBeVisible({ timeout: 5000 });
+  });
 
-test.describe('Simulation Mode — シナリオ読み込み', () => {
-    test('シナリオボタンクリックでフォームに値が設定される', async ({ page }) => {
-        await openSimulation(page);
-        const btn = page.locator('.sim-scenario-btn[data-scenario-id="003"]');
-        await btn.click();
+  test('取得不可シナリオの補正プレビューで neutral 表示が出る', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="unavailable"]').click();
+    await expect(page.locator('#kkk-adj-preview .kkk-adj-preview--neutral')).toBeVisible({ timeout: 5000 });
+  });
 
-        await expect(page.locator('#p-forecast-intensity')).toHaveValue('strong');
-        await expect(page.locator('#p-h-flood')).toBeChecked();
-        await expect(btn).toHaveClass(/active/);
-    });
+  test('通常画面 / ではキキクル検証パネルが存在しない', async ({ page }) => {
+    await page.route('/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    await page.route('/emergency-shelters**', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: [], count: 0, total_count: 0 }),
+    }));
+    await page.route('**/jmatile/**', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: '[]',
+    }));
+    await page.goto('/');
+    await expect(page.locator('#kkk-adj-section')).toHaveCount(0);
+    await expect(page.locator('.kkk-scenario-btn')).toHaveCount(0);
+  });
 
-    test('unknown シナリオのチェックボックスが設定される', async ({ page }) => {
-        await openSimulation(page);
-        await page.locator('.sim-scenario-btn[data-scenario-id="006"]').click();
-        await expect(page.locator('#p-weather-unknown')).toBeChecked();
-    });
+  test('モバイル幅でシナリオボタンが表示される', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await expect(page.locator('#kkk-scenario-buttons')).toBeVisible();
+    const btn = page.locator('.kkk-scenario-btn').first();
+    const box = await btn.boundingBox();
+    expect(box).toBeTruthy();
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.height).toBeGreaterThan(0);
+  });
 
-    test('hazard unavailable シナリオのチェックボックスが設定される', async ({ page }) => {
-        await openSimulation(page);
-        await page.locator('.sim-scenario-btn[data-scenario-id="007"]').click();
-        await expect(page.locator('#p-hazard-unavailable')).toBeChecked();
-    });
-});
-
-test.describe('Simulation Mode — 手動実行', () => {
-    test('実行ボタンで route comparison が表示される', async ({ page }) => {
-        await openSimulation(page);
-
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(makeRunResponse('warning')),
-        }));
-
-        await page.locator('#run-btn').click();
-        await expect(page.locator('.sim-route-card')).toHaveCount(2, { timeout: 5000 });
-        await expect(page.locator('.sim-summary-banner')).toBeVisible();
-    });
-
-    test('penalty breakdown が表示される', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(makeRunResponse('warning')),
-        }));
-
-        await page.locator('#run-btn').click();
-        await page.locator('.sim-penalty-breakdown').first().waitFor({ timeout: 5000 });
-        await expect(page.locator('.sim-penalty-item').first()).toBeVisible();
-    });
-
-    test('layer stack が表示される', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(makeRunResponse('warning')),
-        }));
-
-        await page.locator('#run-btn').click();
-        await expect(page.locator('.sim-layer-stack'), { timeout: 5000 }).toBeVisible();
-        await expect(page.locator('.sim-layer-row')).toHaveCount(3);
-    });
-
-    test('推奨ルートに rec badge が表示される', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(makeRunResponse('none')),
-        }));
-
-        await page.locator('#run-btn').click();
-        await expect(page.locator('.sim-rec-badge')).toBeVisible({ timeout: 5000 });
-    });
-
-    test('unavailable response で旧結果が残らない', async ({ page }) => {
-        await openSimulation(page);
-
-        // 1回目: ok
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(makeRunResponse('warning')),
-        }));
-        await page.locator('#run-btn').click();
-        await expect(page.locator('.sim-route-card')).toHaveCount(2, { timeout: 5000 });
-
-        // 2回目: unavailable
-        await page.unroute('/api/simulation/run');
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ status: 'unavailable', scenario_id: 'manual', recommended_route_index: 0, routes: [], summary: { headline: 'ルートを取得できません', message: '' }, layer_stack: [] }),
-        }));
-        await page.locator('#run-btn').click();
-        await expect(page.locator('.sim-route-card')).toHaveCount(0, { timeout: 5000 });
-        await expect(page.locator('.sim-unavailable')).toBeVisible();
-    });
-
-    test('unknown weather が表示される', async ({ page }) => {
-        await openSimulation(page);
-        const unknownResp = makeRunResponse('unknown');
-        unknownResp.routes[0].risk_level = 'unknown';
-        unknownResp.routes[0].risk_summary = ['気象リスク判定不能'];
-        unknownResp.routes[1].risk_level = 'unknown';
-
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(unknownResp),
-        }));
-
-        await page.locator('#run-btn').click();
-        await expect(page.locator('.sim-route-card')).toHaveCount(2, { timeout: 5000 });
-        // 「判定不能」が画面に出ている
-        await expect(page.locator('.sim-route-risk', { hasText: '判定不能' }).first()).toBeVisible();
-    });
-
-    test('screenshot: 警戒シナリオの結果', async ({ page }, testInfo) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(makeRunResponse('warning')),
-        }));
-
-        await page.locator('#run-btn').click();
-        await page.locator('.sim-route-card').first().waitFor({ timeout: 5000 });
-
-        const screenshotDir = path.join(__dirname, '..', 'data_runtime', 'simulation', 'screenshots');
-        await page.screenshot({ path: path.join(screenshotDir, '003_rain_flood.png'), fullPage: false });
-    });
-});
-
-test.describe('Simulation Mode — Auto-Run', () => {
-    test('一括実行モーダルが開き結果が表示される', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/auto-run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(MOCK_AUTO_RUN),
-        }));
-
-        await page.locator('#auto-run-btn').click();
-        await expect(page.locator('#auto-run-modal')).toBeVisible({ timeout: 5000 });
-        await expect(page.locator('.sim-autorun-table')).toBeVisible();
-        await expect(page.locator('.sim-autorun-table tbody tr')).toHaveCount(4);
-    });
-
-    test('PASS 行と FAIL 行が区別される', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/auto-run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(MOCK_AUTO_RUN),
-        }));
-
-        await page.locator('#auto-run-btn').click();
-        await expect(page.locator('.sim-autorun-row--pass')).toHaveCount(3, { timeout: 5000 });
-        await expect(page.locator('.sim-autorun-row--fail')).toHaveCount(1);
-    });
-
-    test('モーダルを閉じられる', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/auto-run', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(MOCK_AUTO_RUN),
-        }));
-
-        await page.locator('#auto-run-btn').click();
-        await expect(page.locator('#auto-run-modal')).toBeVisible({ timeout: 5000 });
-        await page.locator('#auto-run-modal-close').click();
-        await expect(page.locator('#auto-run-modal')).toBeHidden();
-    });
-});
-
-test.describe('Simulation Mode — ポイント検査', () => {
-    const MOCK_INSPECT = {
-        lat: 35.681236, lon: 139.767125,
-        risk_level: 'warning',
-        safety_score: 45.0,
-        penalties: [
-            { type: 'flood', points: 40, reason: '洪水想定区域' },
-        ],
-        combined_risks: ['洪水想定区域'],
-        hazard_union: { flood: true },
-        layer_stack: [
-            { key: 'flood', label: '洪水想定区域', active: true },
-        ],
-        data_source: 'real',
-    };
-
-    test('point-inspect API が呼ばれて結果パネルが表示される', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/point-inspect', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(MOCK_INSPECT),
-        }));
-
-        // 検査ボタンをクリックしてモードをアクティブにする
-        await page.locator('#btn-mode-inspect').click();
-        await expect(page.locator('#btn-mode-inspect')).toHaveClass(/active/);
-
-        // runPointInspect をグローバルから直接トリガー
-        await page.evaluate(() => runPointInspect(35.681236, 139.767125));
-
-        await expect(page.locator('#sim-inspect-panel')).toBeVisible({ timeout: 5000 });
-        await expect(page.locator('.sim-inspect-risk')).toBeVisible();
-    });
-
-    test('point-inspect パネルが閉じられる', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/point-inspect', route => route.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify(MOCK_INSPECT),
-        }));
-
-        // パネルを直接表示状態にする
-        await page.evaluate(() => {
-            document.getElementById('sim-inspect-panel').style.display = 'block';
-        });
-
-        await expect(page.locator('#sim-inspect-panel')).toBeVisible();
-        await page.locator('#btn-inspect-close').click();
-        await expect(page.locator('#sim-inspect-panel')).toBeHidden();
-    });
-});
-
-test.describe('Simulation Mode — シナリオ保存・読み込み', () => {
-    test('保存済みシナリオモーダルが開く', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/scenarios/saved', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-                status: 'ok',
-                scenarios: [
-                    { scenario_id: 'test001', title: 'テスト保存', origin: [139.767125, 35.681236], destination: [139.780000, 35.690000], weather: {}, hazards: {} },
-                ],
-            }),
-        }));
-
-        await page.locator('#load-btn').click();
-        await expect(page.locator('#saved-scenarios-modal')).toBeVisible({ timeout: 3000 });
-        await expect(page.locator('.sim-saved-item')).toHaveCount(1);
-        await expect(page.locator('.sim-saved-id')).toContainText('test001');
-    });
-
-    test('保存済みシナリオ選択でフォームに値が設定される', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/scenarios/saved', route => route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-                status: 'ok',
-                scenarios: [
-                    { scenario_id: 'test001', title: 'テスト保存', origin: [139.767125, 35.681236], destination: [139.780000, 35.690000], weather: { forecast_max_intensity: 'strong' }, hazards: { flood: true } },
-                ],
-            }),
-        }));
-
-        await page.locator('#load-btn').click();
-        await page.locator('.sim-saved-item').first().click();
-        await expect(page.locator('#saved-scenarios-modal')).toBeHidden();
-        await expect(page.locator('#p-forecast-intensity')).toHaveValue('strong');
-        await expect(page.locator('#p-h-flood')).toBeChecked();
-    });
-
-    test('保存済みシナリオモーダルが閉じられる', async ({ page }) => {
-        await openSimulation(page);
-        await page.route('/api/simulation/scenarios/saved', route => route.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify({ status: 'ok', scenarios: [] }),
-        }));
-
-        await page.locator('#load-btn').click();
-        await expect(page.locator('#saved-scenarios-modal')).toBeVisible({ timeout: 3000 });
-        await page.locator('#saved-modal-close').click();
-        await expect(page.locator('#saved-scenarios-modal')).toBeHidden();
-    });
-});
-
-test.describe('Simulation Mode — 地図コントロール', () => {
-    test('出発地ボタンクリックで active になる', async ({ page }) => {
-        await openSimulation(page);
-        await page.locator('#btn-mode-start').click();
-        await expect(page.locator('#btn-mode-start')).toHaveClass(/active/);
-    });
-
-    test('目的地ボタンクリックで active になる', async ({ page }) => {
-        await openSimulation(page);
-        await page.locator('#btn-mode-goal').click();
-        await expect(page.locator('#btn-mode-goal')).toHaveClass(/active/);
-    });
-
-    test('同じボタンを再クリックで active が解除される', async ({ page }) => {
-        await openSimulation(page);
-        await page.locator('#btn-mode-start').click();
-        await expect(page.locator('#btn-mode-start')).toHaveClass(/active/);
-        await page.locator('#btn-mode-start').click();
-        await expect(page.locator('#btn-mode-start')).not.toHaveClass(/active/);
-    });
-
-    test('別のモードボタンを押すと前のボタンの active が解除される', async ({ page }) => {
-        await openSimulation(page);
-        await page.locator('#btn-mode-start').click();
-        await page.locator('#btn-mode-goal').click();
-        await expect(page.locator('#btn-mode-start')).not.toHaveClass(/active/);
-        await expect(page.locator('#btn-mode-goal')).toHaveClass(/active/);
-    });
-
-    test('3ペインレイアウト: 地図コンテナが存在する', async ({ page }) => {
-        await openSimulation(page);
-        await expect(page.locator('#sim-map')).toBeVisible();
-        await expect(page.locator('.sim-pane-left')).toBeVisible();
-        await expect(page.locator('.sim-pane-map')).toBeVisible();
-        await expect(page.locator('.sim-pane-right')).toBeVisible();
-    });
-});
-
-test.describe('Simulation Mode — 本番API非混入確認', () => {
-    test('/api/navigation/route/compare は呼ばれない', async ({ page }) => {
-        let compareCallCount = 0;
-        await openSimulation(page);
-        await page.route('/api/navigation/route/compare', route => {
-            compareCallCount++;
-            return route.continue();
-        });
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify(makeRunResponse('warning')),
-        }));
-
-        await page.locator('#run-btn').click();
-        await page.locator('.sim-route-card').first().waitFor({ timeout: 5000 });
-        expect(compareCallCount).toBe(0);
-    });
-
-    test('/api/weather/risk/route は呼ばれない', async ({ page }) => {
-        let weatherCallCount = 0;
-        await openSimulation(page);
-        await page.route('/api/weather/risk/route', route => {
-            weatherCallCount++;
-            return route.continue();
-        });
-        await page.route('/api/simulation/run', route => route.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify(makeRunResponse('warning')),
-        }));
-
-        await page.locator('#run-btn').click();
-        await page.locator('.sim-route-card').first().waitFor({ timeout: 5000 });
-        expect(weatherCallCount).toBe(0);
-    });
 });

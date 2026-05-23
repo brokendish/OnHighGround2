@@ -113,6 +113,15 @@
         </label>
       </div>
 
+      <!-- キキクルシナリオ（検証用） -->
+      <div class="sim-param-group sim-kkk-group">
+        <div class="sim-param-label sim-kkk-label">
+          キキクルシナリオ
+          <span class="sim-kkk-badge">検証用</span>
+        </div>
+        <div id="kkk-scenario-buttons" class="kkk-scenario-grid"></div>
+      </div>
+
       <button class="sim-run-btn" id="run-btn" type="button">
         シミュレーション実行
       </button>
@@ -148,6 +157,16 @@
           <p style="font-size:12px;color:#94a3b8;">定義済みシナリオをクリック後、実行してください</p>
         </div>
       </main>
+
+      <!-- キキクル補正プレビュー -->
+      <section class="kkk-adj-section" id="kkk-adj-section" style="display:none;">
+        <div class="kkk-adj-section-header">
+          <span>キキクル補正プレビュー</span>
+          <button class="kkk-clear-btn" id="kkk-clear-btn" type="button">クリア</button>
+        </div>
+        <div id="kkk-adj-display" class="kkk-adj-display"></div>
+        <div id="kkk-adj-preview" class="kkk-adj-preview-wrap"></div>
+      </section>
 
       <!-- ポイント検査パネル -->
       <section class="sim-inspect-panel" id="sim-inspect-panel" style="display:none;">

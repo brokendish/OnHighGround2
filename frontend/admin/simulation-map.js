@@ -43,9 +43,21 @@ const SimMap = (() => {
     let _markers = { start: null, goal: null, inspect: null };
     let _routeLayers = [];
     let _badgeLayers = [];
+    let _kkkOverlayLayers = [];
     let _inspectCircle = null;
     let _onMarkerUpdate = null;
     let _onInspect = null;
+
+    // ── キキクル疑似オーバーレイ定数 ─────────────────────────────────────────
+    const _KKK_KIND_STYLE = {
+        inund: { fill: '#38bdf8', stroke: '#0284c7' },
+        flood: { fill: '#f59e0b', stroke: '#d97706' },
+        land:  { fill: '#92400e', stroke: '#78350f' },
+    };
+    const _KKK_LEVEL_OPACITY = { caution: 0.28, danger: 0.48 };
+    const _KKK_KIND_OFFSET   = { inund: [0, 0], flood: [0.003, 0.003], land: [-0.003, -0.003] };
+    const _KKK_RECT_HALF     = 0.006;
+    const _KKK_KIND_LABEL    = { inund: '浸水キキクル', flood: '洪水キキクル', land: '土砂キキクル' };
 
     // ── マーカーアイコン ───────────────────────────────────────────────────────
     function _makeIcon(type) {
@@ -217,6 +229,52 @@ const SimMap = (() => {
         _badgeLayers = [];
     }
 
+    // ── 公開: キキクル疑似オーバーレイ描画 ───────────────────────────────────
+    function drawKikikuruOverlay(scenario) {
+        clearKikikuruOverlay();
+        if (!_map) return;
+        const startPos = getMarker('start');
+        const center   = startPos ? [startPos.lat, startPos.lon] : DEFAULT_CENTER;
+
+        if (scenario.status === 'unavailable' || scenario.status === 'unknown') {
+            const label = scenario.status === 'unavailable' ? '取得不可' : '判定不可';
+            const rect = L.rectangle([
+                [center[0] - _KKK_RECT_HALF * 1.5, center[1] - _KKK_RECT_HALF * 1.5],
+                [center[0] + _KKK_RECT_HALF * 1.5, center[1] + _KKK_RECT_HALF * 1.5],
+            ], { color: '#94a3b8', weight: 1.5, fillColor: '#94a3b8', fillOpacity: 0.18, interactive: true })
+                .bindTooltip(label, { sticky: true })
+                .addTo(_map);
+            _kkkOverlayLayers.push(rect);
+            return;
+        }
+
+        if (!scenario.values) return;
+
+        for (const kind of ['inund', 'flood', 'land']) {
+            const level = scenario.values[kind];
+            if (!level || level === 'none') continue;
+            const opacity = _KKK_LEVEL_OPACITY[level];
+            if (!opacity) continue;
+            const style  = _KKK_KIND_STYLE[kind];
+            const offset = _KKK_KIND_OFFSET[kind];
+            const clat   = center[0] + offset[0];
+            const clon   = center[1] + offset[1];
+            const rect = L.rectangle([
+                [clat - _KKK_RECT_HALF, clon - _KKK_RECT_HALF],
+                [clat + _KKK_RECT_HALF, clon + _KKK_RECT_HALF],
+            ], { color: style.stroke, weight: 2, fillColor: style.fill, fillOpacity: opacity, interactive: true })
+                .bindTooltip(`${_KKK_KIND_LABEL[kind]}: ${level === 'danger' ? '危険' : '注意'}`, { sticky: true })
+                .addTo(_map);
+            _kkkOverlayLayers.push(rect);
+        }
+    }
+
+    // ── 公開: キキクル疑似オーバーレイクリア ─────────────────────────────────
+    function clearKikikuruOverlay() {
+        for (const l of _kkkOverlayLayers) _map && _map.removeLayer(l);
+        _kkkOverlayLayers = [];
+    }
+
     // ── 公開: 検査マーカークリア ───────────────────────────────────────────────
     function clearInspect() {
         if (_markers.inspect) {
@@ -257,6 +315,8 @@ const SimMap = (() => {
         drawRoutes,
         clearRoutes,
         clearInspect,
+        drawKikikuruOverlay,
+        clearKikikuruOverlay,
         flyTo,
         fitToMarkers,
         invalidateSize,

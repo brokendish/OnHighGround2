@@ -1,5 +1,24 @@
 'use strict';
 
+// ── キキクルシナリオ定義 ─────────────────────────────────────────────────────
+const _KKK_SIM_SCENARIOS = {
+    none:         { label: 'なし',         status: 'ok',          values: { inund: 'none',    flood: 'none',    land: 'none' } },
+    inund_caution:{ label: '浸水 注意',    status: 'ok',          values: { inund: 'caution', flood: 'none',    land: 'none' } },
+    inund_danger: { label: '浸水 危険',    status: 'ok',          values: { inund: 'danger',  flood: 'none',    land: 'none' } },
+    flood_caution:{ label: '洪水 注意',    status: 'ok',          values: { inund: 'none',    flood: 'caution', land: 'none' } },
+    flood_danger: { label: '洪水 危険',    status: 'ok',          values: { inund: 'none',    flood: 'danger',  land: 'none' } },
+    land_caution: { label: '土砂 注意',    status: 'ok',          values: { inund: 'none',    flood: 'none',    land: 'caution' } },
+    land_danger:  { label: '土砂 危険',    status: 'ok',          values: { inund: 'none',    flood: 'none',    land: 'danger' } },
+    three_caution:{ label: '3種同時 注意', status: 'ok',          values: { inund: 'caution', flood: 'caution', land: 'caution' } },
+    three_danger: { label: '3種同時 危険', status: 'ok',          values: { inund: 'danger',  flood: 'danger',  land: 'danger' } },
+    unavailable:  { label: '取得不可',     status: 'unavailable', values: null },
+    unknown:      { label: '判定不可',     status: 'unknown',     values: null },
+};
+
+const _KKK_LEVEL_LABEL = { none: 'なし', caution: '注意', danger: '危険', unavailable: '取得不可', unknown: '判定不可' };
+
+let _kkkSimState = null;
+
 // ── リスク色・ラベル ──────────────────────────────────────────────────────────
 const _SIM_RISK_COLOR = {
     none:      '#2e7d32',
@@ -51,10 +70,12 @@ function initMap() {
                 if (type === 'start') {
                     document.getElementById('p-origin-lat').value = lat.toFixed(6);
                     document.getElementById('p-origin-lon').value = lon.toFixed(6);
+                    if (_mapAvailable && _kkkSimState) SimMap.drawKikikuruOverlay(_kkkSimState);
                 } else if (type === 'goal') {
                     document.getElementById('p-dest-lat').value = lat.toFixed(6);
                     document.getElementById('p-dest-lon').value = lon.toFixed(6);
                 }
+                _kkkRouteRiskPreview();
             },
             onInspect: (lat, lon) => {
                 runPointInspect(lat, lon);
@@ -598,6 +619,172 @@ async function openSavedScenariosModal() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// キキクル Simulation Mode (Phase 3-D)
+// ══════════════════════════════════════════════════════════════════════════════
+
+function _kkkBuildPanel() {
+    const container = document.getElementById('kkk-scenario-buttons');
+    if (!container) return;
+    Object.entries(_KKK_SIM_SCENARIOS).forEach(([key, sc]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'kkk-scenario-btn';
+        btn.dataset.key = key;
+        btn.textContent = sc.label;
+        btn.addEventListener('click', () => _kkkApplyScenario(key));
+        container.appendChild(btn);
+    });
+}
+
+function _kkkApplyScenario(key) {
+    const preset = _KKK_SIM_SCENARIOS[key];
+    if (!preset) return;
+    _kkkSimState = { key, ...preset };
+    document.querySelectorAll('.kkk-scenario-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`.kkk-scenario-btn[data-key="${key}"]`);
+    if (btn) btn.classList.add('active');
+    if (_mapAvailable) SimMap.drawKikikuruOverlay(_kkkSimState);
+    _kkkUpdateDisplay();
+    _kkkRouteRiskPreview();
+}
+
+function _kkkClearScenario() {
+    _kkkSimState = null;
+    document.querySelectorAll('.kkk-scenario-btn').forEach(b => b.classList.remove('active'));
+    if (_mapAvailable) SimMap.clearKikikuruOverlay();
+    _kkkUpdateDisplay();
+}
+
+function _kkkUpdateDisplay() {
+    const section = document.getElementById('kkk-adj-section');
+    if (!section) return;
+    if (!_kkkSimState) {
+        section.style.display = 'none';
+        return;
+    }
+    section.style.display = 'block';
+    const disp = document.getElementById('kkk-adj-display');
+    if (!disp) return;
+
+    let html = `<div class="kkk-sim-scenario-label">${escHtml(_kkkSimState.label)}</div>`;
+
+    if (_kkkSimState.status === 'unavailable') {
+        html += `<div class="kkk-sim-status kkk-sim-status--neutral">取得不可 — 補正なし（安全を意味しません）</div>`;
+    } else if (_kkkSimState.status === 'unknown') {
+        html += `<div class="kkk-sim-status kkk-sim-status--neutral">判定不可 — 補正なし（安全を意味しません）</div>`;
+    } else if (_kkkSimState.values) {
+        const v = _kkkSimState.values;
+        const kinds = [
+            { label: '浸水キキクル', key: 'inund' },
+            { label: '洪水キキクル', key: 'flood' },
+            { label: '土砂キキクル', key: 'land' },
+        ];
+        html += '<table class="kkk-sim-kinds-table">';
+        kinds.forEach(({ label, key }) => {
+            const val = v[key] || 'none';
+            html += `<tr><td>${label}</td><td class="kkk-kind-val kkk-kind-val--${val}">${_KKK_LEVEL_LABEL[val] || val}</td></tr>`;
+        });
+        html += '</table>';
+    }
+    disp.innerHTML = html;
+}
+
+async function _kkkRouteRiskPreview() {
+    const adjEl = document.getElementById('kkk-adj-preview');
+    if (!adjEl) return;
+    if (!_kkkSimState) { adjEl.innerHTML = ''; return; }
+
+    const oLon = parseFloat(document.getElementById('p-origin-lon').value);
+    const oLat = parseFloat(document.getElementById('p-origin-lat').value);
+    const dLon = parseFloat(document.getElementById('p-dest-lon').value);
+    const dLat = parseFloat(document.getElementById('p-dest-lat').value);
+    if (!oLat || !oLon || !dLat || !dLon) { adjEl.innerHTML = ''; return; }
+
+    adjEl.innerHTML = '<div class="kkk-adj-preview--loading">補正計算中…</div>';
+
+    let kikikuruPayload;
+    if (_kkkSimState.status === 'unavailable') {
+        kikikuruPayload = { status: 'unavailable' };
+    } else if (_kkkSimState.status === 'unknown') {
+        kikikuruPayload = { status: 'unknown' };
+    } else {
+        kikikuruPayload = { status: 'ok', ...(_kkkSimState.values || {}) };
+    }
+
+    try {
+        const res = await fetch('/api/route-risk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                coordinates: [[oLon, oLat], [dLon, dLat]],
+                sample_count: 10,
+                kikikuru: kikikuruPayload,
+            }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        _kkkRenderAdjPreview(adjEl, data.kikikuru_adjustment);
+    } catch (err) {
+        adjEl.innerHTML = `<div class="kkk-adj-preview--error">補正取得エラー: ${escHtml(err.message)}</div>`;
+    }
+}
+
+function _kkkRenderAdjPreview(container, adj) {
+    if (!adj) { container.innerHTML = ''; return; }
+
+    let html = '<div class="kkk-adj-preview-header">route-risk 補正プレビュー</div>';
+
+    if (!adj.enabled) {
+        html += '<div class="kkk-adj-preview--none">補正無効</div>';
+    } else if (adj.status === 'unavailable') {
+        html += '<div class="kkk-adj-preview--neutral">キキクル取得不可（補正なし）</div>';
+    } else if (adj.status === 'unknown') {
+        html += '<div class="kkk-adj-preview--neutral">キキクル判定不可（補正なし）</div>';
+    } else if (adj.penalty > 0) {
+        const isOverlap = (adj.matched_hazards || []).length > 0;
+        html += `<div class="kkk-adj-preview--active${isOverlap ? ' kkk-adj-preview--overlap' : ''}">`;
+        html += `<div class="kkk-adj-preview-label">リアルタイム補正</div>`;
+        if (_kkkSimState && _kkkSimState.values) {
+            const kindLabel = { inund: '浸水', flood: '洪水', land: '土砂' };
+            const active = Object.entries(_kkkSimState.values)
+                .filter(([, v]) => v === 'caution' || v === 'danger')
+                .map(([k]) => kindLabel[k] || k);
+            if (active.length > 0) {
+                html += `<div class="kkk-adj-preview-main">${active.join('・')}リスクが上昇しています</div>`;
+            }
+        }
+        if (isOverlap) {
+            html += `<div class="kkk-adj-preview-context">固定ハザードとキキクルが重なっています</div>`;
+        }
+        html += `<div class="kkk-adj-preview-detail">補正: -${adj.penalty}pt　最大レベル: ${adj.max_level === 'danger' ? '危険' : '注意'}</div>`;
+        html += '</div>';
+    } else {
+        html += '<div class="kkk-adj-preview--none">補正なし（レベルなし）</div>';
+    }
+
+    container.innerHTML = html;
+}
+
+window.setKikikuruSimulationScenario = function(config) {
+    if (!config || config.enabled === false) {
+        _kkkClearScenario();
+        return;
+    }
+    const key = (config.scenario || '').replace(/-/g, '_');
+    if (key && _KKK_SIM_SCENARIOS[key]) {
+        _kkkApplyScenario(key);
+        return;
+    }
+    if (config.values) {
+        const status = config.unavailable ? 'unavailable' : (config.values ? 'ok' : 'unknown');
+        _kkkSimState = { key: 'custom', label: 'カスタム', status, values: config.values };
+        if (_mapAvailable) SimMap.drawKikikuruOverlay(_kkkSimState);
+        _kkkUpdateDisplay();
+        _kkkRouteRiskPreview();
+    }
+};
+
 // ── ユーティリティ ─────────────────────────────────────────────────────────────
 function escHtml(str) {
     return String(str ?? '')
@@ -611,6 +798,16 @@ function escHtml(str) {
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
     loadScenarios();
+    _kkkBuildPanel();
+
+    // URL param ?kikikuruScenario=xxx でシナリオ自動選択 (E2E 注入用)
+    const _urlParams = new URLSearchParams(window.location.search);
+    const _urlKkkScenario = _urlParams.get('kikikuruScenario');
+    if (_urlKkkScenario) _kkkApplyScenario(_urlKkkScenario.replace(/-/g, '_'));
+
+    // キキクルクリアボタン
+    const kkkClearBtn = document.getElementById('kkk-clear-btn');
+    if (kkkClearBtn) kkkClearBtn.addEventListener('click', _kkkClearScenario);
 
     document.getElementById('run-btn').addEventListener('click', runSimulation);
     document.getElementById('auto-run-btn').addEventListener('click', runAuto);
