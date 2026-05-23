@@ -1827,6 +1827,8 @@ function stopNavigation() {
     // 処理中バナー（再計算中・再ルート中など）が残らないよう停止時に非表示化
     const banner = document.getElementById('navBanner');
     if (banner) banner.style.display = 'none';
+    // Phase 4-A: 前方危険警告をクリア
+    if (typeof navForwardWarningClear === 'function') navForwardWarningClear();
     if (typeof _weatherRouteClear === 'function') _weatherRouteClear();
     if (typeof voiceNav !== 'undefined') voiceNav.clear();
 
@@ -1865,6 +1867,13 @@ function onNavRouteSelected(route, destination, meta = {}) {
     if (typeof kikikuruOnRouteChange === 'function') kikikuruOnRouteChange(route || null);
     if (typeof kikikuruSetBackendAdjustment === 'function') {
         kikikuruSetBackendAdjustment(route?.__riskSummary?.kikikuru_adjustment || null);
+    }
+    // Phase 4-A: 前方危険警告パネルを更新
+    if (typeof navForwardWarningUpdate === 'function') {
+        navForwardWarningUpdate(
+            route?.__riskSummary   || null,
+            route?.__riskSampledPoints || null
+        );
     }
     if (typeof _lipUpdateRouteSelection === 'function') {
         _lipUpdateRouteSelection({

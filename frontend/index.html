@@ -3763,6 +3763,73 @@
             line-height: 1;
         }
         .wa-banner-close:hover { opacity: 1; }
+        /* ── 前方危険警告パネル（Phase 4-A） ──────────────────────────── */
+        .nav-fwd-warning {
+            display: none;
+            position: absolute;
+            bottom: 308px;
+            left: 8px;
+            right: 8px;
+            z-index: 1090;
+            border-radius: 10px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.22);
+            pointer-events: auto;
+            max-width: 480px;
+            margin: 0 auto;
+        }
+        .nav-fwd-warning--caution    { background: #fff8e1; border-left: 4px solid #f9a825; }
+        .nav-fwd-warning--danger     { background: #ffeaea; border-left: 4px solid #c62828; }
+        .nav-fwd-warning--unavailable { background: #f1f5f9; border-left: 4px solid #78909c; }
+        .nfw-inner {
+            padding: 10px 36px 10px 12px;
+            position: relative;
+        }
+        .nfw-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .nav-fwd-warning--caution .nfw-title     { color: #b45309; }
+        .nav-fwd-warning--danger .nfw-title      { color: #b71c1c; }
+        .nav-fwd-warning--unavailable .nfw-title { color: #546e7a; }
+        .nfw-dist {
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 3px;
+        }
+        .nfw-msg {
+            font-size: 12px;
+            color: #1e293b;
+            line-height: 1.45;
+        }
+        .nfw-overlap {
+            font-size: 11px;
+            color: #78350f;
+            margin-top: 3px;
+        }
+        .nav-fwd-warning--danger .nfw-overlap { color: #7f1d1d; }
+        .nfw-note {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 3px;
+        }
+        .nfw-close {
+            position: absolute;
+            top: 6px;
+            right: 8px;
+            background: none;
+            border: none;
+            font-size: 14px;
+            color: #94a3b8;
+            cursor: pointer;
+            line-height: 1;
+            padding: 2px 4px;
+        }
+        .nfw-close:hover { color: #475569; }
+        @media (max-width: 480px) {
+            .nav-fwd-warning { left: 4px; right: 4px; }
+        }
         /* ── ルート気象リスクバナー（weather-route-service.js） ──────────── */
         .nav-route-weather-banner {
             display: none;
@@ -4885,6 +4952,8 @@
             <div id="nav-route-weather-banner" class="nav-route-weather-banner" style="display:none;"></div>
             <!-- ナビ警告バナー -->
             <div id="navBanner" class="nav-banner" style="display:none;"></div>
+            <!-- 前方危険警告パネル（Phase 4-A: ナビ中のみ表示・persistent） -->
+            <div id="nav-forward-warning" class="nav-fwd-warning" style="display:none;" aria-live="assertive"></div>
             <!-- 音声ナビ テキスト案内バー（音声と同内容を文字表示） -->
             <div id="nav-announcement-bar" aria-live="polite" aria-atomic="true">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -5031,6 +5100,8 @@
     <script src="js/rain-layer.js"></script>
     <!-- キキクル（危険度分布）レイヤー -->
     <script src="js/kikikuru-layer.js"></script>
+    <!-- Phase 4-A: ナビ中前方危険警告 -->
+    <script src="js/nav-forward-warning.js"></script>
     <!-- 地図オーバーレイUI -->
     <script src="js/map-overlay-ui.js"></script>
     <!-- Magnitudeモード（地震情報） -->
