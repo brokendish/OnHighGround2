@@ -14,6 +14,7 @@
  *   SimMap.fitToMarkers()
  *   SimMap.invalidateSize()
  *   SimMap.getMarker(type)  → {lat, lon} | null
+ *   SimMap.getKikikuruOverlayCount() → number
  */
 const SimMap = (() => {
 
@@ -275,6 +276,10 @@ const SimMap = (() => {
         _kkkOverlayLayers = [];
     }
 
+    function getKikikuruOverlayCount() {
+        return _kkkOverlayLayers.length;
+    }
+
     // ── 公開: 検査マーカークリア ───────────────────────────────────────────────
     function clearInspect() {
         if (_markers.inspect) {
@@ -317,6 +322,7 @@ const SimMap = (() => {
         clearInspect,
         drawKikikuruOverlay,
         clearKikikuruOverlay,
+        getKikikuruOverlayCount,
         flyTo,
         fitToMarkers,
         invalidateSize,

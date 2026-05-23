@@ -120,6 +120,13 @@
           <span class="sim-kkk-badge">検証用</span>
         </div>
         <div id="kkk-scenario-buttons" class="kkk-scenario-grid"></div>
+        <div id="kkk-sim-legend" class="kkk-sim-legend" aria-label="キキクル疑似表示の凡例">
+          <div class="kkk-sim-legend-title">疑似オーバーレイ凡例</div>
+          <div class="kkk-sim-legend-row"><span class="kkk-sim-swatch kkk-sim-swatch--inund"></span>浸水キキクル</div>
+          <div class="kkk-sim-legend-row"><span class="kkk-sim-swatch kkk-sim-swatch--flood"></span>洪水キキクル</div>
+          <div class="kkk-sim-legend-row"><span class="kkk-sim-swatch kkk-sim-swatch--land"></span>土砂キキクル</div>
+          <div class="kkk-sim-legend-levels">注意: 薄色 / 危険: 濃色</div>
+        </div>
       </div>
 
       <button class="sim-run-btn" id="run-btn" type="button">
@@ -165,6 +172,20 @@
           <button class="kkk-clear-btn" id="kkk-clear-btn" type="button">クリア</button>
         </div>
         <div id="kkk-adj-display" class="kkk-adj-display"></div>
+        <div class="kkk-summary-grid" id="kkk-summary-grid">
+          <div class="kkk-summary-card">
+            <div class="kkk-summary-title">現在地周辺</div>
+            <div class="kkk-summary-value" id="kkk-summary-current"></div>
+          </div>
+          <div class="kkk-summary-card">
+            <div class="kkk-summary-title">目的地周辺</div>
+            <div class="kkk-summary-value" id="kkk-summary-destination"></div>
+          </div>
+          <div class="kkk-summary-card">
+            <div class="kkk-summary-title">ルート周辺</div>
+            <div class="kkk-summary-value" id="kkk-summary-route"></div>
+          </div>
+        </div>
         <div id="kkk-adj-preview" class="kkk-adj-preview-wrap"></div>
       </section>
 

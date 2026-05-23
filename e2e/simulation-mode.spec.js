@@ -2,12 +2,14 @@
 
 const { test, expect } = require('@playwright/test');
 
-async function mockSimTraffic(page) {
+async function mockSimTraffic(page, observedRequests = [], routeRiskBodies = []) {
+  page.on('request', request => observedRequests.push(request.url()));
   // 単一ハンドラ: /api/route-risk を先に判定し、他は {} を返す
   await page.route('/api/**', async route => {
     const url = route.request().url();
     if (url.includes('/api/route-risk')) {
       const body = JSON.parse(route.request().postData() || '{}');
+      routeRiskBodies.push(body);
       const kkk  = body.kikikuru;
       let adj = { enabled: false, status: 'off', penalty: 0, max_level: null, matched_hazards: [], summary: [] };
       if (kkk) {
@@ -20,7 +22,9 @@ async function mockSimTraffic(page) {
           const penalty  = (hasLevel(kkk.flood) ? (kkk.flood === 'danger' ? 8 : 4) : 0)
                          + (hasLevel(kkk.inund) ? (kkk.inund === 'danger' ? 6 : 3) : 0)
                          + (hasLevel(kkk.land)  ? (kkk.land  === 'danger' ? 8 : 4) : 0);
-          adj = { enabled: true, status: 'ok', penalty, max_level: 'caution', matched_hazards: [], summary: [] };
+          const maxLevel = [kkk.inund, kkk.flood, kkk.land].includes('danger') ? 'danger' : 'caution';
+          const matchedHazards = kkk.flood === 'danger' ? ['flood'] : [];
+          adj = { enabled: true, status: 'ok', penalty, max_level: maxLevel, matched_hazards: matchedHazards, summary: [] };
         }
       }
       return route.fulfill({
@@ -47,6 +51,15 @@ test.describe('Simulation Mode — キキクル検証パネル (Phase 3-D)', () 
     await page.goto('/admin/simulation.html');
     const count = await page.locator('.kkk-scenario-btn').count();
     expect(count).toBeGreaterThanOrEqual(11);
+  });
+
+  test('疑似オーバーレイ凡例で3種と注意・危険の表現を確認できる', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await expect(page.locator('#kkk-sim-legend')).toContainText('浸水キキクル');
+    await expect(page.locator('#kkk-sim-legend')).toContainText('洪水キキクル');
+    await expect(page.locator('#kkk-sim-legend')).toContainText('土砂キキクル');
+    await expect(page.locator('#kkk-sim-legend')).toContainText('注意: 薄色 / 危険: 濃色');
   });
 
   test('「洪水 危険」シナリオで補正セクションが表示される', async ({ page }) => {
@@ -107,6 +120,33 @@ test.describe('Simulation Mode — キキクル検証パネル (Phase 3-D)', () 
     expect(text).toContain('土砂キキクル');
   });
 
+  test('「3種同時 危険」で3種の疑似オーバーレイを描画しクリアできる', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="three_danger"]').click();
+    await expect.poll(() => page.evaluate(() => SimMap.getKikikuruOverlayCount())).toBe(3);
+    await page.locator('#kkk-clear-btn').click();
+    await expect.poll(() => page.evaluate(() => SimMap.getKikikuruOverlayCount())).toBe(0);
+  });
+
+  test('選択シナリオが現在地・目的地・ルート周辺サマリーに反映される', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    for (const id of ['#kkk-summary-current', '#kkk-summary-destination', '#kkk-summary-route']) {
+      await expect(page.locator(id)).toContainText('洪水 危険');
+    }
+  });
+
+  test('取得不可・判定不可の周辺サマリーを安全扱いしない', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="unavailable"]').click();
+    await expect(page.locator('#kkk-summary-route')).toContainText('取得不可（安全を意味しません）');
+    await page.locator('.kkk-scenario-btn[data-key="unknown"]').click();
+    await expect(page.locator('#kkk-summary-route')).toContainText('判定不可（安全を意味しません）');
+  });
+
   test('シナリオ選択でボタンに active クラスが付く', async ({ page }) => {
     await mockSimTraffic(page);
     await page.goto('/admin/simulation.html');
@@ -122,6 +162,7 @@ test.describe('Simulation Mode — キキクル検証パネル (Phase 3-D)', () 
     await expect(page.locator('#kkk-adj-section')).toBeVisible();
     await page.locator('#kkk-clear-btn').click();
     await expect(page.locator('#kkk-adj-section')).toBeHidden();
+    await expect(page.locator('#kkk-adj-preview')).toBeEmpty();
   });
 
   test('URL param ?kikikuruScenario=flood_danger でシナリオが自動選択される', async ({ page }) => {
@@ -166,6 +207,29 @@ test.describe('Simulation Mode — キキクル検証パネル (Phase 3-D)', () 
     await expect(page.locator('#kkk-adj-preview .kkk-adj-preview--active')).toBeVisible({ timeout: 5000 });
   });
 
+  test('固定ハザード重複シナリオでリアルタイム補正理由を表示する', async ({ page }) => {
+    await mockSimTraffic(page);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    const preview = page.locator('#kkk-adj-preview .kkk-adj-preview--overlap');
+    await expect(preview).toBeVisible({ timeout: 5000 });
+    await expect(preview).toContainText('リアルタイム補正');
+    await expect(preview).toContainText('洪水リスクが上昇しています');
+    await expect(preview).toContainText('固定ハザードとキキクルが重なっています');
+  });
+
+  test('route-risk プレビューは backend 契約の緯度・経度順で座標を送る', async ({ page }) => {
+    const routeRiskBodies = [];
+    await mockSimTraffic(page, [], routeRiskBodies);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    await expect.poll(() => routeRiskBodies.length).toBeGreaterThan(0);
+    expect(routeRiskBodies[0].coordinates).toEqual([
+      [35.681236, 139.767125],
+      [35.69, 139.78],
+    ]);
+  });
+
   test('取得不可シナリオの補正プレビューで neutral 表示が出る', async ({ page }) => {
     await mockSimTraffic(page);
     await page.goto('/admin/simulation.html');
@@ -187,16 +251,25 @@ test.describe('Simulation Mode — キキクル検証パネル (Phase 3-D)', () 
     await expect(page.locator('.kkk-scenario-btn')).toHaveCount(0);
   });
 
-  test('モバイル幅でシナリオボタンが表示される', async ({ page }) => {
+  test('シミュレーション操作は JMA タイル取得や localStorage 永続化を行わない', async ({ page }) => {
+    const requests = [];
+    await mockSimTraffic(page, requests);
+    await page.goto('/admin/simulation.html');
+    await page.locator('.kkk-scenario-btn[data-key="three_danger"]').click();
+    await expect(page.locator('#kkk-adj-preview')).toContainText('リアルタイム補正');
+    expect(requests.filter(url => url.includes('jmatile')).length).toBe(0);
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(key => /kikikuru/i.test(key)))).toEqual([]);
+  });
+
+  test('モバイル幅でシナリオ操作と結果確認が横はみ出しなく行える', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockSimTraffic(page);
     await page.goto('/admin/simulation.html');
     await expect(page.locator('#kkk-scenario-buttons')).toBeVisible();
-    const btn = page.locator('.kkk-scenario-btn').first();
-    const box = await btn.boundingBox();
-    expect(box).toBeTruthy();
-    expect(box.width).toBeGreaterThan(0);
-    expect(box.height).toBeGreaterThan(0);
+    await page.locator('.kkk-scenario-btn[data-key="flood_danger"]').click();
+    await expect(page.locator('#kkk-summary-route')).toContainText('洪水 危険');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 
 });

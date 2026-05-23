@@ -18,6 +18,7 @@ const _KKK_SIM_SCENARIOS = {
 const _KKK_LEVEL_LABEL = { none: 'なし', caution: '注意', danger: '危険', unavailable: '取得不可', unknown: '判定不可' };
 
 let _kkkSimState = null;
+let _kkkPreviewRequestToken = 0;
 
 // ── リスク色・ラベル ──────────────────────────────────────────────────────────
 const _SIM_RISK_COLOR = {
@@ -651,8 +652,11 @@ function _kkkApplyScenario(key) {
 
 function _kkkClearScenario() {
     _kkkSimState = null;
+    _kkkPreviewRequestToken += 1;
     document.querySelectorAll('.kkk-scenario-btn').forEach(b => b.classList.remove('active'));
     if (_mapAvailable) SimMap.clearKikikuruOverlay();
+    const preview = document.getElementById('kkk-adj-preview');
+    if (preview) preview.innerHTML = '';
     _kkkUpdateDisplay();
 }
 
@@ -688,12 +692,40 @@ function _kkkUpdateDisplay() {
         html += '</table>';
     }
     disp.innerHTML = html;
+    _kkkUpdateSummaries();
+}
+
+function _kkkUpdateSummaries() {
+    const targets = [
+        document.getElementById('kkk-summary-current'),
+        document.getElementById('kkk-summary-destination'),
+        document.getElementById('kkk-summary-route'),
+    ].filter(Boolean);
+    if (targets.length === 0 || !_kkkSimState) return;
+
+    let html;
+    if (_kkkSimState.status === 'unavailable') {
+        html = '<span class="kkk-summary-value--neutral">取得不可（安全を意味しません）</span>';
+    } else if (_kkkSimState.status === 'unknown') {
+        html = '<span class="kkk-summary-value--neutral">判定不可（安全を意味しません）</span>';
+    } else {
+        const kindLabel = { inund: '浸水', flood: '洪水', land: '土砂' };
+        const active = Object.entries(_kkkSimState.values || {})
+            .filter(([, level]) => level === 'caution' || level === 'danger')
+            .map(([kind, level]) => {
+                const dangerClass = level === 'danger' ? ' kkk-summary-risk--danger' : '';
+                return `<span class="kkk-summary-risk${dangerClass}">${kindLabel[kind] || escHtml(kind)} ${_KKK_LEVEL_LABEL[level]}</span>`;
+            });
+        html = active.length > 0 ? active.join(' / ') : '対象リスクなし';
+    }
+    targets.forEach(target => { target.innerHTML = html; });
 }
 
 async function _kkkRouteRiskPreview() {
     const adjEl = document.getElementById('kkk-adj-preview');
     if (!adjEl) return;
     if (!_kkkSimState) { adjEl.innerHTML = ''; return; }
+    const requestToken = ++_kkkPreviewRequestToken;
 
     const oLon = parseFloat(document.getElementById('p-origin-lon').value);
     const oLat = parseFloat(document.getElementById('p-origin-lat').value);
@@ -717,15 +749,18 @@ async function _kkkRouteRiskPreview() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                coordinates: [[oLon, oLat], [dLon, dLat]],
+                coordinates: [[oLat, oLon], [dLat, dLon]],
                 sample_count: 10,
                 kikikuru: kikikuruPayload,
             }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        _kkkRenderAdjPreview(adjEl, data.kikikuru_adjustment);
+        if (requestToken !== _kkkPreviewRequestToken || !_kkkSimState) return;
+        const adjustment = data.kikikuru_adjustment || null;
+        _kkkRenderAdjPreview(adjEl, adjustment);
     } catch (err) {
+        if (requestToken !== _kkkPreviewRequestToken || !_kkkSimState) return;
         adjEl.innerHTML = `<div class="kkk-adj-preview--error">補正取得エラー: ${escHtml(err.message)}</div>`;
     }
 }
