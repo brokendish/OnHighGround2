@@ -1,0 +1,1 @@
+このディレクトリ配下の live 関連タスクを実行する前に、必ず docs/live/DEVELOPMENT_GUARDRAILS.md を読むこと。
