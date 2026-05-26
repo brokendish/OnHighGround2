@@ -1,0 +1,291 @@
+/* live.css — 全国災害ビューア専用スタイル */
+
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Segoe UI', sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    overflow: hidden;
+}
+
+/* ── ヘッダー ───────────────────────────────────────────────────────────────── */
+
+#live-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 44px;
+    background: rgba(13, 17, 23, 0.92);
+    border-bottom: 1px solid rgba(48, 54, 61, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    z-index: 1100;
+    backdrop-filter: blur(8px);
+}
+
+.live-title {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #58a6ff;
+}
+
+.live-title-sub {
+    font-size: 11px;
+    color: #8b949e;
+    margin-left: 8px;
+    font-weight: 400;
+}
+
+.live-nav-link {
+    font-size: 12px;
+    color: #8b949e;
+    text-decoration: none;
+    padding: 4px 10px;
+    border: 1px solid rgba(48, 54, 61, 0.8);
+    border-radius: 4px;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.live-nav-link:hover {
+    color: #e6edf3;
+    border-color: #58a6ff;
+}
+
+/* ── 地図 ────────────────────────────────────────────────────────────────────── */
+
+#live-map {
+    position: fixed;
+    top: 44px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+}
+
+/* ── レイヤーパネル ──────────────────────────────────────────────────────────── */
+
+#live-layer-panel {
+    position: fixed;
+    top: 56px;
+    right: 12px;
+    background: rgba(13, 17, 23, 0.88);
+    border: 1px solid rgba(48, 54, 61, 0.9);
+    border-radius: 8px;
+    padding: 10px 14px;
+    z-index: 1050;
+    min-width: 130px;
+    backdrop-filter: blur(8px);
+}
+
+.live-panel-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8b949e;
+    margin-bottom: 8px;
+}
+
+.live-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #c9d1d9;
+    padding: 4px 0;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s;
+}
+
+.live-toggle:hover {
+    color: #e6edf3;
+}
+
+.live-toggle input[type="checkbox"] {
+    accent-color: #58a6ff;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+/* ── アクティブ警戒カード ────────────────────────────────────────────────────── */
+
+#live-alert-card {
+    position: fixed;
+    top: 56px;
+    left: 12px;
+    background: rgba(13, 17, 23, 0.88);
+    border: 1px solid rgba(48, 54, 61, 0.9);
+    border-radius: 8px;
+    padding: 10px 14px;
+    z-index: 1050;
+    min-width: 200px;
+    max-width: 280px;
+    backdrop-filter: blur(8px);
+}
+
+.lac-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8b949e;
+    margin-bottom: 8px;
+}
+
+.lac-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 5px 0 5px 8px;
+    border-left: 3px solid rgba(48, 54, 61, 0.9);
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: #c9d1d9;
+    line-height: 1.4;
+}
+
+.lac-item.lac-urgent {
+    color: #f0f6fc;
+}
+
+.lac-item.lac-warn {
+    color: #f0c050;
+}
+
+.lac-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(48, 54, 61, 0.8);
+    color: #c9d1d9;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.lac-text {
+    flex: 1;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.lac-text small {
+    font-size: 10px;
+    color: #8b949e;
+    display: block;
+}
+
+.lac-updated {
+    font-size: 10px;
+    color: #6e7681;
+    margin-top: 6px;
+    text-align: right;
+}
+
+/* ── ステータスバー（下部） ──────────────────────────────────────────────────── */
+
+#live-status-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 24px;
+    background: rgba(13, 17, 23, 0.88);
+    border-top: 1px solid rgba(48, 54, 61, 0.8);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 16px;
+    z-index: 1100;
+    backdrop-filter: blur(6px);
+}
+
+.live-status-item {
+    font-size: 10px;
+    color: #6e7681;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.live-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #3fb950;
+    flex-shrink: 0;
+}
+
+.live-status-dot.offline {
+    background: #da3633;
+}
+
+.live-status-dot.updating {
+    background: #e3b341;
+    animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+    50% { opacity: 0; }
+}
+
+/* ── Leaflet 上書き ──────────────────────────────────────────────────────────── */
+
+.leaflet-control-zoom {
+    top: 56px;
+}
+
+.leaflet-popup-content-wrapper {
+    background: rgba(22, 27, 34, 0.95);
+    color: #e6edf3;
+    border: 1px solid rgba(48, 54, 61, 0.8);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.leaflet-popup-tip {
+    background: rgba(22, 27, 34, 0.95);
+}
+
+.leaflet-popup-content {
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 10px 14px;
+}
+
+.leaflet-popup-content b {
+    color: #58a6ff;
+}
+
+/* ── ローディングオーバーレイ ────────────────────────────────────────────────── */
+
+#live-loading {
+    position: fixed;
+    inset: 0;
+    background: #0d1117;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    font-size: 14px;
+    color: #8b949e;
+    transition: opacity 0.3s;
+}
+
+#live-loading.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
