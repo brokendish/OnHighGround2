@@ -16,7 +16,7 @@
         _bindToggle('toggle-rain',       (v) => liveLayers.rain.setVisible(v));
         _bindToggle('toggle-kikikuru',   (v) => liveLayers.kikikuru.setVisible(v));
         _bindToggle('toggle-earthquake', (v) => liveLayers.earthquake.setVisible(v));
-        _bindToggle('toggle-tsunami',    (v) => {
+        _bindToggle('toggle-tsunami',    () => {
             // tsunami は表示レイヤーなし（カードのみ）。チェックが OFF でもデータは取り続ける
         });
     }
@@ -25,17 +25,25 @@
 
     const _statusBar = document.getElementById('live-status-bar');
 
-    // 現在の各 API 状態を保持する（定期更新で部分的に書き換えるため）
-    const _currentStatus = { rainOk: false, eqOk: false, tsunamiOk: false };
+    // null = unknown（未確認）、true = ok、false = offline
+    const _currentStatus = {
+        rainOk:     null,
+        kikikuruOk: null,
+        eqOk:       null,
+        tsunamiOk:  null,
+    };
 
-    function _dot(online) {
-        return `<span class="live-status-dot${online ? '' : ' offline'}"></span>`;
+    function _dot(ok) {
+        if (ok === null || ok === undefined)
+            return `<span class="live-status-dot unknown"></span>`;
+        return `<span class="live-status-dot${ok ? '' : ' offline'}"></span>`;
     }
 
     function _renderStatus() {
         if (!_statusBar) return;
         _statusBar.innerHTML = `
             <span class="live-status-item">${_dot(_currentStatus.rainOk)} 雨雲</span>
+            <span class="live-status-item">${_dot(_currentStatus.kikikuruOk)} キキクル</span>
             <span class="live-status-item">${_dot(_currentStatus.eqOk)} 地震</span>
             <span class="live-status-item">${_dot(_currentStatus.tsunamiOk)} 津波</span>
         `;
@@ -48,16 +56,19 @@
         _renderStatus();
     }
 
-    // 定期更新時に雨雲だけを更新する
     function updateRainStatus(ok) {
         _currentStatus.rainOk = ok;
         _renderStatus();
     }
 
-    // 定期更新時に地震・津波だけを更新する
     function updateAlertStatus({ eqOk, tsunamiOk }) {
         _currentStatus.eqOk      = eqOk;
         _currentStatus.tsunamiOk = tsunamiOk;
+        _renderStatus();
+    }
+
+    function updateKikikuruStatus(ok) {
+        _currentStatus.kikikuruOk = ok;
         _renderStatus();
     }
 
@@ -74,6 +85,14 @@
         if (el) el.classList.add('hidden');
     }
 
-    window.liveUI = { initToggles, setStatus, updateRainStatus, updateAlertStatus, setUpdating, hideLoading };
+    window.liveUI = {
+        initToggles,
+        setStatus,
+        updateRainStatus,
+        updateAlertStatus,
+        updateKikikuruStatus,
+        setUpdating,
+        hideLoading,
+    };
 
 })();

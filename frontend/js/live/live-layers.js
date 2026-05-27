@@ -130,8 +130,12 @@
         try {
             _kikikuruEntry = await _kikikuruFetchEntry();
             Object.keys(_KIKIKURU_KINDS).forEach(_kikikuruAddKind);
+            window.liveUI?.updateKikikuruStatus?.(true);
+            window.liveAlertPanel?.setStatus?.({ kikikuru: 'ok' });
         } catch (e) {
             console.warn('[live-kikikuru] 取得失敗:', e);
+            window.liveUI?.updateKikikuruStatus?.(false);
+            window.liveAlertPanel?.setStatus?.({ kikikuru: 'offline' });
         }
     }
 

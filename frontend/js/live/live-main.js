@@ -1,6 +1,6 @@
 'use strict';
 // live-main.js — /live エントリポイント
-// 読み込み順: live-map.js → live-layers.js → live-alert-panel.js → live-ui.js → live-main.js
+// 読み込み順: live-map.js → live-layers.js → live-danger-summary.js → live-alert-panel.js → live-ui.js → live-main.js
 
 (async function () {
 
@@ -16,7 +16,6 @@
         liveLayers.rain.refresh(),
     ]);
 
-    // allSettled なので rejected でも落ちない。成否を取り出す。
     const rainOk      = rainResult.status === 'fulfilled';
     const alertStatus = alertResult.status === 'fulfilled'
         ? alertResult.value
@@ -26,6 +25,9 @@
         console.warn('[live] 雨雲更新失敗:', rainResult.reason?.message);
     if (alertResult.status === 'rejected')
         console.warn('[live] 警戒カード更新失敗:', alertResult.reason?.message);
+
+    // 雨雲状態をアラートパネルに反映（update() と並列だったため完了後に更新）
+    liveAlertPanel.setStatus({ rain: rainOk ? 'ok' : 'offline' });
 
     liveUI.setStatus({
         rainOk,
@@ -41,7 +43,9 @@
         const [result] = await Promise.allSettled([liveLayers.rain.refresh()]);
         if (result.status === 'rejected')
             console.warn('[live] 雨雲更新失敗:', result.reason?.message);
-        liveUI.updateRainStatus(result.status === 'fulfilled');
+        const ok = result.status === 'fulfilled';
+        liveUI.updateRainStatus(ok);
+        liveAlertPanel.setStatus({ rain: ok ? 'ok' : 'offline' });
     }, 5 * 60 * 1000);
 
     // 地震 + 津波 + カード: 2分ごと。
