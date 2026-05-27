@@ -112,3 +112,6 @@ artifacts/reroute_snap_empty_breakdown.json
 
 # ---- test screenshots ----
 tasks/screenshots
+
+# ---- live screenshots ----
+tasks/live/verification_screenshots
