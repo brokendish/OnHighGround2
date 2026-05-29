@@ -590,6 +590,103 @@ test.describe('/live Phase 2-A — 雨雲危険度集計', () => {
 
 });
 
+// ── Phase 2-B: 雨雲サンプリング精度改善（47都道府県対応）────────────────────
+
+const SUMMARY_RAIN_MULTI_AREAS = {
+    status: 'ok', evaluated: true, reason: 'sampled_nowcast',
+    summary: {
+        strong_rain_detected: true,
+        warning_area_count: 3, danger_area_count: 2,
+        sample_count: 47, unknown_count: 3,
+    },
+    areas: [
+        { id: 'rain-kagoshima-xxx', label: '鹿児島県付近', prefecture: '鹿児島県', area_name: '鹿児島県付近', level: 'danger',  type: 'rain', source: 'jma_nowcast', lat: 31.56, lng: 130.56, observed_at: '2026-05-29T10:00:00+09:00', description: '強雨域を検出' },
+        { id: 'rain-miyazaki-xxx',  label: '宮崎県付近',   prefecture: '宮崎県',   area_name: '宮崎県付近',   level: 'danger',  type: 'rain', source: 'jma_nowcast', lat: 31.91, lng: 131.42, observed_at: '2026-05-29T10:00:00+09:00', description: '強雨域を検出' },
+        { id: 'rain-kochi-xxx',     label: '高知県付近',   prefecture: '高知県',   area_name: '高知県付近',   level: 'warning', type: 'rain', source: 'jma_nowcast', lat: 33.56, lng: 133.53, observed_at: '2026-05-29T10:00:00+09:00', description: '強雨域を検出' },
+        { id: 'rain-osaka-xxx',     label: '大阪府付近',   prefecture: '大阪府',   area_name: '大阪府付近',   level: 'warning', type: 'rain', source: 'jma_nowcast', lat: 34.69, lng: 135.50, observed_at: '2026-05-29T10:00:00+09:00', description: '強雨域を検出' },
+        { id: 'rain-fukuoka-xxx',   label: '福岡県付近',   prefecture: '福岡県',   area_name: '福岡県付近',   level: 'warning', type: 'rain', source: 'jma_nowcast', lat: 33.59, lng: 130.40, observed_at: '2026-05-29T10:00:00+09:00', description: '強雨域を検出' },
+    ],
+};
+
+const SUMMARY_RAIN_OFFLINE_47 = {
+    status: 'offline', evaluated: false, reason: 'source_unavailable',
+    summary: {
+        strong_rain_detected: null,
+        warning_area_count: null, danger_area_count: null,
+        sample_count: 47, unknown_count: 47,
+    },
+    areas: [],
+};
+
+test.describe('/live Phase 2-B — 雨雲サンプリング精度改善', () => {
+
+    test('複数 rain areas でもカードが崩れない', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            rain:            SUMMARY_RAIN_MULTI_AREAS,
+            dangerous_areas: SUMMARY_RAIN_MULTI_AREAS.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toBeVisible();
+        await expect(page.locator('#live-alert-card')).toContainText('鹿児島県付近');
+    });
+
+    test('rain areas が複数地点出ても 5件以内に収まる', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            rain:            SUMMARY_RAIN_MULTI_AREAS,
+            dangerous_areas: SUMMARY_RAIN_MULTI_AREAS.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+
+        const items = page.locator('.lac-danger-item');
+        const count = await items.count();
+        expect(count).toBeLessThanOrEqual(5);
+    });
+
+    test('rain evaluated=false で「強雨域なし」を表示しない（Phase 2-B 再確認）', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page);
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        const text = await page.locator('#live-alert-card').innerText();
+        expect(text).not.toContain('強雨域なし');
+    });
+
+    test('rain offline (sample_count=47) で「雨雲情報: 取得失敗」が表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { rain: SUMMARY_RAIN_OFFLINE_47 });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('取得失敗');
+    });
+
+    test('rain offline で「安全」と断定しない（Phase 2-B 確認）', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { rain: SUMMARY_RAIN_OFFLINE_47 });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        const text = await page.locator('#live-alert-card').innerText();
+        expect(text).not.toContain('安全');
+    });
+
+    test('Phase 2-B: console.error / page error が発生しない', async ({ page }) => {
+        const errors = [];
+        const pageErrors = [];
+        page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+        page.on('pageerror', err => pageErrors.push(err.message));
+
+        await mockLiveTrafficWithSummary(page, {
+            rain:            SUMMARY_RAIN_MULTI_AREAS,
+            dangerous_areas: SUMMARY_RAIN_MULTI_AREAS.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await page.waitForTimeout(500);
+
+        expect(errors).toHaveLength(0);
+        expect(pageErrors).toHaveLength(0);
+    });
+
+});
+
 test.describe('/live — API 失敗耐性', () => {
     async function mockAllApis503(page) {
         await page.route('/api/**', route => route.fulfill({ status: 503, body: '' }));
