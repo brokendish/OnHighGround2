@@ -532,7 +532,7 @@ html, body {
         border: none;
         border-top: 1px solid rgba(48, 54, 61, 0.9);
         border-radius: 18px 18px 0 0;
-        background: rgba(13, 17, 23, 0.96);
+        background: rgba(13, 17, 23, 0.82);
         box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
         overflow: hidden;           /* スクロールは内側 .sheet-scroll が担う */
         display: flex;
