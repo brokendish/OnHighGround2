@@ -412,3 +412,264 @@ html, body {
     opacity: 0;
     pointer-events: none;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   📱 モバイル最適化レイヤー  ← ここから下が新規追加（既存コードに丸ごと追記可）
+   - 地図ファースト: フローティングパネルを「ボトムシート」と「レイヤーFAB」に再構成
+   - 44px+ のタップ領域 / safe-area 対応 / flex→grid でランキング行を圧縮
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 共通の新規パーツ（PC では非表示、モバイルで有効化） ───────────────────────── */
+
+#live-layers-fab,
+.sheet-handle,
+.sheet-peek,
+.sheet-scrim { display: none; }
+
+@media (max-width: 640px) {
+
+    /* ── ヘッダー: safe-area を尊重して少し大きく ── */
+    #live-header {
+        height: calc(50px + env(safe-area-inset-top));
+        padding-top: env(safe-area-inset-top);
+        padding-left: max(16px, env(safe-area-inset-left));
+        padding-right: max(12px, env(safe-area-inset-right));
+    }
+    .live-title { font-size: 16px; }
+    .live-title-sub { font-size: 12px; }
+    .live-nav-link {
+        font-size: 13px;
+        padding: 7px 12px;          /* 44px 近いタップ領域 */
+    }
+
+    /* ── 地図はヘッダー下〜画面下まで全面 ── */
+    #live-map {
+        top: calc(50px + env(safe-area-inset-top));
+        bottom: 0;
+    }
+
+    /* ── 下部の細いステータスバーは廃止（凡例はシート内に集約） ── */
+    #live-status-bar { display: none; }
+
+    .leaflet-control-zoom { display: none; }   /* ピンチで操作。画面を広く使う */
+
+    /* ════ レイヤー: 右上の FAB ボタン → タップでパネル展開 ════ */
+
+    #live-layers-fab {
+        display: flex;
+        position: fixed;
+        top: calc(58px + env(safe-area-inset-top));
+        right: max(12px, env(safe-area-inset-right));
+        z-index: 1060;
+        width: 46px;
+        height: 46px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        background: rgba(13, 17, 23, 0.9);
+        border: 1px solid rgba(48, 54, 61, 0.9);
+        backdrop-filter: blur(8px);
+        color: #c9d1d9;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+        transition: border-color 0.15s, color 0.15s;
+    }
+    #live-layers-fab.is-active { border-color: #58a6ff; color: #58a6ff; }
+    #live-layers-fab svg { width: 22px; height: 22px; }
+    /* 有効レイヤー数バッジ */
+    #live-layers-fab .fab-count {
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        min-width: 17px;
+        height: 17px;
+        padding: 0 4px;
+        border-radius: 9px;
+        background: #58a6ff;
+        color: #0d1117;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 17px;
+        text-align: center;
+    }
+
+    #live-layer-panel {
+        top: calc(110px + env(safe-area-inset-top));
+        right: max(12px, env(safe-area-inset-right));
+        min-width: 168px;
+        padding: 8px 8px;
+        transform-origin: top right;
+        transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    #live-layer-panel:not(.is-open) {
+        opacity: 0;
+        transform: scale(0.92) translateY(-6px);
+        pointer-events: none;
+    }
+    /* モバイルではトグルをタップしやすい行に */
+    .live-toggle {
+        font-size: 14px;
+        padding: 9px 8px;
+        border-radius: 8px;
+        gap: 10px;
+    }
+    .live-toggle:active { background: rgba(88, 166, 255, 0.12); }
+    .live-toggle input[type="checkbox"] { width: 18px; height: 18px; }
+
+    /* ════ 警戒カード → ボトムシート ════ */
+
+    #live-alert-card {
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+        max-height: 82vh;
+        padding: 0;                 /* 内側パーツで個別に余白 */
+        border: none;
+        border-top: 1px solid rgba(48, 54, 61, 0.9);
+        border-radius: 18px 18px 0 0;
+        background: rgba(13, 17, 23, 0.96);
+        box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
+        overflow: hidden;           /* スクロールは内側 .sheet-scroll が担う */
+        display: flex;
+        flex-direction: column;
+        transform: translateY(var(--sheet-collapsed, calc(100% - 132px)));
+        transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+        touch-action: none;
+    }
+    #live-alert-card.is-expanded { transform: translateY(0); }
+    #live-alert-card.is-dragging { transition: none; }
+
+    /* グラブハンドル（常時表示・タップ/ドラッグで開閉） */
+    .sheet-handle {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+        padding: 9px 0 4px;
+        flex-shrink: 0;
+        cursor: grab;
+    }
+    .sheet-handle::before {
+        content: "";
+        width: 38px;
+        height: 4px;
+        border-radius: 2px;
+        background: #484f58;
+    }
+
+    /* 折りたたみ時に見えるサマリー（横スクロールのステータスチップ） */
+    .sheet-peek {
+        display: block;
+        flex-shrink: 0;
+        padding: 0 14px 12px;
+    }
+    .peek-chips {
+        display: flex;
+        gap: 7px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+    }
+    .peek-chips::-webkit-scrollbar { display: none; }
+    .peek-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+        padding: 6px 11px;
+        border-radius: 999px;
+        background: rgba(48, 54, 61, 0.4);
+        border: 1px solid rgba(48, 54, 61, 0.9);
+        font-size: 12.5px;
+        color: #c9d1d9;
+        white-space: nowrap;
+    }
+    .peek-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .peek-chip.is-warn { color: #f0c050; border-color: rgba(227, 179, 65, 0.45); }
+    .peek-chip.is-urgent { color: #ffb3a7; border-color: rgba(218, 54, 51, 0.5); }
+    .peek-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 9px;
+        font-size: 11.5px;
+        color: #8b949e;
+    }
+    .peek-meta .peek-expand { color: #58a6ff; font-weight: 600; }
+
+    /* 展開時のスクロール領域 */
+    .sheet-scroll {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 4px 16px calc(18px + env(safe-area-inset-bottom));
+        flex: 1;
+    }
+    /* 折りたたみ時は本文を隠す（高さがピークだけになる） */
+    #live-alert-card:not(.is-expanded) .sheet-scroll { opacity: 0; pointer-events: none; }
+    #live-alert-card.is-expanded .sheet-peek { opacity: 0.35; }
+
+    /* シート内: 既存カード本文の余白調整 */
+    .sheet-scroll .lac-title { display: none; }   /* タイトルはハンドル領域に集約 */
+    .sheet-scroll .lac-item {
+        font-size: 14px;
+        padding: 9px 0 9px 10px;
+    }
+    .sheet-scroll .lac-text { font-size: 14px; }
+    .sheet-scroll .lac-text small { font-size: 12px; }
+
+    /* 危険地域ランキング: flex→grid で行高を圧縮しつつ整列 */
+    .lac-danger-list { max-height: none; }
+    .lac-danger-item {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        padding: 11px 10px 11px 10px;
+        margin-bottom: 6px;
+        border-radius: 0 8px 8px 0;
+    }
+    .lac-danger-rank { font-size: 13px; padding-top: 0; text-align: center; }
+    .lac-danger-label { font-size: 14px; }
+    .lac-danger-types { font-size: 12px; margin-top: 2px; }
+    .lac-danger-clickable::after {
+        content: "›";
+        font-size: 20px;
+        color: #6e7681;
+        line-height: 1;
+    }
+
+    /* シート最下部の凡例（旧ステータスバーの代替） */
+    .sheet-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(48, 54, 61, 0.6);
+    }
+    .sheet-legend .live-status-item { font-size: 11px; }
+
+    /* 展開時の地図スクリム（タップで閉じる） */
+    .sheet-scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 1040;
+        background: rgba(0, 0, 0, 0.32);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+    }
+    .sheet-scrim.is-visible { opacity: 1; pointer-events: auto; }
+}
+
+/* 極小幅: チップを詰める */
+@media (max-width: 360px) {
+    .peek-chip { padding: 5px 9px; font-size: 11.5px; }
+    .live-title { font-size: 15px; }
+}
