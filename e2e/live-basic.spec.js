@@ -826,6 +826,104 @@ test.describe('/live Phase 3-A — キキクル危険度集計', () => {
 
 });
 
+// ── Phase 3-B: キキクル複数種別化 ────────────────────────────────────────────
+
+const SUMMARY_KIKI_MULTI = {
+    status: 'ok', evaluated: true, reason: 'sampled_kikikuru',
+    summary: {
+        danger_detected: true,
+        watch_area_count: 0, warning_area_count: 2, danger_area_count: 1,
+        sample_count: 76, unknown_count: 1,
+    },
+    areas: [
+        {
+            id: 'kikikuru-kochi-shimanto-land-20260529223000',
+            label: '高知県 四万十付近', prefecture: '高知県', area_name: '四万十付近',
+            level: 'danger', type: 'kikikuru', hazard: 'land',
+            source: 'jma_kikikuru', lat: 32.9916, lng: 132.9339,
+            observed_at: '2026-05-29T22:30:00+09:00', description: 'キキクル危険度を検出',
+        },
+        {
+            id: 'kikikuru-miyazaki-inund-20260529223000',
+            label: '宮崎県付近', prefecture: '宮崎県', area_name: '宮崎県付近',
+            level: 'warning', type: 'kikikuru', hazard: 'inund',
+            source: 'jma_kikikuru', lat: 31.9111, lng: 131.4239,
+            observed_at: '2026-05-29T22:30:00+09:00', description: 'キキクル危険度を検出',
+        },
+        {
+            id: 'kikikuru-fukuoka-flood_mesh-20260529223000',
+            label: '福岡県付近', prefecture: '福岡県', area_name: '福岡県付近',
+            level: 'warning', type: 'kikikuru', hazard: 'flood_mesh',
+            source: 'jma_kikikuru', lat: 33.5902, lng: 130.4017,
+            observed_at: '2026-05-29T22:30:00+09:00', description: 'キキクル危険度を検出',
+        },
+    ],
+};
+
+test.describe('/live Phase 3-B — キキクル複数種別', () => {
+
+    test('キキクル（土砂）が危険地域カードに表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            kikikuru:        SUMMARY_KIKI_MULTI,
+            dangerous_areas: SUMMARY_KIKI_MULTI.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('キキクル（土砂）');
+    });
+
+    test('キキクル（浸水）が危険地域カードに表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            kikikuru:        SUMMARY_KIKI_MULTI,
+            dangerous_areas: SUMMARY_KIKI_MULTI.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('キキクル（浸水）');
+    });
+
+    test('キキクル（洪水）が危険地域カードに表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            kikikuru:        SUMMARY_KIKI_MULTI,
+            dangerous_areas: SUMMARY_KIKI_MULTI.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('キキクル（洪水）');
+    });
+
+    test('複数 hazard 表示でもカードが崩れない', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            kikikuru:        SUMMARY_KIKI_MULTI,
+            dangerous_areas: SUMMARY_KIKI_MULTI.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toBeVisible();
+        const items = page.locator('.lac-danger-item');
+        expect(await items.count()).toBeLessThanOrEqual(5);
+    });
+
+    test('Phase 3-B: console.error / page error が発生しない', async ({ page }) => {
+        const errors = [];
+        const pageErrors = [];
+        page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+        page.on('pageerror', err => pageErrors.push(err.message));
+
+        await mockLiveTrafficWithSummary(page, {
+            kikikuru:        SUMMARY_KIKI_MULTI,
+            dangerous_areas: SUMMARY_KIKI_MULTI.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await page.waitForTimeout(500);
+
+        expect(errors).toHaveLength(0);
+        expect(pageErrors).toHaveLength(0);
+    });
+
+});
+
 test.describe('/live — API 失敗耐性', () => {
     async function mockAllApis503(page) {
         await page.route('/api/**', route => route.fulfill({ status: 503, body: '' }));

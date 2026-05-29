@@ -1,14 +1,14 @@
 """
-live_kikikuru_summary_service.py — キキクル危険度集計サービス (Phase 3-A)
+live_kikikuru_summary_service.py — キキクル危険度集計サービス (Phase 3-B)
 
 JMA キキクル（危険度分布）タイルを代表点サンプリングし、
 /api/live/summary の kikikuru セクションを返す。
 
-MVP 対象: 土砂災害（land）。契約は複数 hazard に拡張可能な構造にしてある。
+対象 hazard: land（土砂）/ inund（浸水）/ flood_mesh（洪水）
 
 判定方式:
-  warning / danger が 1地点以上 → danger_detected=True
-  unknown >= 50% かつ warning/danger なし → evaluated=False (too_many_unknown_samples)
+  いずれかの hazard が warning / danger → danger_detected=True
+  全地点で全 hazard が unknown >= 50% かつ warning/danger なし → evaluated=False
   JMA 取得失敗 → status=offline, evaluated=False
 
 キャッシュ TTL: 120 秒（雨雲キャッシュとは別）
@@ -41,8 +41,8 @@ _UNKNOWN_RATE_THRESHOLD = 0.5
 _KIKIKURU_TIMES_URL = "https://www.jma.go.jp/bosai/jmatile/data/risk/targetTimes.json"
 _KIKIKURU_TILE_BASE = "https://www.jma.go.jp/bosai/jmatile/data/risk"
 
-# MVP: 土砂（land）のみサンプリング。将来 inund / flood_mesh に拡張可。
-_KIKI_ELEMENTS: List[str] = ["land"]
+# Phase 3-B: land（土砂）/ inund（浸水）/ flood_mesh（洪水）を集計
+_KIKI_ELEMENTS: List[str] = ["land", "inund", "flood_mesh"]
 HAZARD_LABEL: Dict[str, str] = {
     "land":       "土砂",
     "inund":      "浸水",
@@ -233,38 +233,47 @@ def _build_kiki_tile_url(entry: Dict[str, Any], elem: str) -> str:
 
 # ── サンプリング（同期・内部用）──────────────────────────────────────────────
 
-def _sample_all_points_sync(tile_url_template: str, hazard: str) -> List[Dict[str, Any]]:
-    """全代表点の危険度を並列取得する（同期版、asyncio.to_thread から呼ぶ）。"""
+def _sample_all_hazards_sync(hazard_urls: Dict[str, str]) -> List[Dict[str, Any]]:
+    """全代表点 × 全 hazard の危険度を並列取得する（同期版、asyncio.to_thread から呼ぶ）。
+
+    hazard_urls: {hazard_name: tile_url_template, ...}
+    returns: flat list of {**pt, hazard, level, source}
+    """
     from app.services.live_rain_summary_service import LIVE_RAIN_SAMPLE_POINTS as _SAMPLE_POINTS
 
     results: List[Dict[str, Any]] = []
+    tasks: List[tuple] = [
+        (pt, url, hazard)
+        for hazard, url in hazard_urls.items()
+        for pt in _SAMPLE_POINTS
+    ]
 
-    def _fetch_one(pt: Dict[str, Any]) -> Dict[str, Any]:
-        res = _get_kiki_level_at(pt["lat"], pt["lng"], tile_url_template)
+    def _fetch_one(pt: Dict[str, Any], url: str, hazard: str) -> Dict[str, Any]:
+        res = _get_kiki_level_at(pt["lat"], pt["lng"], url)
         return {**pt, "hazard": hazard, **res}
 
-    def _unknown_entry(pt: Dict[str, Any], source: str = "error") -> Dict[str, Any]:
+    def _unknown_entry(pt: Dict[str, Any], hazard: str, source: str = "error") -> Dict[str, Any]:
         return {**pt, "hazard": hazard, "level": "unknown", "source": source}
 
     completed: set = set()
 
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
-        future_to_pt = {executor.submit(_fetch_one, pt): pt for pt in _SAMPLE_POINTS}
+        future_map = {executor.submit(_fetch_one, pt, url, h): (pt, h) for pt, url, h in tasks}
         try:
-            for future in as_completed(future_to_pt, timeout=_TOTAL_SAMPLING_TIMEOUT):
-                pt = future_to_pt[future]
+            for future in as_completed(future_map, timeout=_TOTAL_SAMPLING_TIMEOUT):
+                pt, hazard = future_map[future]
                 try:
                     results.append(future.result())
                 except Exception as exc:
-                    logger.warning("kiki sample failed %s: %s", pt["id"], exc)
-                    results.append(_unknown_entry(pt))
+                    logger.warning("kiki sample failed %s/%s: %s", pt["id"], hazard, exc)
+                    results.append(_unknown_entry(pt, hazard))
                 completed.add(future)
         except concurrent.futures.TimeoutError:
             logger.warning("kiki sampling timed out after %.1fs", _TOTAL_SAMPLING_TIMEOUT)
 
-        for future, pt in future_to_pt.items():
+        for future, (pt, hazard) in future_map.items():
             if future not in completed:
-                results.append(_unknown_entry(pt, source="timeout"))
+                results.append(_unknown_entry(pt, hazard, source="timeout"))
                 future.cancel()
 
     return results
@@ -281,12 +290,23 @@ def build_kikikuru_section_from_samples(
 
     samples の各要素は LIVE_RAIN_SAMPLE_POINTS の地点属性 +
     level / hazard / source を持つ。
+    1地点に複数 hazard のサンプルがある場合も地点数ベースで集計する。
     """
-    sample_count = len(samples)
-    if sample_count == 0:
+    if not samples:
         return _offline_kikikuru_section()
 
-    unknown_count = sum(1 for s in samples if s.get("level") == "unknown")
+    # 地点 ID でグループ化（複数 hazard を1地点として扱う）
+    point_samples: Dict[str, List] = {}
+    for s in samples:
+        point_samples.setdefault(s["id"], []).append(s)
+
+    sample_count = len(point_samples)
+
+    # 地点全体の unknown 判定: その地点の全 hazard が unknown の場合のみカウント
+    unknown_count = sum(
+        1 for pt_s in point_samples.values()
+        if all(s.get("level") == "unknown" for s in pt_s)
+    )
 
     obs_tag = observed_at.replace(":", "").replace("-", "").replace("+", "")[:13]
 
@@ -382,10 +402,9 @@ async def build_live_kikikuru_summary() -> Dict[str, Any]:
 
         observed_at = datetime.now(_JST).isoformat()
 
-        # MVP: land（土砂）のみサンプリング
-        hazard = "land"
-        tile_url = _build_kiki_tile_url(entry, hazard)
-        samples = await asyncio.to_thread(_sample_all_points_sync, tile_url, hazard)
+        # Phase 3-B: 全 hazard を一括サンプリング
+        hazard_urls = {h: _build_kiki_tile_url(entry, h) for h in _KIKI_ELEMENTS}
+        samples = await asyncio.to_thread(_sample_all_hazards_sync, hazard_urls)
 
         result = build_kikikuru_section_from_samples(samples, observed_at)
         _kikikuru_summary_cache = (result, now_mono)
