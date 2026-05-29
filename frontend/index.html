@@ -2163,6 +2163,29 @@
         .map-overlay-btn:active {
             background: rgba(235, 235, 235, 0.98);
         }
+        a.map-overlay-btn {
+            text-decoration: none;
+        }
+        /* サイドバーヘッダー内 /live リンク */
+        .live-viewer-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 9px;
+            padding: 4px 10px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            color: rgba(255, 255, 255, 0.92);
+            font-size: 11px;
+            text-decoration: none;
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+        .live-viewer-link:hover {
+            background: rgba(255, 255, 255, 0.25);
+            color: #fff;
+        }
         .map-overlay-btn .mou-icon {
             width: 22px;
             height: 22px;
@@ -4112,6 +4135,7 @@
                     <div class="header-text">
                         <h1>OnHighGround</h1>
                         <p>津波・高潮・洪水から身を守る避難経路案内</p>
+                        <a href="/live" class="live-viewer-link" id="sidebar-live-link">🌎 全国災害ビューア</a>
                     </div>
                 </div>
             </div>
@@ -4448,6 +4472,14 @@
                         </svg>
                         <span>現在地</span>
                     </button>
+
+                    <!-- 全国災害ビューア -->
+                    <a href="/live" id="live-viewer-btn" class="map-overlay-btn" title="全国災害ビューア（試験運用）">
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                        </svg>
+                        <span>全国</span>
+                    </a>
 
                 </div><!-- /#map-top-right-controls -->
 

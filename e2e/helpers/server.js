@@ -33,6 +33,7 @@ function start() {
     _server = http.createServer((req, res) => {
       let urlPath = req.url.split('?')[0];
       if (urlPath === '/') urlPath = '/index.html';
+      if (urlPath === '/live') urlPath = '/live.html';
       const filePath = path.join(FRONTEND_DIR, urlPath);
 
       fs.readFile(filePath, (err, data) => {
