@@ -16,6 +16,13 @@ from app.services.live_rain_summary_service import (
     _MAX_WORKERS,
     _TOTAL_SAMPLING_TIMEOUT,
     build_rain_section_from_samples,
+    build_rain_section_from_scan,
+)
+from app.services.live_rain_tile_scan_service import (
+    MAX_SCAN_TILES,
+    PIXEL_STRIDE,
+    SCAN_ZOOM,
+    SCAN_BBOX,
 )
 
 _OBS_AT = "2026-05-27T22:40:00+09:00"
@@ -316,16 +323,265 @@ def test_total_sampling_timeout_is_reasonable():
     assert 24.0 < _TOTAL_SAMPLING_TIMEOUT <= 36.0
 
 
-def test_offline_sample_count_matches_total():
-    """offline レスポンスの sample_count は地点数と一致する。"""
+def test_offline_rain_section_sample_count_is_null():
+    """Phase 2-D: offline レスポンスの sample_count は None（tile scan 移行後）。"""
     from app.services.live_rain_summary_service import _offline_rain_section
     sec = _offline_rain_section()
-    assert sec["summary"]["sample_count"] == len(LIVE_RAIN_SAMPLE_POINTS)
-    assert sec["summary"]["unknown_count"] == len(LIVE_RAIN_SAMPLE_POINTS)
+    assert sec["summary"]["sample_count"] is None
+    assert sec["summary"]["strong_rain_detected"] is None
+    assert sec["evaluated"] is False
 
 
 def test_sampling_concurrency_is_limited():
     assert _MAX_WORKERS == 8
+
+
+# ── Phase 2-D: build_rain_section_from_scan() ──────────────────────────────────
+
+def _make_scan_result(**kwargs) -> dict:
+    """テスト用: scan_rain_tiles() が返す dict の最小雛形を生成する。"""
+    defaults = {
+        "status":             "ok",
+        "scan_tile_count":    36,
+        "scan_pixel_stride":  4,
+        "tile_results":       [
+            {"tx": 53, "ty": 22, "fetch_failed": False,
+             "strong_count": 0, "severe_count": 0,
+             "moderate_count": 0, "unknown_count": 0, "total_sampled": 100},
+        ],
+        "areas":              [],
+        "warning_area_count": 0,
+        "danger_area_count":  0,
+        "unknown_count":      0,
+    }
+    defaults.update(kwargs)
+    return defaults
+
+
+def _make_scan_area(tx: int, ty: int, level: str = "warning") -> dict:
+    return {
+        "tx": tx, "ty": ty,
+        "lat": 35.0 + tx * 0.1, "lng": 138.0 + ty * 0.1,
+        "level": level,
+        "prefecture": f"県{tx}",
+        "label": f"県{tx}付近",
+        "strong_count": 5 if level == "warning" else 0,
+        "severe_count": 5 if level == "danger" else 0,
+    }
+
+
+_OBS_AT_SCAN = "2026-05-29T21:10:00+09:00"
+
+
+def test_scan_reason_is_tile_scan():
+    sec = build_rain_section_from_scan(_make_scan_result(), _OBS_AT_SCAN)
+    assert sec["reason"] == "tile_scan"
+
+
+def test_scan_status_ok():
+    sec = build_rain_section_from_scan(_make_scan_result(), _OBS_AT_SCAN)
+    assert sec["status"] == "ok"
+
+
+def test_scan_evaluated_true():
+    sec = build_rain_section_from_scan(_make_scan_result(), _OBS_AT_SCAN)
+    assert sec["evaluated"] is True
+
+
+def test_scan_summary_has_required_keys():
+    sec = build_rain_section_from_scan(_make_scan_result(), _OBS_AT_SCAN)
+    for key in ("strong_rain_detected", "warning_area_count", "danger_area_count",
+                "sample_count", "unknown_count", "scan_tile_count", "scan_pixel_stride"):
+        assert key in sec["summary"], f"missing summary key: {key}"
+
+
+def test_scan_sample_count_is_null():
+    """Phase 2-D: sample_count は null（地点サンプリングではないため）。"""
+    sec = build_rain_section_from_scan(_make_scan_result(), _OBS_AT_SCAN)
+    assert sec["summary"]["sample_count"] is None
+
+
+def test_scan_tile_count_in_summary():
+    sec = build_rain_section_from_scan(_make_scan_result(scan_tile_count=36), _OBS_AT_SCAN)
+    assert sec["summary"]["scan_tile_count"] == 36
+
+
+def test_scan_pixel_stride_in_summary():
+    sec = build_rain_section_from_scan(_make_scan_result(scan_pixel_stride=4), _OBS_AT_SCAN)
+    assert sec["summary"]["scan_pixel_stride"] == 4
+
+
+def test_scan_no_strong_detected_false():
+    sec = build_rain_section_from_scan(_make_scan_result(), _OBS_AT_SCAN)
+    assert sec["summary"]["strong_rain_detected"] is False
+    assert sec["areas"] == []
+
+
+def test_scan_strong_area_gives_warning():
+    area = _make_scan_area(53, 26, "warning")
+    result = _make_scan_result(
+        areas=[area],
+        warning_area_count=1,
+        danger_area_count=0,
+    )
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["evaluated"] is True
+    assert sec["summary"]["strong_rain_detected"] is True
+    assert len(sec["areas"]) == 1
+    assert sec["areas"][0]["level"] == "warning"
+
+
+def test_scan_severe_area_gives_danger():
+    area = _make_scan_area(53, 26, "danger")
+    result = _make_scan_result(
+        areas=[area],
+        warning_area_count=0,
+        danger_area_count=1,
+    )
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["evaluated"] is True
+    assert sec["summary"]["strong_rain_detected"] is True
+    assert sec["areas"][0]["level"] == "danger"
+
+
+def test_scan_area_type_is_rain():
+    area = _make_scan_area(53, 26, "warning")
+    result = _make_scan_result(areas=[area], warning_area_count=1)
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["areas"][0]["type"] == "rain"
+
+
+def test_scan_area_source_is_jma_nowcast_scan():
+    area = _make_scan_area(53, 26, "warning")
+    result = _make_scan_result(areas=[area], warning_area_count=1)
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["areas"][0]["source"] == "jma_nowcast_scan"
+
+
+def test_scan_area_has_lat_lng():
+    area = _make_scan_area(53, 26, "warning")
+    result = _make_scan_result(areas=[area], warning_area_count=1)
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    a = sec["areas"][0]
+    assert a["lat"] is not None
+    assert a["lng"] is not None
+
+
+def test_scan_areas_limited_to_max():
+    areas = [_make_scan_area(53 + i, 22, "warning") for i in range(7)]
+    result = _make_scan_result(areas=areas, warning_area_count=7, danger_area_count=0)
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert len(sec["areas"]) <= _MAX_AREAS
+    assert len(sec["areas"]) == _MAX_AREAS
+
+
+def test_scan_areas_danger_priority():
+    """scan areas は danger が warning より前に並ぶ。"""
+    areas = [
+        _make_scan_area(53, 22, "warning"),
+        _make_scan_area(54, 23, "warning"),
+        _make_scan_area(55, 24, "danger"),
+    ]
+    result = _make_scan_result(areas=areas, warning_area_count=2, danger_area_count=1)
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    levels = [a["level"] for a in sec["areas"]]
+    danger_indices = [i for i, l in enumerate(levels) if l == "danger"]
+    warning_indices = [i for i, l in enumerate(levels) if l == "warning"]
+    if danger_indices and warning_indices:
+        assert max(danger_indices) < min(warning_indices)
+
+
+def test_scan_warning_count_reflects_all_detections():
+    """summary カウントは areas 上限前の全検出数を反映する。"""
+    areas = [_make_scan_area(53 + i, 22, "warning") for i in range(7)]
+    result = _make_scan_result(areas=areas, warning_area_count=7, danger_area_count=0)
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["summary"]["warning_area_count"] == 7
+    assert len(sec["areas"]) == _MAX_AREAS
+
+
+def test_scan_too_many_tiles_evaluated_false():
+    result = _make_scan_result(status="too_many_tiles", scan_tile_count=128)
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["evaluated"] is False
+    assert sec["reason"] == "too_many_tiles"
+    assert sec["summary"]["strong_rain_detected"] is None
+
+
+def test_scan_too_many_tiles_not_false_safe():
+    result = _make_scan_result(status="too_many_tiles", scan_tile_count=128)
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["summary"]["strong_rain_detected"] is not False
+
+
+def test_scan_all_tiles_failed_evaluated_false():
+    """全タイル fetch 失敗 → evaluated=False（false-safe 防止）。"""
+    tile_results = [
+        {"tx": 53 + i, "ty": 22, "fetch_failed": True,
+         "strong_count": 0, "severe_count": 0,
+         "moderate_count": 0, "unknown_count": 0, "total_sampled": 0}
+        for i in range(5)
+    ]
+    result = _make_scan_result(
+        tile_results=tile_results,
+        areas=[], warning_area_count=0, danger_area_count=0,
+    )
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["evaluated"] is False
+    assert sec["summary"]["strong_rain_detected"] is None
+
+
+def test_scan_all_tiles_failed_reason():
+    tile_results = [
+        {"tx": 53, "ty": 22, "fetch_failed": True,
+         "strong_count": 0, "severe_count": 0,
+         "moderate_count": 0, "unknown_count": 0, "total_sampled": 0},
+    ]
+    result = _make_scan_result(tile_results=tile_results, areas=[])
+    sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+    assert sec["reason"] == "scan_failed"
+
+
+def test_scan_evaluated_false_strong_rain_null():
+    """evaluated=False なら strong_rain_detected は必ず null。"""
+    for status in ("too_many_tiles", "scan_failed"):
+        result = _make_scan_result(status=status, scan_tile_count=36)
+        sec = build_rain_section_from_scan(result, _OBS_AT_SCAN)
+        assert sec["evaluated"] is False
+        assert sec["summary"]["strong_rain_detected"] is None, (
+            f"status={status}: strong_rain_detected should be null"
+        )
+
+
+# ── Phase 2-D: scan_rain_tiles 定数確認 ────────────────────────────────────────
+
+def test_scan_zoom_is_even():
+    assert SCAN_ZOOM % 2 == 0
+
+
+def test_scan_bbox_covers_japan():
+    lat_min, lng_min, lat_max, lng_max = SCAN_BBOX
+    assert lat_min <= 24.5   # 沖縄以南
+    assert lat_max >= 45.0   # 北海道以北
+    assert lng_min <= 123.0  # 南西諸島以西
+    assert lng_max >= 145.0  # 北海道東部以東
+
+
+def test_max_scan_tiles_positive():
+    assert MAX_SCAN_TILES > 0
+
+
+def test_pixel_stride_positive():
+    assert PIXEL_STRIDE >= 1
+
+
+def test_tile_count_within_limit():
+    """zoom=6 の日本 bbox タイル数は MAX_SCAN_TILES 以下。"""
+    from app.services.live_rain_tile_scan_service import get_tile_coords
+    lat_min, lng_min, lat_max, lng_max = SCAN_BBOX
+    tiles = get_tile_coords(lat_min, lng_min, lat_max, lng_max, SCAN_ZOOM)
+    assert len(tiles) <= MAX_SCAN_TILES
+    assert len(tiles) > 0
 
 
 def test_total_sampling_timeout_is_configured():

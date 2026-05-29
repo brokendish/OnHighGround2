@@ -84,10 +84,20 @@ def test_rain_strong_rain_detected_is_null_when_unevaluated():
 
 
 def test_rain_has_reason_string():
-    """reason は非空文字列であること（Phase 2-A では sampled_nowcast / tile_only / 等）。"""
+    """reason は非空文字列であること（Phase 2-D: tile_scan / scan_failed / source_unavailable 等）。"""
     body = _run(get_live_summary())
     reason = body["rain"].get("reason")
     assert isinstance(reason, str) and len(reason) > 0
+
+
+def test_rain_scan_metadata_present_when_evaluated():
+    """evaluated=True のとき scan_tile_count / scan_pixel_stride が summary に含まれる。"""
+    body = _run(get_live_summary())
+    rain = body["rain"]
+    if rain["evaluated"] is True:
+        summary = rain.get("summary", {})
+        assert "scan_tile_count" in summary, "scan_tile_count が summary にない"
+        assert "scan_pixel_stride" in summary, "scan_pixel_stride が summary にない"
 
 
 # ── kikikuru セクション ──────────────────────────────────────────────────────
@@ -185,3 +195,40 @@ def test_no_false_safe_in_kikikuru():
         assert kk["summary"]["danger_detected"] is not False, (
             "evaluated=False なのに danger_detected=False は false-safe 違反"
         )
+
+
+# ── Phase 3-C: observation フィールド ────────────────────────────────────────
+
+def test_live_summary_has_observation_field():
+    """Phase 3-C: observation フィールドが存在する。"""
+    body = _run(get_live_summary())
+    assert "observation" in body
+
+
+def test_observation_has_required_keys():
+    """Phase 3-C: observation に必要なキーが揃っている。"""
+    body = _run(get_live_summary())
+    obs = body.get("observation", {})
+    for key in ("rain_area_count", "kikikuru_area_count", "dangerous_area_count", "max_areas"):
+        assert key in obs, f"observation に {key} がない"
+
+
+def test_observation_area_counts_are_int():
+    """Phase 3-C: observation の件数フィールドは int。"""
+    body = _run(get_live_summary())
+    obs = body.get("observation", {})
+    assert isinstance(obs.get("rain_area_count"), int)
+    assert isinstance(obs.get("kikikuru_area_count"), int)
+    assert isinstance(obs.get("dangerous_area_count"), int)
+
+
+def test_observation_max_areas_is_5():
+    """Phase 3-C: max_areas は 5。"""
+    body = _run(get_live_summary())
+    assert body["observation"]["max_areas"] == 5
+
+
+def test_observation_dangerous_area_count_matches():
+    """Phase 3-C: observation.dangerous_area_count と dangerous_areas の長さが一致する。"""
+    body = _run(get_live_summary())
+    assert body["observation"]["dangerous_area_count"] == len(body["dangerous_areas"])

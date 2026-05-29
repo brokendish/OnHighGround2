@@ -54,6 +54,18 @@ async def build_live_summary() -> Dict[str, Any]:
         rain_section["status"], kikikuru_section["status"],
     )
 
+    # Phase 3-C: サマリー観察ログ
+    rain_area_count     = len(rain_section.get("areas", []))
+    kikikuru_area_count = len(kikikuru_section.get("areas", []))
+    dangerous_area_count = len(dangerous_areas)
+    top_area  = dangerous_areas[0].get("label", "none") if dangerous_areas else "none"
+    top_level = dangerous_areas[0].get("level", "none") if dangerous_areas else "none"
+    logger.info(
+        "live summary observation: rain_areas=%d kikikuru_areas=%d dangerous_areas=%d"
+        " top_area=%s top_level=%s",
+        rain_area_count, kikikuru_area_count, dangerous_area_count, top_area, top_level,
+    )
+
     return {
         "updated_at":      now,
         "status":          overall,
@@ -62,6 +74,12 @@ async def build_live_summary() -> Dict[str, Any]:
         "earthquake":      eq_section,
         "tsunami":         tsunami_section,
         "dangerous_areas": dangerous_areas,
+        "observation": {
+            "rain_area_count":      rain_area_count,
+            "kikikuru_area_count":  kikikuru_area_count,
+            "dangerous_area_count": dangerous_area_count,
+            "max_areas":            5,
+        },
     }
 
 
@@ -215,6 +233,20 @@ def _merge_dangerous_areas(
         _level_order.get(a.get("level", "unknown"), 4),
         _type_order.get(a.get("type", ""), 9),
     ))
+
+    # Phase 3-C: 同一地域が複数種別で出た場合に観察ログ（統合はしない）
+    label_types: Dict[str, List[str]] = {}
+    for area in combined:
+        label = area.get("label", "")
+        if label:
+            label_types.setdefault(label, []).append(area.get("type", ""))
+    for label, types in label_types.items():
+        if len(types) > 1:
+            logger.info(
+                "live duplicate area observation: label=%s types=%s",
+                label, ",".join(types),
+            )
+
     return combined
 
 

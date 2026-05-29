@@ -1,13 +1,20 @@
 """
-live_rain_summary_service.py — 雨雲危険度集計サービス (Phase 2-C)
+live_rain_summary_service.py — 雨雲危険度集計サービス (Phase 2-D)
 
-全国サンプリング地点で JMA nowcast タイルの降水強度を取得し、
-/api/live/summary の rain セクションを返す。
+主方式: 雨雲タイル面スキャン（Phase 2-D 移行）
+  JMA nowcast タイルをグリッドスキャンし strong/severe ピクセルを「面」で検出する。
+  地点サンプリングでは取り逃す帯状・局地的強雨（千葉県沿岸等）に対応する。
 
-判定方式: サンプリングポイントの最大強度をカラーテーブルで判定
-  strong / severe が 1 地点以上 → strong_rain_detected=True
-  unknown が 50% 以上かつ warning/danger なし → evaluated=False (too_many_unknown_samples)
-  JMA 取得失敗 → status=offline, evaluated=False
+旧方式（サンプリング）は fallback / テスト資産として build_rain_section_from_samples() で保持。
+
+判定ロジック:
+  tile scan 正常完了                → evaluated=True, reason=tile_scan
+  all tiles fetch failed           → evaluated=False, reason=scan_failed
+  too_many_tiles                   → evaluated=False, reason=too_many_tiles
+  JMA タイル情報取得失敗            → evaluated=False, reason=source_unavailable (offline)
+
+false-safe 防止:
+  evaluated=False のとき strong_rain_detected は必ず null（False にしない）
 
 キャッシュ TTL: 120 秒（JMA nowcast への過剰アクセスを防ぐ）
 """
@@ -265,12 +272,118 @@ def build_rain_section_from_samples(
     }
 
 
+# ── タイル面スキャン（Phase 2-D 主方式）──────────────────────────────────────
+
+def build_rain_section_from_scan(
+    scan_result: Dict[str, Any],
+    observed_at: str,
+) -> Dict[str, Any]:
+    """
+    scan_rain_tiles() の結果から rain セクション辞書を構築する（Phase 2-D 主方式）。
+
+    false-safe 防止:
+      - 全タイル fetch 失敗 → evaluated=False, strong_rain_detected=null
+      - too_many_tiles      → evaluated=False, strong_rain_detected=null
+      - scan 正常完了       → evaluated=True,  strong_rain_detected=bool
+    """
+    from app.services.live_rain_tile_scan_service import PIXEL_STRIDE as _DEFAULT_STRIDE
+
+    scan_status     = scan_result.get("status", "scan_failed")
+    scan_tile_count = scan_result.get("scan_tile_count")
+    pixel_stride    = scan_result.get("scan_pixel_stride", _DEFAULT_STRIDE)
+
+    def _unevaluated(reason: str) -> Dict[str, Any]:
+        return {
+            "status":    "unknown",
+            "evaluated": False,
+            "reason":    reason,
+            "summary": {
+                "strong_rain_detected": None,
+                "warning_area_count":   None,
+                "danger_area_count":    None,
+                "sample_count":         None,
+                "unknown_count":        None,
+                "scan_tile_count":      scan_tile_count,
+                "scan_pixel_stride":    pixel_stride,
+            },
+            "areas": [],
+        }
+
+    if scan_status == "too_many_tiles":
+        return _unevaluated("too_many_tiles")
+
+    if scan_status != "ok":
+        return _unevaluated("scan_failed")
+
+    # 全タイル fetch 失敗チェック（false-safe 防止）
+    tile_results = scan_result.get("tile_results", [])
+    if tile_results:
+        succeeded = [r for r in tile_results if not r.get("fetch_failed")]
+        if not succeeded:
+            return _unevaluated("scan_failed")
+
+    qualifying_areas = scan_result.get("areas", [])
+    warning_count    = scan_result.get("warning_area_count", 0) or 0
+    danger_count     = scan_result.get("danger_area_count",  0) or 0
+    unknown_count    = scan_result.get("unknown_count",      0) or 0
+    strong_rain_detected = len(qualifying_areas) > 0
+
+    # danger 優先ソート → 最大 _MAX_AREAS 件
+    obs_tag = observed_at.replace(":", "").replace("-", "").replace("+", "")[:13]
+    qualifying_areas.sort(key=lambda a: 0 if a.get("level") == "danger" else 1)
+    # Phase 3-C: 観察ログ（候補件数 / 採用件数 / stride）
+    logger.info(
+        "live rain observation: candidates=%d areas=%d stride=%s max_areas=%d",
+        len(qualifying_areas),
+        min(len(qualifying_areas), _MAX_AREAS),
+        pixel_stride,
+        _MAX_AREAS,
+    )
+
+    areas = []
+    for a in qualifying_areas[:_MAX_AREAS]:
+        logger.debug(
+            "rain_scan area: name=%s risk=%s tile=(%s,%s)",
+            a.get("label"), a.get("level"), a.get("tx"), a.get("ty"),
+        )
+        areas.append({
+            "id":          f"rain-scan-{a['tx']}-{a['ty']}-{obs_tag}",
+            "label":       a.get("label", "日本周辺"),
+            "prefecture":  a.get("prefecture", "日本周辺"),
+            "area_name":   a.get("label", "日本周辺"),
+            "level":       a["level"],
+            "type":        "rain",
+            "source":      "jma_nowcast_scan",
+            "lat":         a["lat"],
+            "lng":         a["lng"],
+            "observed_at": observed_at,
+            "description": "雨雲面スキャンで強雨域を検出",
+        })
+
+    return {
+        "status":    "ok",
+        "evaluated": True,
+        "reason":    "tile_scan",
+        "summary": {
+            "strong_rain_detected": strong_rain_detected,
+            "warning_area_count":   warning_count,
+            "danger_area_count":    danger_count,
+            "sample_count":         None,
+            "unknown_count":        unknown_count,
+            "scan_tile_count":      scan_tile_count,
+            "scan_pixel_stride":    pixel_stride,
+        },
+        "areas": areas,
+    }
+
+
 # ── パブリック API（async）────────────────────────────────────────────────────
 
 async def build_live_rain_summary() -> Dict[str, Any]:
     """
     雨雲危険度サマリーを返す（120 秒キャッシュ）。
 
+    Phase 2-D: 雨雲タイル面スキャンを主方式とする。
     失敗時は status=offline, evaluated=False (strong_rain_detected=null)。
     """
     global _rain_summary_cache
@@ -283,25 +396,28 @@ async def build_live_rain_summary() -> Dict[str, Any]:
 
     try:
         from services.jma_rain_tile_service import get_rain_tile_latest
+        from app.services.live_rain_tile_scan_service import scan_rain_tiles
 
         tile_info = await asyncio.to_thread(get_rain_tile_latest)
         if tile_info is None:
             logger.warning("live_rain_summary: タイル情報取得失敗")
             return _offline_rain_section()
 
-        tile_url = tile_info["tile_url_template"]
+        tile_url    = tile_info["tile_url_template"]
         observed_at = datetime.now(_JST).isoformat()
 
-        samples = await asyncio.to_thread(_sample_all_points_sync, tile_url)
-        result = build_rain_section_from_samples(samples, observed_at)
+        scan_result = await asyncio.to_thread(scan_rain_tiles, tile_url, LIVE_RAIN_SAMPLE_POINTS)
+        result = build_rain_section_from_scan(scan_result, observed_at)
         _rain_summary_cache = (result, now_mono)
 
+        summary = result.get("summary", {})
         logger.info(
-            "live_rain_summary: evaluated=%s detected=%s samples=%d unknown=%d",
+            "live_rain_summary: evaluated=%s detected=%s tiles=%s stride=%s unknown=%s",
             result.get("evaluated"),
-            result.get("summary", {}).get("strong_rain_detected"),
-            result.get("summary", {}).get("sample_count", 0),
-            result.get("summary", {}).get("unknown_count", 0),
+            summary.get("strong_rain_detected"),
+            summary.get("scan_tile_count"),
+            summary.get("scan_pixel_stride"),
+            summary.get("unknown_count"),
         )
         return result
 
@@ -311,7 +427,6 @@ async def build_live_rain_summary() -> Dict[str, Any]:
 
 
 def _offline_rain_section() -> Dict[str, Any]:
-    n = len(LIVE_RAIN_SAMPLE_POINTS)
     return {
         "status":    "offline",
         "evaluated": False,
@@ -320,8 +435,10 @@ def _offline_rain_section() -> Dict[str, Any]:
             "strong_rain_detected": None,
             "warning_area_count":   None,
             "danger_area_count":    None,
-            "sample_count":         n,
-            "unknown_count":        n,
+            "sample_count":         None,
+            "unknown_count":        None,
+            "scan_tile_count":      None,
+            "scan_pixel_stride":    None,
         },
         "areas": [],
     }

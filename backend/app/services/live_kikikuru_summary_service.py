@@ -337,6 +337,15 @@ def build_kikikuru_section_from_samples(
 
     danger_detected = len(all_qualifying) > 0
 
+    # Phase 3-C: 観察ログ（hazard 種別ごとの件数）
+    land_count  = sum(1 for a in all_qualifying if a.get("hazard") == "land")
+    inund_count = sum(1 for a in all_qualifying if a.get("hazard") == "inund")
+    flood_count = sum(1 for a in all_qualifying if a.get("hazard") == "flood_mesh")
+    logger.info(
+        "live kikikuru observation: landslide=%d flood=%d inundation=%d areas=%d",
+        land_count, flood_count, inund_count, len(all_qualifying),
+    )
+
     # unknown 率が高い かつ 危険未検出 → 評価不能（false-safe 防止）
     if not danger_detected and unknown_count / sample_count >= _UNKNOWN_RATE_THRESHOLD:
         return {

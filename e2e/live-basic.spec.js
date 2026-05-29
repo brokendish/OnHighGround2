@@ -924,6 +924,121 @@ test.describe('/live Phase 3-B — キキクル複数種別', () => {
 
 });
 
+// ── Phase 2-D: 雨雲面スキャン方式 ────────────────────────────────────────────
+
+const SUMMARY_RAIN_SCAN_CLEAR = {
+    status: 'ok', evaluated: true, reason: 'tile_scan',
+    summary: {
+        strong_rain_detected: false,
+        warning_area_count: 0, danger_area_count: 0,
+        sample_count: null, unknown_count: 0,
+        scan_tile_count: 36, scan_pixel_stride: 4,
+    },
+    areas: [],
+};
+
+const SUMMARY_RAIN_SCAN_STRONG = {
+    status: 'ok', evaluated: true, reason: 'tile_scan',
+    summary: {
+        strong_rain_detected: true,
+        warning_area_count: 1, danger_area_count: 0,
+        sample_count: null, unknown_count: 0,
+        scan_tile_count: 36, scan_pixel_stride: 4,
+    },
+    areas: [{
+        id: 'rain-scan-53-26-20260529T210000',
+        label: '千葉県付近', prefecture: '千葉県', area_name: '千葉県付近',
+        level: 'warning', type: 'rain', source: 'jma_nowcast_scan',
+        lat: 35.4, lng: 140.0,
+        observed_at: '2026-05-29T21:10:00+09:00', description: '雨雲面スキャンで強雨域を検出',
+    }],
+};
+
+const SUMMARY_RAIN_SCAN_TOO_MANY = {
+    status: 'unknown', evaluated: false, reason: 'too_many_tiles',
+    summary: {
+        strong_rain_detected: null,
+        warning_area_count: null, danger_area_count: null,
+        sample_count: null, unknown_count: null,
+        scan_tile_count: 128, scan_pixel_stride: 4,
+    },
+    areas: [],
+};
+
+const SUMMARY_RAIN_SCAN_FAILED = {
+    status: 'unknown', evaluated: false, reason: 'scan_failed',
+    summary: {
+        strong_rain_detected: null,
+        warning_area_count: null, danger_area_count: null,
+        sample_count: null, unknown_count: null,
+        scan_tile_count: 36, scan_pixel_stride: 4,
+    },
+    areas: [],
+};
+
+test.describe('/live Phase 2-D — 雨雲面スキャン方式', () => {
+
+    test('tile_scan evaluated=true + strong_rain_detected=false で「強雨域なし」が表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { rain: SUMMARY_RAIN_SCAN_CLEAR });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('強雨域なし');
+    });
+
+    test('tile_scan evaluated=true + strong_rain_detected=true で「強雨域あり」が表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { rain: SUMMARY_RAIN_SCAN_STRONG });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('強雨域あり');
+    });
+
+    test('tile_scan scan area が危険地域ランキングに現れる（千葉県付近）', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            rain:            SUMMARY_RAIN_SCAN_STRONG,
+            dangerous_areas: SUMMARY_RAIN_SCAN_STRONG.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('.lac-danger-item')).toBeVisible({ timeout: 3000 });
+        await expect(page.locator('#live-alert-card')).toContainText('千葉県付近');
+    });
+
+    test('tile_scan evaluated=false（too_many_tiles）で「強雨域なし」を表示しない', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { rain: SUMMARY_RAIN_SCAN_TOO_MANY });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        const text = await page.locator('#live-alert-card').innerText();
+        expect(text).not.toContain('強雨域なし');
+    });
+
+    test('tile_scan evaluated=false（scan_failed）で「安全」と断定しない', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { rain: SUMMARY_RAIN_SCAN_FAILED });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        const text = await page.locator('#live-alert-card').innerText();
+        expect(text).not.toContain('安全');
+    });
+
+    test('Phase 2-D: console.error / page error が発生しない', async ({ page }) => {
+        const errors = [];
+        const pageErrors = [];
+        page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+        page.on('pageerror', err => pageErrors.push(err.message));
+
+        await mockLiveTrafficWithSummary(page, {
+            rain:            SUMMARY_RAIN_SCAN_STRONG,
+            dangerous_areas: SUMMARY_RAIN_SCAN_STRONG.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await page.waitForTimeout(500);
+
+        expect(errors).toHaveLength(0);
+        expect(pageErrors).toHaveLength(0);
+    });
+
+});
+
 test.describe('/live — API 失敗耐性', () => {
     async function mockAllApis503(page) {
         await page.route('/api/**', route => route.fulfill({ status: 503, body: '' }));
