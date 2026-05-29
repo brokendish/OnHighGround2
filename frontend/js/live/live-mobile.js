@@ -128,7 +128,7 @@
         bound = true;
 
         let startY = null, startExpanded = false, dragged = false, sheetH = 0, lastPos = 0;
-        const collapsedPx = () => Math.max(sheetH - 132, 1);
+        const collapsedPx = () => Math.max(sheetH - 168, 1);
 
         const getHandle = () => card.querySelector('.sheet-handle');
         const getPeek   = () => card.querySelector('.sheet-peek');

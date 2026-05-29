@@ -537,7 +537,7 @@ html, body {
         overflow: hidden;           /* スクロールは内側 .sheet-scroll が担う */
         display: flex;
         flex-direction: column;
-        transform: translateY(var(--sheet-collapsed, calc(100% - 132px)));
+        transform: translateY(var(--sheet-collapsed, calc(100% - 168px)));
         transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
         touch-action: none;
     }
@@ -570,12 +570,10 @@ html, body {
     }
     .peek-chips {
         display: flex;
-        gap: 7px;
-        overflow-x: auto;
-        scrollbar-width: none;
-        padding-bottom: 2px;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding-bottom: 4px;
     }
-    .peek-chips::-webkit-scrollbar { display: none; }
     .peek-chip {
         display: inline-flex;
         align-items: center;
