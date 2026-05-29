@@ -97,11 +97,6 @@ def test_kikikuru_evaluated_is_boolean():
     assert isinstance(body["kikikuru"].get("evaluated"), bool)
 
 
-def test_kikikuru_evaluated_is_false_for_tile_only():
-    body = _run(get_live_summary())
-    assert body["kikikuru"]["evaluated"] is False
-
-
 def test_kikikuru_status_is_valid():
     body = _run(get_live_summary())
     assert body["kikikuru"]["status"] in _VALID_STATUSES
@@ -111,13 +106,29 @@ def test_kikikuru_danger_detected_is_null_when_unevaluated():
     """evaluated=False のとき danger_detected は null（False にしない）。"""
     body = _run(get_live_summary())
     kk = body["kikikuru"]
-    assert kk["evaluated"] is False
-    assert kk["summary"]["danger_detected"] is None
+    if kk["evaluated"] is False:
+        assert kk["summary"]["danger_detected"] is None
 
 
-def test_kikikuru_has_reason_tile_only():
+def test_kikikuru_has_reason_string():
+    """reason は非空文字列（Phase 3-A: sampled_kikikuru / source_unavailable 等）。"""
     body = _run(get_live_summary())
-    assert body["kikikuru"].get("reason") == "tile_only"
+    reason = body["kikikuru"].get("reason")
+    assert isinstance(reason, str) and len(reason) > 0
+
+
+def test_kikikuru_danger_detected_consistent():
+    """evaluated=True なら danger_detected は bool、evaluated=False なら null。"""
+    body = _run(get_live_summary())
+    kk = body["kikikuru"]
+    if kk["evaluated"] is True:
+        assert isinstance(kk["summary"].get("danger_detected"), bool), (
+            "evaluated=True なのに danger_detected が bool でない"
+        )
+    else:
+        assert kk["summary"].get("danger_detected") is not False, (
+            "evaluated=False なのに danger_detected=False は false-safe 違反"
+        )
 
 
 # ── earthquake セクション ────────────────────────────────────────────────────

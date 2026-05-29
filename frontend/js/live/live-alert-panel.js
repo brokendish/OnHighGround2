@@ -59,6 +59,12 @@
         kikikuru:   'キキクル',
     };
 
+    const _HAZARD_LABEL = {
+        land:       '土砂',
+        inund:      '浸水',
+        flood_mesh: '洪水',
+    };
+
     // ── summary API レンダリング ─────────────────────────────────────────────
 
     function _renderFromSummary(summary) {
@@ -236,8 +242,8 @@
     }
 
     function _kikikuruHtml(kSection) {
-        if (_tileStatuses.kikikuru === 'offline') {
-            return `<div class="lac-item lac-offline"><span class="lac-text">キキクル: 取得失敗</span></div>`;
+        if (_tileStatuses.kikikuru === 'offline' || kSection?.status === 'offline') {
+            return `<div class="lac-item lac-offline"><span class="lac-text">キキクル情報: 取得失敗</span></div>`;
         }
         if (kSection && kSection.evaluated === true) {
             const detected = kSection.summary?.danger_detected;
@@ -265,7 +271,9 @@
         let html = `<div class="lac-section-title">危険地域</div><div class="lac-danger-list">`;
         areas.forEach((area, idx) => {
             const canFocus   = area.lat != null && area.lng != null;
-            const typeLabel  = _TYPE_LABEL[area.type] || area.type || '';
+            const typeLabel  = area.type === 'kikikuru' && area.hazard
+                ? `${_TYPE_LABEL.kikikuru}（${_HAZARD_LABEL[area.hazard] || area.hazard}）`
+                : (_TYPE_LABEL[area.type] || area.type || '');
             const levelClass = `lac-danger-${area.level}`;
             const focusAttrs = canFocus ? `data-lat="${area.lat}" data-lng="${area.lng}"` : '';
             html += `

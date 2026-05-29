@@ -687,6 +687,145 @@ test.describe('/live Phase 2-B — 雨雲サンプリング精度改善', () => 
 
 });
 
+// ── Phase 3-A: キキクル危険度集計 MVP ────────────────────────────────────────
+
+const SUMMARY_KIKI_DANGER = {
+    status: 'ok', evaluated: true, reason: 'sampled_kikikuru',
+    summary: {
+        danger_detected: true,
+        watch_area_count: 0, warning_area_count: 1, danger_area_count: 1,
+        sample_count: 76, unknown_count: 2,
+    },
+    areas: [
+        {
+            id: 'kikikuru-kochi-shimanto-land-20260529223000',
+            label: '高知県 四万十付近', prefecture: '高知県', area_name: '四万十付近',
+            level: 'danger', type: 'kikikuru', hazard: 'land',
+            source: 'jma_kikikuru', lat: 32.9916, lng: 132.9339,
+            observed_at: '2026-05-29T22:30:00+09:00', description: 'キキクル危険度を検出',
+        },
+        {
+            id: 'kikikuru-kagoshima-amami-land-20260529223000',
+            label: '鹿児島県 奄美付近', prefecture: '鹿児島県', area_name: '奄美付近',
+            level: 'warning', type: 'kikikuru', hazard: 'land',
+            source: 'jma_kikikuru', lat: 28.3772, lng: 129.4937,
+            observed_at: '2026-05-29T22:30:00+09:00', description: 'キキクル危険度を検出',
+        },
+    ],
+};
+
+const SUMMARY_KIKI_CLEAR = {
+    status: 'ok', evaluated: true, reason: 'sampled_kikikuru',
+    summary: {
+        danger_detected: false,
+        watch_area_count: 0, warning_area_count: 0, danger_area_count: 0,
+        sample_count: 76, unknown_count: 0,
+    },
+    areas: [],
+};
+
+const SUMMARY_KIKI_OFFLINE = {
+    status: 'offline', evaluated: false, reason: 'source_unavailable',
+    summary: {
+        danger_detected: null,
+        watch_area_count: null, warning_area_count: null, danger_area_count: null,
+        sample_count: 76, unknown_count: 76,
+    },
+    areas: [],
+};
+
+test.describe('/live Phase 3-A — キキクル危険度集計', () => {
+
+    test('kikikuru evaluated=true + danger_detected=false で「キキクル危険地域なし」が表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { kikikuru: SUMMARY_KIKI_CLEAR });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('キキクル危険地域なし');
+    });
+
+    test('kikikuru evaluated=true + danger_detected=true で「キキクル危険地域あり」が表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { kikikuru: SUMMARY_KIKI_DANGER });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('キキクル危険地域あり');
+    });
+
+    test('kikikuru danger area が危険地域ランキングに現れる', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            kikikuru:        SUMMARY_KIKI_DANGER,
+            dangerous_areas: SUMMARY_KIKI_DANGER.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('.lac-danger-item').first()).toBeVisible({ timeout: 3000 });
+        await expect(page.locator('#live-alert-card')).toContainText('四万十付近');
+    });
+
+    test('kikikuru danger area に「キキクル（土砂）」が表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            kikikuru:        SUMMARY_KIKI_DANGER,
+            dangerous_areas: SUMMARY_KIKI_DANGER.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('キキクル（土砂）');
+    });
+
+    test('kikikuru evaluated=false で「キキクル危険地域なし」を表示しない（Phase 3-A 確認）', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page);
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        const text = await page.locator('#live-alert-card').innerText();
+        expect(text).not.toContain('キキクル危険地域なし');
+    });
+
+    test('kikikuru offline で「キキクル情報: 取得失敗」が表示される', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { kikikuru: SUMMARY_KIKI_OFFLINE });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('取得失敗');
+    });
+
+    test('kikikuru offline で「安全」と断定しない', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { kikikuru: SUMMARY_KIKI_OFFLINE });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        const text = await page.locator('#live-alert-card').innerText();
+        expect(text).not.toContain('安全');
+    });
+
+    test('既存 rain 表示が kikikuru 追加後も壊れない', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, {
+            rain:            SUMMARY_RAIN_STRONG,
+            kikikuru:        SUMMARY_KIKI_DANGER,
+            dangerous_areas: [...SUMMARY_KIKI_DANGER.areas, ...SUMMARY_RAIN_STRONG.areas],
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('強雨域あり');
+        await expect(page.locator('#live-alert-card')).toContainText('キキクル危険地域あり');
+    });
+
+    test('Phase 3-A: console.error / page error が発生しない', async ({ page }) => {
+        const errors = [];
+        const pageErrors = [];
+        page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+        page.on('pageerror', err => pageErrors.push(err.message));
+
+        await mockLiveTrafficWithSummary(page, {
+            kikikuru:        SUMMARY_KIKI_DANGER,
+            dangerous_areas: SUMMARY_KIKI_DANGER.areas,
+        });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await page.waitForTimeout(500);
+
+        expect(errors).toHaveLength(0);
+        expect(pageErrors).toHaveLength(0);
+    });
+
+});
+
 test.describe('/live — API 失敗耐性', () => {
     async function mockAllApis503(page) {
         await page.route('/api/**', route => route.fulfill({ status: 503, body: '' }));

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from app.services.earthquake_service import get_recent_earthquakes
+from app.services.live_kikikuru_summary_service import build_live_kikikuru_summary
 from app.services.live_rain_summary_service import build_live_rain_summary
 from app.services.tsunami_warning_service import get_tsunami_warnings
 
@@ -34,27 +35,30 @@ async def build_live_summary() -> Dict[str, Any]:
     """全ソースを集約して /api/live/summary レスポンスを返す。"""
     now = datetime.now(_JST).isoformat()
 
-    eq_section, tsunami_section, rain_section = await asyncio.gather(
+    eq_section, tsunami_section, rain_section, kikikuru_section = await asyncio.gather(
         _build_earthquake_section(),
         _build_tsunami_section(),
         build_live_rain_summary(),
+        build_live_kikikuru_summary(),
     )
 
     dangerous_areas = _merge_dangerous_areas(
         tsunami_section.get("areas", []),
         eq_section.get("areas", []),
+        kikikuru_section.get("areas", []),
         rain_section.get("areas", []),
     )
 
     overall = _overall_status(
-        eq_section["status"], tsunami_section["status"], rain_section["status"]
+        eq_section["status"], tsunami_section["status"],
+        rain_section["status"], kikikuru_section["status"],
     )
 
     return {
         "updated_at":      now,
         "status":          overall,
         "rain":            rain_section,
-        "kikikuru":        _kikikuru_section_tile_only(),
+        "kikikuru":        kikikuru_section,
         "earthquake":      eq_section,
         "tsunami":         tsunami_section,
         "dangerous_areas": dangerous_areas,
@@ -193,14 +197,20 @@ def _kikikuru_section_tile_only() -> Dict[str, Any]:
 def _merge_dangerous_areas(
     tsunami_areas: List[Dict[str, Any]],
     eq_areas: List[Dict[str, Any]],
+    kikikuru_areas: List[Dict[str, Any]] | None = None,
     rain_areas: List[Dict[str, Any]] | None = None,
 ) -> List[Dict[str, Any]]:
-    """津波・地震・雨雲の危険地域を danger → warning 順に統合する。"""
+    """津波・地震・キキクル・雨雲の危険地域を danger → warning 順に統合する。"""
     _level_order = {"danger": 0, "warning": 1, "watch": 2, "normal": 3, "unknown": 4}
-    # タイプ優先度: 津波 > 地震 > 雨雲
-    _type_order  = {"tsunami": 0, "earthquake": 1, "rain": 2}
+    # タイプ優先度: 津波 > 地震 > キキクル > 雨雲
+    _type_order  = {"tsunami": 0, "earthquake": 1, "kikikuru": 2, "rain": 3}
 
-    combined = tsunami_areas + eq_areas + (rain_areas or [])
+    combined = (
+        tsunami_areas
+        + eq_areas
+        + (kikikuru_areas or [])
+        + (rain_areas or [])
+    )
     combined.sort(key=lambda a: (
         _level_order.get(a.get("level", "unknown"), 4),
         _type_order.get(a.get("type", ""), 9),
