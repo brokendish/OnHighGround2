@@ -671,3 +671,57 @@ html, body {
     .peek-chip { padding: 5px 9px; font-size: 11.5px; }
     .live-title { font-size: 15px; }
 }
+
+/* ── 日月情報カード（レイヤーパネル内セクション） ───────────────────────────── */
+
+.live-panel-sep {
+    border: none;
+    border-top: 1px solid rgba(48, 54, 61, 0.7);
+    margin: 8px 0;
+}
+
+#live-sun-moon-card {
+    padding-top: 2px;
+}
+
+.live-sm-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    color: #c9d1d9;
+    padding: 2px 0;
+    gap: 8px;
+}
+
+.live-sm-label {
+    color: #8b949e;
+    flex-shrink: 0;
+}
+
+.live-sm-value {
+    color: #e6edf3;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.live-sm-phase {
+    font-size: 9px;
+    color: #8b949e;
+    margin-left: 4px;
+}
+
+.live-sm-spacer {
+    height: 4px;
+}
+
+.live-sm-error {
+    font-size: 10px;
+    color: #6e7681;
+    padding: 2px 0;
+}
+
+@media (max-width: 640px) {
+    .live-sm-row { font-size: 13px; padding: 3px 0; }
+    .live-sm-phase { font-size: 10px; }
+}

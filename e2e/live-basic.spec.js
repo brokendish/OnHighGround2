@@ -58,7 +58,19 @@ const RAIN_TIMES = {
     ],
 };
 
+const SUN_MOON_RESPONSE = {
+    location: '東京', date: '2026-05-26',
+    sunrise: '04:32', sunset: '18:55',
+    moonrise: '15:42', moonset: '01:12',
+    moon_phase: 12.4, moon_phase_name: '十三夜',
+};
+
 async function mockLiveTraffic(page) {
+    await page.route('/api/live/sun-moon', route => route.fulfill({
+        status:      200,
+        contentType: 'application/json',
+        body:        JSON.stringify(SUN_MOON_RESPONSE),
+    }));
     await page.route('/api/earthquakes**', route => route.fulfill({
         status:      200,
         contentType: 'application/json',
@@ -212,6 +224,10 @@ const TSUNAMI_RESPONSE_EMPTY = {
 };
 
 async function mockLiveTrafficWith(page, { eqResponse = EQ_RESPONSE, tsunamiResponse = TSUNAMI_RESPONSE } = {}) {
+    await page.route('/api/live/sun-moon', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body:   JSON.stringify(SUN_MOON_RESPONSE),
+    }));
     await page.route('/api/earthquakes**', route => route.fulfill({
         status: 200, contentType: 'application/json',
         body:   JSON.stringify(eqResponse),
