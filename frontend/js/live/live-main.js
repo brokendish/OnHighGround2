@@ -1,6 +1,6 @@
 'use strict';
 // live-main.js — /live エントリポイント
-// 読み込み順: live-map.js → live-layers.js → live-danger-summary.js → live-alert-panel.js → live-ui.js → live-main.js
+// 読み込み順: live-map.js → live-layers.js → live-tide-layer.js → live-danger-summary.js → live-alert-panel.js → live-ui.js → live-main.js
 
 (async function () {
 

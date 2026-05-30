@@ -44,6 +44,10 @@
             <input type="checkbox" id="toggle-tsunami" checked>
             津波
         </label>
+        <label class="live-toggle">
+            <input type="checkbox" id="toggle-tide">
+            潮位観測点
+        </label>
     </div>
 
     <!-- アクティブ警戒カード（左上） -->
@@ -61,6 +65,7 @@
     <!-- /live 専用 JS（依存順）-->
     <script src="/js/live/live-map.js"></script>
     <script src="/js/live/live-layers.js"></script>
+    <script src="/js/live/live-tide-layer.js"></script>
     <script src="/js/live/live-danger-summary.js"></script>
     <script src="/js/live/live-alert-panel.js"></script>
     <script src="/js/live/live-ui.js"></script>

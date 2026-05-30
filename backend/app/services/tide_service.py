@@ -243,6 +243,21 @@ def get_stations() -> list[dict]:
     ]
 
 
+def get_station_meta(station_code: str) -> Optional[dict]:
+    """指定コードの観測点メタデータを返す（なければ None）。"""
+    _ensure_loaded()
+    for s in _stations:
+        if s.get("station_code") == station_code:
+            return s
+    return None
+
+
+def has_station_data(station_code: str) -> bool:
+    """指定コードの時系列データが存在するか返す。"""
+    _ensure_loaded()
+    return station_code in _hourly_index
+
+
 def get_hourly_data(station_code: str, date_str: str) -> list[dict]:
     """指定地点・日付の時間毎潮位データを返す。date_str: "YYYY-MM-DD"。"""
     _ensure_loaded()

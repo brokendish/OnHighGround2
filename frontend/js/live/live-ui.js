@@ -19,6 +19,7 @@
         _bindToggle('toggle-tsunami',    () => {
             // tsunami は表示レイヤーなし（カードのみ）。チェックが OFF でもデータは取り続ける
         });
+        _bindToggle('toggle-tide', (v) => liveTideLayer.setVisible(v));
     }
 
     // ── ステータスバー ───────────────────────────────────────────────────────
@@ -31,6 +32,7 @@
         kikikuruOk: null,
         eqOk:       null,
         tsunamiOk:  null,
+        tideOk:     null,
     };
 
     function _dot(ok) {
@@ -46,6 +48,7 @@
             <span class="live-status-item">${_dot(_currentStatus.kikikuruOk)} キキクル</span>
             <span class="live-status-item">${_dot(_currentStatus.eqOk)} 地震</span>
             <span class="live-status-item">${_dot(_currentStatus.tsunamiOk)} 津波</span>
+            <span class="live-status-item">${_dot(_currentStatus.tideOk)} 潮位</span>
         `;
     }
 
@@ -72,6 +75,11 @@
         _renderStatus();
     }
 
+    function updateTideStatus(ok) {
+        _currentStatus.tideOk = ok;
+        _renderStatus();
+    }
+
     function setUpdating() {
         if (!_statusBar) return;
         const dot = `<span class="live-status-dot updating"></span>`;
@@ -91,6 +99,7 @@
         updateRainStatus,
         updateAlertStatus,
         updateKikikuruStatus,
+        updateTideStatus,
         setUpdating,
         hideLoading,
     };
