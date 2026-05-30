@@ -13,7 +13,8 @@ Radii where T1 (direct approach) detection ≥ 90 % for all σ ≤ 15 m:
 
 ## 2. Safe zone — reroute_threshold
 
-No threshold achieves both criteria simultaneously.
+Thresholds where T4 detection ≥ 90 % AND T1 false-positive = 0 % for σ ≤ 15 m:
+**[28, 30, 35]**
 
 ## 3. Risk zone — arrival false negative (missed detection)
 
@@ -41,9 +42,9 @@ arrival_radius values where T1 fired_rate drops below 100 % at σ=20m:
 
 | Pattern | arrival_radius | reroute_threshold | Notes |
 |---|---|---|---|
-| A (conservative) | 25m | 15m | Lowest safe values |
+| A (conservative) | 25m | 28m | Lowest safe values |
 | B (current)      | 12m | 15m | Current defaults |
-| C (loose)        | 40m | 30m | Wider margin |
+| C (loose)        | 40m | 43m | Wider margin |
 
 ## 7. What field test must answer
 
