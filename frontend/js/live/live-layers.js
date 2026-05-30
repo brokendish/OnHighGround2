@@ -165,11 +165,25 @@
 
     function _eqRender() {
         _eqLayerGroup.clearLayers();
-        if (!_eqEnabled) return;
+        if (!_eqEnabled) {
+            window.liveEarthquakeLayer?.clear?.();
+            return;
+        }
+
+        // 最新地震に市区町村震度マーカーを試みる（liveEarthquakeLayer が利用可能な場合のみ）
+        const latest = _eqData[0] ?? null;
+        const muniRendered = latest
+            ? (window.liveEarthquakeLayer?.render?.(latest, true) ?? false)
+            : false;
+
         _eqData.forEach(eq => {
             const lat = eq.lat;
             const lng = eq.lng;
             if (lat == null || lng == null) return;
+
+            // 市区町村マーカーが描画された最新地震は代表マーカーをスキップ
+            if (muniRendered && eq.event_id === latest.event_id) return;
+
             const mag = eq.magnitude || 0;
             const intensity = eq.max_intensity || '-';
             const name = eq.epicenter_name || '不明';
@@ -198,6 +212,7 @@
 
     function _eqSetVisible(visible) {
         _eqEnabled = visible;
+        if (!visible) window.liveEarthquakeLayer?.clear?.();
         _eqRender();
     }
 

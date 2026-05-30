@@ -66,6 +66,11 @@ const SUN_MOON_RESPONSE = {
 };
 
 async function mockLiveTraffic(page) {
+    await page.route('/data/municipality_coords.json', route => route.fulfill({
+        status:      200,
+        contentType: 'application/json',
+        body:        '{}',
+    }));
     await page.route('/api/live/sun-moon', route => route.fulfill({
         status:      200,
         contentType: 'application/json',
@@ -224,6 +229,10 @@ const TSUNAMI_RESPONSE_EMPTY = {
 };
 
 async function mockLiveTrafficWith(page, { eqResponse = EQ_RESPONSE, tsunamiResponse = TSUNAMI_RESPONSE } = {}) {
+    await page.route('/data/municipality_coords.json', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body:   '{}',
+    }));
     await page.route('/api/live/sun-moon', route => route.fulfill({
         status: 200, contentType: 'application/json',
         body:   JSON.stringify(SUN_MOON_RESPONSE),
