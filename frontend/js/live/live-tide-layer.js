@@ -75,13 +75,16 @@
             requestAnimationFrame(() => _drawGraph(canvas, data, nowMs));
             return;
         }
+        // CSS 表示サイズを明示固定してから buffer を DPR 倍に拡大（Retina 対応）
+        canvas.style.width  = rect.width  + 'px';
+        canvas.style.height = rect.height + 'px';
         canvas.width  = Math.round(rect.width  * dpr);
         canvas.height = Math.round(rect.height * dpr);
         const ctx = canvas.getContext('2d');
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const W = canvas.width  / dpr;
         const H = canvas.height / dpr;
-        const PAD = { top: 10, right: 10, bottom: 22, left: 42 };
+        const PAD = { top: 14, right: 12, bottom: 26, left: 46 };
 
         ctx.clearRect(0, 0, W, H);
 
@@ -129,8 +132,8 @@
         for (let c = cmBase; c <= cmMax; c += cmStep) {
             const y = ty(c);
             ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + gW, y); ctx.stroke();
-            ctx.fillStyle = '#94a3b8'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
-            ctx.fillText(`${c}`, PAD.left - 3, y + 3);
+            ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+            ctx.fillText(`${c}`, PAD.left - 4, y + 3);
         }
 
         // 時間グリッド + ラベル
@@ -142,11 +145,11 @@
             const x = tx(t);
             ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + gH); ctx.stroke();
         }
-        ctx.fillStyle = '#94a3b8'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
         for (let t = t6hStart; t <= tMax; t += 6 * hMs) {
             const x = tx(t);
             const jstHour = new Date(t + 9 * hMs).getUTCHours();
-            ctx.fillText(`${String(jstHour).padStart(2, '0')}:00`, x, H - 4);
+            ctx.fillText(`${String(jstHour).padStart(2, '0')}:00`, x, H - 5);
         }
 
         // 潮位ライン
@@ -178,21 +181,27 @@
         // 満潮・干潮マーカー
         const extremes = data && data.extremes;
         if (extremes) {
-            const drawEx = (list, color, label) => {
+            // high_tides (満潮): 峰なのでドットの下にラベルを出す → テキストが常に見える
+            // low_tides  (干潮): 谷なのでドットの上にラベルを出す
+            const drawEx = (list, color, label, below) => {
                 (list || []).forEach(e => {
                     const t = new Date(e.time).getTime();
                     if (t < tMin || t > tMax) return;
                     const x = tx(t);
                     const y = ty(Number(e.tide_cm));
-                    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+                    const r = 5;
+                    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
                     ctx.fillStyle = color; ctx.fill();
-                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
-                    ctx.fillStyle = color; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
-                    ctx.fillText(label, x, Math.max(PAD.top + 9, y - 6));
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.fillStyle = color; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+                    const labelY = below
+                        ? Math.min(PAD.top + gH - 2, y + r + 12)   // 峰の下（グラフ下限でクリップ）
+                        : Math.max(PAD.top + 12,     y - r - 4);    // 谷の上（グラフ上限でクリップ）
+                    ctx.fillText(label, x, labelY);
                 });
             };
-            drawEx(extremes.high_tides, '#dc2626', '満');
-            drawEx(extremes.low_tides,  '#0891b2', '干');
+            drawEx(extremes.high_tides, '#dc2626', '満', true);   // 下
+            drawEx(extremes.low_tides,  '#0891b2', '干', false);  // 上
         }
 
         // 現在時刻ライン
@@ -206,9 +215,9 @@
             : null;
         if (closest) {
             const dotY = ty(closest.cm);
-            ctx.beginPath(); ctx.arc(x0, dotY, 5.5, 0, Math.PI * 2);
+            ctx.beginPath(); ctx.arc(x0, dotY, 6.5, 0, Math.PI * 2);
             ctx.fillStyle = '#ef4444'; ctx.fill();
-            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke();
         }
     }
 
@@ -236,14 +245,15 @@
         const lowT    = detail.next_low_tide  ? _fmtTime(detail.next_low_tide.time)   : '--';
         const canvasId = `live-tide-graph-${detail.station_id}`;
         return `
-            <div class="live-tide-popup">
+            <div class="live-tide-popup" style="min-width:300px;">
                 <div class="live-tide-popup-name">${detail.name}</div>
                 <div class="live-tide-popup-current">現在潮位: <b>${current}</b></div>
                 <div class="live-tide-popup-extremes">
                     <span class="live-tide-high">満潮 ${highT} ${highCm}</span>
                     <span class="live-tide-low">干潮 ${lowT} ${lowCm}</span>
                 </div>
-                <canvas id="${canvasId}" class="live-tide-graph-canvas" width="260" height="100"></canvas>
+                <canvas id="${canvasId}" class="live-tide-graph-canvas"
+                        style="display:block;width:100%;height:150px;"></canvas>
             </div>
         `;
     }
@@ -275,7 +285,7 @@
                 + '<div class="live-tide-popup-name">' + station.name + '</div>'
                 + '<div style="color:#94a3b8;font-size:12px">読み込み中...</div>'
             + '</div>',
-            { maxWidth: 300 },
+            { maxWidth: 360 },
         );
 
         marker.on('click', async () => {
