@@ -35,8 +35,10 @@
         }
         if (!_rainEnabled) return;
 
+        const _rainOpacity = 0.50;
+        console.log(`[live-rain] live rain layer opacity: value=${_rainOpacity}`);
         _rainLayer = new _RainTileLayer(current.tile_url_template, {
-            opacity:       0.65,
+            opacity:       _rainOpacity,
             attribution:   '気象庁 降水ナウキャスト',
             minZoom:       1,
             maxNativeZoom: 10,
@@ -104,7 +106,7 @@
         if (!_kikikuruEntry) return;
         const def = _KIKIKURU_KINDS[kind];
         _kikikuruLayers[kind] = new _KikikuruTileLayer(_kikikuruTileUrl(_kikikuruEntry, def.elem), {
-            opacity:       0.8,
+            opacity:       0.65,
             attribution:   '気象庁 危険度分布',
             minZoom:       1,
             maxNativeZoom: 10,

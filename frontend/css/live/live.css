@@ -387,6 +387,67 @@ html, body {
     margin-top: 1px;
 }
 
+/* ── 地震一覧リスト ──────────────────────────────────────────────────────────── */
+
+.lac-eq-list-wrap {
+    margin: 0 0 4px 8px;
+    border-left: 2px solid rgba(227, 179, 65, 0.3);
+    padding-left: 6px;
+}
+
+.lac-eq-item {
+    padding: 4px 4px 4px 0;
+    border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+    font-size: 11px;
+    color: #c9d1d9;
+}
+
+.lac-eq-item:last-child {
+    border-bottom: none;
+}
+
+.lac-eq-clickable {
+    cursor: pointer;
+    transition: background 0.15s;
+    border-radius: 2px;
+    padding-left: 3px;
+}
+
+.lac-eq-clickable:hover {
+    background: rgba(88, 166, 255, 0.1);
+}
+
+.lac-eq-name {
+    font-size: 11px;
+    color: #e6edf3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lac-eq-meta {
+    font-size: 10px;
+    color: #8b949e;
+    margin-top: 1px;
+}
+
+.lac-eq-meta small {
+    margin-left: 4px;
+    font-size: 10px;
+}
+
+.lac-eq-empty {
+    font-size: 10px;
+    color: #6e7681;
+    padding: 3px 0;
+}
+
+.lac-expand-arrow {
+    font-size: 9px;
+    color: #8b949e;
+    margin-left: 3px;
+}
+
 /* ── ステータスドット（unknown 追加） ────────────────────────────────────────── */
 
 .live-status-dot.unknown {

@@ -749,6 +749,16 @@ const SUMMARY_KIKI_CLEAR = {
     areas: [],
 };
 
+const SUMMARY_KIKI_WATCH_ONLY = {
+    status: 'ok', evaluated: true, reason: 'sampled_kikikuru',
+    summary: {
+        danger_detected: false,
+        watch_area_count: 1, warning_area_count: 0, danger_area_count: 0,
+        sample_count: 76, unknown_count: 2,
+    },
+    areas: [],
+};
+
 const SUMMARY_KIKI_OFFLINE = {
     status: 'offline', evaluated: false, reason: 'source_unavailable',
     summary: {
@@ -761,11 +771,21 @@ const SUMMARY_KIKI_OFFLINE = {
 
 test.describe('/live Phase 3-A — キキクル危険度集計', () => {
 
-    test('kikikuru evaluated=true + danger_detected=false で「キキクル危険地域なし」が表示される', async ({ page }) => {
+    test('kikikuru evaluated=true + danger_detected=false + watch=0 で「キキクル危険地域なし」が表示される', async ({ page }) => {
         await mockLiveTrafficWithSummary(page, { kikikuru: SUMMARY_KIKI_CLEAR });
         await page.goto('/live.html');
         await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
         await expect(page.locator('#live-alert-card')).toContainText('キキクル危険地域なし');
+    });
+
+    test('kikikuru evaluated=true + danger_detected=false + watch>0 で「注意域あり」が表示される（地図タイルと整合）', async ({ page }) => {
+        await mockLiveTrafficWithSummary(page, { kikikuru: SUMMARY_KIKI_WATCH_ONLY });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await expect(page.locator('#live-alert-card')).toContainText('注意域あり');
+        // 「危険地域なし」と誤表示しないこと
+        const text = await page.locator('#live-alert-card').innerText();
+        expect(text).not.toContain('キキクル危険地域なし');
     });
 
     test('kikikuru evaluated=true + danger_detected=true で「キキクル危険地域あり」が表示される', async ({ page }) => {
@@ -1115,4 +1135,176 @@ test.describe('/live — API 失敗耐性', () => {
 
         expect(pageErrors).toHaveLength(0);
     });
+});
+
+// ── Phase 3-EFG: 台風時 UI 改善 ──────────────────────────────────────────────
+
+const EQ_RESPONSE_MULTI = {
+    count: 3,
+    items: [
+        {
+            event_id:       'eq-e01',
+            occurred_at:    '2026-06-02T09:00:00+09:00',
+            epicenter_name: '釧路地方中南部',
+            lat:            43.1,
+            lng:            144.4,
+            magnitude:      4.1,
+            max_intensity:  '2',
+        },
+        {
+            event_id:       'eq-e02',
+            occurred_at:    '2026-06-02T07:30:00+09:00',
+            epicenter_name: '沖縄本島近海',
+            lat:            26.5,
+            lng:            127.9,
+            magnitude:      3.8,
+            max_intensity:  '1',
+        },
+        {
+            event_id:       'eq-e03',
+            occurred_at:    '2026-06-02T05:00:00+09:00',
+            epicenter_name: '奄美大島近海',
+            lat:            28.4,
+            lng:            129.5,
+            magnitude:      3.2,
+            max_intensity:  '1',
+        },
+    ],
+};
+
+test.describe('/live Phase 3-EFG — 台風時 UI 改善', () => {
+
+    // ── F: 地震一覧 ────────────────────────────────────────────────────────────
+
+    test('F: 地震件数行が展開トグル（data-action=eq-toggle）として描画される', async ({ page }) => {
+        await mockLiveTrafficWith(page, { eqResponse: EQ_RESPONSE_MULTI });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+
+        const toggle = page.locator('[data-action="eq-toggle"]');
+        await expect(toggle).toBeVisible({ timeout: 3000 });
+        await expect(toggle).toContainText('3件');
+    });
+
+    test('F: 初期状態では地震リストが非表示', async ({ page }) => {
+        await mockLiveTrafficWith(page, { eqResponse: EQ_RESPONSE_MULTI });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+
+        const listWrap = page.locator('.lac-eq-list-wrap');
+        await expect(listWrap).toHaveCount(1);
+        await expect(listWrap).toBeHidden();
+    });
+
+    test('F: 地震件数行をタップすると一覧が展開される', async ({ page }) => {
+        await mockLiveTrafficWith(page, { eqResponse: EQ_RESPONSE_MULTI });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+
+        const toggle = page.locator('[data-action="eq-toggle"]');
+        await expect(toggle).toBeVisible({ timeout: 3000 });
+        await toggle.click();
+        await page.waitForTimeout(200);
+
+        const listWrap = page.locator('.lac-eq-list-wrap');
+        await expect(listWrap).toBeVisible();
+    });
+
+    test('F: 展開後に地震名が表示される', async ({ page }) => {
+        await mockLiveTrafficWith(page, { eqResponse: EQ_RESPONSE_MULTI });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+
+        await page.locator('[data-action="eq-toggle"]').click();
+        await page.waitForTimeout(200);
+
+        const card = page.locator('#live-alert-card');
+        await expect(card).toContainText('釧路地方中南部');
+        await expect(card).toContainText('沖縄本島近海');
+        await expect(card).toContainText('奄美大島近海');
+    });
+
+    test('F: 地震一覧アイテムをタップで地図フォーカスとポップアップが表示される', async ({ page }) => {
+        await mockLiveTrafficWith(page, { eqResponse: EQ_RESPONSE_MULTI });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+
+        await page.locator('[data-action="eq-toggle"]').click();
+        await page.waitForTimeout(200);
+
+        const item = page.locator('.lac-eq-clickable').first();
+        await expect(item).toBeVisible({ timeout: 3000 });
+        await item.click();
+        await page.waitForTimeout(300);
+
+        // 地図フォーカス確認
+        const zoom = await page.evaluate(() => liveMap.getZoom());
+        expect(zoom).toBe(8);
+
+        const center = await page.evaluate(() => {
+            const c = liveMap.getCenter();
+            return { lat: c.lat, lng: c.lng };
+        });
+        expect(Math.abs(center.lat - 43.1)).toBeLessThan(0.5);
+        expect(Math.abs(center.lng - 144.4)).toBeLessThan(0.5);
+
+        // ポップアップ表示確認
+        await expect(page.locator('.leaflet-popup')).toBeVisible({ timeout: 2000 });
+        await expect(page.locator('.leaflet-popup-content')).toContainText('釧路地方中南部');
+    });
+
+    test('F: 再タップでリストが閉じる（トグル）', async ({ page }) => {
+        await mockLiveTrafficWith(page, { eqResponse: EQ_RESPONSE_MULTI });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+
+        const toggle = page.locator('[data-action="eq-toggle"]');
+        await toggle.click();
+        await page.waitForTimeout(150);
+        await expect(page.locator('.lac-eq-list-wrap')).toBeVisible();
+
+        await toggle.click();
+        await page.waitForTimeout(150);
+        await expect(page.locator('.lac-eq-list-wrap')).toBeHidden();
+    });
+
+    test('F: summary API 使用時も地震件数トグルが表示される', async ({ page }) => {
+        const summary = _makeSummary({
+            earthquake: {
+                status: 'ok', evaluated: true,
+                summary: { count_24h: 3, m5_count: 0, m6_count: 0 },
+                areas: [],
+            },
+        });
+        await page.route('/api/live/summary', route => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body:   JSON.stringify(summary),
+        }));
+        await mockLiveTrafficWith(page, { eqResponse: EQ_RESPONSE_MULTI });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+
+        await expect(page.locator('[data-action="eq-toggle"]')).toBeVisible({ timeout: 3000 });
+        await expect(page.locator('[data-action="eq-toggle"]')).toContainText('3件');
+    });
+
+    test('Phase 3-EFG: console.error / page error が発生しない', async ({ page }) => {
+        const errors = [];
+        const pageErrors = [];
+        page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+        page.on('pageerror', err => pageErrors.push(err.message));
+
+        await mockLiveTrafficWith(page, { eqResponse: EQ_RESPONSE_MULTI });
+        await page.route('/api/live/summary', route => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body:   JSON.stringify(_makeSummary()),
+        }));
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await page.waitForTimeout(500);
+
+        expect(errors).toHaveLength(0);
+        expect(pageErrors).toHaveLength(0);
+    });
+
 });

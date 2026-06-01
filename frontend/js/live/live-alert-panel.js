@@ -11,6 +11,9 @@
     // /api/live/summary のレスポンス（取得失敗時は null）
     let _lastSummary = null;
 
+    // 地震一覧 展開状態
+    let _eqListExpanded = false;
+
     // タイル取得ステータス（rain / kikikuru の map 表示用）
     const _tileStatuses = {
         rain:     'unknown',
@@ -108,9 +111,7 @@
                     <span class="lac-text"><small>${recentArea}</small></span>
                 </div>`;
         } else if (eqCount > 0) {
-            html += `<div class="lac-item" style="border-left-color:#e3b341">
-                         <span class="lac-text">地震 ${eqCount}件 (24h)</span>
-                     </div>`;
+            html += _eqToggleItemHtml(eqCount);
         } else {
             html += `<div class="lac-item" style="border-left-color:#3fb950">
                          <span class="lac-text">地震なし (24h)</span>
@@ -183,9 +184,7 @@
                     <span class="lac-text"><small>${recentName}</small></span>
                 </div>`;
         } else if (eqCount > 0) {
-            html += `<div class="lac-item" style="border-left-color:#e3b341">
-                         <span class="lac-text">地震 ${eqCount}件 (24h)</span>
-                     </div>`;
+            html += _eqToggleItemHtml(eqCount);
         } else {
             html += `<div class="lac-item" style="border-left-color:#3fb950">
                          <span class="lac-text">地震なし (24h)</span>
@@ -211,6 +210,41 @@
 
         _card.innerHTML = html;
         _bindFocusClicks();
+    }
+
+    // ── 地震一覧ヘルパー ─────────────────────────────────────────────────────────
+
+    function _buildEqListHtml() {
+        const items = Array.isArray(_fbEqData) ? _fbEqData.slice(0, 10) : [];
+        if (!items.length) return '<div class="lac-eq-empty">履歴なし</div>';
+        let html = '';
+        items.forEach(eq => {
+            const name      = eq.epicenter_name || '震源不明';
+            const mag       = eq.magnitude != null ? `M${Number(eq.magnitude).toFixed(1)}` : 'M-';
+            const intensity = eq.max_intensity ? `震度${eq.max_intensity}` : '';
+            const at        = eq.occurred_at
+                ? eq.occurred_at.slice(5, 16).replace('T', ' ') : '';
+            const canFocus  = eq.lat != null && eq.lng != null;
+            const focusAttrs = canFocus
+                ? `data-lat="${eq.lat}" data-lng="${eq.lng}" data-zoom="8" data-name="${name.replace(/"/g, '&quot;')}" data-detail="${mag}${intensity ? ' / ' + intensity : ''}"` : '';
+            html += `<div class="lac-eq-item${canFocus ? ' lac-eq-clickable' : ''}" ${focusAttrs}>
+                <div class="lac-eq-name">${name}</div>
+                <div class="lac-eq-meta">${mag}${intensity ? ' / ' + intensity : ''} <small>${at}</small></div>
+            </div>`;
+        });
+        return html;
+    }
+
+    function _eqToggleItemHtml(eqCount) {
+        const arrow = _eqListExpanded ? '▴' : '▾';
+        const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
+        return `<div class="lac-item lac-eq-toggle" data-action="eq-toggle"
+                     style="cursor:pointer; border-left-color:#e3b341">
+                    <span class="lac-text">地震 ${eqCount}件 (24h) <span class="lac-expand-arrow">${arrow}</span></span>
+                </div>
+                <div class="lac-eq-list-wrap"${listDisplay}>
+                    ${_buildEqListHtml()}
+                </div>`;
     }
 
     // ── 雨雲・キキクル 表示ヘルパー ─────────────────────────────────────────
@@ -248,6 +282,12 @@
         if (kSection && kSection.evaluated === true) {
             const detected = kSection.summary?.danger_detected;
             if (detected === false) {
+                const watchCount = kSection.summary?.watch_area_count ?? 0;
+                if (watchCount > 0) {
+                    return `<div class="lac-item" style="border-left-color:#e3b341">
+                                <span class="lac-text">キキクル: 注意域あり</span>
+                            </div>`;
+                }
                 return `<div class="lac-item" style="border-left-color:#3fb950">
                             <span class="lac-text">キキクル危険地域なし</span>
                         </div>`;
@@ -291,6 +331,7 @@
 
     function _bindFocusClicks() {
         if (!_card) return;
+        // 危険地域クリック
         _card.querySelectorAll('.lac-danger-clickable').forEach(el => {
             el.addEventListener('click', () => {
                 const lat = parseFloat(el.dataset.lat);
@@ -298,6 +339,38 @@
                 if (!isNaN(lat) && !isNaN(lng)) liveMap.setView([lat, lng], 7);
             });
         });
+        // 地震リストアイテムクリック（DOM に含まれていれば登録）
+        _card.querySelectorAll('.lac-eq-clickable').forEach(el => {
+            el.addEventListener('click', () => {
+                const lat    = parseFloat(el.dataset.lat);
+                const lng    = parseFloat(el.dataset.lng);
+                const zoom   = parseInt(el.dataset.zoom) || 8;
+                const name   = el.dataset.name   || '震源不明';
+                const detail = el.dataset.detail || '';
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    liveMap.setView([lat, lng], zoom);
+                    L.popup()
+                        .setLatLng([lat, lng])
+                        .setContent(`<b>${name}</b><br><small>${detail}</small>`)
+                        .openOn(liveMap);
+                }
+            });
+        });
+        // 地震リスト 展開/折りたたみ
+        const toggle   = _card.querySelector('[data-action="eq-toggle"]');
+        const listWrap = _card.querySelector('.lac-eq-list-wrap');
+        if (toggle && listWrap) {
+            toggle.addEventListener('click', () => {
+                _eqListExpanded = !_eqListExpanded;
+                listWrap.style.display = _eqListExpanded ? '' : 'none';
+                const arrow = toggle.querySelector('.lac-expand-arrow');
+                if (arrow) arrow.textContent = _eqListExpanded ? '▴' : '▾';
+                if (_eqListExpanded) {
+                    const cnt = Array.isArray(_fbEqData) ? _fbEqData.length : 0;
+                    console.log(`[live-panel] live earthquake list: count=${cnt}`);
+                }
+            });
+        }
     }
 
     // ── 公開 API ─────────────────────────────────────────────────────────────

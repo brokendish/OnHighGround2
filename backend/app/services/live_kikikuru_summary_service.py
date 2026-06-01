@@ -219,7 +219,7 @@ def _fetch_kiki_times() -> Optional[Dict[str, Any]]:
     if not isinstance(entries, list) or not entries:
         raise ValueError("kikikuru targetTimes empty or invalid")
 
-    entry = entries[-1]
+    entry = entries[0]
     _times_cache = (entry, now)
     return entry
 
@@ -370,6 +370,11 @@ def build_kikikuru_section_from_samples(
     # danger 優先で最大 _MAX_AREAS 件に絞る
     all_qualifying.sort(key=lambda a: 0 if a["level"] == "danger" else 1)
     areas = all_qualifying[:_MAX_AREAS]
+
+    logger.info(
+        "live kikikuru summary: areas=%d danger=%d warning=%d",
+        len(areas), danger_count, warning_count,
+    )
 
     return {
         "status":    "ok",
