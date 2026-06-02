@@ -10,8 +10,8 @@
     const _icon = L.divIcon({
         className:  '',
         html:       '<div class="live-location-dot"></div>',
-        iconSize:   [18, 18],
-        iconAnchor: [9, 9],
+        iconSize:   [18, 18],   // dot 本体のサイズ（pulse ring は box-shadow で画面外に広がる）
+        iconAnchor: [9, 9],    // 中心に固定
     });
 
     function _update(pos) {
