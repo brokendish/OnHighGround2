@@ -40,6 +40,7 @@ from app.api.simulation import router as simulation_router
 from app.api.live_summary import router as live_summary_router
 from app.api.live_tide import router as live_tide_router
 from app.api.live_sun_moon import router as live_sun_moon_router
+from app.api.live_storm_surge import router as live_storm_surge_router
 from app.services.earthquake_realtime_service import get_realtime_service
 from app.services.job_manager import get_job_manager
 from app.services.admin_log_service import write_app_log
@@ -206,6 +207,7 @@ app.include_router(simulation_router)
 app.include_router(live_summary_router)
 app.include_router(live_tide_router)
 app.include_router(live_sun_moon_router)
+app.include_router(live_storm_surge_router)
 
 
 @app.on_event("startup")

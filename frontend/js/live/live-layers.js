@@ -221,19 +221,51 @@
     function _eqGetData() { return _eqData; }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 津波情報（マーカーなし、データ取得のみ。表示は live-alert-panel.js が担当）
+    // 津波情報（データ取得 + マップレイヤー連携）
     // ─────────────────────────────────────────────────────────────────────────
 
-    let _tsunamiData = null;
+    let _tsunamiData    = null;
+    let _tsunamiEnabled = true;
 
     async function _tsunamiRefresh() {
         const res = await fetch('/api/tsunami/warnings/current');
         if (!res.ok) throw new Error(`[live-tsunami] HTTP ${res.status}`);
         _tsunamiData = await res.json();
+        // マップレイヤーにデータを渡す（ON 時のみ描画）
+        window.liveTsunamiLayer?.setData?.(_tsunamiData);
+        const count = (_tsunamiData.areas || []).filter(
+            a => ['major_warning', 'warning', 'advisory'].includes(a.level)
+        ).length;
+        console.info(`live tsunami summary: areas=${count}`);
         return _tsunamiData;
     }
 
+    function _tsunamiSetVisible(visible) {
+        _tsunamiEnabled = visible;
+        window.liveTsunamiLayer?.setVisible?.(visible);
+    }
+
     function _tsunamiGetData() { return _tsunamiData; }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 高潮情報（マップレイヤー連携）
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let _stormSurgeData    = null;
+    let _stormSurgeEnabled = true;
+
+    async function _stormSurgeRefresh() {
+        const data = await window.liveStormSurgeLayer?.refresh?.();
+        _stormSurgeData = data || null;
+        return _stormSurgeData;
+    }
+
+    function _stormSurgeSetVisible(visible) {
+        _stormSurgeEnabled = visible;
+        window.liveStormSurgeLayer?.setVisible?.(visible);
+    }
+
+    function _stormSurgeGetData() { return _stormSurgeData; }
 
     // ─────────────────────────────────────────────────────────────────────────
     // 公開 API
@@ -253,8 +285,14 @@
             getData:    _eqGetData,
         },
         tsunami: {
+            setVisible: _tsunamiSetVisible,
             refresh:    _tsunamiRefresh,
             getData:    _tsunamiGetData,
+        },
+        stormSurge: {
+            setVisible: _stormSurgeSetVisible,
+            refresh:    _stormSurgeRefresh,
+            getData:    _stormSurgeGetData,
         },
     };
 

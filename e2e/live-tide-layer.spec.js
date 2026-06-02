@@ -49,10 +49,13 @@ const RAIN_TIMES     = { basetime: '20260530100000', times: [
 ] };
 const LIVE_SUMMARY   = { rain: { evaluated: false }, kikikuru: { evaluated: false }, earthquake: { evaluated: true, count: 0, items: [] }, tsunami: { evaluated: true, active: false, areas: [] } };
 
+const STORM_SURGE_NONE = { status: 'ok', evaluated: true, summary: { active: false, warning_area_count: 0 }, areas: [] };
+
 async function mockAll(page) {
     // 詳細エンドポイント（/stations/{id}）を先に登録してリスト（/stations）と区別する
     await page.route(/\/api\/live\/tide\/stations\/[^/]+$/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(DETAIL_RESPONSE)   }));
     await page.route('/api/live/tide/stations',              route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STATIONS_RESPONSE) }));
+    await page.route('/api/live/storm_surge/**',         route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STORM_SURGE_NONE)  }));
     await page.route('/api/earthquakes**',               route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(EQ_RESPONSE)       }));
     await page.route('/api/tsunami/**',                  route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TSUNAMI_RESPONSE)  }));
     await page.route('/api/weather/rain/tile/times',     route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES)        }));
@@ -93,22 +96,22 @@ test.describe('/live — 潮位観測点レイヤー', () => {
     test('トグル ON でマーカーが追加される', async ({ page }) => {
         await page.locator('#toggle-tide').check();
         // stations が 3件あるので Leaflet divIcon が 3つ現れる
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3, { timeout: 5000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(3, { timeout: 5000 });
     });
 
     test('トグル OFF でマーカーが消える', async ({ page }) => {
         const toggle = page.locator('#toggle-tide');
         await toggle.check();
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3, { timeout: 5000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(3, { timeout: 5000 });
         await toggle.uncheck();
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(0, { timeout: 3000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(0, { timeout: 3000 });
     });
 
     // ── マーカークリック ──────────────────────────────────────────────────────
 
     test('マーカークリックで詳細 API が呼ばれる', async ({ page }) => {
         await page.locator('#toggle-tide').check();
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3, { timeout: 5000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(3, { timeout: 5000 });
 
         const [req] = await Promise.all([
             page.waitForRequest(/\/api\/live\/tide\/stations\//),
@@ -119,7 +122,7 @@ test.describe('/live — 潮位観測点レイヤー', () => {
 
     test('ポップアップに観測点名が表示される', async ({ page }) => {
         await page.locator('#toggle-tide').check();
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3, { timeout: 5000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(3, { timeout: 5000 });
         await page.locator('.leaflet-marker-icon[title="東京検潮所"]').click();
 
         await expect(page.locator('.live-tide-popup')).toBeVisible({ timeout: 5000 });
@@ -127,7 +130,7 @@ test.describe('/live — 潮位観測点レイヤー', () => {
 
     test('ポップアップに現在潮位が表示される', async ({ page }) => {
         await page.locator('#toggle-tide').check();
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3, { timeout: 5000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(3, { timeout: 5000 });
         await page.locator('.leaflet-marker-icon[title="東京検潮所"]').click();
 
         // 初期ポップアップ確認後、詳細データが更新されるのを待つ
@@ -139,7 +142,7 @@ test.describe('/live — 潮位観測点レイヤー', () => {
 
     test('ポップアップに満潮・干潮情報が表示される', async ({ page }) => {
         await page.locator('#toggle-tide').check();
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3, { timeout: 5000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(3, { timeout: 5000 });
         await page.locator('.leaflet-marker-icon[title="東京検潮所"]').click();
 
         await expect(page.locator('.live-tide-popup')).toBeVisible({ timeout: 5000 });
@@ -151,7 +154,7 @@ test.describe('/live — 潮位観測点レイヤー', () => {
 
     test('ポップアップにグラフ canvas が存在する', async ({ page }) => {
         await page.locator('#toggle-tide').check();
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3, { timeout: 5000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(3, { timeout: 5000 });
         await page.locator('.leaflet-marker-icon[title="東京検潮所"]').click();
 
         await expect(page.locator('.live-tide-popup')).toBeVisible({ timeout: 5000 });
@@ -167,7 +170,7 @@ test.describe('/live — 潮位観測点レイヤー', () => {
 
     test('トグル ON 後にステータスバーの潮位が ok になる', async ({ page }) => {
         await page.locator('#toggle-tide').check();
-        await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3, { timeout: 5000 });
+        await expect(page.locator('.leaflet-marker-icon.leaflet-interactive')).toHaveCount(3, { timeout: 5000 });
 
         // ok ドットは offline クラスを持たない
         const tideItem = page.locator('#live-status-bar .live-status-item').filter({ hasText: '潮位' });

@@ -59,10 +59,11 @@
     // ── 危険種別ラベル ───────────────────────────────────────────────────────
 
     const _TYPE_LABEL = {
-        tsunami:    '津波',
-        earthquake: '地震',
-        rain:       '雨雲',
-        kikikuru:   'キキクル',
+        tsunami:     '津波',
+        storm_surge: '高潮',
+        earthquake:  '地震',
+        rain:        '雨雲',
+        kikikuru:    'キキクル',
     };
 
     const _HAZARD_LABEL = {
@@ -120,6 +121,9 @@
                          <span class="lac-text">地震なし (24h)</span>
                      </div>`;
         }
+
+        // 高潮
+        html += _stormSurgeHtml(summary.storm_surge);
 
         // 雨雲（evaluated フラグで断定を防ぐ）
         html += _rainHtml(summary.rain);
@@ -195,6 +199,9 @@
                      </div>`;
         }
 
+        // 高潮（フォールバック時は summary なし扱い）
+        html += _stormSurgeHtml(null);
+
         // 雨雲・キキクル（フォールバック時は常に evaluated=false 扱い）
         html += _rainHtml(null);
         html += _kikikuruHtml(null);
@@ -250,6 +257,45 @@
                 <div class="lac-eq-list-wrap"${listDisplay}>
                     ${_buildEqListHtml()}
                 </div>`;
+    }
+
+    // ── 高潮 表示ヘルパー ────────────────────────────────────────────────────
+
+    const _STORM_SURGE_COLOR = {
+        emergency: '#7c3aed',
+        warning:   '#dc2626',
+        advisory:  '#d97706',
+    };
+    const _STORM_SURGE_LABEL = {
+        emergency: '高潮特別警報',
+        warning:   '高潮警報',
+        advisory:  '高潮注意報',
+    };
+
+    function _stormSurgeHtml(ssSection) {
+        if (ssSection?.status === 'offline') {
+            return `<div class="lac-item lac-offline"><span class="lac-text">高潮情報: 取得失敗</span></div>`;
+        }
+        if (ssSection && ssSection.evaluated === true) {
+            const areas = ssSection.areas || [];
+            if (areas.length === 0) {
+                return `<div class="lac-item" style="border-left-color:#3fb950">
+                            <span class="lac-text">高潮警報なし</span>
+                        </div>`;
+            }
+            // 最上位レベルを取得
+            const topArea = areas[0];
+            const level   = topArea.level === 'danger' ? 'warning' : 'advisory';
+            const color   = _STORM_SURGE_COLOR[level] || '#dc2626';
+            const badge   = topArea.detail || _STORM_SURGE_LABEL[level] || '高潮警報';
+            const names   = areas.slice(0, 3).map(a => a.label).join(' / ');
+            return `
+                <div class="lac-item lac-warn" style="border-left-color:${color}">
+                    <span class="lac-badge" style="background:${color};color:#fff">${badge}</span>
+                    <span class="lac-text"><small>${names}</small></span>
+                </div>`;
+        }
+        return `<div class="lac-item lac-dim"><span class="lac-text">高潮: 確認中</span></div>`;
     }
 
     // ── 雨雲・キキクル 表示ヘルパー ─────────────────────────────────────────
@@ -402,7 +448,7 @@
         }
     }
 
-    // 地震・津波・summary API を取得してカードを更新する
+    // 地震・津波・高潮・summary API を取得してカードを更新する
     async function update() {
         const [tsunamiResult, eqResult, summaryResult] = await Promise.allSettled([
             liveLayers.tsunami.refresh(),
@@ -412,6 +458,7 @@
                 return r.json();
             }),
         ]);
+
 
         // フォールバック用データを更新
         _fbTsunamiData         = tsunamiResult.status === 'fulfilled'

@@ -65,6 +65,12 @@ const SUN_MOON_RESPONSE = {
     moon_phase: 12.4, moon_phase_name: '十三夜',
 };
 
+const STORM_SURGE_NONE = {
+    status: 'ok', evaluated: true,
+    summary: { active: false, warning_area_count: 0 },
+    areas: [],
+};
+
 async function mockLiveTraffic(page) {
     await page.route('/data/municipality_coords.json', route => route.fulfill({
         status:      200,
@@ -80,6 +86,11 @@ async function mockLiveTraffic(page) {
         status:      200,
         contentType: 'application/json',
         body:        JSON.stringify(EQ_RESPONSE),
+    }));
+    await page.route('/api/live/storm_surge/**', route => route.fulfill({
+        status:      200,
+        contentType: 'application/json',
+        body:        JSON.stringify(STORM_SURGE_NONE),
     }));
     await page.route('/api/tsunami/**', route => route.fulfill({
         status:      200,
@@ -239,6 +250,10 @@ async function mockLiveTrafficWith(page, { eqResponse = EQ_RESPONSE, tsunamiResp
     await page.route('/api/earthquakes**', route => route.fulfill({
         status: 200, contentType: 'application/json',
         body:   JSON.stringify(eqResponse),
+    }));
+    await page.route('/api/live/storm_surge/**', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body:   JSON.stringify(STORM_SURGE_NONE),
     }));
     await page.route('/api/tsunami/**', route => route.fulfill({
         status: 200, contentType: 'application/json',

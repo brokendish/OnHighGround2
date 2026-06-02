@@ -13,13 +13,12 @@
     }
 
     function initToggles() {
-        _bindToggle('toggle-rain',       (v) => liveLayers.rain.setVisible(v));
-        _bindToggle('toggle-kikikuru',   (v) => liveLayers.kikikuru.setVisible(v));
-        _bindToggle('toggle-earthquake', (v) => liveLayers.earthquake.setVisible(v));
-        _bindToggle('toggle-tsunami',    () => {
-            // tsunami は表示レイヤーなし（カードのみ）。チェックが OFF でもデータは取り続ける
-        });
-        _bindToggle('toggle-tide', (v) => liveTideLayer.setVisible(v));
+        _bindToggle('toggle-rain',        (v) => liveLayers.rain.setVisible(v));
+        _bindToggle('toggle-kikikuru',    (v) => liveLayers.kikikuru.setVisible(v));
+        _bindToggle('toggle-earthquake',  (v) => liveLayers.earthquake.setVisible(v));
+        _bindToggle('toggle-tsunami',     (v) => liveLayers.tsunami.setVisible(v));
+        _bindToggle('toggle-storm-surge', (v) => liveLayers.stormSurge.setVisible(v));
+        _bindToggle('toggle-tide',        (v) => liveTideLayer.setVisible(v));
     }
 
     // ── ステータスバー ───────────────────────────────────────────────────────
@@ -28,11 +27,12 @@
 
     // null = unknown（未確認）、true = ok、false = offline
     const _currentStatus = {
-        rainOk:     null,
-        kikikuruOk: null,
-        eqOk:       null,
-        tsunamiOk:  null,
-        tideOk:     null,
+        rainOk:       null,
+        kikikuruOk:   null,
+        eqOk:         null,
+        tsunamiOk:    null,
+        stormSurgeOk: null,
+        tideOk:       null,
     };
 
     function _dot(ok) {
@@ -48,6 +48,7 @@
             <span class="live-status-item">${_dot(_currentStatus.kikikuruOk)} キキクル</span>
             <span class="live-status-item">${_dot(_currentStatus.eqOk)} 地震</span>
             <span class="live-status-item">${_dot(_currentStatus.tsunamiOk)} 津波</span>
+            <span class="live-status-item">${_dot(_currentStatus.stormSurgeOk)} 高潮</span>
             <span class="live-status-item">${_dot(_currentStatus.tideOk)} 潮位</span>
         `;
     }
@@ -75,6 +76,11 @@
         _renderStatus();
     }
 
+    function updateStormSurgeStatus(ok) {
+        _currentStatus.stormSurgeOk = ok;
+        _renderStatus();
+    }
+
     function updateTideStatus(ok) {
         _currentStatus.tideOk = ok;
         _renderStatus();
@@ -99,6 +105,7 @@
         updateRainStatus,
         updateAlertStatus,
         updateKikikuruStatus,
+        updateStormSurgeStatus,
         updateTideStatus,
         setUpdating,
         hideLoading,

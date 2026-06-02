@@ -9,15 +9,17 @@
     liveUI.initToggles();
     liveUI.setUpdating();
 
-    // 雨雲・地震・津波を並列取得。各 API の成否を個別に追跡する。
+    // 雨雲・地震・津波・高潮を並列取得。各 API の成否を個別に追跡する。
     // liveAlertPanel.update() は内部で allSettled を使い { tsunamiOk, eqOk } を返す。
-    const [alertResult, rainResult] = await Promise.allSettled([
+    const [alertResult, rainResult, stormSurgeResult] = await Promise.allSettled([
         liveAlertPanel.update(),
         liveLayers.rain.refresh(),
+        liveLayers.stormSurge.refresh(),
     ]);
 
-    const rainOk      = rainResult.status === 'fulfilled';
-    const alertStatus = alertResult.status === 'fulfilled'
+    const rainOk       = rainResult.status === 'fulfilled';
+    const stormSurgeOk = stormSurgeResult.status === 'fulfilled';
+    const alertStatus  = alertResult.status === 'fulfilled'
         ? alertResult.value
         : { eqOk: false, tsunamiOk: false };
 
@@ -25,6 +27,8 @@
         console.warn('[live] 雨雲更新失敗:', rainResult.reason?.message);
     if (alertResult.status === 'rejected')
         console.warn('[live] 警戒カード更新失敗:', alertResult.reason?.message);
+    if (stormSurgeResult.status === 'rejected')
+        console.warn('[live] 高潮更新失敗:', stormSurgeResult.reason?.message);
 
     // 雨雲状態をアラートパネルに反映（update() と並列だったため完了後に更新）
     liveAlertPanel.setStatus({ rain: rainOk ? 'ok' : 'offline' });
@@ -34,6 +38,7 @@
         eqOk:      alertStatus.eqOk,
         tsunamiOk: alertStatus.tsunamiOk,
     });
+    liveUI.updateStormSurgeStatus(stormSurgeOk);
     liveUI.hideLoading();
 
     // ── 定期更新 ────────────────────────────────────────────────────────────
@@ -53,6 +58,12 @@
         const status = await liveAlertPanel.update();
         liveUI.updateAlertStatus(status);
     }, 2 * 60 * 1000);
+
+    // 高潮: 5分ごと。
+    setInterval(async () => {
+        const [result] = await Promise.allSettled([liveLayers.stormSurge.refresh()]);
+        liveUI.updateStormSurgeStatus(result.status === 'fulfilled');
+    }, 5 * 60 * 1000);
 
     // キキクル: 10分ごと（ON 時のみ再取得）
     setInterval(() => {
