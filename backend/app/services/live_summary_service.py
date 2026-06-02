@@ -86,7 +86,8 @@ async def build_live_summary() -> Dict[str, Any]:
         "earthquake":      eq_section,
         "tsunami":         tsunami_section,
         "storm_surge":     storm_surge_section,
-        "dangerous_areas": dangerous_areas,
+        "dangerous_areas":             dangerous_areas,
+        "integrated_dangerous_regions": _build_integrated_regions(dangerous_areas),
         "observation": {
             "rain_area_count":        rain_area_count,
             "kikikuru_area_count":    kikikuru_area_count,
@@ -264,6 +265,134 @@ def _merge_dangerous_areas(
             )
 
     return combined
+
+
+# ── 統合危険地域ランキング（Phase 5-A）────────────────────────────────────────
+
+_TYPE_PRIORITY: Dict[str, int] = {
+    "tsunami": 0, "storm_surge": 1, "earthquake": 2, "kikikuru": 3, "rain": 4,
+}
+_LEVEL_ORDER_INT: Dict[str, int] = {
+    "danger": 0, "warning": 1, "watch": 2, "normal": 3, "unknown": 4,
+}
+_MAX_REGIONS = 10
+
+
+def _event_label(area: Dict[str, Any]) -> str:
+    """dangerous_areas の 1エントリからイベント表示ラベルを生成する。"""
+    type_ = area.get("type", "")
+    if type_ == "tsunami":
+        # dangerous_areas の level は "danger"/"warning" に正規化済み
+        return "津波警報" if area.get("level") == "danger" else "津波注意報"
+    if type_ == "storm_surge":
+        return area.get("detail") or "高潮警報"
+    if type_ == "earthquake":
+        return "地震"
+    if type_ == "kikikuru":
+        hazard = area.get("hazard", "")
+        _HAZARD_LABEL = {"land": "土砂", "inund": "浸水", "flood_mesh": "洪水"}
+        h = _HAZARD_LABEL.get(hazard, hazard)
+        return f"キキクル（{h}）" if h else "キキクル"
+    if type_ == "rain":
+        return "雨雲"
+    return area.get("label") or type_
+
+
+def _build_integrated_regions(dangerous_areas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    dangerous_areas を label キーで地域単位に統合し、
+    危険度・タイプ優先度でソートして最大 _MAX_REGIONS 件を返す。
+
+    既存の dangerous_areas 契約は破壊しない（追加フィールドとして提供）。
+    """
+    groups: Dict[str, Dict[str, Any]] = {}
+
+    for area in dangerous_areas:
+        label = area.get("label") or ""
+        if not label:
+            continue
+
+        event_type  = area.get("type", "")
+        area_level  = area.get("level", "unknown")
+        type_prio   = _TYPE_PRIORITY.get(event_type, 9)
+        level_order = _LEVEL_ORDER_INT.get(area_level, 4)
+
+        if label not in groups:
+            groups[label] = {
+                "label":          label,
+                "level":          area_level,
+                "lat":            area.get("lat"),
+                "lng":            area.get("lng"),
+                "events":         [],
+                "_seen_keys":     set(),
+                "_level_order":   level_order,
+                "_type_priority": type_prio,
+            }
+
+        g = groups[label]
+
+        # 代表 level: より重い方へ更新
+        if level_order < g["_level_order"]:
+            g["level"]        = area_level
+            g["_level_order"] = level_order
+
+        # 代表座標: 最初の non-None を使用
+        if g["lat"] is None and area.get("lat") is not None:
+            g["lat"] = area["lat"]
+        if g["lng"] is None and area.get("lng") is not None:
+            g["lng"] = area["lng"]
+
+        # 代表タイプ優先度: より高い方へ更新
+        if type_prio < g["_type_priority"]:
+            g["_type_priority"] = type_prio
+
+        # イベント重複除去キー: (type, hazard)
+        dedup_key = (event_type, area.get("hazard") or "")
+        if dedup_key not in g["_seen_keys"]:
+            g["_seen_keys"].add(dedup_key)
+            g["events"].append({
+                "type":  event_type,
+                "label": _event_label(area),
+                "level": area_level,
+            })
+
+    # ソート: danger 優先 → タイプ優先度
+    sorted_groups = sorted(
+        groups.values(),
+        key=lambda r: (r["_level_order"], r["_type_priority"]),
+    )
+
+    # ログ
+    logger.info(
+        "live integrated danger regions: input_areas=%d regions=%d",
+        len(dangerous_areas), min(len(sorted_groups), _MAX_REGIONS),
+    )
+    for g in sorted_groups[:_MAX_REGIONS]:
+        if len(g["events"]) > 1:
+            logger.info(
+                "live integrated region: label=%s types=%s",
+                g["label"], ",".join(e["type"] for e in g["events"]),
+            )
+
+    # 出力: 内部管理フィールドを除去し最大件数に絞る
+    result = []
+    _TYPE_ORDER = ["tsunami", "storm_surge", "earthquake", "kikikuru", "rain"]
+    for g in sorted_groups[:_MAX_REGIONS]:
+        seen = set()
+        types = [
+            t for t in _TYPE_ORDER
+            if t in {e["type"] for e in g["events"]} and not seen.add(t)  # type: ignore[func-returns-value]
+        ]
+        result.append({
+            "label":  g["label"],
+            "level":  g["level"],
+            "lat":    g["lat"],
+            "lng":    g["lng"],
+            "types":  types,
+            "events": g["events"],
+        })
+
+    return result
 
 
 # ── 全体ステータス ────────────────────────────────────────────────────────────

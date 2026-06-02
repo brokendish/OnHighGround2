@@ -140,8 +140,8 @@
             html += `<div class="lac-partial-offline">一部情報を取得できません</div>`;
         }
 
-        // 危険地域ランキング
-        html += _dangerListHtml(dangerAreas);
+        // 危険地域ランキング（統合表示優先、フォールバックは従来表示）
+        html += _dangerListHtml(dangerAreas, summary.integrated_dangerous_regions);
 
         const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
         html += `<div class="lac-updated">更新 ${now}</div>`;
@@ -357,7 +357,12 @@
 
     // ── 危険地域リスト ───────────────────────────────────────────────────────
 
-    function _dangerListHtml(areas) {
+    // integrated_dangerous_regions が存在すれば統合表示、なければ従来表示
+    function _dangerListHtml(areas, integratedRegions) {
+        const regions = integratedRegions && integratedRegions.length
+            ? integratedRegions
+            : null;
+        if (regions) return _integratedDangerListHtml(regions);
         if (!areas || !areas.length) return '';
         let html = `<div class="lac-section-title">危険地域</div><div class="lac-danger-list">`;
         areas.forEach((area, idx) => {
@@ -374,6 +379,29 @@
                     <div class="lac-danger-info">
                         <div class="lac-danger-label">${area.label}</div>
                         <div class="lac-danger-types">${typeLabel}</div>
+                    </div>
+                </div>`;
+        });
+        return html + `</div>`;
+    }
+
+    function _integratedDangerListHtml(regions) {
+        if (!regions || !regions.length) return '';
+        let html = `<div class="lac-section-title">危険地域</div><div class="lac-danger-list">`;
+        regions.forEach((region, idx) => {
+            const canFocus   = region.lat != null && region.lng != null;
+            const levelClass = `lac-danger-${region.level}`;
+            const focusAttrs = canFocus ? `data-lat="${region.lat}" data-lng="${region.lng}"` : '';
+            const eventsHtml = (region.events || []).map(ev =>
+                `<div class="lac-danger-event">${ev.label}</div>`
+            ).join('');
+            html += `
+                <div class="lac-danger-item ${levelClass}${canFocus ? ' lac-danger-clickable' : ''}"
+                     ${focusAttrs}>
+                    <span class="lac-danger-rank">${idx + 1}</span>
+                    <div class="lac-danger-info">
+                        <div class="lac-danger-label">${region.label}</div>
+                        <div class="lac-danger-events">${eventsHtml}</div>
                     </div>
                 </div>`;
         });
