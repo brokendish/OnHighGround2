@@ -162,11 +162,10 @@ test.describe('/live — 基本動作確認', () => {
         await toggle.uncheck();
         // レイヤーグループが空になることを JS レベルで確認
         const markerCount = await page.evaluate(() => {
-            // _eqLayerGroup はクロージャ内のためグローバルアクセス不可。
-            // 代わりに Leaflet の canvas/SVG レイヤー有無で間接確認。
-            return document.querySelectorAll('.leaflet-marker-icon').length;
+            // 現在地 DivIcon (.live-location-dot) を除いた marker-icon 数を確認。
+            // 地震 circleMarker は preferCanvas=true で canvas 描画されるため marker-icon には出ない。
+            return document.querySelectorAll('.leaflet-marker-icon:not(:has(.live-location-dot))').length;
         });
-        // circle マーカー（canvas）が使われているため marker-icon は 0 のはず
         expect(markerCount).toBe(0);
     });
 

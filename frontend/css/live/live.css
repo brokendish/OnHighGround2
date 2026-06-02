@@ -85,6 +85,8 @@ html, body {
     z-index: 1050;
     min-width: 130px;
     backdrop-filter: blur(8px);
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
 }
 
 .live-panel-title {
@@ -133,6 +135,43 @@ html, body {
     min-width: 200px;
     max-width: 280px;
     backdrop-filter: blur(8px);
+}
+
+/* ── デスクトップ パネルヘッダー & 最小化 ──────────────────────────────────── */
+
+.lac-header {
+    display:         flex;
+    justify-content: space-between;
+    align-items:     center;
+    margin-bottom:   8px;
+}
+
+.lac-minimize-btn {
+    background:  none;
+    border:      none;
+    color:       #6e7681;
+    cursor:      pointer;
+    font-size:   15px;
+    line-height: 1;
+    padding:     0 2px;
+    flex-shrink: 0;
+    transition:  color 0.15s;
+}
+.lac-minimize-btn:hover { color: #c9d1d9; }
+
+/* minimized: タイトルバー (38px) だけ残してコンテンツを隠す */
+@media (min-width: 641px) {
+    #live-alert-card.is-minimized {
+        max-height: 38px;
+        overflow:   hidden;
+    }
+    #live-alert-card.is-minimized .lac-header {
+        margin-bottom: 0;
+    }
+}
+/* モバイルでは最小化ボタン非表示（シートのクローズボタンで対応） */
+@media (max-width: 640px) {
+    .lac-minimize-btn { display: none; }
 }
 
 .lac-title {
@@ -604,6 +643,8 @@ html, body {
         padding: 8px 8px;
         transform-origin: top right;
         transition: opacity 0.18s ease, transform 0.18s ease;
+        max-height: calc(100vh - 140px);
+        overflow-y: auto;
     }
     #live-layer-panel:not(.is-open) {
         opacity: 0;
@@ -644,26 +685,68 @@ html, body {
         transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
         touch-action: none;
     }
-    #live-alert-card.is-expanded { transform: translateY(0); }
-    #live-alert-card.is-dragging { transition: none; }
+    #live-alert-card.is-expanded  { transform: translateY(0); }
+    #live-alert-card.is-dragging  { transition: none; }
+    #live-alert-card.is-sheet-closed {
+        transform: translateY(100%) !important;
+    }
+
+    /* 復元タブ（シート閉鎖時に画面下部に表示） */
+    #live-sheet-restore {
+        display:         none;
+        position:        fixed;
+        bottom:          calc(30px + env(safe-area-inset-bottom));
+        left:            50%;
+        transform:       translateX(-50%);
+        background:      rgba(13, 17, 23, 0.92);
+        border:          1px solid rgba(48, 54, 61, 0.8);
+        border-radius:   20px;
+        color:           #c9d1d9;
+        cursor:          pointer;
+        font-size:       13px;
+        padding:         9px 20px;
+        z-index:         1090;
+        backdrop-filter: blur(8px);
+        align-items:     center;
+        gap:             6px;
+    }
+    #live-sheet-restore.is-visible { display: flex; }
 
     /* グラブハンドル（常時表示・タップ/ドラッグで開閉） */
     .sheet-handle {
-        display: flex;
+        position:       relative;   /* 閉じるボタンの absolute 基準 */
+        display:        flex;
         flex-direction: column;
-        align-items: center;
-        gap: 7px;
-        padding: 9px 0 4px;
-        flex-shrink: 0;
-        cursor: grab;
+        align-items:    center;
+        gap:            7px;
+        padding:        9px 0 4px;
+        flex-shrink:    0;
+        cursor:         grab;
     }
     .sheet-handle::before {
-        content: "";
-        width: 38px;
-        height: 4px;
+        content:       "";
+        width:         38px;
+        height:        4px;
         border-radius: 2px;
-        background: #484f58;
+        background:    #484f58;
     }
+
+    /* 閉じる「×」ボタン */
+    .sheet-close-btn {
+        position:    absolute;
+        right:       14px;
+        top:         50%;
+        transform:   translateY(-50%);
+        background:  none;
+        border:      none;
+        color:       #6e7681;
+        font-size:   20px;
+        line-height: 1;
+        padding:     6px;
+        cursor:      pointer;
+        transition:  color 0.15s;
+    }
+    .sheet-close-btn:active { color: #c9d1d9; }
 
     /* 折りたたみ時に見えるサマリー（横スクロールのステータスチップ） */
     .sheet-peek {

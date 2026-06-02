@@ -17,7 +17,7 @@
     const panel = document.getElementById('live-layer-panel');
     if (!card) return;
 
-    let fab = null, scrim = null;
+    let fab = null, scrim = null, _restoreBtn = null;
 
     /* ── FAB と スクリム を一度だけ生成 ─────────────────────────────────── */
     function ensureChrome() {
@@ -56,6 +56,18 @@
             document.body.appendChild(scrim);
             scrim.addEventListener('click', collapse);
         }
+        if (!_restoreBtn) {
+            _restoreBtn = document.createElement('button');
+            _restoreBtn.id = 'live-sheet-restore';
+            _restoreBtn.setAttribute('aria-label', '情報パネルを表示');
+            _restoreBtn.innerHTML =
+                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none"' +
+                ' stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+                '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>' +
+                '情報';
+            document.body.appendChild(_restoreBtn);
+            _restoreBtn.addEventListener('click', _restoreSheet);
+        }
     }
 
     function updateFabCount() {
@@ -63,6 +75,18 @@
         const n = panel.querySelectorAll('input[type="checkbox"]:checked').length;
         const c = fab.querySelector('.fab-count');
         if (c) c.textContent = String(n);
+    }
+
+    /* ── シート全体を閉じる / 復元 ───────────────────────────────────────── */
+    function _closeSheet() {
+        card.classList.add('is-sheet-closed');
+        card.classList.remove('is-expanded');
+        if (scrim) scrim.classList.remove('is-visible');
+        if (_restoreBtn) _restoreBtn.classList.add('is-visible');
+    }
+    function _restoreSheet() {
+        card.classList.remove('is-sheet-closed');
+        if (_restoreBtn) _restoreBtn.classList.remove('is-visible');
     }
 
     /* ── カード中身をボトムシート構造へ再構成 ───────────────────────────── */
@@ -95,6 +119,16 @@
 
         const handle = document.createElement('div');
         handle.className = 'sheet-handle';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'sheet-close-btn';
+        closeBtn.setAttribute('aria-label', 'パネルを閉じる');
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _closeSheet();
+        });
+        handle.appendChild(closeBtn);
 
         const peek = document.createElement('div');
         peek.className = 'sheet-peek';
@@ -135,7 +169,9 @@
 
         function onDown(e) {
             if (!mq.matches) return;
+            if (card.classList.contains('is-sheet-closed')) return;
             const t = e.target;
+            if (t.closest('.sheet-close-btn')) return;
             if (!getHandle()?.contains(t) && !getPeek()?.contains(t)) return;
             startY = (e.touches ? e.touches[0].clientY : e.clientY);
             startExpanded = card.classList.contains('is-expanded');

@@ -14,6 +14,9 @@
     // 地震一覧 展開状態
     let _eqListExpanded = false;
 
+    // パネル最小化状態（デスクトップのみ）
+    let _minimized = false;
+
     // タイル取得ステータス（rain / kikikuru の map 表示用）
     const _tileStatuses = {
         rain:     'unknown',
@@ -80,7 +83,7 @@
         const eqCount    = eqSummary.count_24h  ?? 0;
         const bigCount   = eqSummary.m5_count   ?? 0;
 
-        let html = '<div class="lac-title">現在の状況</div>';
+        let html = `<div class="lac-header"><span class="lac-title">現在の状況</span><button class="lac-minimize-btn" title="パネルを${_minimized ? '展開' : '最小化'}">${_minimized ? '＋' : '―'}</button></div>`;
 
         // 津波
         const tsunamiOk = summary.tsunami?.status !== 'offline';
@@ -140,6 +143,7 @@
         html += `<div class="lac-updated">更新 ${now}</div>`;
 
         _card.innerHTML = html;
+        _card.classList.toggle('is-minimized', _minimized);
         _bindFocusClicks();
     }
 
@@ -157,7 +161,7 @@
             { ..._fbStatuses, ..._tileStatuses }
         );
 
-        let html = '<div class="lac-title">現在の状況</div>';
+        let html = `<div class="lac-header"><span class="lac-title">現在の状況</span><button class="lac-minimize-btn" title="パネルを${_minimized ? '展開' : '最小化'}">${_minimized ? '＋' : '―'}</button></div>`;
 
         if (_fbStatuses.tsunami === 'offline') {
             html += `<div class="lac-item lac-offline"><span class="lac-text">津波情報: 取得失敗</span></div>`;
@@ -209,6 +213,7 @@
         html += `<div class="lac-updated">更新 ${now}</div>`;
 
         _card.innerHTML = html;
+        _card.classList.toggle('is-minimized', _minimized);
         _bindFocusClicks();
     }
 
@@ -356,6 +361,17 @@
                 }
             });
         });
+        // パネル最小化ボタン（デスクトップのみ有効）
+        const minBtn = _card.querySelector('.lac-minimize-btn');
+        if (minBtn) {
+            minBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                _minimized = !_minimized;
+                _card.classList.toggle('is-minimized', _minimized);
+                minBtn.textContent = _minimized ? '＋' : '―';
+                minBtn.title = `パネルを${_minimized ? '展開' : '最小化'}`;
+            });
+        }
         // 地震リスト 展開/折りたたみ
         const toggle   = _card.querySelector('[data-action="eq-toggle"]');
         const listWrap = _card.querySelector('.lac-eq-list-wrap');
