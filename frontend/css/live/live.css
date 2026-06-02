@@ -469,25 +469,24 @@ html, body {
 /* ── 現在地ボタン（マップ右下） ──────────────────────────────────────────────── */
 
 .live-locate-btn {
-    width:            32px;
-    height:           32px;
-    background:       rgba(22, 27, 34, 0.88);
-    border:           1px solid rgba(48, 54, 61, 0.8);
-    border-radius:    6px;
-    color:            #c9d1d9;
-    cursor:           pointer;
-    display:          flex;
-    align-items:      center;
-    justify-content:  center;
-    padding:          0;
-    transition:       background 0.15s, color 0.15s;
-    backdrop-filter:  blur(6px);
-    margin-bottom:    4px;
+    width:           100%;
+    background:      transparent;
+    border:          1px solid rgba(48, 54, 61, 0.7);
+    border-radius:   5px;
+    color:           #c9d1d9;
+    cursor:          pointer;
+    display:         flex;
+    align-items:     center;
+    gap:             6px;
+    padding:         5px 6px;
+    font-size:       12px;
+    margin-top:      2px;
+    transition:      background 0.15s, color 0.15s;
 }
 
 .live-locate-btn:hover,
 .live-locate-btn:active {
-    background: rgba(88, 166, 255, 0.15);
+    background: rgba(88, 166, 255, 0.12);
     color:      #58a6ff;
 }
 
