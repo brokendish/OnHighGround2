@@ -310,14 +310,12 @@ def build_kikikuru_section_from_samples(
 
     obs_tag = observed_at.replace(":", "").replace("-", "").replace("+", "")[:13]
 
-    # watch 集計（危険地域には入れない）
-    watch_count = sum(1 for s in samples if s.get("level") == "watch")
-
-    # warning / danger 地点を抽出して areas 候補を構築
+    # warning / danger / watch 地点を抽出して areas 候補を構築
+    # danger_detected は warning/danger のみで判定（パネル表示の semantics を維持）
     all_qualifying: List[Dict[str, Any]] = []
     for s in samples:
         level = s.get("level", "normal")
-        if level not in ("warning", "danger"):
+        if level not in ("warning", "danger", "watch"):
             continue
         hazard = s.get("hazard", "land")
         all_qualifying.append({
@@ -335,7 +333,10 @@ def build_kikikuru_section_from_samples(
             "description": "キキクル危険度を検出",
         })
 
-    danger_detected = len(all_qualifying) > 0
+    # watch 集計（パネル summary 用）
+    watch_count   = sum(1 for a in all_qualifying if a["level"] == "watch")
+    # danger_detected は warning/danger のみ（パネルの「危険地域あり」表示を維持）
+    danger_detected = any(a["level"] in ("warning", "danger") for a in all_qualifying)
 
     # Phase 3-C: 観察ログ（hazard 種別ごとの件数）
     land_count  = sum(1 for a in all_qualifying if a.get("hazard") == "land")
@@ -346,7 +347,7 @@ def build_kikikuru_section_from_samples(
         land_count, flood_count, inund_count, len(all_qualifying),
     )
 
-    # unknown 率が高い かつ 危険未検出 → 評価不能（false-safe 防止）
+    # unknown 率が高い かつ warning/danger 未検出 → 評価不能（false-safe 防止）
     if not danger_detected and unknown_count / sample_count >= _UNKNOWN_RATE_THRESHOLD:
         return {
             "status":    "unknown",
@@ -367,13 +368,14 @@ def build_kikikuru_section_from_samples(
     warning_count = sum(1 for a in all_qualifying if a["level"] == "warning")
     danger_count  = sum(1 for a in all_qualifying if a["level"] == "danger")
 
-    # danger 優先で最大 _MAX_AREAS 件に絞る
-    all_qualifying.sort(key=lambda a: 0 if a["level"] == "danger" else 1)
+    # danger > warning > watch の優先度で最大 _MAX_AREAS 件に絞る
+    _LEVEL_SORT = {"danger": 0, "warning": 1, "watch": 2}
+    all_qualifying.sort(key=lambda a: _LEVEL_SORT.get(a["level"], 3))
     areas = all_qualifying[:_MAX_AREAS]
 
     logger.info(
-        "live kikikuru summary: areas=%d danger=%d warning=%d",
-        len(areas), danger_count, warning_count,
+        "live kikikuru summary: areas=%d danger=%d warning=%d watch=%d",
+        len(areas), danger_count, warning_count, watch_count,
     )
 
     return {
