@@ -3,20 +3,23 @@ jma_weather_adapter.py — JMA 警報・注意報の取得と正規化
 
 JMA仕様変更はこのファイルだけで吸収する。UI側は正規化モデルのみ参照すること。
 
-エンドポイント（2026年5月時点）:
-  https://www.jma.go.jp/bosai/warning/data/warning/{pref_code}.json
+エンドポイント（2026年6月時点）:
+  https://www.jma.go.jp/bosai/warning/data/r8/{pref_code}.json  ← 公式ページが実際に読むURL
+  （旧 data/warning/{pref_code}.json は更新が止まっており使用不可）
 
 pref_code: 6桁の都道府県コード（例: 130000 = 東京都）
 
+r8 フォーマット仕様:
+  - root: array（5件前後）。各要素が dataTypeCode ごとの現象種別レコード。
+  - record.warning.class10Items / class20Items に area ごとの発令状況。
+  - 旧 areaTypes 構造ではなく areaCode + kinds[] フィールド。
+  - 全レコードをマージし、解除・はなし 以外をアクティブと判定する。
+
 仕様変更対策:
   - raw payload を UI に流さない
-  - field名変更は _extract_warnings() で吸収
+  - field名変更は _parse_r8_payload() / _extract_warnings() で吸収
   - unknown な警報種別は "unknown" severity として保持
   - parse failure 時も例外を握り潰してログのみ出す
-
-2026-06-03 仕様変更対応:
-  JMA が warning/area レスポンスから name フィールドを廃止し code のみになった。
-  _CODE_NAME で code→名称変換、_AREA_CODE_NAME で area code→区域名変換する。
 """
 import json
 import logging
@@ -31,7 +34,10 @@ from app.models.weather_alert import WeatherAlertItem
 
 logger = logging.getLogger(__name__)
 
-_JMA_WARNING_BASE = "https://www.jma.go.jp/bosai/warning/data/warning/{pref_code}.json"
+# 公式ページが実際に使用している新 URL（2026-06 確認）
+_JMA_WARNING_BASE = "https://www.jma.go.jp/bosai/warning/data/r8/{pref_code}.json"
+# 旧 URL（更新停止のため使用不可。構造参照用として残す）
+_JMA_WARNING_LEGACY_BASE = "https://www.jma.go.jp/bosai/warning/data/warning/{pref_code}.json"
 _HTTP_TIMEOUT = 10
 _USER_AGENT = "OnHighGround2/1.0 (https://ohg.brokendish.org/)"
 
@@ -240,6 +246,153 @@ def _http_get(url: str) -> bytes:
         return resp.read()
 
 
+def _make_alert_item(
+    area_code: str,
+    area_name: str,
+    warn_code: str,
+    status_raw: str,
+    updated_at: str,
+    pref_name: str,
+) -> Optional[WeatherAlertItem]:
+    """(area_code, warn_code, status) から WeatherAlertItem を生成する共通ヘルパー。"""
+    name = _CODE_NAME.get(warn_code) or ""
+    severity = _normalize_severity(warn_code, name)
+
+    if "特別警報" in name:
+        level = "特別警報"
+    elif "警報" in name:
+        level = "警報"
+    elif "注意報" in name:
+        level = "注意報"
+    elif severity == "emergency":
+        level = "特別警報"
+    elif severity == "warning":
+        level = "警報"
+    elif severity == "advisory":
+        level = "注意報"
+    else:
+        level = "不明"
+
+    display_name = name or f"警報・注意報（コード{warn_code}）"
+    headline = f"{display_name} {status_raw}".strip()
+
+    return WeatherAlertItem(
+        area_code=area_code or None,
+        area_name=area_name or pref_name,
+        source_area_type=None,
+        kind=display_name,
+        level=level,
+        severity=severity,
+        status=status_raw,
+        headline=headline,
+        issued_at=updated_at,
+        updated_at=updated_at,
+        source="jma",
+        raw_code=warn_code,
+    )
+
+
+def _parse_r8_payload(
+    payload: list,
+    pref_name: str,
+) -> list[WeatherAlertItem]:
+    """
+    r8 フォーマット（root: array）の JMA 警報 JSON を WeatherAlertItem リストに変換する。
+
+    各レコードは dataTypeCode ごとに現象種別が分かれており、全レコードをマージして
+    発令中の警報・注意報一覧を作る。同一 (areaCode, warnCode) に複数レコードが存在する
+    場合は reportDatetime が新しい方の status を採用する。
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # (area_code, warn_code) → (status, report_datetime)
+    latest: dict[tuple[str, str], tuple[str, str]] = {}
+
+    for record in payload:
+        if not isinstance(record, dict):
+            continue
+        report_dt = record.get("reportDatetime") or now_iso
+        w = record.get("warning")
+        if not isinstance(w, dict):
+            continue
+
+        for key in ("class10Items", "class20Items"):
+            for area_item in w.get(key, []):
+                if not isinstance(area_item, dict):
+                    continue
+                area_code = str(area_item.get("areaCode", ""))
+                for kind in area_item.get("kinds", []):
+                    if not isinstance(kind, dict):
+                        continue
+                    warn_code = str(kind.get("code", "")) or None
+                    if not warn_code:
+                        continue
+                    status_raw = str(kind.get("status", ""))
+                    pair = (area_code, warn_code)
+                    existing = latest.get(pair)
+                    # より新しい reportDatetime を優先
+                    if existing is None or report_dt >= existing[1]:
+                        latest[pair] = (status_raw, report_dt)
+
+    items: list[WeatherAlertItem] = []
+    for (area_code, warn_code), (status_raw, report_dt) in latest.items():
+        if status_raw in ("解除", "発表警報・注意報はなし"):
+            continue
+        area_name = _AREA_CODE_NAME.get(area_code) or pref_name
+        item = _make_alert_item(area_code, area_name, warn_code, status_raw, report_dt, pref_name)
+        if item:
+            items.append(item)
+    return items
+
+
+def _parse_legacy_payload(
+    payload: dict,
+    pref_name: str,
+    reported_at: Optional[str],
+) -> list[WeatherAlertItem]:
+    """
+    旧フォーマット（root: object, areaTypes[]）の JMA 警報 JSON を変換する。
+    r8 URL が失敗した場合のフォールバック用。
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    report_dt = _safe_report_datetime(payload)
+    updated_at = report_dt or reported_at or now_iso
+    items: list[WeatherAlertItem] = []
+
+    area_types = payload.get("areaTypes")
+    if not isinstance(area_types, list):
+        return []
+
+    for at in area_types:
+        if not isinstance(at, dict):
+            continue
+        areas = at.get("areas")
+        if not isinstance(areas, list):
+            continue
+        for area in areas:
+            if not isinstance(area, dict):
+                continue
+            area_code_raw = str(area.get("code", ""))
+            area_name = area.get("name") or _AREA_CODE_NAME.get(area_code_raw) or pref_name
+            for w in _extract_warnings(area):
+                if not isinstance(w, dict):
+                    continue
+                try:
+                    raw_code = str(w.get("code", "")) or None
+                    name = w.get("name") or (raw_code and _CODE_NAME.get(raw_code)) or ""
+                    status_raw = str(w.get("status", ""))
+                    if not name and not raw_code:
+                        continue
+                    if status_raw in ("解除", "発表警報・注意報はなし"):
+                        continue
+                    if raw_code:
+                        item = _make_alert_item(area_code_raw, area_name, raw_code, status_raw, updated_at, pref_name)
+                        if item:
+                            items.append(item)
+                except Exception as exc:
+                    logger.warning("jma_weather_adapter: legacy item parse error area=%s: %s", area_name, exc)
+    return items
+
+
 def fetch_warnings_for_pref(
     pref_code: str,
     pref_name: str,
@@ -248,115 +401,36 @@ def fetch_warnings_for_pref(
     """
     指定都道府県の JMA 警報・注意報を取得して WeatherAlertItem リストに変換する。
 
-    Returns: アクティブな警報・注意報のリスト。エラー時は空リスト。
+    r8 URL（公式ページが使用する最新 URL）を優先して取得する。
+    r8 が失敗した場合は旧 URL にフォールバックする。
+    Returns: アクティブな警報・注意報のリスト。エラー時は例外を再送出。
     """
-    url = _JMA_WARNING_BASE.format(pref_code=pref_code)
-    try:
-        raw = _http_get(url)
-    except Exception as exc:
-        logger.warning("jma_weather_adapter: HTTP fetch failed pref=%s: %s", pref_code, exc)
-        raise
+    r8_url = _JMA_WARNING_BASE.format(pref_code=pref_code)
+    legacy_url = _JMA_WARNING_LEGACY_BASE.format(pref_code=pref_code)
 
+    # --- r8 URL（メイン）---
     try:
+        raw = _http_get(r8_url)
         payload = json.loads(raw)
+        if isinstance(payload, list):
+            items = _parse_r8_payload(payload, pref_name)
+            logger.info("jma_weather_adapter: r8 pref=%s items=%d", pref_code, len(items))
+            return items
+        # list でない場合は旧形式として下のフォールバックへ
+        logger.warning("jma_weather_adapter: r8 returned non-list pref=%s, falling back", pref_code)
     except Exception as exc:
-        logger.error("jma_weather_adapter: JSON parse error pref=%s: %s", pref_code, exc)
-        return []
+        logger.warning("jma_weather_adapter: r8 fetch failed pref=%s: %s — falling back to legacy", pref_code, exc)
 
-    items: list[WeatherAlertItem] = []
-    now_iso = datetime.now(timezone.utc).isoformat()
-    report_dt = _safe_report_datetime(payload)
-    updated_at = report_dt or reported_at or now_iso
-
-    area_types = payload.get("areaTypes")
-    if not isinstance(area_types, list):
-        logger.warning("jma_weather_adapter: unexpected structure pref=%s (no areaTypes)", pref_code)
-        return []
-
-    for at in area_types:
-        if not isinstance(at, dict):
-            continue
-        area_type = str(at.get("areaType", ""))
-        areas = at.get("areas")
-        if not isinstance(areas, list):
-            continue
-
-        for area in areas:
-            if not isinstance(area, dict):
-                continue
-            area_code_raw = str(area.get("code", ""))
-            # 2026-06: JMA が area.name を廃止し code のみになった。code→名称で補完。
-            area_name = area.get("name") or _AREA_CODE_NAME.get(area_code_raw) or pref_name
-            warnings = _extract_warnings(area)
-
-            for w in warnings:
-                if not isinstance(w, dict):
-                    continue
-                try:
-                    raw_code = str(w.get("code", "")) or None
-                    # 2026-06: JMA が warning.name を廃止し code のみになった。code→名称で補完。
-                    name = w.get("name") or (raw_code and _CODE_NAME.get(raw_code)) or ""
-                    status_raw = str(w.get("status", ""))
-
-                    # name も code もない（発表警報・注意報はなし 等のダミー行）はスキップ
-                    if not name and not raw_code:
-                        continue
-
-                    # 「発表警報・注意報はなし」は警報なしを示すステータス行 → スキップ
-                    if status_raw == "発表警報・注意報はなし":
-                        continue
-
-                    # 解除済みはスキップ（「解除」のみスキップ、不明ステータスは保持）
-                    if status_raw == "解除":
-                        continue
-
-                    severity = _normalize_severity(raw_code, name)
-
-                    # level 判定（警報 or 注意報 or 特別警報）
-                    if "特別警報" in name:
-                        level = "特別警報"
-                    elif "警報" in name:
-                        level = "警報"
-                    elif "注意報" in name:
-                        level = "注意報"
-                    elif severity == "emergency":
-                        level = "特別警報"
-                    elif severity == "warning":
-                        level = "警報"
-                    elif severity == "advisory":
-                        level = "注意報"
-                    else:
-                        level = "不明"
-
-                    display_name = name or f"警報・注意報（コード{raw_code}）"
-                    headline = f"{display_name} {status_raw}".strip() if status_raw else display_name
-
-                    items.append(WeatherAlertItem(
-                        area_code=area_code_raw or None,
-                        area_name=area_name,
-                        source_area_type=area_type or None,
-                        kind=display_name,
-                        level=level,
-                        severity=severity,
-                        status=status_raw,
-                        headline=headline,
-                        issued_at=updated_at,
-                        updated_at=updated_at,
-                        source="jma",
-                        raw_code=raw_code,
-                    ))
-                except Exception as exc:
-                    logger.warning(
-                        "jma_weather_adapter: item parse error pref=%s area=%s: %s",
-                        pref_code, area_name, exc,
-                    )
-                    continue
-
-    logger.info(
-        "jma_weather_adapter: fetched pref=%s items=%d updated_at=%s",
-        pref_code, len(items), updated_at,
-    )
-    return items
+    # --- 旧 URL（フォールバック）---
+    try:
+        raw = _http_get(legacy_url)
+        payload = json.loads(raw)
+        items = _parse_legacy_payload(payload, pref_name, reported_at)
+        logger.info("jma_weather_adapter: legacy pref=%s items=%d", pref_code, len(items))
+        return items
+    except Exception as exc:
+        logger.warning("jma_weather_adapter: legacy fetch also failed pref=%s: %s", pref_code, exc)
+        raise
 
 
 def _safe_report_datetime(payload: dict) -> Optional[str]:
