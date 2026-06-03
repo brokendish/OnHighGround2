@@ -305,9 +305,6 @@
             refresh:    _stormSurgeRefresh,
             getData:    _stormSurgeGetData,
         },
-        riverCamera: {
-            setVisible: (v) => window.liveRiverCameraLayer?.setVisible?.(v),
-        },
     };
 
 })();

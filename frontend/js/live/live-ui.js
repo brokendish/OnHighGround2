@@ -19,7 +19,6 @@
         _bindToggle('toggle-tsunami',     (v) => liveLayers.tsunami.setVisible(v));
         _bindToggle('toggle-storm-surge', (v) => liveLayers.stormSurge.setVisible(v));
         _bindToggle('toggle-tide',        (v) => liveTideLayer.setVisible(v));
-        _bindToggle('toggle-river-camera',(v) => liveRiverCameraLayer.setVisible(v));
     }
 
     // ── ステータスバー ───────────────────────────────────────────────────────
@@ -28,13 +27,12 @@
 
     // null = unknown（未確認）、true = ok、false = offline
     const _currentStatus = {
-        rainOk:          null,
-        kikikuruOk:      null,
-        eqOk:            null,
-        tsunamiOk:       null,
-        stormSurgeOk:    null,
-        tideOk:          null,
-        riverCameraOk:   null,
+        rainOk:       null,
+        kikikuruOk:   null,
+        eqOk:         null,
+        tsunamiOk:    null,
+        stormSurgeOk: null,
+        tideOk:       null,
     };
 
     function _dot(ok) {
@@ -52,7 +50,6 @@
             <span class="live-status-item">${_dot(_currentStatus.tsunamiOk)} 津波</span>
             <span class="live-status-item">${_dot(_currentStatus.stormSurgeOk)} 高潮</span>
             <span class="live-status-item">${_dot(_currentStatus.tideOk)} 潮位</span>
-            <span class="live-status-item">${_dot(_currentStatus.riverCameraOk)} 河川カメラ</span>
         `;
     }
 
@@ -89,11 +86,6 @@
         _renderStatus();
     }
 
-    function updateRiverCameraStatus(ok) {
-        _currentStatus.riverCameraOk = ok;
-        _renderStatus();
-    }
-
     function setUpdating() {
         if (!_statusBar) return;
         const dot = `<span class="live-status-dot updating"></span>`;
@@ -115,7 +107,6 @@
         updateKikikuruStatus,
         updateStormSurgeStatus,
         updateTideStatus,
-        updateRiverCameraStatus,
         setUpdating,
         hideLoading,
     };

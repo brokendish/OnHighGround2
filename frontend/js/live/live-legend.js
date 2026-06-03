@@ -118,6 +118,21 @@
 
         layerPanel.appendChild(sep);
         layerPanel.appendChild(btn);
+
+        const riverLink = document.createElement('a');
+        riverLink.href      = 'https://www.river.go.jp/index';
+        riverLink.target    = '_blank';
+        riverLink.rel       = 'noopener noreferrer';
+        riverLink.className = 'live-legend-btn';
+        riverLink.title     = '国土交通省 河川情報（外部サイト）';
+        riverLink.innerHTML =
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none"' +
+            ' stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+            '<path d="M3 17 Q6 12 9 17 Q12 22 15 17 Q18 12 21 17"/>' +
+            '<path d="M3 10 Q6 5 9 10 Q12 15 15 10 Q18 5 21 10"/>' +
+            '</svg>' +
+            '<span>国土交通省 河川情報</span>';
+        layerPanel.appendChild(riverLink);
     }
 
 })();
