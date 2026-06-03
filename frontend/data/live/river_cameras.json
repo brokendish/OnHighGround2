@@ -1,0 +1,92 @@
+[
+  {
+    "id": "tone-001",
+    "name": "利根川 布川観測所",
+    "river": "利根川",
+    "lat": 35.999,
+    "lng": 140.309,
+    "agency": "関東地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "tone-002",
+    "name": "利根川 栗橋観測所",
+    "river": "利根川",
+    "lat": 36.134,
+    "lng": 139.714,
+    "agency": "関東地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "ara-001",
+    "name": "荒川 熊谷観測所",
+    "river": "荒川",
+    "lat": 36.147,
+    "lng": 139.386,
+    "agency": "関東地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "ara-002",
+    "name": "荒川 秋ヶ瀬観測所",
+    "river": "荒川",
+    "lat": 35.847,
+    "lng": 139.597,
+    "agency": "関東地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "tama-001",
+    "name": "多摩川 是政観測所",
+    "river": "多摩川",
+    "lat": 35.626,
+    "lng": 139.481,
+    "agency": "関東地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "tama-002",
+    "name": "多摩川 田園調布観測所",
+    "river": "多摩川",
+    "lat": 35.587,
+    "lng": 139.668,
+    "agency": "関東地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "edo-001",
+    "name": "江戸川 野田観測所",
+    "river": "江戸川",
+    "lat": 35.951,
+    "lng": 139.863,
+    "agency": "関東地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "yodo-001",
+    "name": "淀川 枚方観測所",
+    "river": "淀川",
+    "lat": 34.852,
+    "lng": 135.654,
+    "agency": "近畿地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "chikugo-001",
+    "name": "筑後川 久留米観測所",
+    "river": "筑後川",
+    "lat": 33.322,
+    "lng": 130.508,
+    "agency": "九州地方整備局",
+    "url": "https://www.river.go.jp/"
+  },
+  {
+    "id": "tenryu-001",
+    "name": "天竜川 掛塚観測所",
+    "river": "天竜川",
+    "lat": 34.636,
+    "lng": 137.828,
+    "agency": "中部地方整備局",
+    "url": "https://www.river.go.jp/"
+  }
+]

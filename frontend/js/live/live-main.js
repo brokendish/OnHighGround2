@@ -11,10 +11,11 @@
 
     // 雨雲・地震・津波・高潮を並列取得。各 API の成否を個別に追跡する。
     // liveAlertPanel.update() は内部で allSettled を使い { tsunamiOk, eqOk } を返す。
-    const [alertResult, rainResult, stormSurgeResult] = await Promise.allSettled([
+    const [alertResult, rainResult, stormSurgeResult, riverCameraResult] = await Promise.allSettled([
         liveAlertPanel.update(),
         liveLayers.rain.refresh(),
         liveLayers.stormSurge.refresh(),
+        liveRiverCameraLayer.init(),
     ]);
 
     const rainOk       = rainResult.status === 'fulfilled';
@@ -29,6 +30,8 @@
         console.warn('[live] 警戒カード更新失敗:', alertResult.reason?.message);
     if (stormSurgeResult.status === 'rejected')
         console.warn('[live] 高潮更新失敗:', stormSurgeResult.reason?.message);
+    if (riverCameraResult.status === 'rejected')
+        console.warn('[live] 河川カメラ読み込み失敗:', riverCameraResult.reason?.message);
 
     // 雨雲状態をアラートパネルに反映（update() と並列だったため完了後に更新）
     liveAlertPanel.setStatus({ rain: rainOk ? 'ok' : 'offline' });
@@ -39,6 +42,7 @@
         tsunamiOk: alertStatus.tsunamiOk,
     });
     liveUI.updateStormSurgeStatus(stormSurgeOk);
+    liveUI.updateRiverCameraStatus(riverCameraResult.status === 'fulfilled' ? riverCameraResult.value : false);
     liveUI.hideLoading();
 
     // タイムライン初期化（雨雲が取得できた場合のみ）
