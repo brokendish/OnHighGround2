@@ -669,6 +669,10 @@ html, body {
     border-radius: 2px;
     flex-shrink:   0;
 }
+.llp-swatch-line {
+    flex-shrink: 0;
+    display:     block;
+}
 .llp-text   { flex: 1; min-width: 0; }
 .llp-label  { font-size: 11px; color: #e6edf3; line-height: 1.3; }
 .llp-sub    { font-size: 10px; color: #8b949e; margin-top: 1px; }
@@ -1148,4 +1152,38 @@ html, body {
     .live-rain-tl { padding: 8px 0 4px; }
     .live-rain-tl-info { font-size: 13px; gap: 8px; }
     .live-rain-tl-btn { font-size: 12px; padding: 3px 8px; }
+}
+
+/* ── 高潮警報 沿岸部ハイライト ────────────────────────────────────────────── */
+
+/* SVG circle 要素にアニメーションを適用 */
+@keyframes storm-surge-coast-pulse {
+    0%, 100% { stroke-opacity: 0.85; }
+    50%       { stroke-opacity: 0.30; }
+}
+
+.storm-surge-coast-ring {
+    animation: storm-surge-coast-pulse 3s ease-in-out infinite;
+}
+
+/* ── Phase C: 高潮浸水想定区域 案内ヒント ────────────────────────────────── */
+
+.live-surge-hint {
+    font-size: 10px;
+    color: #f97316;
+    padding: 3px 0 3px 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1.4;
+}
+
+.live-surge-hint.hidden {
+    display: none;
+}
+
+.live-surge-hint-link {
+    color: #58a6ff;
+    text-decoration: underline;
+    cursor: pointer;
 }

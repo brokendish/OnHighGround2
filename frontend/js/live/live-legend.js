@@ -26,12 +26,27 @@
         { color: '#9600C8', label: '80mm/h 以上',   sub: '猛烈な雨' },
     ];
 
+    // 高潮警報対象の沿岸部（行政区域単位の概略エリア）
+    const STORM_SURGE_ROWS = [
+        { lineColor: '#ef4444', label: '高潮警報対象の沿岸部', sub: '警報発令区域（概略）' },
+        { lineColor: '#f97316', label: '高潮注意報対象の沿岸部', sub: '注意報発令区域（概略）' },
+    ];
+
     // ── DOM 生成 ──────────────────────────────────────────────────────────────
 
     function _row(r) {
-        const border = r.border ? ' style="border:1px solid rgba(48,54,61,0.8)"' : '';
+        let swatch;
+        if (r.lineColor) {
+            // 折れ線スウォッチ（沿岸部ハイライト用）
+            swatch = `<svg class="llp-swatch-line" width="24" height="14" aria-hidden="true">` +
+                `<line x1="2" y1="7" x2="22" y2="7" stroke="${r.lineColor}" stroke-width="3" stroke-dasharray="6 3"/>` +
+                `</svg>`;
+        } else {
+            const border = r.border ? ' style="border:1px solid rgba(48,54,61,0.8)"' : '';
+            swatch = `<span class="llp-swatch"${border} style="background:${r.color}"></span>`;
+        }
         return `<div class="llp-row">
-            <span class="llp-swatch"${border} style="background:${r.color}"></span>
+            ${swatch}
             <div class="llp-text">
                 <div class="llp-label">${r.label}</div>
                 ${r.sub ? `<div class="llp-sub">${r.sub}</div>` : ''}
@@ -48,6 +63,7 @@
                 <div class="llp-tabs">
                     <button class="llp-tab is-active" data-tab="kikikuru">キキクル</button>
                     <button class="llp-tab"            data-tab="rain">雨雲</button>
+                    <button class="llp-tab"            data-tab="storm-surge">高潮</button>
                 </div>
                 <button class="llp-close" aria-label="凡例を閉じる">×</button>
             </div>
@@ -58,6 +74,10 @@
             <div class="llp-body" data-body="rain" hidden>
                 ${RAIN_ROWS.map(_row).join('')}
                 <div class="llp-note">出典: 気象庁 降水ナウキャスト</div>
+            </div>
+            <div class="llp-body" data-body="storm-surge" hidden>
+                ${STORM_SURGE_ROWS.map(_row).join('')}
+                <div class="llp-note">行政区域単位の警報発令エリアです。<br>高潮浸水範囲とは異なります。</div>
             </div>`;
         document.body.appendChild(el);
 

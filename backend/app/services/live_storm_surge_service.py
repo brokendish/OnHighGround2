@@ -14,26 +14,14 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from app.services.jma_weather_adapter import fetch_warnings_for_pref
-from app.services.jma_weather_adapter import _PREF_CENTROIDS  # noqa: WPS450
+from app.services.jma_weather_adapter import (
+    fetch_warnings_for_pref,
+    _PREF_CENTROIDS,       # noqa: WPS450
+    STORM_SURGE_CODES,     # 高潮コードの単一参照源。独自定義禁止。
+    STORM_SURGE_CODE_META, # code → {severity, label}
+)
 
 logger = logging.getLogger(__name__)
-
-# 高潮警報・注意報に関連する warning raw_code
-_STORM_SURGE_CODES = frozenset({"39", "10", "24"})
-# 39: 高潮特別警報, 10: 高潮警報, 24: 高潮注意報
-
-_CODE_TO_LEVEL: Dict[str, str] = {
-    "39": "emergency",  # 高潮特別警報
-    "10": "warning",    # 高潮警報
-    "24": "advisory",   # 高潮注意報
-}
-
-_CODE_TO_LABEL: Dict[str, str] = {
-    "39": "高潮特別警報",
-    "10": "高潮警報",
-    "24": "高潮注意報",
-}
 
 # storm_surge における重大度順序
 _LEVEL_ORDER: Dict[str, int] = {
@@ -104,7 +92,11 @@ def _pref_info(pref_code: str) -> tuple[str, Optional[float], Optional[float]]:
 
 
 async def _fetch_pref_storm_surge(pref_code: str) -> List[Dict[str, Any]]:
-    """1都道府県の高潮警報・注意報を取得して返す。"""
+    """1都道府県の高潮警報・注意報を取得して返す。
+
+    戻り値は都道府県単位で最大1件。最上位レベルの警報を代表として返し、
+    全対象区域（市区町村・一次細分区域）を affected_areas に収録する。
+    """
     pref_name, lat, lon = _pref_info(pref_code)
     try:
         items = await asyncio.to_thread(fetch_warnings_for_pref, pref_code, pref_name)
@@ -112,25 +104,41 @@ async def _fetch_pref_storm_surge(pref_code: str) -> List[Dict[str, Any]]:
         logger.debug("live_storm_surge: fetch failed pref=%s: %s", pref_code, exc)
         return []
 
-    result = []
-    seen_codes: set[str] = set()
+    # storm_surge 関連の全アイテムを収集し、最上位レベルを決定する
+    affected: List[Dict[str, Any]] = []
+    best_code: Optional[str] = None
+    best_order = 999
     for item in items:
         raw_code = item.raw_code
-        if raw_code not in _STORM_SURGE_CODES:
+        if raw_code not in STORM_SURGE_CODES:
             continue
-        if raw_code in seen_codes:
-            continue
-        seen_codes.add(raw_code)
-        result.append({
-            "pref_code": pref_code,
-            "pref_name": pref_name,
+        meta = STORM_SURGE_CODE_META[raw_code]
+        level = meta["severity"]
+        order = _LEVEL_ORDER.get(level, 9)
+        if order < best_order:
+            best_order = order
+            best_code = raw_code
+        affected.append({
             "area_name": item.area_name or pref_name,
-            "kind": _CODE_TO_LABEL.get(raw_code, item.kind),
-            "level": _CODE_TO_LEVEL.get(raw_code, "advisory"),
-            "lat": lat,
-            "lng": lon,
+            "area_code": item.area_code or "",
+            "kind":      meta["label"],
+            "level":     level,
         })
-    return result
+
+    if best_code is None:
+        return []
+
+    best_meta = STORM_SURGE_CODE_META[best_code]
+    return [{
+        "pref_code":      pref_code,
+        "pref_name":      pref_name,
+        "area_name":      pref_name,
+        "kind":           best_meta["label"],
+        "level":          best_meta["severity"],
+        "lat":            lat,
+        "lng":            lon,
+        "affected_areas": affected,
+    }]
 
 
 async def _fetch_all_storm_surge() -> List[Dict[str, Any]]:
@@ -194,13 +202,15 @@ def _build_danger_areas(areas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     result = []
     for i, a in enumerate(areas):
         result.append({
-            "id":     f"storm_surge-{i}",
-            "label":  a["pref_name"],
-            "detail": a["kind"],
-            "level":  "danger" if a["level"] in {"emergency", "warning"} else "warning",
-            "type":   "storm_surge",
-            "source": "jma",
-            "lat":    a.get("lat"),
-            "lng":    a.get("lng"),
+            "id":             f"storm_surge-{i}",
+            "label":          a["pref_name"],
+            "detail":         a["kind"],
+            "level":          "danger" if a["level"] in {"emergency", "warning"} else "warning",
+            "type":           "storm_surge",
+            "source":         "jma",
+            "lat":            a.get("lat"),
+            "lng":            a.get("lng"),
+            "pref_code":      a.get("pref_code", ""),
+            "affected_areas": a.get("affected_areas", []),
         })
     return result

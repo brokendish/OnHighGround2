@@ -156,6 +156,19 @@ _CODE_NAME: dict[str, str] = {
 # active と見なすステータス文字列（仕様変更でテキストが変わった場合はここを修正）
 _ACTIVE_STATUSES = frozenset(["発表", "継続", "更新", "発表・更新"])
 
+# ── 現象別コード定義（単一参照源） ───────────────────────────────────────────
+# 他のモジュールはここから import し、独自にコード定義を持たないこと。
+# 新コードを追加する場合は _CODE_SEVERITY / _CODE_NAME も同時に更新すること。
+# JMA仕様変更時の同期漏れ防止のため、tests/test_jma_storm_surge_codes.py で
+# _CODE_SEVERITY との一致を回帰テストしている。
+
+STORM_SURGE_CODE_META: dict[str, dict] = {
+    "38": {"severity": "emergency", "label": "高潮特別警報"},
+    "08": {"severity": "warning",   "label": "高潮警報"},
+    "19": {"severity": "advisory",  "label": "高潮注意報"},
+}
+STORM_SURGE_CODES: frozenset[str] = frozenset(STORM_SURGE_CODE_META)
+
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6_371_000.0
@@ -239,6 +252,12 @@ def _infer_severity_from_name(name: str) -> str:
 def _normalize_severity(raw_code: Optional[str], name: str) -> str:
     if raw_code and raw_code in _CODE_SEVERITY:
         return _CODE_SEVERITY[raw_code]
+    if raw_code:
+        logger.warning(
+            "jma_weather_adapter: unknown warn_code=%r name=%r"
+            " — JMA仕様変更の可能性あり。_CODE_SEVERITY/_CODE_NAME の更新を確認すること",
+            raw_code, name,
+        )
     return _infer_severity_from_name(name)
 
 

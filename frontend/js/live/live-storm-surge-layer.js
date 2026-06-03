@@ -25,8 +25,55 @@
         advisory:  14,
     };
 
+    // Phase A: 都道府県ごとの海岸線ハイライト円半径（メートル）
+    // 都道府県の規模・海岸線の形状に応じて調整した概略半径
+    const _PREF_COAST_RADIUS = {
+        "010000": 130000, // 北海道（広大な海岸線）
+        "020000":  70000, // 青森県
+        "030000":  70000, // 岩手県
+        "040000":  55000, // 宮城県
+        "050000":  60000, // 秋田県
+        "060000":  40000, // 山形県（狭い日本海側）
+        "070000":  55000, // 福島県
+        "080000":  55000, // 茨城県
+        "120000":  60000, // 千葉県
+        "130000":  35000, // 東京都（コンパクト）
+        "140000":  35000, // 神奈川県
+        "150000":  80000, // 新潟県（長い海岸線）
+        "160000":  45000, // 富山県
+        "170000":  60000, // 石川県
+        "180000":  40000, // 福井県
+        "220000":  70000, // 静岡県
+        "230000":  55000, // 愛知県
+        "240000":  70000, // 三重県
+        "270000":  35000, // 大阪府
+        "280000":  65000, // 兵庫県
+        "300000":  55000, // 和歌山県
+        "310000":  40000, // 鳥取県
+        "320000":  70000, // 島根県
+        "330000":  50000, // 岡山県
+        "340000":  55000, // 広島県
+        "350000":  65000, // 山口県
+        "360000":  50000, // 徳島県
+        "370000":  40000, // 香川県
+        "380000":  55000, // 愛媛県
+        "390000":  70000, // 高知県（長い太平洋岸）
+        "400000":  55000, // 福岡県
+        "410000":  40000, // 佐賀県
+        "420000":  65000, // 長崎県（複雑な海岸線）
+        "430000":  55000, // 熊本県
+        "440000":  55000, // 大分県
+        "450000":  65000, // 宮崎県
+        "460000":  80000, // 鹿児島県（複雑な海岸線）
+        "470000":  80000, // 沖縄県（島嶼）
+    };
+    const _DEFAULT_COAST_RADIUS = 60000;
+
     // ── 状態 ─────────────────────────────────────────────────────────────────
     // toggle-storm-surge の初期状態（checked）に合わせて enabled=true で開始する
+
+    // preferCanvas: true 環境でも className を DOM に付与するため SVG を強制使用
+    const _svgRenderer = L.svg();
 
     let _layerGroup  = null;
     let _enabled     = true;
@@ -54,6 +101,69 @@
         });
     }
 
+    // ── Phase A/B: 海岸線ハイライト（L.circle） ─────────────────────────────
+
+    function _buildCoastPopup(area) {
+        const isWarning = area.level === 'danger';
+        const color     = isWarning ? '#ef4444' : '#f97316';
+        const affected  = area.affected_areas || [];
+
+        // Phase B: class20 / 市区町村単位のエリア名を収集
+        const muniNames = [...new Set(affected.map(a => a.area_name))]
+            .filter(n => n)
+            .join('、');
+
+        return [
+            `<div style="min-width:180px">`,
+            `<div style="font-weight:bold;color:${color}">高潮警報対象の沿岸部</div>`,
+            `<div>${area.label}</div>`,
+            muniNames
+                ? `<div style="font-size:11px;color:#8b949e;margin-top:4px">対象区域: ${muniNames}</div>`
+                : '',
+            `<div style="font-size:10px;color:#6e7681;margin-top:6px">行政区域単位の警報発令エリアです。<br>高潮浸水範囲とは異なります。</div>`,
+            `</div>`,
+        ].join('');
+    }
+
+    function _renderCoastHighlight(areas) {
+        const targetAreas = areas.filter(
+            a => (a.level === 'danger' || a.level === 'warning') &&
+                 a.lat != null && a.lng != null
+        );
+        targetAreas.forEach(area => {
+            const prefCode = area.pref_code || '';
+            const radius   = _PREF_COAST_RADIUS[prefCode] || _DEFAULT_COAST_RADIUS;
+            const color    = area.level === 'danger' ? '#ef4444' : '#f97316';
+
+            L.circle([area.lat, area.lng], {
+                renderer:    _svgRenderer,
+                radius,
+                color,
+                weight:      3,
+                opacity:     0.85,
+                dashArray:   '10 6',
+                fillColor:   color,
+                fillOpacity: 0.05,
+                className:   'storm-surge-coast-ring',
+            })
+            .bindPopup(_buildCoastPopup(area))
+            .addTo(_layerGroup);
+        });
+    }
+
+    // ── Phase C: 浸水想定区域案内ヒント ─────────────────────────────────────
+
+    function _updatePhaseC(areas) {
+        const hint = document.getElementById('storm-surge-coast-hint');
+        if (!hint) return;
+        const hasWarning = areas.some(a => a.level === 'danger');
+        if (hasWarning) {
+            hint.classList.remove('hidden');
+        } else {
+            hint.classList.add('hidden');
+        }
+    }
+
     // ── データ取得 ────────────────────────────────────────────────────────────
 
     async function _fetchData() {
@@ -69,6 +179,11 @@
         _layerGroup.clearLayers();
 
         const areas = (data && data.areas) || [];
+
+        // Phase A/B: 沿岸部ハイライト（警報エリア概略）
+        _renderCoastHighlight(areas);
+
+        // 都道府県マーカー（三角アイコン）
         areas.forEach(area => {
             const lat = area.lat;
             const lng = area.lng;
@@ -91,6 +206,9 @@
             );
             _layerGroup.addLayer(marker);
         });
+
+        // Phase C: 浸水想定区域ヒント更新
+        _updatePhaseC(areas);
 
         if (_enabled) _layerGroup.addTo(liveMap);
     }
@@ -127,6 +245,9 @@
             }
         } else {
             liveMap.removeLayer(_layerGroup);
+            // Phase C ヒントも非表示
+            const hint = document.getElementById('storm-surge-coast-hint');
+            if (hint) hint.classList.add('hidden');
         }
     }
 
