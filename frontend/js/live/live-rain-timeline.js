@@ -20,9 +20,10 @@
     // ── ヘルパー ─────────────────────────────────────────────────────────────
 
     function _fmtJmaTime(vt) {
-        // "20260603123000" → "12:30"
+        // "20260603013000" (UTC) → "10:30" (JST = UTC+9)
         if (!vt || vt.length < 12) return '--:--';
-        return vt.slice(8, 10) + ':' + vt.slice(10, 12);
+        const hh = (parseInt(vt.slice(8, 10), 10) + 9) % 24;
+        return String(hh).padStart(2, '0') + ':' + vt.slice(10, 12);
     }
 
     function _offsetStr(min) {
