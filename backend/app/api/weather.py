@@ -14,6 +14,7 @@ from app.services.weather_alert_service import (
 )
 from app.services.weather_risk_context_service import get_risk_context
 from app.services.weather_route_risk_service import get_route_risk
+from app.services.jma_warning_service import get_warnings_for_location
 
 
 class _RouteCoords(BaseModel):
@@ -115,6 +116,45 @@ async def get_rain_tile_latest_endpoint():
     except Exception as exc:
         logger.exception("rain tile endpoint error: %s", exc)
         raise HTTPException(status_code=500, detail={"error": "internal_error"})
+
+
+@router.get("/api/weather/warnings")
+async def get_weather_warnings(
+    lat: float = Query(..., description="緯度", ge=-90, le=90),
+    lon: Optional[float] = Query(None, description="経度（lon 推奨）", ge=-180, le=180),
+    lng: Optional[float] = Query(None, description="経度（lon の別名。lon が優先）", ge=-180, le=180),
+):
+    """
+    現在地の警報・注意報を ok/items 形式で返す（指示書仕様準拠）。
+
+    経度は lon または lng で指定可（どちらか一方が必須）。
+
+    ok=true 時:
+      {ok, source, area_name, updated_at, has_warning, max_level, items}
+      items: [{name, level, status}]
+      max_level: emergency | warning | advisory | none
+
+    ok=false 時（取得失敗）:
+      {ok, source, reason, items:[]}
+
+    取得失敗時に「警報・注意報なし」と断定してはならない。
+    status=解除 の情報は含まない。
+    120秒キャッシュ（既存 alert_service 経由）。
+    """
+    lon_val = lon if lon is not None else lng
+    if lon_val is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="lon または lng を指定してください")
+    try:
+        return get_warnings_for_location(lat, lon_val)
+    except Exception as exc:
+        logger.exception("weather warnings endpoint error: %s", exc)
+        return {
+            "ok":     False,
+            "source": "jma",
+            "reason": "internal_error",
+            "items":  [],
+        }
 
 
 @router.get("/api/weather/alerts/current")

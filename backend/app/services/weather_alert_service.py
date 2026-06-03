@@ -21,6 +21,7 @@ from typing import Optional
 
 from app.models.weather_alert import WeatherAlertItem, max_severity, to_dict
 from app.services.jma_weather_adapter import (
+    _AREA_CITY_KEYWORDS,
     fetch_warnings_for_pref,
     filter_alerts_for_city,
     resolve_pref_code,
@@ -84,14 +85,64 @@ def _save_persistent_cache(pref_code: str, items: list[WeatherAlertItem]) -> Non
         logger.warning("weather_alert_service: persistent cache save failed pref=%s: %s", pref_code, exc)
 
 
-def _resolve_city(lat: float, lon: float) -> Optional[str]:
+def _city_from_address_text(address: Optional[str]) -> Optional[str]:
+    if not address:
+        return None
+    for keywords in _AREA_CITY_KEYWORDS.values():
+        for keyword in keywords:
+            if keyword and keyword in address:
+                return keyword
+    return None
+
+
+def _pref_from_address_text(address: Optional[str]) -> Optional[str]:
+    if not address:
+        return None
+    for pref_name in _get_pref_name_to_code().keys():
+        if pref_name in address:
+            return pref_name
+    return None
+
+
+def _resolve_city(lat: float, lon: float) -> tuple[Optional[str], Optional[str]]:
+    """
+    逆ジオコードから (city, geocoded_pref_name) を返す。
+    geocoded_pref_name: Nominatim の address.state 相当（都道府県名）。
+    島嶼部など重心距離が誤る場合に pref_code 補正に使う。
+    """
     try:
         from app.services.reverse_geocode_service import get_reverse_geocode_service
         result = get_reverse_geocode_service().reverse_geocode(lat, lon)
-        return result.get("city")
+        city_from_address = _city_from_address_text(result.get("address"))
+        city = city_from_address or result.get("city")
+        # 逆ジオコードが都道府県名を city に返す場合（島嶼部など）は pref 補正に使う
+        raw = result.get("raw") or {}
+        addr = raw.get("address") or {}
+        geocoded_pref = addr.get("state") or addr.get("province") or _pref_from_address_text(result.get("address"))
+        # city 自体が都道府県名のときも pref として扱う（Nominatim が island area で state省略する場合）
+        if city and not geocoded_pref:
+            if any(city.endswith(s) for s in ("都", "道", "府", "県")):
+                geocoded_pref = city
+                city = None
+        return city, geocoded_pref
     except Exception as exc:
         logger.warning("weather_alert_service: city resolve failed lat=%s lon=%s: %s", lat, lon, exc)
-        return None
+        return None, None
+
+
+# 都道府県名 → pref_code の逆引きテーブル（起動時に構築）
+def _build_pref_name_to_code() -> dict[str, str]:
+    from app.services.jma_weather_adapter import _PREF_CENTROIDS
+    return {name: code for code, (name, _, _) in _PREF_CENTROIDS.items()}
+
+_PREF_NAME_TO_CODE: dict[str, str] = {}
+
+
+def _get_pref_name_to_code() -> dict[str, str]:
+    global _PREF_NAME_TO_CODE
+    if not _PREF_NAME_TO_CODE:
+        _PREF_NAME_TO_CODE = _build_pref_name_to_code()
+    return _PREF_NAME_TO_CODE
 
 
 def get_alerts_for_location(lat: float, lon: float) -> dict:
@@ -109,7 +160,18 @@ def get_alerts_for_location(lat: float, lon: float) -> dict:
         }
     """
     pref_code, pref_name = resolve_pref_code(lat, lon)
-    city = _resolve_city(lat, lon)
+    city, geocoded_pref = _resolve_city(lat, lon)
+
+    # 逆ジオコードが都道府県名を返した場合（島嶼部など）は pref_code を補正
+    if geocoded_pref:
+        override_code = _get_pref_name_to_code().get(geocoded_pref)
+        if override_code and override_code != pref_code:
+            logger.info(
+                "weather_alert_service: pref_code overridden by geocode %s(%s) → %s lat=%s lon=%s",
+                geocoded_pref, pref_code, override_code, lat, lon,
+            )
+            pref_code = override_code
+            pref_name = geocoded_pref
     now = time.monotonic()
     now_iso = datetime.now(timezone.utc).isoformat()
 

@@ -13,6 +13,10 @@ pref_code: 6桁の都道府県コード（例: 130000 = 東京都）
   - field名変更は _extract_warnings() で吸収
   - unknown な警報種別は "unknown" severity として保持
   - parse failure 時も例外を握り潰してログのみ出す
+
+2026-06-03 仕様変更対応:
+  JMA が warning/area レスポンスから name フィールドを廃止し code のみになった。
+  _CODE_NAME で code→名称変換、_AREA_CODE_NAME で area code→区域名変換する。
 """
 import json
 import logging
@@ -59,46 +63,84 @@ _PREF_CENTROIDS: dict[str, tuple[str, float, float]] = {
 # 一次細分区域名 → 市区町村キーワードリスト
 _AREA_CITY_KEYWORDS: dict[str, list[str]] = _area_codes_data.get("area_city_keywords", {})
 
-# 警報種別コード → severity（JMA 2026年5月時点の警報コード）
+# 一次細分区域コード → 区域名（class10s）
+# 2026-06 JMA仕様変更対応: areaTypes.areas[].name が廃止され code のみになった
+_AREA_CODE_NAME: dict[str, str] = _area_codes_data.get("area_code_names", {})
+
+# 警報種別コード → severity（JMA / warning JSON の warn code）
 # 仕様変更時はここを修正する。名前ベースのフォールバックも持つ。
 _CODE_SEVERITY: dict[str, str] = {
     # 特別警報（emergency）
-    "14": "emergency",  # 大雨特別警報（土砂災害）
-    "15": "emergency",  # 大雨特別警報（浸水害）
-    "16": "emergency",  # 大雨特別警報（河川氾濫）
-    "22": "emergency",  # 洪水特別警報
+    "32": "emergency",  # 暴風雪特別警報
+    "33": "emergency",  # 大雨特別警報
     "35": "emergency",  # 暴風特別警報
-    "36": "emergency",  # 暴風雪特別警報
-    "37": "emergency",  # 大雪特別警報
-    "38": "emergency",  # 波浪特別警報
-    "39": "emergency",  # 高潮特別警報
+    "36": "emergency",  # 大雪特別警報
+    "37": "emergency",  # 波浪特別警報
+    "38": "emergency",  # 高潮特別警報
     # 警報（warning）
-    "04": "warning",    # 大雨警報（土砂災害）
-    "05": "warning",    # 大雨警報（浸水害）
-    "03": "warning",    # 洪水警報
-    "02": "warning",    # 大雨警報（土砂・浸水）
-    "33": "warning",    # 暴風警報
-    "34": "warning",    # 暴風雪警報
-    "32": "warning",    # 大雪警報
-    "10": "warning",    # 高潮警報
-    "12": "warning",    # 波浪警報
+    "02": "warning",    # 暴風雪警報
+    "03": "warning",    # 大雨警報
+    "04": "warning",    # 洪水警報
+    "05": "warning",    # 暴風警報
+    "06": "warning",    # 大雪警報
+    "07": "warning",    # 波浪警報
+    "08": "warning",    # 高潮警報
     # 注意報（advisory）
-    "17": "advisory",   # 大雨注意報
+    "10": "advisory",   # 大雨注意報
+    "12": "advisory",   # 大雪注意報
+    "13": "advisory",   # 風雪注意報
+    "14": "advisory",   # 雷注意報
+    "15": "advisory",   # 強風注意報
+    "16": "advisory",   # 波浪注意報
+    "17": "advisory",   # 融雪注意報
     "18": "advisory",   # 洪水注意報
-    "19": "advisory",   # 強風注意報
-    "20": "advisory",   # 風雪注意報
-    "21": "advisory",   # 大雪注意報
-    "23": "advisory",   # 波浪注意報
-    "24": "advisory",   # 高潮注意報
-    "25": "advisory",   # 雷注意報
-    "26": "advisory",   # 融雪注意報
-    "27": "advisory",   # 濃霧注意報
-    "28": "advisory",   # 乾燥注意報
-    "29": "advisory",   # なだれ注意報
-    "30": "advisory",   # 低温注意報
-    "31": "advisory",   # 霜注意報
-    "40": "advisory",   # 着氷注意報
-    "41": "advisory",   # 着雪注意報
+    "19": "advisory",   # 高潮注意報
+    "20": "advisory",   # 濃霧注意報（実データ確認済み: code 20 = 濃霧注意報）
+    "21": "advisory",   # 乾燥注意報
+    "22": "advisory",   # なだれ注意報
+    "23": "advisory",   # 低温注意報
+    "24": "advisory",   # 霜注意報
+    "25": "advisory",   # 着氷注意報
+    "26": "advisory",   # 着雪注意報
+    "27": "advisory",   # その他の注意報
+}
+
+# 警報種別コード → 名称（JMA仕様変更で warnings[].name が廃止された場合のフォールバック）
+# 仕様変更時は _CODE_SEVERITY と同時に更新すること
+_CODE_NAME: dict[str, str] = {
+    # 特別警報
+    "32": "暴風雪特別警報",
+    "33": "大雨特別警報",
+    "35": "暴風特別警報",
+    "36": "大雪特別警報",
+    "37": "波浪特別警報",
+    "38": "高潮特別警報",
+    # 警報
+    "02": "暴風雪警報",
+    "03": "大雨警報",
+    "04": "洪水警報",
+    "05": "暴風警報",
+    "06": "大雪警報",
+    "07": "波浪警報",
+    "08": "高潮警報",
+    # 注意報
+    "10": "大雨注意報",
+    "12": "大雪注意報",
+    "13": "風雪注意報",
+    "14": "雷注意報",
+    "15": "強風注意報",
+    "16": "波浪注意報",
+    "17": "融雪注意報",
+    "18": "洪水注意報",
+    "19": "高潮注意報",
+    "20": "濃霧注意報",   # 実データ確認済み（静岡・愛知・福岡・東京など）
+    "21": "乾燥注意報",
+    "22": "なだれ注意報",
+    "23": "低温注意報",
+    "24": "霜注意報",
+    "25": "着氷注意報",
+    "26": "着雪注意報",
+    "27": "その他の注意報",
 }
 
 # active と見なすステータス文字列（仕様変更でテキストが変わった場合はここを修正）
@@ -121,7 +163,11 @@ def filter_alerts_for_city(
 ) -> list[WeatherAlertItem]:
     """
     city_name が含まれる一次細分区域の警報・注意報のみ返す。
-    city_name が None または area_city_keywords に該当なければ全件返す（府県全体として扱う）。
+
+    - city_name が None または keywords_map が空 → 全件返す（府県全体として扱う）
+    - city_name が keywords_map に一致しない → 全件返す（対応区域不明）
+    - city_name の区域が特定できた → その区域の items のみ返す（ゼロ件でも全件返さない）
+      これにより「区域が特定できたが警報なし」と「区域不明」を区別する。
     """
     if not city_name or not items:
         return items
@@ -138,12 +184,12 @@ def filter_alerts_for_city(
                 matched_areas.add(area_label)
                 break
 
+    # 区域が特定できなければ全件返す（府県全体として扱う）
     if not matched_areas:
         return items
 
-    # area_name が matched_areas に含まれる items だけ返す
-    filtered = [i for i in items if i.area_name in matched_areas]
-    return filtered if filtered else items
+    # 区域が特定できた場合はその区域の警報のみ返す（ゼロ件でも全件フォールバックしない）
+    return [i for i in items if i.area_name in matched_areas]
 
 
 def resolve_pref_code(lat: float, lon: float) -> tuple[str, str]:
@@ -239,7 +285,8 @@ def fetch_warnings_for_pref(
             if not isinstance(area, dict):
                 continue
             area_code_raw = str(area.get("code", ""))
-            area_name = str(area.get("name", pref_name))
+            # 2026-06: JMA が area.name を廃止し code のみになった。code→名称で補完。
+            area_name = area.get("name") or _AREA_CODE_NAME.get(area_code_raw) or pref_name
             warnings = _extract_warnings(area)
 
             for w in warnings:
@@ -247,10 +294,16 @@ def fetch_warnings_for_pref(
                     continue
                 try:
                     raw_code = str(w.get("code", "")) or None
-                    name = str(w.get("name", ""))
+                    # 2026-06: JMA が warning.name を廃止し code のみになった。code→名称で補完。
+                    name = w.get("name") or (raw_code and _CODE_NAME.get(raw_code)) or ""
                     status_raw = str(w.get("status", ""))
 
-                    if not name:
+                    # name も code もない（発表警報・注意報はなし 等のダミー行）はスキップ
+                    if not name and not raw_code:
+                        continue
+
+                    # 「発表警報・注意報はなし」は警報なしを示すステータス行 → スキップ
+                    if status_raw == "発表警報・注意報はなし":
                         continue
 
                     # 解除済みはスキップ（「解除」のみスキップ、不明ステータスは保持）
@@ -266,16 +319,23 @@ def fetch_warnings_for_pref(
                         level = "警報"
                     elif "注意報" in name:
                         level = "注意報"
+                    elif severity == "emergency":
+                        level = "特別警報"
+                    elif severity == "warning":
+                        level = "警報"
+                    elif severity == "advisory":
+                        level = "注意報"
                     else:
                         level = "不明"
 
-                    headline = f"{name} {status_raw}" if status_raw else name
+                    display_name = name or f"警報・注意報（コード{raw_code}）"
+                    headline = f"{display_name} {status_raw}".strip() if status_raw else display_name
 
                     items.append(WeatherAlertItem(
                         area_code=area_code_raw or None,
                         area_name=area_name,
                         source_area_type=area_type or None,
-                        kind=name,
+                        kind=display_name,
                         level=level,
                         severity=severity,
                         status=status_raw,

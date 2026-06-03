@@ -221,9 +221,13 @@ function _weatherCardRender(alertsData, precipData, riskInfo) {
     const precipUnknown = (riskInfo || {}).precipUnknown || false;
     const combined      = (riskInfo || {}).combined      || [];
 
-    // エリア名
+    // エリア名: 都道府県 + 市区町村
     const areaEl = _wcEl('lip-wc-area-name');
-    if (areaEl) areaEl.textContent = location.area_name || '';
+    if (areaEl) {
+        const pref = location.area_name || '';
+        const city = location.city || '';
+        areaEl.textContent = (pref && city) ? `${pref} 「${city}」` : (pref || city);
+    }
 
     // severity バッジ（表示はアラート severity のまま）
     const badge = _wcEl('lip-wc-status-badge');
@@ -241,7 +245,12 @@ function _weatherCardRender(alertsData, precipData, riskInfo) {
         if (alerts.length === 0) {
             const row = document.createElement('div');
             row.className = 'wc-alert-none';
-            row.textContent = '警報・注意報なし';
+            // ok:false / unavailable 時に「なし」と断定しない
+            if (status === 'unavailable') {
+                row.textContent = '警報・注意報：取得できません';
+            } else {
+                row.textContent = '警報・注意報なし';
+            }
             list.appendChild(row);
         } else {
             for (const a of alerts) {
