@@ -121,6 +121,33 @@ html, body {
     cursor: pointer;
 }
 
+.live-toggle-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.live-kikikuru-sub {
+    display: flex;
+    flex-direction: column;
+    padding-left: 18px;
+    border-left: 2px solid rgba(88, 166, 255, 0.25);
+    margin-left: 6px;
+}
+
+.live-kikikuru-sub.hidden {
+    display: none;
+}
+
+.live-toggle-sub {
+    font-size: 11px;
+    color: #8b949e;
+    padding: 3px 0;
+}
+
+.live-toggle-sub:hover {
+    color: #c9d1d9;
+}
+
 /* ── アクティブ警戒カード ────────────────────────────────────────────────────── */
 
 #live-alert-card {

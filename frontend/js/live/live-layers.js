@@ -98,7 +98,8 @@
 
     let _kikikuruEntry   = null;
     let _kikikuruEnabled = false;
-    const _kikikuruLayers = { land: null, flood: null, inund: null };
+    const _kikikuruLayers      = { land: null, flood: null, inund: null };
+    const _kikikuruKindEnabled = { land: true,  flood: true,  inund: true  };
 
     async function _kikikuruFetchEntry() {
         const res = await fetch(_KIKIKURU_TIMES_URL);
@@ -114,6 +115,7 @@
 
     function _kikikuruAddKind(kind) {
         if (!_kikikuruEntry) return;
+        if (!_kikikuruKindEnabled[kind]) return;
         const def = _KIKIKURU_KINDS[kind];
         _kikikuruLayers[kind] = new _KikikuruTileLayer(_kikikuruTileUrl(_kikikuruEntry, def.elem), {
             opacity:       0.65,
@@ -126,13 +128,15 @@
         }).addTo(liveMap);
     }
 
+    function _kikikuruRemoveKind(kind) {
+        if (_kikikuruLayers[kind]) {
+            liveMap.removeLayer(_kikikuruLayers[kind]);
+            _kikikuruLayers[kind] = null;
+        }
+    }
+
     function _kikikuruRemoveAll() {
-        Object.keys(_kikikuruLayers).forEach(kind => {
-            if (_kikikuruLayers[kind]) {
-                liveMap.removeLayer(_kikikuruLayers[kind]);
-                _kikikuruLayers[kind] = null;
-            }
-        });
+        Object.keys(_kikikuruLayers).forEach(_kikikuruRemoveKind);
     }
 
     async function _kikikuruSetVisible(visible) {
@@ -148,6 +152,17 @@
             console.warn('[live-kikikuru] 取得失敗:', e);
             window.liveUI?.updateKikikuruStatus?.(false);
             window.liveAlertPanel?.setStatus?.({ kikikuru: 'offline' });
+        }
+    }
+
+    function _kikikuruSetKindVisible(kind, visible) {
+        if (!(kind in _kikikuruKindEnabled)) return;
+        _kikikuruKindEnabled[kind] = visible;
+        if (!_kikikuruEnabled) return;
+        if (visible) {
+            _kikikuruAddKind(kind);
+        } else {
+            _kikikuruRemoveKind(kind);
         }
     }
 
@@ -288,7 +303,8 @@
             setFrame:   _rainSetFrame,
         },
         kikikuru: {
-            setVisible: _kikikuruSetVisible,
+            setVisible:     _kikikuruSetVisible,
+            setKindVisible: _kikikuruSetKindVisible,
         },
         earthquake: {
             setVisible: _eqSetVisible,

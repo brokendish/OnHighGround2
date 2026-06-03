@@ -12,13 +12,22 @@
         el.addEventListener('change', () => handler(el.checked));
     }
 
+    function _kikikuruParentToggle(visible) {
+        const sub = document.getElementById('kikikuru-sub');
+        if (sub) sub.classList.toggle('hidden', !visible);
+        liveLayers.kikikuru.setVisible(visible);
+    }
+
     function initToggles() {
-        _bindToggle('toggle-rain',        (v) => liveLayers.rain.setVisible(v));
-        _bindToggle('toggle-kikikuru',    (v) => liveLayers.kikikuru.setVisible(v));
-        _bindToggle('toggle-earthquake',  (v) => liveLayers.earthquake.setVisible(v));
-        _bindToggle('toggle-tsunami',     (v) => liveLayers.tsunami.setVisible(v));
-        _bindToggle('toggle-storm-surge', (v) => liveLayers.stormSurge.setVisible(v));
-        _bindToggle('toggle-tide',        (v) => liveTideLayer.setVisible(v));
+        _bindToggle('toggle-rain',           (v) => liveLayers.rain.setVisible(v));
+        _bindToggle('toggle-kikikuru',       _kikikuruParentToggle);
+        _bindToggle('toggle-kikikuru-land',  (v) => liveLayers.kikikuru.setKindVisible('land',  v));
+        _bindToggle('toggle-kikikuru-inund', (v) => liveLayers.kikikuru.setKindVisible('inund', v));
+        _bindToggle('toggle-kikikuru-flood', (v) => liveLayers.kikikuru.setKindVisible('flood', v));
+        _bindToggle('toggle-earthquake',     (v) => liveLayers.earthquake.setVisible(v));
+        _bindToggle('toggle-tsunami',        (v) => liveLayers.tsunami.setVisible(v));
+        _bindToggle('toggle-storm-surge',    (v) => liveLayers.stormSurge.setVisible(v));
+        _bindToggle('toggle-tide',           (v) => liveTideLayer.setVisible(v));
     }
 
     // ── ステータスバー ───────────────────────────────────────────────────────

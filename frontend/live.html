@@ -42,10 +42,26 @@
             <input type="range" id="rain-tl-slider" class="live-rain-tl-slider"
                    min="0" max="12" step="1" value="0" aria-label="予測時刻">
         </div>
-        <label class="live-toggle">
-            <input type="checkbox" id="toggle-kikikuru">
-            キキクル
-        </label>
+        <div class="live-toggle-group">
+            <label class="live-toggle">
+                <input type="checkbox" id="toggle-kikikuru">
+                キキクル
+            </label>
+            <div id="kikikuru-sub" class="live-kikikuru-sub hidden">
+                <label class="live-toggle live-toggle-sub">
+                    <input type="checkbox" id="toggle-kikikuru-land" checked>
+                    土砂災害
+                </label>
+                <label class="live-toggle live-toggle-sub">
+                    <input type="checkbox" id="toggle-kikikuru-inund" checked>
+                    浸水害
+                </label>
+                <label class="live-toggle live-toggle-sub">
+                    <input type="checkbox" id="toggle-kikikuru-flood" checked>
+                    洪水害
+                </label>
+            </div>
+        </div>
         <label class="live-toggle">
             <input type="checkbox" id="toggle-earthquake" checked>
             地震
