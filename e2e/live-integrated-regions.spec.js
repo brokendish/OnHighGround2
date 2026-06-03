@@ -41,6 +41,7 @@ async function mockBase(page, summaryBody) {
     await page.route('/api/earthquakes**',           r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(EQ_RESPONSE) }));
     await page.route('/api/tsunami/**',              r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TSUNAMI_NONE) }));
     await page.route('/api/weather/rain/tile/times', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
+    await page.route('/api/live/rain/timeline',      r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('/api/live/tide/**',            r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, stations: [] }) }));
     await page.route('/api/live/astro**',            r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) }));
     await page.route('/api/live/sun_moon**',         r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) }));

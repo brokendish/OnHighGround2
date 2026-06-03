@@ -59,6 +59,10 @@ async function mockLiveTraffic(page) {
         status: 200, contentType: 'application/json',
         body: JSON.stringify({ basetime: '20260529000000', times: [] }),
     }));
+    await page.route('/api/live/rain/timeline', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ basetime: '20260529000000', times: [] }),
+    }));
     await page.route('**/jmatile/**', route =>
         route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     );

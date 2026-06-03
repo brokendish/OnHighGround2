@@ -1064,3 +1064,61 @@ html, body {
     .live-sm-row { font-size: 13px; padding: 3px 0; }
     .live-sm-phase { font-size: 10px; }
 }
+
+/* ── 雨雲予測タイムライン (Phase 5-B) ──────────────────────────────────────── */
+
+.live-rain-tl {
+    margin-top: 4px;
+    padding: 6px 0 2px;
+    border-top: 1px solid rgba(48, 54, 61, 0.6);
+}
+
+.live-rain-tl-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #c9d1d9;
+    margin-bottom: 4px;
+}
+
+.live-rain-tl-info span:first-child {
+    color: #58a6ff;
+    font-weight: 600;
+    min-width: 36px;
+}
+
+.live-rain-tl-info span:nth-child(2) {
+    font-variant-numeric: tabular-nums;
+    color: #8b949e;
+    flex: 1;
+}
+
+.live-rain-tl-btn {
+    background: rgba(88, 166, 255, 0.12);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    border-radius: 4px;
+    color: #58a6ff;
+    font-size: 10px;
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.live-rain-tl-btn:hover {
+    background: rgba(88, 166, 255, 0.22);
+}
+
+.live-rain-tl-slider {
+    width: 100%;
+    accent-color: #58a6ff;
+    height: 4px;
+    cursor: pointer;
+}
+
+@media (max-width: 640px) {
+    .live-rain-tl { padding: 8px 0 4px; }
+    .live-rain-tl-info { font-size: 13px; gap: 8px; }
+    .live-rain-tl-btn { font-size: 12px; padding: 3px 8px; }
+}

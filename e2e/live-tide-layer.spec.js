@@ -59,6 +59,7 @@ async function mockAll(page) {
     await page.route('/api/earthquakes**',               route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(EQ_RESPONSE)       }));
     await page.route('/api/tsunami/**',                  route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TSUNAMI_RESPONSE)  }));
     await page.route('/api/weather/rain/tile/times',     route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES)        }));
+    await page.route('/api/live/rain/timeline',          route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES)        }));
     await page.route('/api/live/summary',                route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LIVE_SUMMARY)      }));
     await page.route('**/jmatile/**',                    route => route.fulfill({ status: 200, contentType: 'image/png',         body: TRANSPARENT_PNG                  }));
     await page.route('**/jma.go.jp/**',                  route => route.fulfill({ status: 200, contentType: 'image/png',         body: TRANSPARENT_PNG                  }));

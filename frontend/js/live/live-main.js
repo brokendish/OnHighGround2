@@ -41,9 +41,14 @@
     liveUI.updateStormSurgeStatus(stormSurgeOk);
     liveUI.hideLoading();
 
+    // タイムライン初期化（雨雲が取得できた場合のみ）
+    if (rainOk) {
+        liveRainTimeline.init().catch(e => console.warn('[live] timeline init:', e.message));
+    }
+
     // ── 定期更新 ────────────────────────────────────────────────────────────
 
-    // 雨雲: 5分ごと。失敗時は status を offline に更新。
+    // 雨雲: 5分ごと。失敗時は status を offline に更新。タイムラインも同期。
     setInterval(async () => {
         const [result] = await Promise.allSettled([liveLayers.rain.refresh()]);
         if (result.status === 'rejected')
@@ -51,6 +56,7 @@
         const ok = result.status === 'fulfilled';
         liveUI.updateRainStatus(ok);
         liveAlertPanel.setStatus({ rain: ok ? 'ok' : 'offline' });
+        liveRainTimeline.refresh().catch(() => {});
     }, 5 * 60 * 1000);
 
     // 地震 + 津波 + カード: 2分ごと。

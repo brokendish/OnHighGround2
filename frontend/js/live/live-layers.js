@@ -20,6 +20,25 @@
     let _rainLayer   = null;
     let _rainEnabled = true;
 
+    const _RAIN_LAYER_OPTIONS = {
+        opacity:       0.50,
+        attribution:   '気象庁 降水ナウキャスト',
+        minZoom:       1,
+        maxNativeZoom: 10,
+        maxZoom:       19,
+        tileSize:      256,
+        zIndex:        450,
+    };
+
+    function _rainSetFrame(tileUrlTemplate) {
+        if (_rainLayer) {
+            liveMap.removeLayer(_rainLayer);
+            _rainLayer = null;
+        }
+        if (!_rainEnabled || !tileUrlTemplate) return;
+        _rainLayer = new _RainTileLayer(tileUrlTemplate, _RAIN_LAYER_OPTIONS).addTo(liveMap);
+    }
+
     async function _rainRefresh() {
         const res = await fetch('/api/weather/rain/tile/times');
         if (!res.ok) throw new Error(`[live-rain] HTTP ${res.status}`);
@@ -35,17 +54,8 @@
         }
         if (!_rainEnabled) return;
 
-        const _rainOpacity = 0.50;
-        console.log(`[live-rain] live rain layer opacity: value=${_rainOpacity}`);
-        _rainLayer = new _RainTileLayer(current.tile_url_template, {
-            opacity:       _rainOpacity,
-            attribution:   '気象庁 降水ナウキャスト',
-            minZoom:       1,
-            maxNativeZoom: 10,
-            maxZoom:       19,
-            tileSize:      256,
-            zIndex:        450,
-        }).addTo(liveMap);
+        console.log(`[live-rain] live rain layer opacity: value=${_RAIN_LAYER_OPTIONS.opacity}`);
+        _rainLayer = new _RainTileLayer(current.tile_url_template, _RAIN_LAYER_OPTIONS).addTo(liveMap);
     }
 
     function _rainSetVisible(visible) {
@@ -275,6 +285,7 @@
         rain: {
             setVisible: _rainSetVisible,
             refresh:    _rainRefresh,
+            setFrame:   _rainSetFrame,
         },
         kikikuru: {
             setVisible: _kikikuruSetVisible,

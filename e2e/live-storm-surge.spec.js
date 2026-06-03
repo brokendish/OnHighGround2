@@ -60,6 +60,7 @@ async function mockBase(page, { tsunamiResp = TSUNAMI_NONE, stormSurgeResp = STO
     await page.route('/api/live/astro**',               route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) }));
     await page.route('/api/live/sun_moon**',            route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) }));
     await page.route('/api/weather/rain/tile/times',    route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
+    await page.route('/api/live/rain/timeline',         route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('/api/live/summary',               route => {
         const tsAreas = tsunamiResp.areas || [];
         const ssAreas = stormSurgeResp.areas || [];

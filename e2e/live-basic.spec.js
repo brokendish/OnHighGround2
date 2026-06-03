@@ -102,6 +102,11 @@ async function mockLiveTraffic(page) {
         contentType: 'application/json',
         body:        JSON.stringify(RAIN_TIMES),
     }));
+    await page.route('/api/live/rain/timeline', route => route.fulfill({
+        status:      200,
+        contentType: 'application/json',
+        body:        JSON.stringify(RAIN_TIMES),
+    }));
     await page.route('**/jmatile/**', route => {
         if (route.request().url().includes('targetTimes.json')) {
             return route.fulfill({
@@ -260,6 +265,10 @@ async function mockLiveTrafficWith(page, { eqResponse = EQ_RESPONSE, tsunamiResp
         body:   JSON.stringify(tsunamiResponse),
     }));
     await page.route('/api/weather/rain/tile/times', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body:   JSON.stringify(RAIN_TIMES),
+    }));
+    await page.route('/api/live/rain/timeline', route => route.fulfill({
         status: 200, contentType: 'application/json',
         body:   JSON.stringify(RAIN_TIMES),
     }));

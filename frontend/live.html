@@ -32,6 +32,16 @@
             <input type="checkbox" id="toggle-rain" checked>
             雨雲
         </label>
+        <!-- 雨雲予測タイムライン (Phase 5-B) -->
+        <div id="live-rain-timeline" class="live-rain-tl hidden">
+            <div class="live-rain-tl-info">
+                <span id="rain-tl-offset">現在</span>
+                <span id="rain-tl-time">--:--</span>
+                <button id="rain-tl-play" class="live-rain-tl-btn" aria-label="再生/停止">▶</button>
+            </div>
+            <input type="range" id="rain-tl-slider" class="live-rain-tl-slider"
+                   min="0" max="12" step="1" value="0" aria-label="予測時刻">
+        </div>
         <label class="live-toggle">
             <input type="checkbox" id="toggle-kikikuru">
             キキクル
@@ -82,6 +92,7 @@
     <script src="/js/live/live-danger-summary.js"></script>
     <script src="/js/live/live-alert-panel.js"></script>
     <script src="/js/live/live-ui.js"></script>
+    <script src="/js/live/live-rain-timeline.js"></script>
     <script src="/js/live/live-main.js"></script>
     <script src="/js/live/live-mobile.js"></script>
     <script src="/js/live/live-location.js"></script>
