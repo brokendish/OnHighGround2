@@ -73,6 +73,10 @@ _AREA_CITY_KEYWORDS: dict[str, list[str]] = _area_codes_data.get("area_city_keyw
 # 2026-06 JMA仕様変更対応: areaTypes.areas[].name が廃止され code のみになった
 _AREA_CODE_NAME: dict[str, str] = _area_codes_data.get("area_code_names", {})
 
+# 市区町村名 → class20 区域コード（r8 class20Items フィルタ用）
+# JMA area.json の class20s から生成。重複名は辞書順先頭コードを採用。
+_CITY_CLASS20_CODE: dict[str, str] = _area_codes_data.get("city_class20_codes", {})
+
 # 警報種別コード → severity（JMA / warning JSON の warn code）
 # 仕様変更時はここを修正する。名前ベースのフォールバックも持つ。
 _CODE_SEVERITY: dict[str, str] = {
@@ -166,23 +170,34 @@ def filter_alerts_for_city(
     items: list[WeatherAlertItem],
     city_name: Optional[str],
     area_city_keywords: Optional[dict[str, list[str]]] = None,
+    city_class20_map: Optional[dict[str, str]] = None,
 ) -> list[WeatherAlertItem]:
     """
-    city_name が含まれる一次細分区域の警報・注意報のみ返す。
+    city_name に対応する警報・注意報のみ返す。
 
-    - city_name が None または keywords_map が空 → 全件返す（府県全体として扱う）
-    - city_name が keywords_map に一致しない → 全件返す（対応区域不明）
-    - city_name の区域が特定できた → その区域の items のみ返す（ゼロ件でも全件返さない）
-      これにより「区域が特定できたが警報なし」と「区域不明」を区別する。
+    優先順位:
+    1. class20 コード一致（市区町村単位の精密フィルタ）
+       city_name → class20_code が既知の場合は area_code == class20_code の items のみ返す。
+       class20 が既知でアクティブ項目なし → [] （その市区町村は対象外）
+    2. class10 キーワードフィルタ（一次細分区域単位）
+       class20 未知の場合のフォールバック。
+    3. 全件返す
+       city_name が None / キーワード未一致 → 府県全体として扱う。
     """
     if not city_name or not items:
         return items
 
+    # --- Step 1: class20 コードによる市区町村単位フィルタ ---
+    c20_map = city_class20_map if city_class20_map is not None else _CITY_CLASS20_CODE
+    class20_code = c20_map.get(city_name)
+    if class20_code:
+        return [i for i in items if i.area_code == class20_code]
+
+    # --- Step 2: class10 キーワードフィルタ（フォールバック）---
     keywords_map = area_city_keywords if area_city_keywords is not None else _AREA_CITY_KEYWORDS
     if not keywords_map:
         return items
 
-    # city_name が属する一次細分区域名を特定
     matched_areas: set[str] = set()
     for area_label, keywords in keywords_map.items():
         for kw in keywords:
@@ -190,11 +205,9 @@ def filter_alerts_for_city(
                 matched_areas.add(area_label)
                 break
 
-    # 区域が特定できなければ全件返す（府県全体として扱う）
     if not matched_areas:
         return items
 
-    # 区域が特定できた場合はその区域の警報のみ返す（ゼロ件でも全件フォールバックしない）
     return [i for i in items if i.area_name in matched_areas]
 
 
