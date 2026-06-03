@@ -371,7 +371,7 @@
                 ? `${_TYPE_LABEL.kikikuru}（${_HAZARD_LABEL[area.hazard] || area.hazard}）`
                 : (_TYPE_LABEL[area.type] || area.type || '');
             const levelClass = `lac-danger-${area.level}`;
-            const focusAttrs = canFocus ? `data-lat="${area.lat}" data-lng="${area.lng}"` : '';
+            const focusAttrs = canFocus ? `data-lat="${area.lat}" data-lng="${area.lng}" data-label="${(area.label || '').replace(/"/g, '&quot;')}"` : '';
             html += `
                 <div class="lac-danger-item ${levelClass}${canFocus ? ' lac-danger-clickable' : ''}"
                      data-id="${area.id}" ${focusAttrs}>
@@ -391,7 +391,7 @@
         regions.forEach((region, idx) => {
             const canFocus   = region.lat != null && region.lng != null;
             const levelClass = `lac-danger-${region.level}`;
-            const focusAttrs = canFocus ? `data-lat="${region.lat}" data-lng="${region.lng}"` : '';
+            const focusAttrs = canFocus ? `data-lat="${region.lat}" data-lng="${region.lng}" data-label="${(region.label || '').replace(/"/g, '&quot;')}"` : '';
             const eventsHtml = (region.events || []).map(ev =>
                 `<div class="lac-danger-event">${ev.label}</div>`
             ).join('');
@@ -408,14 +408,48 @@
         return html + `</div>`;
     }
 
+    // ── 強調リング（CircleMarker、4秒後に自動削除） ─────────────────────────
+
+    function _showFocusHighlight(lat, lng) {
+        const ring = L.circleMarker([lat, lng], {
+            radius:      28,
+            color:       '#ff6b35',
+            weight:      3,
+            fillColor:   '#ff6b35',
+            fillOpacity: 0.18,
+        }).addTo(liveMap);
+        setTimeout(() => {
+            try { liveMap.removeLayer(ring); } catch (_) {}
+        }, 4000);
+    }
+
     function _bindFocusClicks() {
         if (!_card) return;
-        // 危険地域クリック
+        // 危険地域クリック（flyTo + ハイライト + ポップアップ + ログ）
         _card.querySelectorAll('.lac-danger-clickable').forEach(el => {
             el.addEventListener('click', () => {
-                const lat = parseFloat(el.dataset.lat);
-                const lng = parseFloat(el.dataset.lng);
-                if (!isNaN(lat) && !isNaN(lng)) liveMap.setView([lat, lng], 7);
+                const lat   = parseFloat(el.dataset.lat);
+                const lng   = parseFloat(el.dataset.lng);
+                const label = el.dataset.label || '危険地域';
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const zoom = Math.max(liveMap.getZoom(), 8);
+                    console.log(`live danger region focus: label=${label} lat=${lat} lng=${lng}`);
+                    liveMap.flyTo([lat, lng], zoom);
+                    _showFocusHighlight(lat, lng);
+
+                    // ポップアップ: 統合イベント or 種別ラベルを表示
+                    const eventEls  = el.querySelectorAll('.lac-danger-event');
+                    const typeEl    = el.querySelector('.lac-danger-types');
+                    let content     = `<b>${label}</b>`;
+                    if (eventEls.length > 0) {
+                        const lines = Array.from(eventEls).map(e => e.textContent.trim()).filter(Boolean);
+                        if (lines.length) content += `<br><small>${lines.join('<br>')}</small>`;
+                    } else if (typeEl) {
+                        const t = typeEl.textContent.trim();
+                        if (t) content += `<br><small>${t}</small>`;
+                    }
+                    L.popup().setLatLng([lat, lng]).setContent(content).openOn(liveMap);
+                }
             });
         });
         // 地震リストアイテムクリック（DOM に含まれていれば登録）

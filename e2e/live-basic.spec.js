@@ -328,10 +328,14 @@ test.describe('/live Phase 1-B — 危険地域カード強化', () => {
         const item = page.locator('.lac-danger-clickable').first();
         await expect(item).toBeVisible({ timeout: 3000 });
         await item.click();
-        await page.waitForTimeout(300);
+        // flyTo アニメーション完了を moveend で待つ
+        await page.evaluate(() => new Promise(resolve => {
+            liveMap.once('moveend', resolve);
+            setTimeout(resolve, 3000);
+        }));
 
         const zoom = await page.evaluate(() => liveMap.getZoom());
-        expect(zoom).toBe(7);
+        expect(zoom).toBeGreaterThanOrEqual(7.9);
 
         const center = await page.evaluate(() => {
             const c = liveMap.getCenter();
