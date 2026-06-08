@@ -12,8 +12,8 @@
  *   大津波警報: --tw-danger（赤）
  *   津波警報:   --tw-danger（赤）
  *   津波注意報: --tw-advisory（橙）
- *   status=active: 警報・注意報バナー表示
- *   status=none/cleared/stale/unavailable/error: バナー非表示
+ *   status=active かつ level が major_warning/warning/advisory のときのみバナー表示
+ *   forecast（津波予報）/ none / cleared / stale / unavailable / error: バナー非表示
  *
  * 津波浸水想定レイヤー:
  *   警報・注意報が active の場合、showTsunamiHazard* チェックボックスを
@@ -73,7 +73,9 @@ function _twApplyBanner(data) {
     }
 
     const maxLevel = _twMaxLevel(data.areas || []);
-    if (!maxLevel) {
+    // forecast（津波予報）は避難不要の情報提供レベルのためバナーを出さない
+    // バナー表示は major_warning / warning / advisory のみ
+    if (!maxLevel || maxLevel === 'forecast') {
         banner.style.display = 'none';
         banner.innerHTML = '';
         return;

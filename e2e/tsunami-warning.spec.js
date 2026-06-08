@@ -110,6 +110,38 @@ test.describe('Tsunami warning banner', () => {
     await expect(banner).toContainText('大津波警報');
   });
 
+  test('forecast（津波予報）のみの場合はバナーを表示しない', async ({ page }) => {
+    // JMAが advisory → forecast に格下げした状態（解除途中）
+    await page.route('/api/**', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({}),
+    }));
+    await page.route('/emergency-shelters**', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: [], count: 0, total_count: 0 }),
+    }));
+    await page.route('/api/tsunami/warnings/current', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        source: 'jma_xml',
+        status: 'active',
+        observed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        ttl_seconds: 60,
+        areas: [
+          { code: null, name: '茨城県',               level: 'forecast', level_label: '津波予報', expected_height: null, arrival_time: null, is_target: false },
+          { code: null, name: '千葉県九十九里・外房', level: 'forecast', level_label: '津波予報', expected_height: null, arrival_time: null, is_target: false },
+          { code: null, name: '千葉県内房',           level: 'forecast', level_label: '津波予報', expected_height: null, arrival_time: null, is_target: false },
+        ],
+        message: '津波予報が発表されています。',
+      }),
+    }));
+
+    await page.goto('/');
+    // 津波予報は避難不要レベル — バナーを出してはいけない
+    await expect(page.locator('#tsunami-warning-banner')).toBeHidden({ timeout: 5000 });
+  });
+
   test('status=stale のときは警告バナーを表示しない', async ({ page }) => {
     await page.route('/api/**', route => route.fulfill({
       status: 200,
