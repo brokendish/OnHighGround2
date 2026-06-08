@@ -853,7 +853,10 @@ html, body {
         transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
         touch-action: none;
     }
-    #live-alert-card.is-expanded  { transform: translateY(0); }
+    #live-alert-card.is-expanded  {
+        transform: translateY(0);
+        z-index: 1070;
+    }
     #live-alert-card.is-dragging  { transition: none; }
     #live-alert-card.is-sheet-closed {
         transform: translateY(100%) !important;

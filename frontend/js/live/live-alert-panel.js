@@ -109,10 +109,17 @@
             html += `<div class="lac-item lac-offline"><span class="lac-text">地震情報: 取得失敗</span></div>`;
         } else if (bigCount > 0) {
             const recentArea = (dangerAreas.find(a => a.type === 'earthquake') || {}).label || '';
+            const arrow = _eqListExpanded ? '▴' : '▾';
+            const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
             html += `
-                <div class="lac-item lac-warn" style="border-left-color:#ff6b35">
+                <div class="lac-item lac-warn lac-eq-toggle" data-action="eq-toggle"
+                     style="cursor:pointer; border-left-color:#ff6b35">
                     <span class="lac-badge" style="background:#ff6b35;color:#fff">M5以上 ${bigCount}件</span>
                     <span class="lac-text"><small>${recentArea}</small></span>
+                    <span class="lac-expand-arrow">${arrow}</span>
+                </div>
+                <div class="lac-eq-list-wrap"${listDisplay}>
+                    ${_buildEqListHtml()}
                 </div>`;
         } else if (eqCount > 0) {
             html += _eqToggleItemHtml(eqCount);
@@ -187,10 +194,17 @@
             html += `<div class="lac-item lac-offline"><span class="lac-text">地震情報: 取得失敗</span></div>`;
         } else if (bigCount > 0) {
             const recentName = eqItems[0] ? (eqItems[0].epicenter_name || '') : '';
+            const arrow = _eqListExpanded ? '▴' : '▾';
+            const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
             html += `
-                <div class="lac-item lac-warn" style="border-left-color:#ff6b35">
+                <div class="lac-item lac-warn lac-eq-toggle" data-action="eq-toggle"
+                     style="cursor:pointer; border-left-color:#ff6b35">
                     <span class="lac-badge" style="background:#ff6b35;color:#fff">M5以上 ${bigCount}件</span>
                     <span class="lac-text"><small>${recentName}</small></span>
+                    <span class="lac-expand-arrow">${arrow}</span>
+                </div>
+                <div class="lac-eq-list-wrap"${listDisplay}>
+                    ${_buildEqListHtml()}
                 </div>`;
         } else if (eqCount > 0) {
             html += _eqToggleItemHtml(eqCount);
