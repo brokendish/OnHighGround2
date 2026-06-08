@@ -157,6 +157,9 @@ async def _build_tsunami_section() -> Dict[str, Any]:
             status = "stale"
         elif raw_status in (None, "error"):
             status = "offline"
+        elif raw_status == "none":
+            # 警報なし / 解除済み
+            status = "cleared"
         else:
             status = "ok"
         return {

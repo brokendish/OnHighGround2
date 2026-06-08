@@ -12,9 +12,8 @@
  *   大津波警報: --tw-danger（赤）
  *   津波警報:   --tw-danger（赤）
  *   津波注意報: --tw-advisory（橙）
- *   status=none:       バナー非表示
- *   status=stale:      警告UIに古い情報の注記を付けて表示
- *   status=error:      エラー時は既存機能を止めず静かに失敗
+ *   status=active: 警報・注意報バナー表示
+ *   status=none/cleared/stale/unavailable/error: バナー非表示
  *
  * 津波浸水想定レイヤー:
  *   警報・注意報が active の場合、showTsunamiHazard* チェックボックスを
@@ -26,6 +25,22 @@ const _TW_POLL_MS = 60_000;
 let _twTimer = null;
 let _twLastStatus = null;
 let _twLastNavAlertAt = 0;
+
+// 警報種別ラベル
+const _TW_TITLE = {
+    major_warning: '大津波警報',
+    warning:       '津波警報',
+    advisory:      '津波注意報',
+    forecast:      '津波予報',
+};
+
+// 警報種別アクションメッセージ
+const _TW_ACTION = {
+    major_warning: 'ただちに高台や津波避難ビルへ避難してください',
+    warning:       'ただちに海岸・河口付近から離れ、高い場所へ避難してください',
+    advisory:      '海岸・河口付近から離れてください',
+    forecast:      '最新の津波情報に注意してください',
+};
 
 function _twBanner() {
     return document.getElementById('tsunami-warning-banner');
@@ -49,15 +64,18 @@ function _twApplyBanner(data) {
 
     const status = data.status;
 
-    if (status === 'none' || status === 'error') {
+    // active のときのみバナーを表示する（stale 含むそれ以外は非表示）
+    if (status !== 'active') {
         banner.style.display = 'none';
         banner.className = 'tsunami-warning-banner';
+        banner.innerHTML = '';
         return;
     }
 
     const maxLevel = _twMaxLevel(data.areas || []);
     if (!maxLevel) {
         banner.style.display = 'none';
+        banner.innerHTML = '';
         return;
     }
 
@@ -71,25 +89,24 @@ function _twApplyBanner(data) {
         banner.classList.add('tw-forecast');
     }
 
-    // エリア一覧テキスト（最大5件）
+    // エリア一覧テキスト（最大3件、日本語読点区切り）
     const areaNames = (data.areas || []).map(a => a.name).filter(Boolean);
+    const _MAX_AREAS = 3;
     const areaText = areaNames.length > 0
-        ? areaNames.slice(0, 5).join('・') + (areaNames.length > 5 ? `他${areaNames.length - 5}区域` : '')
+        ? areaNames.slice(0, _MAX_AREAS).join('、') +
+          (areaNames.length > _MAX_AREAS ? ' ほか' : '')
         : '';
 
-    // stale 表示
-    const staleNote = status === 'stale'
-        ? '<span class="tw-stale-note">（情報が古い可能性があります）</span>'
-        : '';
-
-    // メッセージ
-    const msg = data.message || '';
+    const title  = _TW_TITLE[maxLevel]  || '';
+    const action = _TW_ACTION[maxLevel] || (data.message || '');
 
     banner.innerHTML =
         `<span class="tw-icon">&#9888;</span>` +
-        `<span class="tw-msg">${_twEscape(msg)}</span>` +
-        (areaText ? `<span class="tw-areas">${_twEscape(areaText)}</span>` : '') +
-        staleNote;
+        `<div class="tw-content">` +
+        `<div class="tw-title">${_twEscape(title)}</div>` +
+        `<div class="tw-msg">${_twEscape(action)}</div>` +
+        (areaText ? `<div class="tw-areas">対象：${_twEscape(areaText)}</div>` : '') +
+        `</div>`;
 
     banner.style.display = 'flex';
 }
@@ -137,7 +154,11 @@ function _twAutoEnableTsunamiLayers(active) {
 async function _tsunamiWarningUpdate() {
     try {
         const res = await fetch('/api/tsunami/warnings/current');
-        if (!res.ok) return;
+        if (!res.ok) {
+            // HTTP エラー時: 古い警告を出し続けないためバナーを非表示にする
+            _twApplyBanner({ status: 'unavailable', areas: [] });
+            return;
+        }
         const data = await res.json();
 
         const prevStatus = _twLastStatus;
@@ -153,7 +174,8 @@ async function _tsunamiWarningUpdate() {
             _twMaybeShowNavWarning(data);
         }
     } catch (_) {
-        // ネットワークエラー時は静かに失敗（既存機能を止めない）
+        // ネットワークエラー時: 古い警告を出し続けないためバナーを非表示にする
+        _twApplyBanner({ status: 'unavailable', areas: [] });
     }
 }
 

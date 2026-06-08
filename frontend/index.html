@@ -3693,9 +3693,9 @@
             left: 0;
             right: 0;
             z-index: 1200;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 16px;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px 14px;
             font-size: 14px;
             font-weight: 700;
             line-height: 1.4;
@@ -3717,24 +3717,44 @@
         .tw-icon {
             font-size: 18px;
             flex-shrink: 0;
+            margin-top: 1px;
+        }
+        .tw-content {
+            min-width: 0;
+            flex: 1;
+        }
+        .tw-title {
+            font-weight: 700;
+            line-height: 1.3;
+            word-break: keep-all;
         }
         .tw-msg {
-            flex: 1;
+            font-weight: 400;
+            font-size: 13px;
+            line-height: 1.45;
+            margin-top: 2px;
+            word-break: keep-all;
+            overflow-wrap: anywhere;
         }
         .tw-areas {
             font-weight: 400;
             font-size: 12px;
             opacity: 0.9;
-            white-space: nowrap;
+            margin-top: 2px;
+            line-height: 1.4;
+            word-break: keep-all;
+            overflow-wrap: anywhere;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
             overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 260px;
         }
         .tw-stale-note {
             font-size: 11px;
             opacity: 0.8;
             font-weight: 400;
-            white-space: nowrap;
+            margin-top: 2px;
+            word-break: keep-all;
         }
         /* ── 気象警報バナー（weather-alert-ui.js） ───────────────────────── */
         .weather-alert-banner {

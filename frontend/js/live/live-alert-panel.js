@@ -131,8 +131,9 @@
         // キキクル（evaluated フラグで断定を防ぐ）
         html += _kikikuruHtml(summary.kikikuru);
 
-        // 空状態メッセージ: 評価可能な地震・津波のみで判定
-        const evaluableOk = summary.earthquake?.status === 'ok' && summary.tsunami?.status === 'ok';
+        // 空状態メッセージ: 評価可能な地震・津波のみで判定（cleared=警報なし確認済み も ok 扱い）
+        const tsunamiStatusOk = summary.tsunami?.status === 'ok' || summary.tsunami?.status === 'cleared';
+        const evaluableOk = summary.earthquake?.status === 'ok' && tsunamiStatusOk;
         const noDanger = !tsm && bigCount === 0 && dangerAreas.length === 0;
         if (evaluableOk && noDanger) {
             html += `<div class="lac-allclear">地震・津波：大きな警戒情報はありません</div>`;
