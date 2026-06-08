@@ -185,6 +185,8 @@ function bindBottomPanelToggle() {
         controls.classList.remove('mbc-earthquake-expanded');
         if (state === 'collapsed') controls.classList.add('mbc-collapsed');
         else if (state === 'expanded') controls.classList.add('mbc-earthquake-expanded');
+        // 地震パネル最大化時も body クラスを付与し、CSS で overlay z-index を引き上げる
+        document.body.classList.toggle('mbc-panel-info-expanded', state === 'expanded');
         _updateExpandHint();
     }
 
@@ -200,6 +202,10 @@ function bindBottomPanelToggle() {
         controls.classList.remove('mbc-info-expanded');
         if (state === 'collapsed') controls.classList.add('mbc-collapsed');
         else if (state === 'expanded') controls.classList.add('mbc-info-expanded');
+        // 情報パネル最大化時は body クラスを付与し、CSS で overlay z-index を引き上げる
+        // これにより #map-ui-overlay (1300) > #tsunami-warning-banner (1200) となり
+        // パネルのハンドル・タブ操作が津波バナーに隠れなくなる
+        document.body.classList.toggle('mbc-panel-info-expanded', state === 'expanded');
         _updateExpandHint();
         window.dispatchEvent(new CustomEvent('mbc-info-resize'));
     }

@@ -3776,6 +3776,16 @@
         #tsunami-warning-banner ~ .weather-alert-banner {
             top: 0;  /* tsunami banner が display:none の場合の基本位置 */
         }
+
+        /* ── 情報パネル最大化時 z-index 制御 ──────────────────────────
+           #map-ui-overlay (z-index: 900) は通常 #tsunami-warning-banner (z-index: 1200)
+           より背面。パネル最大化時にパネル操作部（ハンドル・タブ）が隠れるため、
+           body クラスで overlay を 1300 に引き上げてバナーより前面に出す。
+           overlay は pointer-events: none なので津波バナー自体は引き続き視認・操作可能。
+        ─────────────────────────────────────────────────────────────── */
+        body.mbc-panel-info-expanded #map-ui-overlay {
+            z-index: 1300;
+        }
         @keyframes wa-emergency-pulse {
             0%, 100% { background-color: #b71c1c; }
             50%       { background-color: #c62828; }
