@@ -98,6 +98,9 @@ frontend/layers/*.geojson
 frontend/layers/*.json
 frontend/layers/*/
 frontend/layers/*/*/
+# OSM由来の静的鉄道路線データは gitignore 例外として追跡する
+!frontend/layers/railways/
+!frontend/layers/railways/kanto_railways.geojson
 OnHighGround2_presentation.pptx
 
 # ---- Node / Playwright ----

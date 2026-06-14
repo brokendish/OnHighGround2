@@ -1,13 +1,12 @@
 'use strict';
 // live-train-osm-layer.js — OSM鉄道路線ベースレイヤー + ODPT障害路線強調
-// MVPでは Overpass API で表示範囲内の路線を取得し、ODPT障害情報と照合してスタイルを変える。
-// zoom < _MIN_ZOOM では描画しない（全国一括描画禁止）。
+// 静的GeoJSON（OSM PBFから事前生成）を使用。Overpass API 不要。
 
 (function () {
 
-    const _RAILWAY_OSM_URL = '/api/live/trains/osm';
-    const _MIN_ZOOM     = 8;
-    const _DEBOUNCE_MS  = 500;
+    const _STATIC_URL = '/layers/railways/kanto_railways.geojson';
+    const _MIN_ZOOM   = 8;
+    const _DEBOUNCE_MS = 300;
 
     // ── ODPT railway_id → OSM name 対応辞書（主要路線） ────────────────────────
 
@@ -79,9 +78,6 @@
         'odpt.Railway:YokohamaMunicipal.Green':         ['グリーンライン', '横浜市営地下鉄グリーンライン'],
     };
 
-    const _RAILWAY_TYPES   = new Set(['rail', 'subway', 'light_rail', 'monorail']);
-    const _EXCLUDE_SERVICE = new Set(['yard', 'siding', 'service', 'platform', 'station']);
-
     // ── 内部状態 ──────────────────────────────────────────────────────────────
 
     // liveMap は preferCanvas: true のため GeoJSON に明示的に SVG renderer を指定
@@ -94,10 +90,14 @@
     let _lastBoundsKey  = null;
     let _listenersAdded = false;
 
+    // 静的GeoJSONを一度だけ読み込んでキャッシュ
+    let _allFeatures   = null; // Feature[]
+    let _loadPromise   = null;
+
     // ── スタイル ──────────────────────────────────────────────────────────────
 
     function _baseStyle() {
-        return { color: '#888888', weight: 1.5, opacity: 0.3, fillOpacity: 0 };
+        return { color: '#bbbbbb', weight: 2, opacity: 0.65, fillOpacity: 0 };
     }
 
     function _disruptedStyle(status) {
@@ -105,40 +105,39 @@
         return { color: colors[status] || '#FF9800', weight: 4, opacity: 0.9, fillOpacity: 0 };
     }
 
-    // ── Overpass API 取得 ─────────────────────────────────────────────────────
+    // ── 静的GeoJSON読み込み（初回のみ） ──────────────────────────────────────
 
-    async function _fetchRailways(bounds) {
-        const s = bounds.getSouth().toFixed(4);
-        const w = bounds.getWest().toFixed(4);
-        const n = bounds.getNorth().toFixed(4);
-        const e = bounds.getEast().toFixed(4);
-        const res = await fetch(`${_RAILWAY_OSM_URL}?south=${s}&west=${w}&north=${n}&east=${e}`);
-        if (!res.ok) throw new Error(`railway osm HTTP ${res.status}`);
-        return res.json();
+    function _loadStatic() {
+        if (_loadPromise) return _loadPromise;
+        _loadPromise = fetch(_STATIC_URL)
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then(fc => {
+                _allFeatures = fc.features || [];
+                console.info(`[live-train-osm] 静的路線データ読み込み完了: ${_allFeatures.length} フィーチャー`);
+                return _allFeatures;
+            })
+            .catch(e => {
+                _loadPromise = null; // 次回リトライ可能にする
+                throw e;
+            });
+        return _loadPromise;
     }
 
-    function _toGeoJSON(data) {
-        const features = [];
-        for (const el of data.elements || []) {
-            if (el.type !== 'way' || !el.geometry?.length) continue;
-            const tags = el.tags || {};
-            if (!_RAILWAY_TYPES.has(tags.railway)) continue;
-            if (_EXCLUDE_SERVICE.has(tags.service)) continue;
-            features.push({
-                type: 'Feature',
-                properties: {
-                    osm_id:  el.id,
-                    name:    tags.name       || '',
-                    name_en: tags['name:en'] || '',
-                    railway: tags.railway,
-                },
-                geometry: {
-                    type:        'LineString',
-                    coordinates: el.geometry.map(n => [n.lon, n.lat]),
-                },
-            });
-        }
-        return { type: 'FeatureCollection', features };
+    // ── bounds フィルタリング ──────────────────────────────────────────────────
+
+    function _featuresInBounds(features, bounds) {
+        const s = bounds.getSouth(), w = bounds.getWest();
+        const n = bounds.getNorth(), e = bounds.getEast();
+        return features.filter(feat => {
+            const coords = feat.geometry?.coordinates;
+            if (!coords) return false;
+            return coords.some(([lon, lat]) =>
+                lat >= s && lat <= n && lon >= w && lon <= e
+            );
+        });
     }
 
     // ── ODPT マッチング ────────────────────────────────────────────────────────
@@ -170,7 +169,6 @@
             + `出典: ${_esc(item.source || 'ODPT')}`;
     }
 
-    // マッチした障害路線にスタイルを適用。マッチした railway_id の Set を返す。
     function _applyDisruptions(items) {
         const matched = new Set();
         if (!_baseLayer) return matched;
@@ -190,7 +188,7 @@
         return matched;
     }
 
-    // ── 取得・描画メインフロー ─────────────────────────────────────────────────
+    // ── 描画メインフロー ──────────────────────────────────────────────────────
 
     async function _refresh() {
         if (!_enabled || !window.liveMap) return;
@@ -208,15 +206,17 @@
         _lastBoundsKey = key;
 
         try {
-            const raw     = await _fetchRailways(bounds);
-            const geojson = _toGeoJSON(raw);
+            const features = await _loadStatic();
+            const visible  = _featuresInBounds(features, bounds);
             if (_baseLayer) map.removeLayer(_baseLayer);
-            _baseLayer = L.geoJSON(geojson, { style: _baseStyle, renderer: _svgRenderer }).addTo(map);
+            _baseLayer = L.geoJSON(
+                { type: 'FeatureCollection', features: visible },
+                { style: _baseStyle, renderer: _svgRenderer }
+            ).addTo(map);
             const matched = _applyDisruptions(_lastItems);
-            // マーカーレイヤーにマッチ済みIDを通知（OSMで描画済みのマーカーを非表示に）
             window.liveTrainLayer?.updateMatched?.(matched);
         } catch (e) {
-            console.warn('[live-train-osm] 鉄道路線取得失敗:', e.message);
+            console.warn('[live-train-osm] 路線データ読み込み失敗:', e.message);
         }
     }
 
@@ -227,7 +227,6 @@
 
     // ── 公開 API ─────────────────────────────────────────────────────────────
 
-    // 障害データをOSM路線に適用し、マッチした railway_id の Set を返す。
     function setDisruptions(items) {
         _lastItems = Array.isArray(items) ? items : [];
         return _applyDisruptions(_lastItems);

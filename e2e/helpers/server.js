@@ -17,13 +17,14 @@ const PORT        = 8787;
 const FRONTEND_DIR = path.resolve(__dirname, '../../frontend');
 
 const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js':   'application/javascript; charset=utf-8',
-  '.css':  'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png':  'image/png',
-  '.svg':  'image/svg+xml',
-  '.ico':  'image/x-icon',
+  '.html':    'text/html; charset=utf-8',
+  '.js':      'application/javascript; charset=utf-8',
+  '.css':     'text/css; charset=utf-8',
+  '.json':    'application/json; charset=utf-8',
+  '.geojson': 'application/geo+json; charset=utf-8',
+  '.png':     'image/png',
+  '.svg':     'image/svg+xml',
+  '.ico':     'image/x-icon',
 };
 
 let _server = null;

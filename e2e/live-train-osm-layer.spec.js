@@ -2,7 +2,7 @@
 /**
  * live-train-osm-layer.spec.js — OSM鉄道路線ベースレイヤー + 障害強調 E2E確認
  *
- * backend 不要。Overpass API + live API をすべてモック。
+ * backend 不要。静的GeoJSONエンドポイント + live APIをモック。
  */
 
 const { test, expect } = require('@playwright/test');
@@ -69,22 +69,25 @@ function trainWithGinzaStatus(status, label, severity) {
     };
 }
 
-// Overpass レスポンス: 銀座線を含む2路線
-const OVERPASS_WITH_GINZA = {
-    version: 0.6, elements: [
+// 静的GeoJSONモック: 銀座線 + 山手線 (FeatureCollection形式)
+const STATIC_WITH_GINZA = {
+    type: 'FeatureCollection',
+    features: [
         {
-            type: 'way', id: 1001,
-            geometry: [{ lat: 35.67, lon: 139.76 }, { lat: 35.68, lon: 139.77 }],
-            tags: { railway: 'subway', name: '銀座線', 'name:en': 'Ginza Line' },
+            type: 'Feature',
+            properties: { osm_id: '1001', name: '銀座線', name_en: 'Ginza Line', railway: 'subway' },
+            geometry: { type: 'LineString', coordinates: [[139.76, 35.67], [139.77, 35.68]] },
         },
         {
-            type: 'way', id: 1002,
-            geometry: [{ lat: 35.70, lon: 139.78 }, { lat: 35.71, lon: 139.79 }],
-            tags: { railway: 'rail', name: '山手線', 'name:en': 'Yamanote Line' },
+            type: 'Feature',
+            properties: { osm_id: '1002', name: '山手線', name_en: 'Yamanote Line', railway: 'rail' },
+            geometry: { type: 'LineString', coordinates: [[139.78, 35.70], [139.79, 35.71]] },
         },
     ],
 };
-const OVERPASS_EMPTY = { version: 0.6, elements: [] };
+const STATIC_EMPTY = { type: 'FeatureCollection', features: [] };
+
+const STATIC_URL = '/layers/railways/kanto_railways.geojson';
 
 async function mockBaseLiveApis(page, trainResponse = TRAIN_OK_EMPTY) {
     await page.route('/data/municipality_coords.json', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
@@ -103,51 +106,49 @@ async function mockBaseLiveApis(page, trainResponse = TRAIN_OK_EMPTY) {
 
 test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
 
-    test('zoom8以上でトグルON時にOverpass APIが呼ばれ路線が表示される', async ({ page }) => {
+    test('zoom8以上でトグルON時に静的GeoJSONが取得され路線が表示される', async ({ page }) => {
         await mockBaseLiveApis(page, TRAIN_OK_EMPTY);
-        await page.route('/api/live/trains/osm**', r => r.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify(OVERPASS_WITH_GINZA),
+        await page.route(STATIC_URL, r => r.fulfill({
+            status: 200, contentType: 'application/geo+json',
+            body: JSON.stringify(STATIC_WITH_GINZA),
         }));
 
         await page.goto('/live.html');
         await expect(page.locator('#live-train-card')).toContainText('交通影響', { timeout: 5000 });
 
-        // Overpass fetch の完了を waitForResponse で確実に待つ
-        const overpassPromise = page.waitForResponse('/api/live/trains/osm**', { timeout: 5000 });
-        await page.evaluate(() => window.liveMap.setZoom(9));
+        const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
+        await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 9));
         await page.locator('#toggle-train').check();
-        await overpassPromise;
-        await page.waitForTimeout(200); // DOM 反映待ち
+        await staticPromise;
+        await page.waitForTimeout(200);
 
-        // GeoJSON 路線が SVG path として描画される
         const pathCount = await page.locator('.leaflet-overlay-pane svg path').count();
         expect(pathCount).toBeGreaterThanOrEqual(2);
     });
 
     test('通常路線は薄グレー・低opacity・細線で表示される', async ({ page }) => {
         await mockBaseLiveApis(page, TRAIN_OK_EMPTY);
-        await page.route('/api/live/trains/osm**', r => r.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify(OVERPASS_WITH_GINZA),
+        await page.route(STATIC_URL, r => r.fulfill({
+            status: 200, contentType: 'application/geo+json',
+            body: JSON.stringify(STATIC_WITH_GINZA),
         }));
 
         await page.goto('/live.html');
         await expect(page.locator('#live-train-card')).toContainText('交通影響', { timeout: 5000 });
 
-        const overpassPromise = page.waitForResponse('/api/live/trains/osm**', { timeout: 5000 });
-        await page.evaluate(() => window.liveMap.setZoom(9));
+        const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
+        await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 9));
         await page.locator('#toggle-train').check();
-        await overpassPromise;
+        await staticPromise;
 
         const attrs = await page.locator('.leaflet-overlay-pane svg path').first().evaluate(el => ({
             stroke: el.getAttribute('stroke'),
             strokeWidth: el.getAttribute('stroke-width'),
             strokeOpacity: el.getAttribute('stroke-opacity'),
         }));
-        expect(attrs.stroke).toBe('#888888');
-        expect(Number(attrs.strokeWidth)).toBeLessThanOrEqual(2);
-        expect(Number(attrs.strokeOpacity)).toBeLessThanOrEqual(0.35);
+        expect(attrs.stroke).toBe('#bbbbbb');
+        expect(Number(attrs.strokeWidth)).toBeLessThanOrEqual(3);
+        expect(Number(attrs.strokeOpacity)).toBeLessThanOrEqual(0.75);
     });
 
     for (const [status, label, severity, color] of [
@@ -157,18 +158,18 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
     ]) {
         test(`障害路線 ${status} は状態色で強調表示される`, async ({ page }) => {
             await mockBaseLiveApis(page, trainWithGinzaStatus(status, label, severity));
-            await page.route('/api/live/trains/osm**', r => r.fulfill({
-                status: 200, contentType: 'application/json',
-                body: JSON.stringify(OVERPASS_WITH_GINZA),
+            await page.route(STATIC_URL, r => r.fulfill({
+                status: 200, contentType: 'application/geo+json',
+                body: JSON.stringify(STATIC_WITH_GINZA),
             }));
 
             await page.goto('/live.html');
             await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
 
-            const overpassPromise = page.waitForResponse('/api/live/trains/osm**', { timeout: 5000 });
+            const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
             await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 10));
             await page.locator('#toggle-train').check();
-            await overpassPromise;
+            await staticPromise;
 
             const attrs = await page.locator('.leaflet-overlay-pane svg path').last().evaluate(el => ({
                 stroke: el.getAttribute('stroke'),
@@ -181,12 +182,12 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         });
     }
 
-    test('zoom7以下ではOverpassを呼ばない', async ({ page }) => {
-        let overpassCalled = false;
+    test('zoom7以下では静的GeoJSONを取得せず路線も表示されない', async ({ page }) => {
+        let staticCalled = false;
         await mockBaseLiveApis(page, TRAIN_OK_EMPTY);
-        await page.route('/api/live/trains/osm**', async r => {
-            overpassCalled = true;
-            await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OVERPASS_EMPTY) });
+        await page.route(STATIC_URL, async r => {
+            staticCalled = true;
+            await r.fulfill({ status: 200, contentType: 'application/geo+json', body: JSON.stringify(STATIC_EMPTY) });
         });
 
         await page.goto('/live.html');
@@ -194,63 +195,63 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
 
         await page.evaluate(() => window.liveMap.setZoom(7));
         await page.locator('#toggle-train').check();
-        await page.waitForTimeout(800); // デバウンス + 余裕
+        await page.waitForTimeout(800);
 
-        expect(overpassCalled).toBe(false);
+        expect(staticCalled).toBe(false);
+        const pathCount = await page.locator('.leaflet-overlay-pane svg path').count();
+        expect(pathCount).toBe(0);
     });
 
-    test('Overpass失敗時もCircleMarkerフォールバックが表示される', async ({ page }) => {
+    test('静的GeoJSON失敗時もCircleMarkerフォールバックが表示される', async ({ page }) => {
         await mockBaseLiveApis(page, TRAIN_WITH_GINZA_SUSPENDED);
-        await page.route('/api/live/trains/osm**', r => r.fulfill({ status: 503, body: 'error' }));
+        await page.route(STATIC_URL, r => r.fulfill({ status: 503, body: 'error' }));
 
         await page.goto('/live.html');
-        // API レスポンス処理を待つ（銀座線がカードに表示される）
         await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
 
         await page.evaluate(() => window.liveMap.setZoom(9));
         await page.locator('#toggle-train').check();
         await page.waitForTimeout(800);
 
-        // Overpass 失敗 → OSM マッチなし → CircleMarker で表示（Leaflet SVGでは path として描画）
+        // 静的GeoJSON失敗 → OSMマッチなし → CircleMarkerで表示
         const markers = await page.locator('.leaflet-overlay-pane svg path.leaflet-interactive').count();
         expect(markers).toBeGreaterThan(0);
     });
 
     test('障害路線がOSM路線にマッチした場合GeoJSON pathが表示される', async ({ page }) => {
         await mockBaseLiveApis(page, TRAIN_WITH_GINZA_SUSPENDED);
-        await page.route('/api/live/trains/osm**', r => r.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify(OVERPASS_WITH_GINZA),
+        await page.route(STATIC_URL, r => r.fulfill({
+            status: 200, contentType: 'application/geo+json',
+            body: JSON.stringify(STATIC_WITH_GINZA),
         }));
 
         await page.goto('/live.html');
         await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
 
-        const overpassPromise = page.waitForResponse('/api/live/trains/osm**', { timeout: 5000 });
+        const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 10));
         await page.locator('#toggle-train').check();
-        await overpassPromise;
+        await staticPromise;
         await page.waitForTimeout(200);
 
-        // 2路線が GeoJSON path として描画される
         const pathCount = await page.locator('.leaflet-overlay-pane svg path').count();
         expect(pathCount).toBeGreaterThanOrEqual(2);
     });
 
     test('OSMマッチ路線のポップアップに事業者・状態・出典が表示される', async ({ page }) => {
         await mockBaseLiveApis(page, TRAIN_WITH_GINZA_SUSPENDED);
-        await page.route('/api/live/trains/osm**', r => r.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify(OVERPASS_WITH_GINZA),
+        await page.route(STATIC_URL, r => r.fulfill({
+            status: 200, contentType: 'application/geo+json',
+            body: JSON.stringify(STATIC_WITH_GINZA),
         }));
 
         await page.goto('/live.html');
         await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
 
-        const overpassPromise = page.waitForResponse('/api/live/trains/osm**', { timeout: 5000 });
+        const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 10));
         await page.locator('#toggle-train').check();
-        await overpassPromise;
+        await staticPromise;
         await page.waitForTimeout(200);
 
         const paths = page.locator('.leaflet-overlay-pane svg path.leaflet-interactive');
@@ -265,18 +266,18 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
 
     test('レイヤートグルOFFでOSM路線が非表示になる', async ({ page }) => {
         await mockBaseLiveApis(page, TRAIN_OK_EMPTY);
-        await page.route('/api/live/trains/osm**', r => r.fulfill({
-            status: 200, contentType: 'application/json',
-            body: JSON.stringify(OVERPASS_WITH_GINZA),
+        await page.route(STATIC_URL, r => r.fulfill({
+            status: 200, contentType: 'application/geo+json',
+            body: JSON.stringify(STATIC_WITH_GINZA),
         }));
 
         await page.goto('/live.html');
         await expect(page.locator('#live-train-card')).toContainText('交通影響', { timeout: 5000 });
 
-        const overpassPromise = page.waitForResponse('/api/live/trains/osm**', { timeout: 5000 });
-        await page.evaluate(() => window.liveMap.setZoom(9));
+        const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
+        await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 9));
         await page.locator('#toggle-train').check();
-        await overpassPromise;
+        await staticPromise;
         await page.waitForTimeout(200);
 
         const onCount = await page.locator('.leaflet-overlay-pane svg path').count();
@@ -290,7 +291,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
 
     test('liveTrainOsmLayer がグローバルに存在し公開APIを持つ', async ({ page }) => {
         await mockBaseLiveApis(page, TRAIN_OK_EMPTY);
-        await page.route('/api/live/trains/osm**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OVERPASS_EMPTY) }));
+        await page.route(STATIC_URL, r => r.fulfill({ status: 200, contentType: 'application/geo+json', body: JSON.stringify(STATIC_EMPTY) }));
         await page.goto('/live.html');
 
         const api = await page.evaluate(() => ({
@@ -303,7 +304,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
 
     test('liveTrainLayer に updateMatched が存在する', async ({ page }) => {
         await mockBaseLiveApis(page, TRAIN_OK_EMPTY);
-        await page.route('/api/live/trains/osm**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OVERPASS_EMPTY) }));
+        await page.route(STATIC_URL, r => r.fulfill({ status: 200, contentType: 'application/geo+json', body: JSON.stringify(STATIC_EMPTY) }));
         await page.goto('/live.html');
 
         const ok = await page.evaluate(() => typeof window.liveTrainLayer?.updateMatched === 'function');
