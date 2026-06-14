@@ -322,7 +322,10 @@
             getData:    _stormSurgeGetData,
         },
         train: {
-            setVisible: (v) => window.liveTrainLayer?.setVisible?.(v),
+            setVisible: (v) => {
+                window.liveTrainLayer?.setVisible?.(v);
+                window.liveTrainOsmLayer?.setVisible?.(v);
+            },
         },
     };
 

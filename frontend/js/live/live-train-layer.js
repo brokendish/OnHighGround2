@@ -31,6 +31,7 @@
     const _renderer   = L.svg();
     let   _enabled    = false;
     let   _lastItems  = [];
+    let   _matchedIds = new Set(); // OSMレイヤーでマッチ済みの railway_id
 
     // ── 描画 ─────────────────────────────────────────────────────────────────
 
@@ -101,6 +102,9 @@
             if (seen.has(item.railway_id)) return;
             seen.add(item.railway_id);
 
+            // OSMレイヤーで路線形状を表示済みならマーカー不要
+            if (_matchedIds.has(item.railway_id)) return;
+
             // 座標なし → スキップ（未対応事業者のフォールバック）
             if (item.lat == null || item.lng == null) return;
 
@@ -114,6 +118,15 @@
 
     function setData(items) {
         _lastItems = Array.isArray(items) ? items : [];
+        // OSMレイヤーに障害データを渡し、マッチした路線IDを同期取得
+        const matched = window.liveTrainOsmLayer?.setDisruptions?.(_lastItems);
+        _matchedIds = matched instanceof Set ? matched : new Set();
+        _render();
+    }
+
+    // OSMレイヤーがデータ取得後に呼び出す（マーカー表示の同期）
+    function updateMatched(matched) {
+        _matchedIds = matched instanceof Set ? matched : new Set();
         _render();
     }
 
@@ -138,6 +151,6 @@
             .openOn(liveMap);
     }
 
-    window.liveTrainLayer = { setData, setVisible, focusItem };
+    window.liveTrainLayer = { setData, setVisible, focusItem, updateMatched };
 
 })();

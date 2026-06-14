@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.services.live_train_service import build_train_summary
+from app.services.live_train_osm_service import get_osm_railways
 
 router = APIRouter(prefix="/api/live", tags=["live"])
 
@@ -34,3 +35,14 @@ async def get_train_summary(
     - stale cache 使用時は stale=true を付与
     """
     return await build_train_summary(lat=lat, lng=lng, prefecture=prefecture)
+
+
+@router.get("/trains/osm")
+async def get_train_osm(
+    south: float = Query(..., ge=-90, le=90),
+    west:  float = Query(..., ge=-180, le=180),
+    north: float = Query(..., ge=-90, le=90),
+    east:  float = Query(..., ge=-180, le=180),
+) -> Dict[str, Any]:
+    """表示範囲内の鉄道路線を Overpass 互換 JSON で返す。"""
+    return get_osm_railways(south=south, west=west, north=north, east=east)
