@@ -1,6 +1,6 @@
 'use strict';
 // live-main.js — /live エントリポイント
-// 読み込み順: live-map.js → live-layers.js → live-tide-layer.js → live-danger-summary.js → live-alert-panel.js → live-ui.js → live-main.js
+// 読み込み順: live-map.js → live-layers.js → 各 live-* layer/panel → live-ui.js → live-main.js
 
 (async function () {
 
@@ -11,10 +11,11 @@
 
     // 雨雲・地震・津波・高潮を並列取得。各 API の成否を個別に追跡する。
     // liveAlertPanel.update() は内部で allSettled を使い { tsunamiOk, eqOk } を返す。
-    const [alertResult, rainResult, stormSurgeResult] = await Promise.allSettled([
+    const [alertResult, rainResult, stormSurgeResult, trainResult] = await Promise.allSettled([
         liveAlertPanel.update(),
         liveLayers.rain.refresh(),
         liveLayers.stormSurge.refresh(),
+        liveTrainPanel.refresh(),
     ]);
 
     const rainOk       = rainResult.status === 'fulfilled';
@@ -29,6 +30,8 @@
         console.warn('[live] 警戒カード更新失敗:', alertResult.reason?.message);
     if (stormSurgeResult.status === 'rejected')
         console.warn('[live] 高潮更新失敗:', stormSurgeResult.reason?.message);
+    if (trainResult.status === 'rejected')
+        console.warn('[live] 鉄道運行更新失敗:', trainResult.reason?.message);
 
     // 雨雲状態をアラートパネルに反映（update() と並列だったため完了後に更新）
     liveAlertPanel.setStatus({ rain: rainOk ? 'ok' : 'offline' });
@@ -39,6 +42,7 @@
         tsunamiOk: alertStatus.tsunamiOk,
     });
     liveUI.updateStormSurgeStatus(stormSurgeOk);
+    liveUI.updateTrainStatus(trainResult.status === 'fulfilled');
     liveUI.hideLoading();
 
     // タイムライン初期化（雨雲が取得できた場合のみ）
@@ -76,5 +80,15 @@
         const el = document.getElementById('toggle-kikikuru');
         if (el && el.checked) liveLayers.kikikuru.setVisible(true);
     }, 10 * 60 * 1000);
+
+    // 鉄道運行: 3分ごと
+    setInterval(async () => {
+        try {
+            await liveTrainPanel.refresh();
+            liveUI.updateTrainStatus(true);
+        } catch (_) {
+            liveUI.updateTrainStatus(false);
+        }
+    }, 3 * 60 * 1000);
 
 })();

@@ -321,6 +321,9 @@
             refresh:    _stormSurgeRefresh,
             getData:    _stormSurgeGetData,
         },
+        train: {
+            setVisible: (v) => window.liveTrainLayer?.setVisible?.(v),
+        },
     };
 
 })();

@@ -28,6 +28,11 @@
         _bindToggle('toggle-tsunami',        (v) => liveLayers.tsunami.setVisible(v));
         _bindToggle('toggle-storm-surge',    (v) => liveLayers.stormSurge.setVisible(v));
         _bindToggle('toggle-tide',           (v) => liveTideLayer.setVisible(v));
+        _bindToggle('toggle-train',          (v) => {
+            liveLayers.train.setVisible(v);
+            const hint = document.getElementById('train-layer-hint');
+            if (hint) hint.classList.toggle('visible', v);
+        });
     }
 
     // ── ステータスバー ───────────────────────────────────────────────────────
@@ -42,6 +47,7 @@
         tsunamiOk:    null,
         stormSurgeOk: null,
         tideOk:       null,
+        trainOk:      null,
     };
 
     function _dot(ok) {
@@ -59,6 +65,7 @@
             <span class="live-status-item">${_dot(_currentStatus.tsunamiOk)} 津波</span>
             <span class="live-status-item">${_dot(_currentStatus.stormSurgeOk)} 高潮</span>
             <span class="live-status-item">${_dot(_currentStatus.tideOk)} 潮位</span>
+            <span class="live-status-item">${_dot(_currentStatus.trainOk)} 交通</span>
         `;
     }
 
@@ -95,6 +102,11 @@
         _renderStatus();
     }
 
+    function updateTrainStatus(ok) {
+        _currentStatus.trainOk = ok;
+        _renderStatus();
+    }
+
     function setUpdating() {
         if (!_statusBar) return;
         const dot = `<span class="live-status-dot updating"></span>`;
@@ -116,6 +128,7 @@
         updateKikikuruStatus,
         updateStormSurgeStatus,
         updateTideStatus,
+        updateTrainStatus,
         setUpdating,
         hideLoading,
     };

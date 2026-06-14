@@ -71,6 +71,21 @@ const STORM_SURGE_NONE = {
     areas: [],
 };
 
+const TRAIN_SUMMARY_EMPTY = {
+    status: 'ok',
+    stale: false,
+    scope: { mode: 'all' },
+    updated_at: '2026-06-14T20:00:00+09:00',
+    items: [],
+};
+
+async function mockTrainTraffic(page) {
+    await page.route('/api/live/trains/summary**', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body:   JSON.stringify(TRAIN_SUMMARY_EMPTY),
+    }));
+}
+
 async function mockLiveTraffic(page) {
     await page.route('/data/municipality_coords.json', route => route.fulfill({
         status:      200,
@@ -107,6 +122,7 @@ async function mockLiveTraffic(page) {
         contentType: 'application/json',
         body:        JSON.stringify(RAIN_TIMES),
     }));
+    await mockTrainTraffic(page);
     await page.route('**/jmatile/**', route => {
         if (route.request().url().includes('targetTimes.json')) {
             return route.fulfill({
@@ -272,6 +288,7 @@ async function mockLiveTrafficWith(page, { eqResponse = EQ_RESPONSE, tsunamiResp
         status: 200, contentType: 'application/json',
         body:   JSON.stringify(RAIN_TIMES),
     }));
+    await mockTrainTraffic(page);
     await page.route('**/jmatile/**', route => {
         if (route.request().url().includes('targetTimes.json')) {
             return route.fulfill({

@@ -72,6 +72,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # foot.lua をバックエンドから更新可能にする（rebuild_osrm_walking.py が書き込む）
       - ./osrm:/osrm
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DEM_FILE_PATH=/data_runtime/backend/elevation/elevation.tif
       - API_HOST=0.0.0.0

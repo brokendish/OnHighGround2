@@ -1,0 +1,172 @@
+/* live-train.css — 鉄道運行影響レイヤー スタイル */
+
+/* ── 交通影響カード ────────────────────────────────────────────────────────── */
+
+#live-train-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: #c9d1d9;
+    max-width: 280px;
+}
+
+.ltc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.ltc-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e6edf3;
+}
+
+/* 都道府県セレクター */
+.ltc-pref-select {
+    font-size: 11px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #c9d1d9;
+    padding: 2px 4px;
+    cursor: pointer;
+    max-width: 110px;
+}
+
+.ltc-pref-select:focus {
+    outline: none;
+    border-color: #58a6ff;
+}
+
+/* ── 路線リスト ────────────────────────────────────────────────────────────── */
+
+.ltc-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid #21262d;
+    font-size: 12px;
+}
+
+.ltc-item:last-of-type {
+    border-bottom: none;
+}
+
+.ltc-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 4px;
+    white-space: nowrap;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.ltc-badge-delay              { background: #b45309; }
+.ltc-badge-partial-suspension { background: #c2410c; }
+.ltc-badge-suspended          { background: #b91c1c; }
+.ltc-badge-unknown            { background: #374151; }
+
+.ltc-name {
+    flex: 1;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ltc-operator {
+    font-size: 10px;
+    color: #8b949e;
+    white-space: nowrap;
+}
+
+/* ── 状態メッセージ ──────────────────────────────────────────────────────── */
+
+.ltc-no-issue {
+    font-size: 12px;
+    color: #3fb950;
+    padding: 4px 0;
+}
+
+.ltc-unavailable {
+    font-size: 12px;
+    color: #8b949e;
+    padding: 4px 0;
+}
+
+.ltc-stale-notice {
+    font-size: 10px;
+    color: #e3b341;
+    padding: 4px 0;
+    border-top: 1px solid #21262d;
+    margin-top: 4px;
+}
+
+/* ── 地図レイヤー 路線色 ─────────────────────────────────────────────────── */
+
+/* Leaflet CircleMarker / Path に付与するクラス */
+.train-line-normal {
+    stroke: #6b7280;
+    fill: #6b7280;
+}
+
+.train-line-delay {
+    stroke: #d97706;
+    fill: #d97706;
+}
+
+.train-line-partial-suspension {
+    stroke: #ea580c;
+    fill: #ea580c;
+}
+
+.train-line-suspended {
+    stroke: #dc2626;
+    fill: #dc2626;
+}
+
+.train-line-unknown {
+    stroke: #9ca3af;
+    fill: #9ca3af;
+}
+
+.train-line-unavailable {
+    stroke: #6b7280;
+    fill: none;
+}
+
+/* ── レイヤーパネル内のヒント ──────────────────────────────────────────── */
+
+#train-layer-hint {
+    font-size: 10px;
+    color: #8b949e;
+    padding: 2px 0 0 18px;
+    display: none;
+}
+
+#train-layer-hint.visible {
+    display: block;
+}
+
+/* ── モバイル対応 ────────────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+    #live-train-card {
+        max-width: 100%;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        margin-top: 0;
+    }
+
+    .ltc-pref-select {
+        max-width: 90px;
+    }
+}

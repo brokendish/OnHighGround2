@@ -1,0 +1,443 @@
+# Claude用実装指示書
+
+## 総合災害ビューア全国監視 Phase 7-A
+
+## 鉄道運行影響レイヤー MVP
+
+### 目的
+
+`/live` に「鉄道運行影響レイヤー」を追加する。
+
+これは鉄道アプリではなく、災害発生時の行動判断を支援する交通影響レイヤーである。
+
+利用者が以下を判断できることを目的とする。
+
+* 帰宅を開始するか
+* 駅で待機するか
+* 別路線へ移動するか
+* 徒歩帰宅へ切り替えるか
+
+列車位置、乗換案内、経路検索、運賃計算は対象外とする。
+
+---
+
+## 基本方針
+
+### 重要方針
+
+首都圏限定にしない。
+
+`/live` は「全国災害ビューアLIVE」であるため、ODPTで取得可能な全国の鉄道運行情報を対象とする。
+
+ただし、UI負荷・描画負荷を避けるため、初期表示は現在地周辺とし、追加で都道府県選択を可能にする。
+
+---
+
+## データソース
+
+第一候補は ODPT。
+
+対象候補:
+
+* `odpt:TrainInformation`
+* `odpt:Railway`
+* 必要に応じて `odpt:Operator`
+
+実装時は必ず最新のODPT公式仕様を確認すること。
+
+APIキーは環境変数で管理する。
+
+例:
+
+```env
+ODPT_API_KEY=xxxxx
+ODPT_API_BASE_URL=https://api.odpt.org/api/v4
+```
+
+APIキー未設定時はアプリを落とさず、鉄道運行情報のみ取得不可として扱う。
+
+---
+
+## バックエンド実装
+
+### 追加候補ファイル
+
+```text
+backend/app/services/live_train_service.py
+backend/app/routers/live_train.py
+backend/app/models/live_train.py
+backend/app/config.py
+```
+
+既存構成に合わせて命名・配置すること。
+
+---
+
+## 正規化モデル
+
+ODPTの生データをそのままフロントへ返さない。
+
+内部では以下のような正規化形式にする。
+
+```json
+{
+  "railway_id": "odpt.Railway:Odakyu.Odawara",
+  "operator_id": "odpt.Operator:Odakyu",
+  "operator_name": "小田急電鉄",
+  "railway_name": "小田原線",
+  "status": "delay",
+  "status_label": "遅延",
+  "severity": 2,
+  "description": "一部列車に遅れが出ています",
+  "updated_at": "2026-06-14T18:00:00+09:00",
+  "source": "ODPT"
+}
+```
+
+---
+
+## 状態分類
+
+最低限、以下へ正規化する。
+
+```text
+normal              平常
+delay               遅延
+partial_suspension  一部運休
+suspended           運転見合わせ
+unknown             状態不明
+unavailable         取得不可
+```
+
+### severity
+
+```text
+0 normal
+1 unknown
+2 delay
+3 partial_suspension
+4 suspended
+9 unavailable
+```
+
+表示順は severity 降順、更新日時降順を基本とする。
+
+---
+
+## API
+
+### 追加API案
+
+```text
+GET /api/live/trains/summary
+```
+
+クエリ:
+
+```text
+lat
+lng
+prefecture
+```
+
+仕様:
+
+* `lat/lng` がある場合は現在地周辺扱い
+* `prefecture` がある場合は選択都道府県扱い
+* 両方ある場合は `prefecture` を優先してよい
+* 取得失敗時も HTTP 200 を返し、`status: "unavailable"` とする
+* API自体の異常時のみ 5xx
+
+レスポンス例:
+
+```json
+{
+  "status": "ok",
+  "scope": {
+    "mode": "prefecture",
+    "prefecture": "東京都"
+  },
+  "updated_at": "2026-06-14T18:00:00+09:00",
+  "items": [
+    {
+      "railway_id": "odpt.Railway:Keio.Keio",
+      "operator_name": "京王電鉄",
+      "railway_name": "京王線",
+      "status": "suspended",
+      "status_label": "運転見合わせ",
+      "severity": 4,
+      "description": "大雨の影響で運転を見合わせています",
+      "updated_at": "2026-06-14T17:58:00+09:00"
+    }
+  ]
+}
+```
+
+障害なし:
+
+```json
+{
+  "status": "ok",
+  "items": []
+}
+```
+
+取得不可:
+
+```json
+{
+  "status": "unavailable",
+  "message": "鉄道運行情報を取得できません",
+  "items": []
+}
+```
+
+---
+
+## キャッシュ
+
+ODPTへの過剰アクセスを避ける。
+
+MVPでは短期キャッシュを入れる。
+
+目安:
+
+```text
+TTL 60秒〜180秒
+```
+
+失敗時は stale cache があればそれを返し、`stale: true` を付与する。
+
+---
+
+## GeoJSON路線データ
+
+地図描画は GeoJSON ベースとする。
+
+MVPでは以下のどちらかでよい。
+
+1. 既存または作成済みの鉄道路線GeoJSONを利用
+2. ODPT Railway 情報から可能な範囲で路線情報を紐付け
+
+ただし、MVPでは完全な全国路線網の精密描画を必須にしない。
+
+優先は「運行影響の把握」であり、精密な鉄道GISではない。
+
+### GeoJSONプロパティ例
+
+```json
+{
+  "railway_id": "odpt.Railway:Keio.Keio",
+  "operator_name": "京王電鉄",
+  "railway_name": "京王線",
+  "prefecture": "東京都"
+}
+```
+
+---
+
+## フロント実装
+
+### 追加候補ファイル
+
+```text
+frontend/js/live/live-train-layer.js
+frontend/js/live/live-train-panel.js
+frontend/css/live/live-train.css
+```
+
+既存 `/live` の構成に合わせること。
+
+---
+
+## 情報パネル
+
+情報パネルに新規カードを追加する。
+
+タイトル:
+
+```text
+🚆 交通影響
+```
+
+表示ルール:
+
+### 障害あり
+
+障害あり路線のみ表示する。
+
+例:
+
+```text
+京王線　運転見合わせ
+小田急小田原線　遅延
+中央線快速　遅延
+```
+
+### 障害なし
+
+```text
+現在地周辺で運行障害は確認されていません
+```
+
+都道府県選択時:
+
+```text
+東京都で運行障害は確認されていません
+```
+
+### 取得失敗
+
+```text
+鉄道運行情報を取得できません
+```
+
+### stale cache
+
+```text
+鉄道運行情報：最新情報を取得できません。前回取得情報を表示しています
+```
+
+---
+
+## 地図レイヤー
+
+レイヤーパネルに以下を追加する。
+
+```text
+鉄道運行影響
+```
+
+初期状態は OFF でもよい。
+ただし、重大障害がある場合に情報カードから地図表示へ誘導できるとよい。
+
+---
+
+## 色分け
+
+```text
+normal              グレー
+delay               黄色
+partial_suspension  オレンジ
+suspended           赤
+unknown             薄グレー
+unavailable         破線グレー
+```
+
+CSS class 例:
+
+```text
+train-line-normal
+train-line-delay
+train-line-partial-suspension
+train-line-suspended
+train-line-unknown
+train-line-unavailable
+```
+
+地名や災害レイヤーを潰さないよう、線幅・不透明度は控えめにする。
+
+---
+
+## 都道府県選択
+
+情報パネルまたはレイヤーパネルに都道府県選択UIを追加する。
+
+最低限:
+
+```text
+現在地周辺
+東京都
+神奈川県
+大阪府
+福岡県
+...
+```
+
+MVPでは47都道府県すべてを選択可能にする。
+
+初期値:
+
+```text
+現在地周辺
+```
+
+現在地取得不可の場合は、東京都固定ではなく「都道府県を選択してください」または全国取得結果のうち障害ありのみの簡易表示にする。
+
+---
+
+## MVP対象外
+
+以下は実装しない。
+
+* 列車位置
+* 駅混雑情報
+* 乗換案内
+* 経路検索
+* 運賃計算
+* ダイヤ解析
+* 駅時刻表
+* 運休区間の精密判定
+* 復旧見込み時刻の高度解析
+
+理由:
+
+`/live` は災害監視ビューアであり、鉄道アプリではないため。
+
+---
+
+## エラー方針
+
+重要:
+
+取得失敗を「障害なし」と誤表示しない。
+
+以下を明確に分ける。
+
+```text
+障害なし
+取得不可
+状態不明
+```
+
+---
+
+## テスト追加
+
+最低限、以下を追加する。
+
+### backend
+
+* ODPTレスポンス正規化テスト
+* 遅延判定テスト
+* 運転見合わせ判定テスト
+* 一部運休判定テスト
+* 空配列時の障害なしテスト
+* APIキー未設定時の取得不可テスト
+* ODPT取得失敗時の stale cache テスト
+* prefecture 指定時の絞り込みテスト
+
+### frontend / e2e
+
+* 交通影響カード表示
+* 障害あり路線のみ表示
+* 障害なし文言表示
+* 取得失敗文言表示
+* 都道府県選択
+* 鉄道運行影響レイヤー ON/OFF
+* 状態別色分け
+* モバイル表示で横スクロールが出ないこと
+
+---
+
+## 完了条件
+
+* `/live` に「🚆 交通影響」カードが表示される
+* 障害あり路線のみ表示される
+* 障害なし・取得不可・状態不明が明確に分かれる
+* 鉄道運行影響レイヤーをON/OFFできる
+* 都道府県選択ができる
+* 選択範囲の路線がGeoJSONで描画される
+* 運行状態に応じて色分けされる
+* 既存の災害レイヤー、地震一覧、津波警報UI、危険地域ランキングを壊さない
+* テストが追加され、既存回帰がPASSする
