@@ -684,6 +684,13 @@ html, body {
     border-top:  1px solid rgba(48, 54, 61, 0.5);
     padding-bottom: 4px;
 }
+.llp-section-label {
+    font-size:  10px;
+    color:      #6e7681;
+    font-weight: 600;
+    margin-top:  2px;
+    margin-bottom: 1px;
+}
 
 /* ── ステータスドット（unknown 追加） ────────────────────────────────────────── */
 

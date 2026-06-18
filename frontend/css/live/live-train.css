@@ -58,6 +58,15 @@
     border-bottom: none;
 }
 
+.ltc-item-focusable {
+    cursor: pointer;
+}
+
+.ltc-item-focusable:hover {
+    background: rgba(88, 166, 255, 0.08);
+    border-radius: 4px;
+}
+
 .ltc-badge {
     font-size: 10px;
     font-weight: 600;

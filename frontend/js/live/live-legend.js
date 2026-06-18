@@ -32,11 +32,58 @@
         { lineColor: '#f97316', label: '高潮注意報対象の沿岸部', sub: '注意報発令区域（概略）' },
     ];
 
+    // 鉄道路線（路線色 + 障害状態の視覚表現）
+    const TRAIN_LINE_EXAMPLES = [
+        { lineColor: '#9ACD32', label: '山手線' },
+        { lineColor: '#F15A22', label: '中央線快速' },
+        { lineColor: '#00A7E3', label: '京浜東北線' },
+        { lineColor: '#F39700', label: '銀座線' },
+        { lineColor: '#E60012', label: '丸ノ内線' },
+        { lineColor: '#DD0077', label: '京王線' },
+        { lineColor: '#2288CC', label: '小田急線' },
+    ];
+    const TRAIN_STATUS_ROWS = [
+        { trainStatus: 'normal',             label: '通常',         sub: '細線・低透明度' },
+        { trainStatus: 'delay',              label: '遅延',         sub: '太線・黄ハロー' },
+        { trainStatus: 'partial_suspension', label: '一部運休',     sub: '破線・橙ハロー' },
+        { trainStatus: 'suspended',          label: '運転見合わせ', sub: '極太線・赤ハロー' },
+    ];
+
     // ── DOM 生成 ──────────────────────────────────────────────────────────────
+
+    function _trainStatusSwatch(status) {
+        const W = 32, H = 14, CY = 7;
+        if (status === 'normal') {
+            return `<svg class="llp-swatch-line" width="${W}" height="${H}" aria-hidden="true">` +
+                `<line x1="2" y1="${CY}" x2="${W-2}" y2="${CY}" stroke="#8FA3B0" stroke-width="1.8" stroke-opacity="0.55"/>` +
+                `</svg>`;
+        }
+        if (status === 'delay') {
+            return `<svg class="llp-swatch-line" width="${W}" height="${H}" aria-hidden="true">` +
+                `<line x1="2" y1="${CY}" x2="${W-2}" y2="${CY}" stroke="rgba(255,213,79,0.55)" stroke-width="6"/>` +
+                `<line x1="2" y1="${CY}" x2="${W-2}" y2="${CY}" stroke="#8FA3B0" stroke-width="3.5" stroke-opacity="0.95"/>` +
+                `</svg>`;
+        }
+        if (status === 'partial_suspension') {
+            return `<svg class="llp-swatch-line" width="${W}" height="${H}" aria-hidden="true">` +
+                `<line x1="2" y1="${CY}" x2="${W-2}" y2="${CY}" stroke="rgba(255,152,0,0.6)" stroke-width="7"/>` +
+                `<line x1="2" y1="${CY}" x2="${W-2}" y2="${CY}" stroke="#8FA3B0" stroke-width="4" stroke-opacity="0.95" stroke-dasharray="6 4"/>` +
+                `</svg>`;
+        }
+        if (status === 'suspended') {
+            return `<svg class="llp-swatch-line" width="${W}" height="${H}" aria-hidden="true">` +
+                `<line x1="2" y1="${CY}" x2="${W-2}" y2="${CY}" stroke="rgba(244,67,54,0.75)" stroke-width="8"/>` +
+                `<line x1="2" y1="${CY}" x2="${W-2}" y2="${CY}" stroke="#8FA3B0" stroke-width="4.5" stroke-opacity="1"/>` +
+                `</svg>`;
+        }
+        return '';
+    }
 
     function _row(r) {
         let swatch;
-        if (r.lineColor) {
+        if (r.trainStatus != null) {
+            swatch = _trainStatusSwatch(r.trainStatus);
+        } else if (r.lineColor) {
             // 折れ線スウォッチ（沿岸部ハイライト用）
             swatch = `<svg class="llp-swatch-line" width="24" height="14" aria-hidden="true">` +
                 `<line x1="2" y1="7" x2="22" y2="7" stroke="${r.lineColor}" stroke-width="3" stroke-dasharray="6 3"/>` +
@@ -54,6 +101,16 @@
         </div>`;
     }
 
+    function _trainLineExampleRow(r) {
+        const swatch = `<svg class="llp-swatch-line" width="32" height="14" aria-hidden="true">` +
+            `<line x1="2" y1="7" x2="30" y2="7" stroke="${r.lineColor}" stroke-width="3" stroke-opacity="0.85"/>` +
+            `</svg>`;
+        return `<div class="llp-row">` +
+            swatch +
+            `<div class="llp-text"><div class="llp-label">${r.label}</div></div>` +
+            `</div>`;
+    }
+
     function _buildPanel() {
         const el = document.createElement('div');
         el.id = 'live-legend-panel';
@@ -64,6 +121,7 @@
                     <button class="llp-tab is-active" data-tab="kikikuru">キキクル</button>
                     <button class="llp-tab"            data-tab="rain">雨雲</button>
                     <button class="llp-tab"            data-tab="storm-surge">高潮</button>
+                    <button class="llp-tab"            data-tab="train">鉄道</button>
                 </div>
                 <button class="llp-close" aria-label="凡例を閉じる">×</button>
             </div>
@@ -78,6 +136,13 @@
             <div class="llp-body" data-body="storm-surge" hidden>
                 ${STORM_SURGE_ROWS.map(_row).join('')}
                 <div class="llp-note">行政区域単位の警報発令エリアです。<br>高潮浸水範囲とは異なります。</div>
+            </div>
+            <div class="llp-body" data-body="train" hidden>
+                <div class="llp-section-label">路線色（抜粋）</div>
+                ${TRAIN_LINE_EXAMPLES.map(_trainLineExampleRow).join('')}
+                <div class="llp-section-label" style="margin-top:8px">運行状態</div>
+                ${TRAIN_STATUS_ROWS.map(_row).join('')}
+                <div class="llp-note">出典: ODPT 公共交通オープンデータ</div>
             </div>`;
         document.body.appendChild(el);
 

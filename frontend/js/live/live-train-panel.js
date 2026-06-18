@@ -62,8 +62,9 @@
                 // 障害あり路線のみ表示
                 items.forEach(item => {
                     const badgeClass = _BADGE_CLASS[item.status] || 'ltc-badge-unknown';
+                    const rid = String(item.railway_id || '').replace(/"/g, '&quot;');
                     html += `
-                        <div class="ltc-item">
+                        <div class="ltc-item ltc-item-focusable" data-railway-id="${rid}" title="地図で確認">
                             <span class="ltc-badge ${badgeClass}">${item.status_label}</span>
                             <span class="ltc-name">${item.railway_name}</span>
                             <span class="ltc-operator">${item.operator_name}</span>
@@ -83,6 +84,7 @@
 
         _card.innerHTML = html;
         _bindPrefChange();
+        _bindItemFocus();
     }
 
     function _scopeLabel(scope) {
@@ -112,6 +114,16 @@
         sel.addEventListener('change', () => {
             _currentPref = sel.value || null;
             refresh().catch(e => console.warn('[live-train] 更新失敗:', e.message));
+        });
+    }
+
+    function _bindItemFocus() {
+        if (!_card) return;
+        _card.querySelectorAll('.ltc-item-focusable').forEach(el => {
+            el.addEventListener('click', () => {
+                const rid = el.dataset.railwayId;
+                if (rid) window.liveTrainOsmLayer?.focusRailway?.(rid);
+            });
         });
     }
 

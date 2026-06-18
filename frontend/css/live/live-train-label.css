@@ -1,0 +1,74 @@
+/* live-train-label.css — 鉄道路線名・駅名ラベル */
+
+/* Leaflet divIcon ラッパー（透明にしてクリック干渉を防ぐ） */
+.tll-marker {
+    background: transparent !important;
+    border: none !important;
+}
+
+/* ── 路線名ラベル ─────────────────────────────────────────────────────────── */
+
+.tll-route-label {
+    display:         inline-flex;
+    align-items:     center;
+    gap:             4px;
+    background:      rgba(0, 0, 0, 0.62);
+    color:           #fff;
+    font-size:       10px;
+    font-weight:     600;
+    padding:         2px 6px;
+    border-radius:   4px;
+    white-space:     nowrap;
+    pointer-events:  none;
+    user-select:     none;
+    max-width:       150px;
+    overflow:        hidden;
+    text-overflow:   ellipsis;
+    line-height:     1.4;
+    letter-spacing:  0;
+}
+
+.tll-route-label.tll-disrupted {
+    font-weight:     700;
+    box-shadow:      0 0 6px rgba(0, 0, 0, 0.6);
+}
+
+/* 障害状態バッジ */
+.tll-status-badge {
+    font-size:       9px;
+    font-weight:     700;
+    background:      rgba(244, 67, 54, 0.9);
+    color:           #fff;
+    padding:         0 3px;
+    border-radius:   3px;
+    white-space:     nowrap;
+    flex-shrink:     0;
+}
+
+/* ── 駅名ラベル ──────────────────────────────────────────────────────────── */
+
+.tll-station-label {
+    background:      rgba(0, 0, 0, 0.52);
+    color:           #d0d0d0;
+    font-size:       9px;
+    font-weight:     500;
+    padding:         1px 4px;
+    border-radius:   3px;
+    white-space:     nowrap;
+    pointer-events:  none;
+    user-select:     none;
+    line-height:     1.4;
+}
+
+/* ── モバイル調整 ────────────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+    .tll-route-label {
+        font-size:  9px;
+        padding:    1px 5px;
+        max-width:  120px;
+    }
+    .tll-station-label {
+        font-size:  8px;
+    }
+}
