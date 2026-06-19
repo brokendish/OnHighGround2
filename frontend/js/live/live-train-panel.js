@@ -79,6 +79,8 @@
             html += `<div class="ltc-unavailable">鉄道運行情報を取得できません</div>`;
         }
 
+        html += `<div class="ltc-source-note">※ ODPT加盟事業者の路線のみ対応</div>`;
+
         // 地図レイヤーにデータを渡す
         window.liveTrainLayer?.setData?.(items);
 

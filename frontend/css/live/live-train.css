@@ -118,6 +118,14 @@
     margin-top: 4px;
 }
 
+.ltc-source-note {
+    font-size: 10px;
+    color: #484f58;
+    padding: 4px 0 0;
+    margin-top: 4px;
+    border-top: 1px solid #21262d;
+}
+
 /* ── 地図レイヤー 路線色 ─────────────────────────────────────────────────── */
 
 /* Leaflet CircleMarker / Path に付与するクラス */
