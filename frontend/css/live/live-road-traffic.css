@@ -1,0 +1,182 @@
+/* live-road-traffic.css — 道路交通影響レイヤー スタイル */
+
+/* ── 道路交通影響カード ────────────────────────────────────────────────────── */
+
+#live-traffic-cards {
+    position: fixed;
+    left: 12px;
+    bottom: 34px;
+    z-index: 1050;
+    width: min(280px, calc(100vw - 24px));
+    max-height: calc(100vh - 520px);
+    overflow-y: auto;
+}
+
+#live-traffic-cards #live-train-card,
+#live-traffic-cards #live-road-traffic-card {
+    max-width: none;
+}
+
+#live-road-traffic-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: #c9d1d9;
+    max-width: 280px;
+}
+
+.lrtc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.lrtc-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e6edf3;
+}
+
+/* ── 観測地点リスト ─────────────────────────────────────────────────────────── */
+
+.lrtc-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid #21262d;
+    font-size: 12px;
+    cursor: default;
+}
+
+.lrtc-item:last-of-type {
+    border-bottom: none;
+}
+
+.lrtc-road {
+    flex: 1;
+    color: #e6edf3;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lrtc-dir {
+    font-size: 11px;
+    color: #8b949e;
+    white-space: nowrap;
+}
+
+/* ── ステータスバッジ ────────────────────────────────────────────────────────── */
+
+.lrtc-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.lrtc-badge-very-high {
+    background: #dc2626;
+    color: #fff;
+}
+
+.lrtc-badge-high {
+    background: #d97706;
+    color: #fff;
+}
+
+.lrtc-badge-normal {
+    background: #238636;
+    color: #fff;
+}
+
+.lrtc-badge-low {
+    background: #1f6feb;
+    color: #fff;
+}
+
+.lrtc-badge-very-low {
+    background: #7c3aed;
+    color: #fff;
+}
+
+.lrtc-badge-unknown {
+    background: #6b7280;
+    color: #fff;
+}
+
+/* ── メッセージ ─────────────────────────────────────────────────────────────── */
+
+.lrtc-unavailable {
+    color: #8b949e;
+    font-size: 12px;
+    padding: 4px 0;
+}
+
+.lrtc-no-issue {
+    color: #3fb950;
+    font-size: 12px;
+    padding: 4px 0;
+}
+
+.lrtc-stale-notice {
+    color: #e3b341;
+    font-size: 11px;
+    margin-top: 6px;
+    padding: 3px 6px;
+    background: #21262d;
+    border-radius: 4px;
+}
+
+/* ── 凡例・注意書き ─────────────────────────────────────────────────────────── */
+
+.lrtc-legend {
+    margin-top: 6px;
+    padding: 4px 6px;
+    background: #21262d;
+    border-radius: 4px;
+    font-size: 10px;
+    color: #8b949e;
+    line-height: 1.5;
+}
+
+.lrtc-legend span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 3px;
+    vertical-align: middle;
+}
+
+/* ── レイヤーパネルヒント ───────────────────────────────────────────────────── */
+
+#road-traffic-layer-hint {
+    font-size: 10px;
+    color: #8b949e;
+    margin: 2px 0 4px 18px;
+}
+
+@media (max-width: 600px) {
+    #live-traffic-cards {
+        left: 8px;
+        bottom: 32px;
+        width: min(280px, calc(100vw - 16px));
+        max-height: 42vh;
+    }
+
+    #live-traffic-cards #live-train-card,
+    #live-traffic-cards #live-road-traffic-card {
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        margin-top: 6px;
+    }
+}

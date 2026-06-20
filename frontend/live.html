@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="/css/live/live.css" />
     <link rel="stylesheet" href="/css/live/live-train.css" />
     <link rel="stylesheet" href="/css/live/live-train-label.css" />
+    <link rel="stylesheet" href="/css/live/live-road-traffic.css" />
 </head>
 <body>
 
@@ -88,6 +89,11 @@
             鉄道運行影響
         </label>
         <div id="train-layer-hint">ODPT加盟路線のみ・障害発生時に路線を表示</div>
+        <label class="live-toggle">
+            <input type="checkbox" id="toggle-road-traffic">
+            道路交通影響
+        </label>
+        <div id="road-traffic-layer-hint">交通量APIに基づく観測点表示</div>
         <hr class="live-panel-sep">
         <div id="live-sun-moon-card">
             <div class="live-panel-title">日月情報</div>
@@ -98,8 +104,13 @@
     <!-- アクティブ警戒カード（左上） -->
     <div id="live-alert-card"></div>
 
-    <!-- 交通影響カード（Phase 7-A） -->
-    <div id="live-train-card"></div>
+    <div id="live-traffic-cards" aria-label="交通影響情報">
+        <!-- 交通影響カード（Phase 7-A） -->
+        <div id="live-train-card"></div>
+
+        <!-- 道路交通影響カード（Phase 7-B） -->
+        <div id="live-road-traffic-card"></div>
+    </div>
 
     <!-- ステータスバー（下部） -->
     <div id="live-status-bar"></div>
@@ -125,6 +136,8 @@
     <script src="/js/live/live-train-layer.js"></script>
     <script src="/js/live/live-train-panel.js"></script>
     <script src="/js/live/live-train-label-layer.js"></script>
+    <script src="/js/live/live-road-traffic-layer.js"></script>
+    <script src="/js/live/live-road-traffic-panel.js"></script>
     <script src="/js/live/live-rain-timeline.js"></script>
     <script src="/js/live/live-main.js"></script>
     <script src="/js/live/live-mobile.js"></script>

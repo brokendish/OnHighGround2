@@ -327,6 +327,11 @@
                 window.liveTrainOsmLayer?.setVisible?.(v);
             },
         },
+        roadTraffic: {
+            setVisible: (v) => {
+                window.liveRoadTrafficLayer?.setVisible?.(v);
+            },
+        },
     };
 
 })();

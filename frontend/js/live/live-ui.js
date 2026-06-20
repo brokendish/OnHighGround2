@@ -33,6 +33,9 @@
             const hint = document.getElementById('train-layer-hint');
             if (hint) hint.classList.toggle('visible', v);
         });
+        _bindToggle('toggle-road-traffic',   (v) => {
+            liveLayers.roadTraffic.setVisible(v);
+        });
     }
 
     // ── ステータスバー ───────────────────────────────────────────────────────
@@ -41,13 +44,14 @@
 
     // null = unknown（未確認）、true = ok、false = offline
     const _currentStatus = {
-        rainOk:       null,
-        kikikuruOk:   null,
-        eqOk:         null,
-        tsunamiOk:    null,
-        stormSurgeOk: null,
-        tideOk:       null,
-        trainOk:      null,
+        rainOk:         null,
+        kikikuruOk:     null,
+        eqOk:           null,
+        tsunamiOk:      null,
+        stormSurgeOk:   null,
+        tideOk:         null,
+        trainOk:        null,
+        roadTrafficOk:  null,
     };
 
     function _dot(ok) {
@@ -65,7 +69,8 @@
             <span class="live-status-item">${_dot(_currentStatus.tsunamiOk)} 津波</span>
             <span class="live-status-item">${_dot(_currentStatus.stormSurgeOk)} 高潮</span>
             <span class="live-status-item">${_dot(_currentStatus.tideOk)} 潮位</span>
-            <span class="live-status-item">${_dot(_currentStatus.trainOk)} 交通</span>
+            <span class="live-status-item">${_dot(_currentStatus.trainOk)} 鉄道</span>
+            <span class="live-status-item">${_dot(_currentStatus.roadTrafficOk)} 道路</span>
         `;
     }
 
@@ -107,6 +112,11 @@
         _renderStatus();
     }
 
+    function updateRoadTrafficStatus(ok) {
+        _currentStatus.roadTrafficOk = ok;
+        _renderStatus();
+    }
+
     function setUpdating() {
         if (!_statusBar) return;
         const dot = `<span class="live-status-dot updating"></span>`;
@@ -129,6 +139,7 @@
         updateStormSurgeStatus,
         updateTideStatus,
         updateTrainStatus,
+        updateRoadTrafficStatus,
         setUpdating,
         hideLoading,
     };

@@ -11,11 +11,12 @@
 
     // 雨雲・地震・津波・高潮を並列取得。各 API の成否を個別に追跡する。
     // liveAlertPanel.update() は内部で allSettled を使い { tsunamiOk, eqOk } を返す。
-    const [alertResult, rainResult, stormSurgeResult, trainResult] = await Promise.allSettled([
+    const [alertResult, rainResult, stormSurgeResult, trainResult, roadTrafficResult] = await Promise.allSettled([
         liveAlertPanel.update(),
         liveLayers.rain.refresh(),
         liveLayers.stormSurge.refresh(),
         liveTrainPanel.refresh(),
+        liveRoadTrafficPanel.refresh(),
     ]);
 
     const rainOk       = rainResult.status === 'fulfilled';
@@ -32,6 +33,8 @@
         console.warn('[live] 高潮更新失敗:', stormSurgeResult.reason?.message);
     if (trainResult.status === 'rejected')
         console.warn('[live] 鉄道運行更新失敗:', trainResult.reason?.message);
+    if (roadTrafficResult.status === 'rejected')
+        console.warn('[live] 道路交通更新失敗:', roadTrafficResult.reason?.message);
 
     // 雨雲状態をアラートパネルに反映（update() と並列だったため完了後に更新）
     liveAlertPanel.setStatus({ rain: rainOk ? 'ok' : 'offline' });
@@ -43,6 +46,7 @@
     });
     liveUI.updateStormSurgeStatus(stormSurgeOk);
     liveUI.updateTrainStatus(trainResult.status === 'fulfilled');
+    liveUI.updateRoadTrafficStatus(roadTrafficResult.status === 'fulfilled');
     liveUI.hideLoading();
 
     // タイムライン初期化（雨雲が取得できた場合のみ）
@@ -90,5 +94,15 @@
             liveUI.updateTrainStatus(false);
         }
     }, 3 * 60 * 1000);
+
+    // 道路交通: 5分ごと（APIキャッシュTTLに合わせる）
+    setInterval(async () => {
+        try {
+            await liveRoadTrafficPanel.refresh();
+            liveUI.updateRoadTrafficStatus(true);
+        } catch (_) {
+            liveUI.updateRoadTrafficStatus(false);
+        }
+    }, 5 * 60 * 1000);
 
 })();
