@@ -343,6 +343,20 @@ html, body {
     overflow-y: auto;
 }
 
+/* ── 交通情報セクション（アラートパネル内統合） ─────────────────────────────── */
+
+.lac-traffic-section {
+    border-top: 1px solid rgba(48, 54, 61, 0.9);
+    margin-top: 6px;
+    padding-top: 4px;
+}
+
+#lac-train-slot {
+    font-size: 13px;
+    color: #c9d1d9;
+    padding: 4px 0 2px;
+}
+
 /* ── 空状態・オフラインメッセージ ────────────────────────────────────────────── */
 
 .lac-allclear {

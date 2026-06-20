@@ -17,15 +17,21 @@
 
     // ── 内部状態 ──────────────────────────────────────────────────────────────
 
-    let _userLat = null;
-    let _userLng = null;
+    let _userLat  = null;
+    let _userLng  = null;
+    let _lastData = null;
 
-    const _card = document.getElementById('live-road-traffic-card');
+    // アラートパネルに統合されたスロットを動的に取得（innerHTML 再描画に対応）
+    function _getCard() {
+        return document.getElementById('lac-road-slot');
+    }
 
     // ── レンダリング ─────────────────────────────────────────────────────────
 
     function _render(data) {
-        if (!_card) return;
+        _lastData = data;
+        const card = _getCard();
+        if (!card) return;  // スロットがまだ DOM にない → _lastData に保持して待機
 
         const status = data?.status;
         // normal は原則ランキング対象外（目立った影響なし扱い）
@@ -78,7 +84,7 @@
         // 地図レイヤーにデータを渡す（全データ）
         window.liveRoadTrafficLayer?.setData?.(data?.items || []);
 
-        _card.innerHTML = html;
+        card.innerHTML = html;
     }
 
     function _scopeLabel(scope) {
@@ -124,6 +130,11 @@
         _userLng = lng;
     }
 
-    window.liveRoadTrafficPanel = { refresh, setLocation };
+    // アラートパネルが再描画した後に呼ばれる：_lastData を新しいスロットへ再注入
+    function renderInto(_slotId) {
+        if (_lastData) _render(_lastData);
+    }
+
+    window.liveRoadTrafficPanel = { refresh, setLocation, renderInto };
 
 })();

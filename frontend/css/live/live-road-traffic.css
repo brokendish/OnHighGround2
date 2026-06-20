@@ -1,31 +1,13 @@
 /* live-road-traffic.css — 道路交通影響レイヤー スタイル */
 
-/* ── 道路交通影響カード ────────────────────────────────────────────────────── */
+/* ── 道路交通影響カード（左パネル統合版） ──────────────────────────────────── */
 
-#live-traffic-cards {
-    position: fixed;
-    left: 12px;
-    bottom: 34px;
-    z-index: 1050;
-    width: min(280px, calc(100vw - 24px));
-    max-height: calc(100vh - 520px);
-    overflow-y: auto;
-}
-
-#live-traffic-cards #live-train-card,
-#live-traffic-cards #live-road-traffic-card {
-    max-width: none;
-}
-
-#live-road-traffic-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 10px 12px;
-    margin-top: 8px;
+#lac-road-slot {
     font-size: 13px;
     color: #c9d1d9;
-    max-width: 280px;
+    padding: 4px 0 2px;
+    border-top: 1px solid rgba(48, 54, 61, 0.7);
+    margin-top: 4px;
 }
 
 .lrtc-header {
@@ -165,18 +147,3 @@
     margin: 2px 0 4px 18px;
 }
 
-@media (max-width: 600px) {
-    #live-traffic-cards {
-        left: 8px;
-        bottom: 32px;
-        width: min(280px, calc(100vw - 16px));
-        max-height: 42vh;
-    }
-
-    #live-traffic-cards #live-train-card,
-    #live-traffic-cards #live-road-traffic-card {
-        border: 1px solid #30363d;
-        border-radius: 8px;
-        margin-top: 6px;
-    }
-}

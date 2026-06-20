@@ -151,12 +151,16 @@
         // 危険地域ランキング（統合表示優先、フォールバックは従来表示）
         html += _dangerListHtml(dangerAreas, summary.integrated_dangerous_regions);
 
+        // 交通情報スロット（鉄道・道路）
+        html += `<div class="lac-traffic-section"><div id="lac-train-slot"></div><div id="lac-road-slot"></div></div>`;
+
         const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
         html += `<div class="lac-updated">更新 ${now}</div>`;
 
         _card.innerHTML = html;
         _card.classList.toggle('is-minimized', _minimized);
         _bindFocusClicks();
+        _refreshTrafficSlots();
     }
 
     // ── フォールバックレンダリング（summary API 不使用時）────────────────────
@@ -231,12 +235,16 @@
 
         html += _dangerListHtml(dangerousAreas);
 
+        // 交通情報スロット（鉄道・道路）
+        html += `<div class="lac-traffic-section"><div id="lac-train-slot"></div><div id="lac-road-slot"></div></div>`;
+
         const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
         html += `<div class="lac-updated">更新 ${now}</div>`;
 
         _card.innerHTML = html;
         _card.classList.toggle('is-minimized', _minimized);
         _bindFocusClicks();
+        _refreshTrafficSlots();
     }
 
     // ── 地震一覧ヘルパー ─────────────────────────────────────────────────────────
@@ -421,6 +429,13 @@
                 </div>`;
         });
         return html + `</div>`;
+    }
+
+    // ── 交通スロット再描画 ───────────────────────────────────────────────────
+
+    function _refreshTrafficSlots() {
+        window.liveTrainPanel?.renderInto?.('lac-train-slot');
+        window.liveRoadTrafficPanel?.renderInto?.('lac-road-slot');
     }
 
     // ── 強調リング（CircleMarker、4秒後に自動削除） ─────────────────────────

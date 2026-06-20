@@ -33,13 +33,17 @@
     let _userLat      = null;
     let _userLng      = null;
 
-    const _card = document.getElementById('live-train-card');
+    // アラートパネルに統合されたスロットを動的に取得（innerHTML 再描画に対応）
+    function _getCard() {
+        return document.getElementById('lac-train-slot');
+    }
 
     // ── レンダリング ─────────────────────────────────────────────────────────
 
     function _render(data) {
-        if (!_card) return;
         _lastData = data;
+        const card = _getCard();
+        if (!card) return;  // スロットがまだ DOM にない → _lastData に保持して待機
 
         const status = data?.status;
         const items  = (data?.items || []).filter(item => item?.status && item.status !== 'normal');
@@ -84,9 +88,9 @@
         // 地図レイヤーにデータを渡す
         window.liveTrainLayer?.setData?.(items);
 
-        _card.innerHTML = html;
+        card.innerHTML = html;
         _bindPrefChange();
-        _bindItemFocus();
+        _bindItemFocus(card);
     }
 
     function _scopeLabel(scope) {
@@ -119,9 +123,9 @@
         });
     }
 
-    function _bindItemFocus() {
-        if (!_card) return;
-        _card.querySelectorAll('.ltc-item-focusable').forEach(el => {
+    function _bindItemFocus(card) {
+        if (!card) return;
+        card.querySelectorAll('.ltc-item-focusable').forEach(el => {
             el.addEventListener('click', () => {
                 const rid = el.dataset.railwayId;
                 if (rid) window.liveTrainOsmLayer?.focusRailway?.(rid);
@@ -166,6 +170,11 @@
         _currentPref = pref || null;
     }
 
-    window.liveTrainPanel = { refresh, setLocation, setPrefecture };
+    // アラートパネルが再描画した後に呼ばれる：_lastData を新しいスロットへ再注入
+    function renderInto(_slotId) {
+        if (_lastData) _render(_lastData);
+    }
+
+    window.liveTrainPanel = { refresh, setLocation, setPrefecture, renderInto };
 
 })();

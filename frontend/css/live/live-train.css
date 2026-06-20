@@ -1,17 +1,6 @@
 /* live-train.css — 鉄道運行影響レイヤー スタイル */
 
-/* ── 交通影響カード ────────────────────────────────────────────────────────── */
-
-#live-train-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 10px 12px;
-    margin-top: 8px;
-    font-size: 13px;
-    color: #c9d1d9;
-    max-width: 280px;
-}
+/* ── 交通影響カード（左パネル統合版：#lac-train-slot に注入） ─────────────── */
 
 .ltc-header {
     display: flex;
@@ -175,14 +164,6 @@
 /* ── モバイル対応 ────────────────────────────────────────────────────────── */
 
 @media (max-width: 600px) {
-    #live-train-card {
-        max-width: 100%;
-        border-radius: 0;
-        border-left: none;
-        border-right: none;
-        margin-top: 0;
-    }
-
     .ltc-pref-select {
         max-width: 90px;
     }
