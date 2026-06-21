@@ -123,3 +123,4 @@ tasks/screenshots
 # ---- live screenshots ----
 tasks/live/verification_screenshots
 tasks/live/*.png
+tasks/live/*/*.png
