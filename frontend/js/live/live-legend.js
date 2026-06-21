@@ -32,6 +32,20 @@
         { lineColor: '#f97316', label: '高潮注意報対象の沿岸部', sub: '注意報発令区域（概略）' },
     ];
 
+    // 道路ネットワーク（道路種別 + 交通量観測点状態）
+    const ROAD_CLASS_ROWS = [
+        { lineColor: '#43A047', solid: true, label: '高速道路',             sub: 'motorway' },
+        { lineColor: '#66BB6A', solid: true, label: '自動車専用道・主要幹線', sub: 'trunk' },
+        { lineColor: '#1E88E5', solid: true, label: '国道級',               sub: 'primary' },
+    ];
+    const ROAD_VOLUME_ROWS = [
+        { color: '#dc2626', label: '交通量非常に多い', sub: '通行止めではありません' },
+        { color: '#d97706', label: '交通量やや多い',   sub: '' },
+        { color: '#22c55e', label: '通常',             sub: '' },
+        { color: '#1f6feb', label: '交通量少ない',     sub: '' },
+        { color: '#9ca3af', label: '不明・データなし', sub: '' },
+    ];
+
     // 鉄道路線（路線色 + 障害状態の視覚表現）
     const TRAIN_LINE_EXAMPLES = [
         { lineColor: '#9ACD32', label: '山手線' },
@@ -83,6 +97,11 @@
         let swatch;
         if (r.trainStatus != null) {
             swatch = _trainStatusSwatch(r.trainStatus);
+        } else if (r.lineColor && r.solid) {
+            // 実線スウォッチ（道路クラス用）
+            swatch = `<svg class="llp-swatch-line" width="32" height="14" aria-hidden="true">` +
+                `<line x1="2" y1="7" x2="30" y2="7" stroke="${r.lineColor}" stroke-width="3" stroke-opacity="0.85"/>` +
+                `</svg>`;
         } else if (r.lineColor) {
             // 折れ線スウォッチ（沿岸部ハイライト用）
             swatch = `<svg class="llp-swatch-line" width="24" height="14" aria-hidden="true">` +
@@ -122,6 +141,7 @@
                     <button class="llp-tab"            data-tab="rain">雨雲</button>
                     <button class="llp-tab"            data-tab="storm-surge">高潮</button>
                     <button class="llp-tab"            data-tab="train">鉄道</button>
+                    <button class="llp-tab"            data-tab="road">道路</button>
                 </div>
                 <button class="llp-close" aria-label="凡例を閉じる">×</button>
             </div>
@@ -143,6 +163,13 @@
                 <div class="llp-section-label" style="margin-top:8px">運行状態</div>
                 ${TRAIN_STATUS_ROWS.map(_row).join('')}
                 <div class="llp-note">出典: ODPT 公共交通オープンデータ</div>
+            </div>
+            <div class="llp-body" data-body="road" hidden>
+                <div class="llp-section-label">道路種別</div>
+                ${ROAD_CLASS_ROWS.map(_row).join('')}
+                <div class="llp-section-label" style="margin-top:8px">交通量観測点</div>
+                ${ROAD_VOLUME_ROWS.map(_row).join('')}
+                <div class="llp-note">交通量APIの値から推定した交通影響であり、<br>通行止め・規制を断定するものではありません。<br>道路ネットワーク出典: OpenStreetMap</div>
             </div>`;
         document.body.appendChild(el);
 

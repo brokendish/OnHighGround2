@@ -6,12 +6,13 @@
 
     let _marker        = null;
     let _accCircle     = null;
+    let _btn           = null;
 
     const _icon = L.divIcon({
         className:  '',
         html:       '<div class="live-location-dot"></div>',
-        iconSize:   [18, 18],   // dot 本体のサイズ（pulse ring は box-shadow で画面外に広がる）
-        iconAnchor: [9, 9],    // 中心に固定
+        iconSize:   [18, 18],
+        iconAnchor: [9, 9],
     });
 
     function _update(pos) {
@@ -22,7 +23,7 @@
         if (!_marker) {
             _marker = L.marker([lat, lng], {
                 icon:          _icon,
-                zIndexOffset:  1000,
+                zIndexOffset:  100000,  // 道路ラベル等の前面に確実に表示
                 interactive:   false,
             }).addTo(liveMap);
         } else {
@@ -44,9 +45,23 @@
                 _accCircle.setRadius(acc);
             }
         }
+
+        // ボタンのエラー表示を解除
+        if (_btn) {
+            _btn.classList.remove('live-locate-btn--error');
+            _btn.title = '現在地に移動';
+        }
     }
 
-    function _noop() {}
+    function _onError(err) {
+        if (!_btn) return;
+        // GeolocationPositionError: 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE, 3=TIMEOUT
+        const msg = err.code === 1 ? '位置情報の許可が必要です'
+                  : err.code === 2 ? '位置情報を取得できません'
+                  : '位置情報の取得がタイムアウトしました';
+        _btn.classList.add('live-locate-btn--error');
+        _btn.title = msg;
+    }
 
     // ── 現在地ボタン（レイヤーパネル下部）──────────────────────────────────
 
@@ -55,11 +70,11 @@
         const sep = document.createElement('hr');
         sep.className = 'live-panel-sep';
 
-        const btn = document.createElement('button');
-        btn.className = 'live-locate-btn';
-        btn.title = '現在地を表示';
-        btn.setAttribute('aria-label', '現在地を表示');
-        btn.innerHTML =
+        _btn = document.createElement('button');
+        _btn.className = 'live-locate-btn';
+        _btn.title = '現在地を表示';
+        _btn.setAttribute('aria-label', '現在地を表示');
+        _btn.innerHTML =
             '<svg viewBox="0 0 24 24" width="15" height="15" fill="none"' +
             ' stroke="currentColor" stroke-width="2"' +
             ' stroke-linecap="round" stroke-linejoin="round">' +
@@ -69,25 +84,30 @@
             '</svg>' +
             '<span>現在地</span>';
 
-        btn.addEventListener('click', (e) => {
+        _btn.addEventListener('click', (e) => {
             e.stopPropagation();
             if (_marker) {
                 liveMap.setView(_marker.getLatLng(), Math.max(liveMap.getZoom(), 11));
                 return;
             }
-            navigator.geolocation?.getCurrentPosition((pos) => {
+            if (!navigator.geolocation) {
+                _btn.classList.add('live-locate-btn--error');
+                _btn.title = 'このブラウザは位置情報に対応していません';
+                return;
+            }
+            navigator.geolocation.getCurrentPosition((pos) => {
                 _update(pos);
                 liveMap.setView([pos.coords.latitude, pos.coords.longitude], 12);
-            }, _noop, { enableHighAccuracy: true, timeout: 10000 });
+            }, _onError, { enableHighAccuracy: true, timeout: 10000 });
         });
 
         _panel.appendChild(sep);
-        _panel.appendChild(btn);
+        _panel.appendChild(_btn);
     }
 
     // 自動開始（許可済みの場合は即パルス表示）
     if ('geolocation' in navigator) {
-        navigator.geolocation.watchPosition(_update, _noop, {
+        navigator.geolocation.watchPosition(_update, _onError, {
             enableHighAccuracy: true,
             timeout:            15000,
             maximumAge:         30000,

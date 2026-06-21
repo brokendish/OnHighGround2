@@ -79,10 +79,21 @@ const TRAIN_SUMMARY_EMPTY = {
     items: [],
 };
 
+const ROAD_TRAFFIC_NONE = {
+    status: 'ok', stale: false,
+    scope: { mode: 'prefecture', prefecture: '東京都' },
+    updated_at: '2026-06-21T10:00:00+09:00',
+    items: [],
+};
+
 async function mockTrainTraffic(page) {
     await page.route('/api/live/trains/summary**', route => route.fulfill({
         status: 200, contentType: 'application/json',
         body:   JSON.stringify(TRAIN_SUMMARY_EMPTY),
+    }));
+    await page.route('/api/live/road-traffic/summary**', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body:   JSON.stringify(ROAD_TRAFFIC_NONE),
     }));
 }
 

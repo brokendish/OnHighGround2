@@ -586,6 +586,18 @@ html, body {
     color:      #58a6ff;
 }
 
+.live-locate-btn--error {
+    color:        #f85149;
+    border-color: rgba(248, 81, 73, 0.4);
+}
+
+.live-locate-btn--error:hover,
+.live-locate-btn--error:active {
+    background:   rgba(248, 81, 73, 0.1);
+    color:        #f85149;
+    border-color: rgba(248, 81, 73, 0.6);
+}
+
 /* ── 凡例ボタン（レイヤーパネル内） ──────────────────────────────────────────── */
 
 .live-legend-btn {

@@ -329,6 +329,7 @@
         },
         roadTraffic: {
             setVisible: (v) => {
+                window.liveRoadOsmLayer?.setVisible?.(v);
                 window.liveRoadTrafficLayer?.setVisible?.(v);
             },
         },
