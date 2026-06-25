@@ -32,6 +32,7 @@
     let _lastData     = null;   // 最後に取得した API レスポンス
     let _userLat      = null;
     let _userLng      = null;
+    const _itemMap    = new Map(); // railway_id → item（詳細モーダル用）
 
     // アラートパネルに統合されたスロットを動的に取得（innerHTML 再描画に対応）
     function _getCard() {
@@ -49,6 +50,10 @@
         const items  = (data?.items || []).filter(item => item?.status && item.status !== 'normal');
         const stale  = data?.stale === true;
         const scope  = data?.scope || {};
+
+        // 詳細モーダル用マップを更新
+        _itemMap.clear();
+        items.forEach(item => _itemMap.set(item.railway_id, item));
 
         let html = `<div class="ltc-header">
             <span class="ltc-title">🚆 交通影響</span>
@@ -72,6 +77,7 @@
                             <span class="ltc-badge ${badgeClass}">${item.status_label}</span>
                             <span class="ltc-name">${item.railway_name}</span>
                             <span class="ltc-operator">${item.operator_name}</span>
+                            <button class="ltc-detail-btn" data-railway-id="${rid}">詳細</button>
                         </div>`;
                 });
             }
@@ -123,10 +129,82 @@
         });
     }
 
+    function _esc(v) {
+        return String(v ?? '').replace(/[&<>"']/g, c => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+    }
+
+    function _closeDetailModal() {
+        document.getElementById('ltc-detail-modal')?.remove();
+    }
+
+    function _showDetailModal(item) {
+        _closeDetailModal();
+
+        const statusClass = _BADGE_CLASS[item.status] || 'ltc-badge-unknown';
+        const descRow = item.description
+            ? `<div class="ltc-detail-row">
+                   <span class="ltc-detail-label">説明</span>
+                   <span class="ltc-detail-value ltc-detail-desc">${_esc(item.description)}</span>
+               </div>`
+            : '';
+        const rid = _esc(item.railway_id || '');
+
+        const modal = document.createElement('div');
+        modal.id = 'ltc-detail-modal';
+        modal.className = 'ltc-detail-overlay';
+        modal.innerHTML = `
+            <div class="ltc-detail-card">
+                <div class="ltc-detail-header">
+                    <div class="ltc-detail-title">
+                        <span class="ltc-badge ${statusClass}">${_esc(item.status_label)}</span>
+                        <span class="ltc-detail-name">${_esc(item.railway_name)}</span>
+                    </div>
+                    <button class="ltc-detail-close" aria-label="閉じる">✕</button>
+                </div>
+                <div class="ltc-detail-body">
+                    <div class="ltc-detail-row">
+                        <span class="ltc-detail-label">事業者</span>
+                        <span class="ltc-detail-value">${_esc(item.operator_name)}</span>
+                    </div>
+                    ${descRow}
+                    <div class="ltc-detail-row">
+                        <span class="ltc-detail-label">更新時刻</span>
+                        <span class="ltc-detail-value">${_esc(item.updated_at || '—')}</span>
+                    </div>
+                    <div class="ltc-detail-row">
+                        <span class="ltc-detail-label">出典</span>
+                        <span class="ltc-detail-value">${_esc(item.source || 'ODPT')}</span>
+                    </div>
+                </div>
+                <div class="ltc-detail-footer">
+                    <button class="ltc-detail-map-btn" data-railway-id="${rid}">🗺 地図で見る</button>
+                </div>
+            </div>`;
+
+        document.body.appendChild(modal);
+
+        modal.addEventListener('click', e => { if (e.target === modal) _closeDetailModal(); });
+        modal.querySelector('.ltc-detail-close').addEventListener('click', _closeDetailModal);
+        modal.querySelector('.ltc-detail-map-btn').addEventListener('click', () => {
+            window.liveTrainOsmLayer?.focusRailway?.(item.railway_id);
+            _closeDetailModal();
+        });
+    }
+
     function _bindItemFocus(card) {
         if (!card) return;
+        card.querySelectorAll('.ltc-detail-btn').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                const item = _itemMap.get(btn.dataset.railwayId);
+                if (item) _showDetailModal(item);
+            });
+        });
         card.querySelectorAll('.ltc-item-focusable').forEach(el => {
-            el.addEventListener('click', () => {
+            el.addEventListener('click', e => {
+                if (e.target.closest('.ltc-detail-btn')) return;
                 const rid = el.dataset.railwayId;
                 if (rid) window.liveTrainOsmLayer?.focusRailway?.(rid);
             });

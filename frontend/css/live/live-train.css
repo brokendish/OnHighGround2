@@ -161,10 +161,160 @@
     display: block;
 }
 
+/* ── 詳細ボタン ──────────────────────────────────────────────────────────── */
+
+.ltc-detail-btn {
+    font-size: 10px;
+    padding: 2px 7px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #8b949e;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1.6;
+}
+
+.ltc-detail-btn:hover,
+.ltc-detail-btn:active {
+    background: #2d333b;
+    color: #c9d1d9;
+    border-color: #58a6ff;
+}
+
+/* ── 詳細モーダル ─────────────────────────────────────────────────────────── */
+
+.ltc-detail-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 9990;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px 16px;
+}
+
+.ltc-detail-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 360px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.ltc-detail-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid #21262d;
+    gap: 8px;
+}
+
+.ltc-detail-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+.ltc-detail-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e6edf3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ltc-detail-close {
+    background: none;
+    border: none;
+    color: #8b949e;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 0 0 8px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.ltc-detail-close:hover {
+    color: #e6edf3;
+}
+
+.ltc-detail-body {
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ltc-detail-row {
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+    align-items: flex-start;
+}
+
+.ltc-detail-label {
+    color: #8b949e;
+    white-space: nowrap;
+    min-width: 56px;
+    flex-shrink: 0;
+}
+
+.ltc-detail-value {
+    color: #c9d1d9;
+    flex: 1;
+    word-break: break-all;
+}
+
+.ltc-detail-desc {
+    line-height: 1.5;
+}
+
+.ltc-detail-footer {
+    padding: 8px 14px 12px;
+    border-top: 1px solid #21262d;
+}
+
+.ltc-detail-map-btn {
+    width: 100%;
+    padding: 9px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.ltc-detail-map-btn:hover,
+.ltc-detail-map-btn:active {
+    background: #2d333b;
+    border-color: #58a6ff;
+}
+
 /* ── モバイル対応 ────────────────────────────────────────────────────────── */
 
 @media (max-width: 600px) {
     .ltc-pref-select {
         max-width: 90px;
+    }
+
+    .ltc-detail-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .ltc-detail-card {
+        max-width: 100%;
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
     }
 }
