@@ -83,8 +83,9 @@
         const tsm        = _tsunamiSummary(tsAreas);
         const eqCount24h = eqSummary.count_24h  ?? 0;
         const bigCount   = eqSummary.m5_count   ?? 0;
-        // 3日間データから表示件数を取得（地図と一覧の件数を一致させる）
-        const eqCount    = Array.isArray(_fbEqData) ? _fbEqData.length : eqCount24h;
+        // 3日間データがあればその件数、なければ summary の 24h 件数にフォールバック
+        const eq3dLen = Array.isArray(_fbEqData) ? _fbEqData.length : 0;
+        const eqCount = eq3dLen > 0 ? eq3dLen : eqCount24h;
 
         let html = `<div class="lac-header"><span class="lac-title">現在の状況</span><button class="lac-minimize-btn" title="パネルを${_minimized ? '展開' : '最小化'}">${_minimized ? '＋' : '―'}</button></div>`;
 

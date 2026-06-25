@@ -253,10 +253,19 @@
     }
 
     async function _eqRefresh() {
-        const res = await fetch('/api/live/earthquakes/history?days=3');
-        if (!res.ok) throw new Error(`[live-eq] HTTP ${res.status}`);
-        const data = await res.json();
-        _eqData = (data.items || []).slice(0, 300);
+        // 新エンドポイント（3日間履歴）、未デプロイ時は旧エンドポイントにフォールバック
+        try {
+            const res = await fetch('/api/live/earthquakes/history?days=3');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            _eqData = (data.items || []).slice(0, 300);
+        } catch (e) {
+            console.warn('[live-eq] history endpoint unavailable, fallback to /api/earthquakes:', e.message);
+            const res = await fetch('/api/earthquakes?days=1');
+            if (!res.ok) throw new Error(`[live-eq] HTTP ${res.status}`);
+            const data = await res.json();
+            _eqData = (data.items || []).slice(0, 50);
+        }
         _eqRender();
         return _eqData;
     }
