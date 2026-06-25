@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 _P2P_URL = "https://api.p2pquake.net/v2/history?codes=551&limit=300"
 _JST = timezone(timedelta(hours=9))
+_CACHE_TTL = 60  # 秒 — 大地震後の P2P 集中アクセスを緩和
+
+_cache: Optional[Dict[str, Any]] = None  # {"data": [...], "ts": float}
 
 _SCALE_MAP: Dict[int, str] = {
     -1: "不明",
@@ -103,7 +107,13 @@ def _normalize(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def _fetch_raw() -> List[Dict[str, Any]]:
+def _fetch_raw_sync() -> List[Dict[str, Any]]:
+    global _cache
+    now = time.monotonic()
+    if _cache and now - _cache["ts"] < _CACHE_TTL:
+        logger.debug("P2P earthquake cache hit")
+        return _cache["data"]
+
     req = urllib.request.Request(
         _P2P_URL,
         headers={
@@ -111,14 +121,28 @@ def _fetch_raw() -> List[Dict[str, Any]]:
             "User-Agent": "OnHighGround2/1.0 (+https://github.com/brokendish/OnHighGround2)",
         },
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except Exception as exc:
+        # タイムアウト・接続失敗時はキャッシュがあれば返す
+        if _cache:
+            logger.warning("P2P earthquake fetch failed, serving stale cache: %s", exc)
+            return _cache["data"]
+        raise
+
+    if not isinstance(data, list):
+        raise ValueError(f"unexpected P2P response type: {type(data).__name__}")
+
+    _cache = {"data": data, "ts": now}
+    logger.info("P2P earthquake cache miss — fetched %d entries", len(data))
+    return data
 
 
 async def fetch_earthquakes() -> List[Dict[str, Any]]:
-    """P2P 地震情報 API から最新 100 件を取得し正規化して返す。"""
+    """P2P 地震情報 API から最新 300 件を取得し正規化して返す（60秒キャッシュ）。"""
     try:
-        raw_list = await asyncio.to_thread(_fetch_raw)
+        raw_list = await asyncio.to_thread(_fetch_raw_sync)
     except Exception as exc:
         logger.warning("P2P 地震情報取得失敗: %s", exc)
         return []
