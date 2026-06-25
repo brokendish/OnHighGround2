@@ -81,8 +81,10 @@
         const eqSummary  = summary.earthquake?.summary || {};
         const dangerAreas = summary.dangerous_areas || [];
         const tsm        = _tsunamiSummary(tsAreas);
-        const eqCount    = eqSummary.count_24h  ?? 0;
+        const eqCount24h = eqSummary.count_24h  ?? 0;
         const bigCount   = eqSummary.m5_count   ?? 0;
+        // 3日間データから表示件数を取得（地図と一覧の件数を一致させる）
+        const eqCount    = Array.isArray(_fbEqData) ? _fbEqData.length : eqCount24h;
 
         let html = `<div class="lac-header"><span class="lac-title">現在の状況</span><button class="lac-minimize-btn" title="パネルを${_minimized ? '展開' : '最小化'}">${_minimized ? '＋' : '―'}</button></div>`;
 
@@ -125,7 +127,7 @@
             html += _eqToggleItemHtml(eqCount);
         } else {
             html += `<div class="lac-item" style="border-left-color:#3fb950">
-                         <span class="lac-text">地震なし (24h)</span>
+                         <span class="lac-text">地震なし (3日間)</span>
                      </div>`;
         }
 
@@ -214,7 +216,7 @@
             html += _eqToggleItemHtml(eqCount);
         } else {
             html += `<div class="lac-item" style="border-left-color:#3fb950">
-                         <span class="lac-text">地震なし (24h)</span>
+                         <span class="lac-text">地震なし (3日間)</span>
                      </div>`;
         }
 
@@ -249,19 +251,37 @@
 
     // ── 地震一覧ヘルパー ─────────────────────────────────────────────────────────
 
+    // 経過日数ラベル（今日/昨日/N日前）
+    function _eqDayLabel(occurredAt) {
+        if (!occurredAt) return '';
+        const ageDays = Math.floor((Date.now() - new Date(occurredAt).getTime()) / (1000 * 60 * 60 * 24));
+        if (ageDays === 0) return '今日';
+        if (ageDays === 1) return '昨日';
+        return `${ageDays}日前`;
+    }
+
     function _buildEqListHtml() {
-        const items = Array.isArray(_fbEqData) ? _fbEqData.slice(0, 10) : [];
+        const items = Array.isArray(_fbEqData) ? _fbEqData.slice(0, 30) : [];
         if (!items.length) return '<div class="lac-eq-empty">履歴なし</div>';
         let html = '';
+        let lastDayLabel = '';
         items.forEach(eq => {
-            const name      = eq.epicenter_name || '震源不明';
+            const name      = eq.epicenter_name || eq.hypocenter_name || '震源不明';
             const mag       = eq.magnitude != null ? `M${Number(eq.magnitude).toFixed(1)}` : 'M-';
             const intensity = eq.max_intensity ? `震度${eq.max_intensity}` : '';
-            const at        = eq.occurred_at
-                ? eq.occurred_at.slice(5, 16).replace('T', ' ') : '';
+            const occurredAt = eq.occurred_at || eq.origin_time || '';
+            const at        = occurredAt ? occurredAt.slice(5, 16).replace('T', ' ') : '';
+            const dayLabel  = _eqDayLabel(occurredAt);
             const canFocus  = eq.lat != null && eq.lng != null;
             const focusAttrs = canFocus
                 ? `data-lat="${eq.lat}" data-lng="${eq.lng}" data-zoom="8" data-name="${name.replace(/"/g, '&quot;')}" data-detail="${mag}${intensity ? ' / ' + intensity : ''}"` : '';
+
+            // 日付区切り（初回またはラベルが変わったとき）
+            if (dayLabel && dayLabel !== lastDayLabel) {
+                html += `<div class="lac-eq-day-sep">${dayLabel}</div>`;
+                lastDayLabel = dayLabel;
+            }
+
             html += `<div class="lac-eq-item${canFocus ? ' lac-eq-clickable' : ''}" ${focusAttrs}>
                 <div class="lac-eq-name">${name}</div>
                 <div class="lac-eq-meta">${mag}${intensity ? ' / ' + intensity : ''} <small>${at}</small></div>
@@ -275,7 +295,7 @@
         const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
         return `<div class="lac-item lac-eq-toggle" data-action="eq-toggle"
                      style="cursor:pointer; border-left-color:#e3b341">
-                    <span class="lac-text">地震 ${eqCount}件 (24h) <span class="lac-expand-arrow">${arrow}</span></span>
+                    <span class="lac-text">地震 ${eqCount}件 (3日間) <span class="lac-expand-arrow">${arrow}</span></span>
                 </div>
                 <div class="lac-eq-list-wrap"${listDisplay}>
                     ${_buildEqListHtml()}

@@ -23,6 +23,12 @@
             ? tsunamiData.areas : [];
         const eqItems = Array.isArray(eqData) ? eqData : [];
 
+        const _cutoff24h = new Date(Date.now() - 24 * 3600 * 1000);
+        const earthquakeCount24h = eqItems.filter(eq => {
+            const t = new Date(eq.occurred_at || eq.origin_time || 0);
+            return t >= _cutoff24h;
+        }).length;
+
         return {
             updatedAt: new Date(),
             statuses: Object.assign(
@@ -31,7 +37,7 @@
             ),
             summary: {
                 tsunamiActive:          tsunamiAreas.some(a => _TSUNAMI_PRIORITY.includes(a.level)),
-                earthquakeCount24h:     eqItems.length,
+                earthquakeCount24h,
                 strongRainDetected:     false,
                 kikikuruDangerDetected: false,
             },

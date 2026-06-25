@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_P2P_URL = "https://api.p2pquake.net/v2/history?codes=551&limit=100"
+_P2P_URL = "https://api.p2pquake.net/v2/history?codes=551&limit=300"
 _JST = timezone(timedelta(hours=9))
 
 _SCALE_MAP: Dict[int, str] = {

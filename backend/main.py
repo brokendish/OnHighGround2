@@ -44,6 +44,7 @@ from app.api.live_storm_surge import router as live_storm_surge_router
 from app.api.live_rain_timeline import router as live_rain_timeline_router
 from app.api.live_train import router as live_train_router
 from app.api.live_road_traffic import router as live_road_traffic_router
+from app.api.live_earthquakes import router as live_earthquakes_router
 from app.services.earthquake_realtime_service import get_realtime_service
 from app.services.job_manager import get_job_manager
 from app.services.admin_log_service import write_app_log
@@ -214,6 +215,7 @@ app.include_router(live_storm_surge_router)
 app.include_router(live_rain_timeline_router)
 app.include_router(live_train_router)
 app.include_router(live_road_traffic_router)
+app.include_router(live_earthquakes_router)
 
 
 @app.on_event("startup")

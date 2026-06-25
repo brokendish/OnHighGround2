@@ -538,6 +538,20 @@ html, body {
     padding: 3px 0;
 }
 
+.lac-eq-day-sep {
+    font-size: 9px;
+    color: #6e7681;
+    padding: 4px 0 2px;
+    margin-top: 2px;
+    border-top: 1px solid rgba(48, 54, 61, 0.6);
+    letter-spacing: 0.03em;
+}
+
+.lac-eq-day-sep:first-child {
+    border-top: none;
+    margin-top: 0;
+}
+
 .lac-expand-arrow {
     font-size: 9px;
     color: #8b949e;

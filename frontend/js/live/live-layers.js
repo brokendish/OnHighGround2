@@ -190,6 +190,16 @@
         return 4;
     }
 
+    // 経過時間に応じた透明度（古いほど薄く）
+    function _eqAgeOpacity(occurredAt) {
+        if (!occurredAt) return 0.4;
+        const ageMs   = Date.now() - new Date(occurredAt).getTime();
+        const ageDays = ageMs / (1000 * 60 * 60 * 24);
+        if (ageDays < 1) return 0.85;
+        if (ageDays < 2) return 0.60;
+        return 0.38;
+    }
+
     function _eqRender() {
         _eqLayerGroup.clearLayers();
         if (!_eqEnabled) {
@@ -211,28 +221,42 @@
             // 市区町村マーカーが描画された最新地震は代表マーカーをスキップ
             if (muniRendered && eq.event_id === latest.event_id) return;
 
-            const mag = eq.magnitude || 0;
+            const mag       = eq.magnitude || 0;
             const intensity = eq.max_intensity || '-';
-            const name = eq.epicenter_name || '不明';
-            const at   = eq.occurred_at ? eq.occurred_at.slice(0, 16).replace('T', ' ') : '';
+            const name      = eq.epicenter_name || eq.hypocenter_name || '不明';
+            const occurredAt = eq.occurred_at || eq.origin_time || '';
+            const at        = occurredAt ? occurredAt.slice(0, 16).replace('T', ' ') : '';
+            const opacity   = _eqAgeOpacity(occurredAt);
+
+            // 日付ラベル（今日/昨日/N日前）
+            let dayLabel = '';
+            if (occurredAt) {
+                const ageMs = Date.now() - new Date(occurredAt).getTime();
+                const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+                if (ageDays === 0) dayLabel = '今日';
+                else if (ageDays === 1) dayLabel = '昨日';
+                else dayLabel = `${ageDays}日前`;
+            }
 
             L.circleMarker([lat, lng], {
                 radius:      _eqMagRadius(mag),
                 color:       '#fff',
-                weight:      1,
+                weight:      opacity < 0.6 ? 0.5 : 1,
                 fillColor:   _eqMagColor(mag),
-                fillOpacity: 0.85,
+                fillOpacity: opacity,
             }).bindPopup(
-                `<b>${name}</b><br>M ${mag != null ? mag.toFixed(1) : '-'} / 震度 ${intensity}<br><small>${at}</small>`
+                `<b>${name}</b>${dayLabel ? ` <small>(${dayLabel})</small>` : ''}<br>`
+                + `M ${mag != null ? mag.toFixed(1) : '-'} / 震度 ${intensity}<br>`
+                + `<small>${at}</small>`
             ).addTo(_eqLayerGroup);
         });
     }
 
     async function _eqRefresh() {
-        const res = await fetch('/api/earthquakes?days=1');
+        const res = await fetch('/api/live/earthquakes/history?days=3');
         if (!res.ok) throw new Error(`[live-eq] HTTP ${res.status}`);
         const data = await res.json();
-        _eqData = (data.items || []).slice(0, 50);
+        _eqData = (data.items || []).slice(0, 300);
         _eqRender();
         return _eqData;
     }
