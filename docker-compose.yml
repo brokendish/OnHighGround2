@@ -68,6 +68,8 @@ services:
       - ./backend:/app
       # scripts をバックエンドから実行可能にする（normalize/validate パイプライン用）
       - ./scripts:/scripts:ro
+      # 鉄道路線 PMTiles の生成先を nginx が配信する ./frontend と共有する
+      - ./frontend/layers/railways:/frontend/layers/railways
       # 管理画面から OSRM コンテナを再起動するために Docker ソケットを共有
       - /var/run/docker.sock:/var/run/docker.sock
       # foot.lua をバックエンドから更新可能にする（rebuild_osrm_walking.py が書き込む）

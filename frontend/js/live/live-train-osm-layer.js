@@ -317,8 +317,18 @@
 
     // ── スタイル ──────────────────────────────────────────────────────────────
 
+    // PMTilesベースが有効なとき、GeoJSON側の非障害路線は非表示にする。
+    // 障害路線だけ GeoJSON で色付き強調する（Phase 7-A.5-C）。
+    function _hasPmtilesBase() {
+        return !!window.liveTrainPmtilesLayer?.isReady?.();
+    }
+
     function _routeStyle(feature) {
         const color = _resolveLineColor(feature?.properties || {});
+        // PMTilesがベース表示を担うとき、非障害路線は透明にしてGeoJSONと重複しない
+        if (_hasPmtilesBase()) {
+            return { weight: 0, opacity: 0, fillOpacity: 0 };
+        }
         return { color, weight: 1.8, opacity: 0.55, fillOpacity: 0, dashArray: null };
     }
 
@@ -431,7 +441,10 @@
                 haloEntries.push({ feature: fl.feature, status: match.status });
                 matchedLayers.push(fl);
             } else {
-                fl.setStyle(_routeStyle(fl.feature));
+                // PMTilesが有効なら非障害路線は透明に（PMTilesがグレーを担う）
+                fl.setStyle(_hasPmtilesBase()
+                    ? { weight: 0, opacity: 0, fillOpacity: 0 }
+                    : _routeStyle(fl.feature));
                 fl.unbindPopup();
             }
         });

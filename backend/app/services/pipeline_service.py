@@ -1523,3 +1523,237 @@ async def run_osrm_profile_rebuild(job: Job, jm: JobManager) -> None:
                progress_message="OSRMプロファイルの再ビルドが完了しました。",
                exit_code=0)
     jm.log(job, "=== osrm_profile_rebuild completed ===")
+
+
+# ── 鉄道路線 PMTiles 更新 ───────────────────────────────────────────────────────
+
+_PMTILES_MIN_BYTES = 1 * 1024 * 1024         # 1 MB
+_PMTILES_MAX_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
+_OSM_PBF_MIN_BYTES = 10 * 1024 * 1024        # 10 MB
+_OSM_PBF_MAX_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
+_OSM_SKIP_DOWNLOAD_HOURS = 24                 # PBF が 24 時間以内なら再ダウンロードを省略
+
+
+def _read_pmtiles_header(path: Path) -> Optional[dict]:
+    """PMTiles v3 ヘッダ（127 バイト）から基本情報を読み出す。失敗時は None。"""
+    import struct
+    try:
+        with path.open("rb") as f:
+            hdr = f.read(127)
+        if len(hdr) < 127 or hdr[:7] != b"PMTiles":
+            return None
+        min_zoom  = hdr[100]
+        max_zoom  = hdr[101]
+        min_lon   = struct.unpack_from("<i", hdr, 102)[0] / 1e7
+        min_lat   = struct.unpack_from("<i", hdr, 106)[0] / 1e7
+        max_lon   = struct.unpack_from("<i", hdr, 110)[0] / 1e7
+        max_lat   = struct.unpack_from("<i", hdr, 114)[0] / 1e7
+        return {
+            "version":  hdr[7],
+            "min_zoom": min_zoom,
+            "max_zoom": max_zoom,
+            "bounds":   [min_lon, min_lat, max_lon, max_lat],
+        }
+    except Exception:
+        return None
+
+
+async def run_railway_pmtiles_update(
+    job: Job,
+    defn: DatasetDefinition,
+    state: DatasetState,
+    jm: JobManager,
+    ss: DatasetStateService,
+) -> None:
+    """
+    鉄道路線 PMTiles 更新パイプライン。
+
+    1. japan-latest.osm.pbf ダウンロード（24h 以内の PBF はスキップ）
+    2. build_railway_pmtiles.sh で一時ディレクトリへ PMTiles 生成
+    3. 検証: ファイル存在・サイズ（1MB〜5GB）・PMTiles ヘッダ
+    4. atomic rename で本番パスへ反映
+    失敗時は既存ファイルを保持する。
+    """
+    jm.update(job, status=JobStatus.running, step=JobStep.download,
+               progress_message="OSM PBF ダウンロードを準備中...")
+    jm.log(job, f"=== railway_pmtiles_update start: {defn.dataset_id} ===")
+
+    # ── パス設定 ──────────────────────────────────────────────────────────────
+    osm_dir  = (_PROJECT_ROOT / defn.raw_storage_path).resolve()
+    osm_pbf  = osm_dir / "japan-latest.osm.pbf"
+    prod_dir = (_PROJECT_ROOT / "frontend" / "layers" / "railways").resolve()
+    prod_pmtiles = prod_dir / "railways_japan.pmtiles"
+    staging_dir = prod_dir / ".railway_pmtiles_staging"
+    staged_pmtiles = staging_dir / "railways_japan.pmtiles"
+    tmp_pmtiles = prod_dir / "railways_japan.pmtiles.tmp"
+
+    _ensure_dir(osm_dir)
+    _ensure_dir(prod_dir)
+    _ensure_dir(staging_dir)
+
+    # ── STEP 1: OSM PBF ダウンロード ─────────────────────────────────────────
+    skip_download = False
+    if osm_pbf.exists():
+        age_hours = (datetime.utcnow().timestamp() - osm_pbf.stat().st_mtime) / 3600
+        if age_hours < _OSM_SKIP_DOWNLOAD_HOURS:
+            jm.log(job, f"[SKIP] PBF が {age_hours:.1f}h 以内に取得済みのためダウンロードをスキップ: {osm_pbf}")
+            skip_download = True
+
+    if not skip_download:
+        osm_url = defn.official_source_url
+        if not osm_url:
+            _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+                  "OSM ダウンロード URL が設定されていません。",
+                  "dataset_definitions.json の official_source_url を確認してください。")
+            return
+        jm.log(job, f"[1/4] OSM PBF をダウンロード中: {osm_url}")
+        jm.log(job, f"      保存先: {osm_pbf}")
+
+        # partial download 対策: tmp ファイルへダウンロードして rename
+        osm_pbf_tmp = osm_dir / "japan-latest.osm.pbf.tmp"
+        ret = await _run_subprocess(
+            ["curl", "-L", "--fail", "-s", "-S", "--progress-bar", "-o", str(osm_pbf_tmp), osm_url],
+            job, jm, timeout=7200,  # 最大 2 時間
+        )
+        if ret != 0 or not osm_pbf_tmp.exists():
+            if osm_pbf_tmp.exists():
+                osm_pbf_tmp.unlink()
+            _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+                  "OSM PBF のダウンロードに失敗しました。",
+                  "ネットワーク接続および Geofabrik のサービス状態を確認してください。",
+                  exit_code=ret)
+            return
+        osm_pbf_tmp.rename(osm_pbf)
+        osm_size = osm_pbf.stat().st_size
+        if osm_size < _OSM_PBF_MIN_BYTES or osm_size > _OSM_PBF_MAX_BYTES:
+            _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+                  f"OSM PBF のサイズが異常です（{osm_size / (1024*1024):.1f} MB）。",
+                  "ダウンロード元 URL と保存ファイルを確認してください。")
+            return
+        size_mb = osm_size / (1024 * 1024)
+        jm.log(job, f"      ダウンロード完了: {size_mb:.0f} MB")
+
+        state.storage_status = StorageStatus.stored
+        state.current_file_name = osm_pbf.name
+        state.current_file_size = osm_pbf.stat().st_size
+        state.updated_at = datetime.utcnow()
+        ss.save(state)
+    else:
+        osm_size = osm_pbf.stat().st_size
+        if osm_size < _OSM_PBF_MIN_BYTES or osm_size > _OSM_PBF_MAX_BYTES:
+            _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+                  f"既存 OSM PBF のサイズが異常です（{osm_size / (1024*1024):.1f} MB）。",
+                  "data_lake/raw/osm/japan-latest.osm.pbf を削除して再取得してください。")
+            return
+        size_mb = osm_size / (1024 * 1024)
+        jm.log(job, f"[1/4] OSM PBF スキップ（既存 {size_mb:.0f} MB）")
+
+    # ── STEP 2: PMTiles 生成 ─────────────────────────────────────────────────
+    jm.update(job, step=JobStep.normalize, progress_message="鉄道路線 PMTiles を生成中（数分かかります）...")
+    jm.log(job, f"[2/4] build_railway_pmtiles.sh を実行中...")
+    jm.log(job, f"      入力: {osm_pbf}")
+    jm.log(job, f"      一時生成先: {staging_dir}")
+    jm.log(job, f"      検証対象: {tmp_pmtiles}")
+
+    # 既存 tmp ファイルを削除（前回失敗残骸）
+    if tmp_pmtiles.exists():
+        tmp_pmtiles.unlink()
+    if staged_pmtiles.exists():
+        staged_pmtiles.unlink()
+
+    script = _SCRIPTS_DIR / "tile_build" / "build_railway_pmtiles.sh"
+    if not script.exists():
+        _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+              "生成スクリプトが見つかりません。",
+              f"scripts/tile_build/build_railway_pmtiles.sh が存在するか確認してください。")
+        return
+
+    ret = await _run_subprocess(
+        ["bash", str(script), str(osm_pbf), str(staging_dir)],
+        job, jm, timeout=7200,
+    )
+    if ret != 0:
+        _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+              "PMTiles の生成処理に失敗しました。",
+              "ログを確認し、osmium / tippecanoe / tile-join が使用可能か確認してください。",
+              exit_code=ret)
+        return
+
+    if not staged_pmtiles.exists():
+        _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+              "生成された PMTiles ファイルが見つかりません。",
+              f"期待パス: {staged_pmtiles}")
+        return
+
+    # 本番ファイルと同じディレクトリ内の .tmp に移してから検証・反映する。
+    # 最終 os.replace を同一ディレクトリ内で行い、旧 PMTiles を生成失敗から守る。
+    staged_pmtiles.replace(tmp_pmtiles)
+
+    # ── STEP 3: 検証 ─────────────────────────────────────────────────────────
+    jm.update(job, step=JobStep.validate, progress_message="生成ファイルを検証中...")
+    jm.log(job, "[3/4] 生成ファイルを検証中...")
+
+    if not tmp_pmtiles.exists():
+        _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+              "生成された PMTiles ファイルが見つかりません。",
+              f"期待パス: {tmp_pmtiles}")
+        return
+
+    file_size = tmp_pmtiles.stat().st_size
+    if file_size < _PMTILES_MIN_BYTES:
+        _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+              f"PMTiles ファイルのサイズが小さすぎます（{file_size // 1024} KB）。",
+              "生成処理が不完全の可能性があります。")
+        return
+    if file_size > _PMTILES_MAX_BYTES:
+        _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+              f"PMTiles ファイルのサイズが大きすぎます（{file_size // (1024*1024)} MB）。",
+              "生成スクリプトの出力を確認してください。")
+        return
+
+    jm.log(job, f"      サイズ: {file_size / (1024*1024):.1f} MB — OK")
+
+    hdr = _read_pmtiles_header(tmp_pmtiles)
+    if hdr:
+        jm.log(job, f"      zoom: {hdr['min_zoom']}〜{hdr['max_zoom']}")
+        bounds = hdr["bounds"]
+        jm.log(job, f"      bounds: [{bounds[0]:.2f}, {bounds[1]:.2f}, {bounds[2]:.2f}, {bounds[3]:.2f}]")
+    else:
+        jm.log(job, "      PMTiles ヘッダ読み取り不可（非致命的）")
+
+    # ── STEP 4: atomic rename → 本番配置 ──────────────────────────────────────
+    jm.update(job, step=JobStep.deploy, progress_message="本番ファイルへ反映中...")
+    jm.log(job, f"[4/4] 本番ファイルへ反映中: {prod_pmtiles}")
+
+    try:
+        tmp_pmtiles.replace(prod_pmtiles)
+    except OSError as e:
+        _fail(job, jm, "RAILWAY_PMTILES_FAILED",
+              "本番ファイルへの反映に失敗しました。",
+              f"詳細: {e}")
+        return
+
+    deployed_size = prod_pmtiles.stat().st_size
+    jm.log(job, f"      反映完了: {deployed_size / (1024*1024):.1f} MB")
+
+    # ── 状態更新 ──────────────────────────────────────────────────────────────
+    state.storage_status   = StorageStatus.stored
+    state.normalize_status = NormalizeStatus.not_required
+    state.validation_status = ValidationStatus.not_required
+    state.deploy_status    = DeployStatus.deployed
+    state.current_file_name = prod_pmtiles.name
+    state.current_file_size = deployed_size
+    state.current_raw_path = str(osm_pbf)
+    state.current_runtime_path = str(prod_pmtiles)
+    state.updated_at   = datetime.utcnow()
+    state.deployed_at  = datetime.utcnow()
+    state.last_job_id  = job.job_id
+    ss.save(state)
+
+    _append_history(ss, defn.dataset_id, OperationType.deploy, job,
+                    artifact_path=str(prod_pmtiles))
+
+    jm.update(job, status=JobStatus.success, step=JobStep.completed,
+               progress_message="鉄道路線 PMTiles の更新が完了しました。",
+               exit_code=0)
+    jm.log(job, "=== railway_pmtiles_update completed ===")

@@ -78,6 +78,7 @@ class JobType(str, Enum):
     deploy = "deploy"
     rollback = "rollback"
     osrm_rebuild = "osrm_rebuild"
+    railway_pmtiles_update = "railway_pmtiles_update"
 
 
 class JobStatus(str, Enum):
@@ -281,6 +282,7 @@ class DatasetSummary(BaseModel):
     region: str
     category: str
     layer_type: Optional[str] = None
+    source_type: Optional[str] = None
     display_name: str
     hint_text: str
     impact_scope: str

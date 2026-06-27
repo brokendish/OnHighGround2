@@ -4,6 +4,8 @@
 
 (function () {
 
+    let _trainVisibilitySeq = 0;
+
     // ─────────────────────────────────────────────────────────────────────────
     // 雨雲レイヤー（JMA 降水ナウキャスト）
     // ─────────────────────────────────────────────────────────────────────────
@@ -486,9 +488,16 @@
             getData:    _stormSurgeGetData,
         },
         train: {
-            setVisible: (v) => {
-                window.liveTrainLayer?.setVisible?.(v);
+            setVisible: async (v) => {
+                const seq = ++_trainVisibilitySeq;
+                // PMTiles ベース表示（全国鉄道路線）— Phase 7-A.5-A
+                // GeoJSON overlay の描画前に isReady() 状態を確定させる
+                await window.liveTrainPmtilesLayer?.setVisible?.(v);
+                if (seq !== _trainVisibilitySeq) return;
+                // GeoJSON オーバーレイ（障害路線強調）— 既存
                 window.liveTrainOsmLayer?.setVisible?.(v);
+                // 代表座標マーカー — 既存
+                window.liveTrainLayer?.setVisible?.(v);
             },
         },
         roadTraffic: {

@@ -9,6 +9,7 @@ POST /api/admin/datasets/{dataset_id}/fetch-official 公式取得
 POST /api/admin/datasets/{dataset_id}/deploy       実行環境へ反映
 POST /api/admin/datasets/{dataset_id}/rollback     ロールバック
 POST /api/admin/datasets/{dataset_id}/rebuild-osrm OSRM再構築
+POST /api/admin/datasets/{dataset_id}/railway-pmtiles-update 鉄道路線PMTiles更新
 GET  /api/admin/datasets/{dataset_id}/history      操作履歴
 GET  /api/admin/jobs                               ジョブ一覧
 GET  /api/admin/jobs/{job_id}                      ジョブ詳細
@@ -154,6 +155,7 @@ def _build_summary(dataset_id: str) -> Optional[DatasetSummary]:
         region=defn.region,
         category=defn.category,
         layer_type=defn.layer_type,
+        source_type=defn.source_type,
         display_name=defn.display_name,
         hint_text=defn.hint_text,
         impact_scope=defn.impact_scope,
@@ -427,6 +429,43 @@ async def generate_dataset(dataset_id: str):
     )
 
     return JobAccepted(job_id=job.job_id, message="データの生成を受け付けました。バックグラウンドで処理を開始します。")
+
+
+# ── POST /datasets/{dataset_id}/railway-pmtiles-update ───────────────────────
+
+@router.post("/{dataset_id}/railway-pmtiles-update", response_model=JobAccepted)
+async def railway_pmtiles_update(dataset_id: str):
+    """
+    鉄道路線 PMTiles 更新。source_type="railway_pmtiles" のデータセット専用。
+    OSM PBF ダウンロード → PMTiles 生成 → 検証 → atomic rename を一括実行する。
+    """
+    ds_svc = get_definition_service()
+    ss = get_state_service()
+    jm = get_job_manager()
+
+    defn = ds_svc.get(dataset_id)
+    if defn is None:
+        return _not_found(dataset_id)
+
+    if defn.source_type != "railway_pmtiles":
+        return _error_response("INVALID_INPUT_MODE",
+                                detail="このエンドポイントは source_type=railway_pmtiles のデータセット専用です")
+
+    if guard := _check_running_job(dataset_id):
+        return guard
+
+    state = ss.init_from_definition(defn)
+    job = jm.create(dataset_id, JobType.railway_pmtiles_update)
+    state.last_job_id = job.job_id
+    ss.save(state)
+
+    jm.submit(job, pipeline_service.run_railway_pmtiles_update(job, defn, state, jm, ss))
+    _safe_write_app_log(
+        f"dataset request accepted action=railway_pmtiles_update dataset_id={dataset_id} job_id={job.job_id}"
+    )
+
+    return JobAccepted(job_id=job.job_id,
+                       message="鉄道路線 PMTiles の更新を受け付けました。OSM ダウンロードから PMTiles 生成まで自動実行します。")
 
 
 # ── POST /datasets/{dataset_id}/deploy ───────────────────────────────────────

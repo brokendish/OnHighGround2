@@ -177,6 +177,22 @@ class DatasetStateService:
         # raw ディレクトリをスキャン
         raw_file = self._find_representative_file(defn.raw_storage_path, defn)
 
+        if defn.source_type == "railway_pmtiles":
+            runtime_path = (_PROJECT_ROOT / defn.runtime_path).resolve()
+            pmtiles_file = runtime_path / "railways_japan.pmtiles"
+            if pmtiles_file.exists():
+                state.storage_status = StorageStatus.stored
+                state.current_file_name = pmtiles_file.name
+                state.current_file_size = pmtiles_file.stat().st_size
+                state.current_runtime_path = str(pmtiles_file)
+                state.current_raw_path = str(raw_file) if raw_file and raw_file.exists() else None
+                state.normalize_status = NormalizeStatus.not_required
+                state.validation_status = ValidationStatus.not_required
+                state.deploy_status = DeployStatus.deployed
+                state.updated_at = datetime.utcfromtimestamp(pmtiles_file.stat().st_mtime)
+                state.deployed_at = datetime.utcfromtimestamp(pmtiles_file.stat().st_mtime)
+                return state
+
         # 状態を推定
         if validated_file and validated_file.exists():
             state.storage_status = StorageStatus.stored

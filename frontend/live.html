@@ -114,6 +114,10 @@
     <!-- Leaflet -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+    <!-- protomaps-leaflet: PMTiles ベクタータイルレンダラー (Phase 7-A.5) -->
+    <!-- 全国鉄道路線 PMTiles 表示に使用。Leaflet 1.8+ 必須。 -->
+    <script src="https://unpkg.com/protomaps-leaflet@4.1.1/dist/protomaps-leaflet.js"></script>
+
     <!-- /live 専用 JS（依存順）-->
     <script src="/js/live/live-map.js"></script>
     <script src="/js/live/live-layers.js"></script>
@@ -125,6 +129,8 @@
     <script src="/js/live/live-danger-summary.js"></script>
     <script src="/js/live/live-alert-panel.js"></script>
     <script src="/js/live/live-ui.js"></script>
+    <!-- 全国鉄道路線 PMTiles ベース表示 (Phase 7-A.5-A/B): train-osm-layerより先に読む -->
+    <script src="/js/live/live-train-pmtiles-layer.js"></script>
     <script src="/js/live/live-train-osm-layer.js"></script>
     <script src="/js/live/live-train-layer.js"></script>
     <script src="/js/live/live-train-panel.js"></script>

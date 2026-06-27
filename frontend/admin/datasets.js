@@ -302,8 +302,9 @@ function renderDatasetTable(datasets) {
 
 function renderDatasetRow(d) {
   const isRunning = d.has_running_job;
-  const canDeploy = d.is_deployable && !isRunning;
-  const canRollback = d.deploy_status === "deployed" && d.has_backup && !isRunning;
+  const isRailwayPmtiles = d.source_type === "railway_pmtiles";
+  const canDeploy = d.is_deployable && !isRunning && !isRailwayPmtiles;
+  const canRollback = d.deploy_status === "deployed" && d.has_backup && !isRunning && !isRailwayPmtiles;
   const canOsrm = d.requires_osrm_rebuild && d.deploy_status === "deployed" && !isRunning;
   const canActivate = d.layer_type && d.deploy_status === "deployed" && !d.is_active && !isRunning;
 
@@ -353,14 +354,14 @@ function renderDatasetRow(d) {
           ${isRunning ? "disabled title='処理中'" : ""}>更新</button>
         <button class="btn btn-detail"
           onclick="openDetail('${d.dataset_id}')">詳細</button>
-        <button class="btn btn-success"
+        ${!isRailwayPmtiles ? `<button class="btn btn-success"
           onclick="openDeployModal('${d.dataset_id}')"
           ${canDeploy ? "" : "disabled"}
-          title="${canDeploy ? '実行環境へ反映' : deployBlockReason(d)}">反映</button>
-        <button class="btn btn-secondary"
+          title="${canDeploy ? '実行環境へ反映' : deployBlockReason(d)}">反映</button>` : ""}
+        ${!isRailwayPmtiles ? `<button class="btn btn-secondary"
           onclick="openRollbackModal('${d.dataset_id}')"
           ${canRollback ? "" : "disabled"}
-          title="${canRollback ? '1世代前に戻す' : (!d.has_backup ? 'バックアップがありません（初回デプロイ後に利用可）' : '処理中のため実行不可')}">戻す</button>
+          title="${canRollback ? '1世代前に戻す' : (!d.has_backup ? 'バックアップがありません（初回デプロイ後に利用可）' : '処理中のため実行不可')}">戻す</button>` : ""}
         ${d.layer_type ? `<button class="btn btn-activate"
           onclick="openActivateModal('${d.dataset_id}')"
           ${canActivate ? "" : "disabled"}
@@ -595,11 +596,24 @@ function buildInputTabs(modes, sourceType) {
   // source_type="generated": ファイル入力不要の自動生成タブを表示
   if (sourceType === "generated") {
     tabsEl.innerHTML = `<button class="tab-btn" id="tab-btn-generate" onclick="switchInputTab('generate')">⚙️ 自動生成</button>`;
-    ["upload", "fetch_url", "fetch_official"].forEach(m => {
+    ["upload", "fetch_url", "fetch_official", "railway_pmtiles"].forEach(m => {
       const p = document.getElementById(`tab-${m}`);
       if (p) p.classList.remove("active");
     });
     switchInputTab("generate");
+    return;
+  }
+
+  // source_type="railway_pmtiles": ワンクリック更新タブを表示
+  if (sourceType === "railway_pmtiles") {
+    tabsEl.innerHTML = `<button class="tab-btn active" id="tab-btn-railway_pmtiles" onclick="switchInputTab('railway_pmtiles')">🚄 鉄道路線データ更新</button>`;
+    ["upload", "fetch_url", "fetch_official", "generate"].forEach(m => {
+      const p = document.getElementById(`tab-${m}`);
+      if (p) p.classList.remove("active");
+    });
+    const rp = document.getElementById("tab-railway_pmtiles");
+    if (rp) rp.classList.add("active");
+    switchInputTab("railway_pmtiles");
     return;
   }
 
@@ -609,7 +623,7 @@ function buildInputTabs(modes, sourceType) {
   ).join("");
 
   // 全パネル非表示
-  ["upload", "fetch_url", "fetch_official", "generate"].forEach(m => {
+  ["upload", "fetch_url", "fetch_official", "generate", "railway_pmtiles"].forEach(m => {
     const p = document.getElementById(`tab-${m}`);
     if (p) p.classList.remove("active");
   });
@@ -620,7 +634,7 @@ function buildInputTabs(modes, sourceType) {
 
 function switchInputTab(mode) {
   _activeInputTab = mode;
-  ["upload", "fetch_url", "fetch_official", "generate"].forEach(m => {
+  ["upload", "fetch_url", "fetch_official", "generate", "railway_pmtiles"].forEach(m => {
     const btn = document.getElementById(`tab-btn-${m}`);
     const panel = document.getElementById(`tab-${m}`);
     if (btn) btn.classList.toggle("active", m === mode);
@@ -789,6 +803,11 @@ async function executeUpdate() {
     } else if (_activeInputTab === "generate") {
       const json = await postJSON(`${API}/datasets/${d.dataset_id}/generate`, {});
       if (!json.accepted) throw new Error(json.user_message || "生成に失敗しました");
+      job_id = json.job_id;
+
+    } else if (_activeInputTab === "railway_pmtiles") {
+      const json = await postJSON(`${API}/datasets/${d.dataset_id}/railway-pmtiles-update`, {});
+      if (!json.accepted) throw new Error(json.user_message || "更新要求に失敗しました");
       job_id = json.job_id;
     }
 
@@ -2251,7 +2270,8 @@ function jobTypeLabel(t) {
     ingest_upload: "ファイル取り込み", ingest_fetch_url: "URL取得",
     ingest_fetch_official: "公式取得", normalize: "整形処理",
     validate: "内容確認", generate: "自動生成", deploy: "反映",
-    rollback: "ロールバック", osrm_rebuild: "OSRM再構築"
+    rollback: "ロールバック", osrm_rebuild: "OSRM再構築",
+    railway_pmtiles_update: "鉄道路線PMTiles更新"
   };
   return map[t] || t;
 }

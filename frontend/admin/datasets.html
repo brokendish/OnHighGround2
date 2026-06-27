@@ -328,6 +328,26 @@
         </div>
       </div>
 
+      <!-- tab: railway_pmtiles (鉄道路線 PMTiles ワンクリック更新用) -->
+      <div class="tab-panel" id="tab-railway_pmtiles">
+        <p style="font-size:13px;color:#475569;margin-bottom:12px">
+          「処理を開始する」を押すと以下の処理を自動的に実行します。
+        </p>
+        <ol style="font-size:13px;color:#475569;padding-left:20px;line-height:1.8">
+          <li>Geofabrik から <code>japan-latest.osm.pbf</code>（約 1GB）をダウンロード</li>
+          <li><code>build_railway_pmtiles.sh</code> で PMTiles を一時領域に生成</li>
+          <li>ファイルサイズ・ヘッダを検証</li>
+          <li>検証成功時のみ本番パスへ atomic rename で反映</li>
+        </ol>
+        <div class="warning-box">
+          <strong>処理時間の目安</strong>
+          OSM ダウンロード（数分〜10分）＋ PMTiles 生成（5〜30分）。
+          処理中は画面を閉じても続行します。失敗時は既存の PMTiles を保持します。
+          <br>
+          <strong>前提ツール:</strong> osmium-tool / tippecanoe / tile-join が実行環境にインストールされている必要があります。
+        </div>
+      </div>
+
       <div id="um-post-ingest-notice" style="display:none;margin-top:12px;font-size:12px;color:#475569;background:#f8fafc;padding:10px;border-radius:6px">
         <strong>取り込み後の処理:</strong>
         <span id="um-pipeline-desc"></span>

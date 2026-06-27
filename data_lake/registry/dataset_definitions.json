@@ -780,5 +780,28 @@
       "year": "2026"
     },
     "auto_deploy": true
+  },
+  {
+    "dataset_id": "RAILWAY-PMTILES-JAPAN-001",
+    "region": "japan",
+    "category": "transport",
+    "layer_type": null,
+    "display_name": "全国鉄道路線 PMTiles",
+    "description": "全国の鉄道路線・駅データを OpenStreetMap から取得し PMTiles 形式に変換したベクタータイル。/live 鉄道レイヤーの全国ベース表示に使用。",
+    "hint_text": "Geofabrik から japan-latest.osm.pbf（約 1GB）を取得し、osmium + tippecanoe で PMTiles に変換します。生成には数分〜数十分かかります。osmium-tool / tippecanoe / tile-join が実行環境にインストールされている必要があります。",
+    "impact_scope": "/live 鉄道路線ベース表示（全国）",
+    "accepted_input_modes": [],
+    "accepted_extensions": [],
+    "max_browser_upload_mb": 0,
+    "requires_normalize": false,
+    "requires_validation": false,
+    "requires_deploy": false,
+    "requires_osrm_rebuild": false,
+    "source_type": "railway_pmtiles",
+    "official_source_url": "https://download.geofabrik.de/asia/japan-latest.osm.pbf",
+    "raw_storage_path": "data_lake/raw/osm",
+    "normalized_storage_path": null,
+    "validated_storage_path": null,
+    "runtime_path": "frontend/layers/railways"
   }
 ]

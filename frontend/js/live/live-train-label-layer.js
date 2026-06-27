@@ -224,8 +224,12 @@
             (d ? disrupted : normal).push({ feat, disruption: d });
         }
 
+        // PMTiles が全国ラベルを担うとき、非障害の通常ルートラベルはスキップして二重表示を防ぐ
+        const skipNormal = !!window.liveTrainPmtilesLayer?.isReady?.();
+        const candidates = skipNormal ? disrupted : [...disrupted, ...normal];
+
         let count = 0;
-        for (const { feat, disruption } of [...disrupted, ...normal]) {
+        for (const { feat, disruption } of candidates) {
             if (count >= max) break;
             const pt = _routeLabelPoint(feat, bounds);
             if (!pt) continue;
