@@ -953,6 +953,10 @@ html, body {
         transform: translateY(0);
         z-index: 1070;
     }
+    #live-alert-card.is-half {
+        transform: translateY(var(--sheet-half, 50dvh));
+        z-index: 1070;
+    }
     #live-alert-card.is-dragging  { transition: none; }
     #live-alert-card.is-sheet-closed {
         transform: translateY(100%) !important;

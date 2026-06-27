@@ -8,16 +8,30 @@
  *  - #live-layer-panel は右上のフローティングボタン(FAB)から開閉するポップオーバーに。
  *  - すべて (max-width: 640px) のときだけ有効。PC幅では何もしない（CSS側で各パーツは display:none）。
  *
+ * スナップ段階: peek（折りたたみ168px）/ half（画面高50%）/ full（全展開）
+ *
  * 読み込み順: 既存スクリプト群（live-main.js 等）の「後」に 1 行追加するだけ。
  *   <script src="/js/live/live-mobile.js"></script>
  */
 (function () {
+    /* ── 定数 ─────────────────────────────────────────────────────────────── */
+    const SNAP_VEL_THRESHOLD  = 0.3;   // px/ms: これ以上の速度でフリックと判定
+    const HALF_VIEWPORT_RATIO = 0.50;  // half スナップ = ビューポート高の 50%
+    const PEEK_HEIGHT_PX      = 168;   // peek 時の表示高 (px)
+
     const mq    = window.matchMedia('(max-width: 640px)');
     const card  = document.getElementById('live-alert-card');
     const panel = document.getElementById('live-layer-panel');
     if (!card) return;
 
     let fab = null, scrim = null, _restoreBtn = null;
+
+    /* ── CSS変数 --sheet-half をカード実測高から更新 ─────────────────────── */
+    function updateHalfVar() {
+        const h = card.offsetHeight;
+        const t = Math.max(h - Math.round(window.innerHeight * HALF_VIEWPORT_RATIO), 0);
+        card.style.setProperty('--sheet-half', `${t}px`);
+    }
 
     /* ── FAB と スクリム を一度だけ生成 ─────────────────────────────────── */
     function ensureChrome() {
@@ -77,10 +91,56 @@
         if (c) c.textContent = String(n);
     }
 
+    /* ── スナップ状態 ────────────────────────────────────────────────────── */
+    function currentSnapName() {
+        if (card.classList.contains('is-expanded')) return 'full';
+        if (card.classList.contains('is-half'))     return 'half';
+        return 'peek';
+    }
+
+    /* snapTo: スナップ確定の単一エントリポイント。CSS クラスを付け替え、地図をパンする */
+    function snapTo(name) {
+        card.classList.remove('is-expanded', 'is-half');
+        if (name === 'full') {
+            card.classList.add('is-expanded');
+            if (scrim) scrim.classList.add('is-visible');
+        } else if (name === 'half') {
+            updateHalfVar();
+            card.classList.add('is-half');
+            if (scrim) scrim.classList.add('is-visible');
+        } else {
+            if (scrim) scrim.classList.remove('is-visible');
+        }
+        _panMapForSnap(name);
+    }
+
+    /* ── 地図パン: シート可視高に合わせ選択地点を可視領域中央へ移動 ──────── */
+    function _panMapForSnap(snapName) {
+        const map = window.liveMap;
+        if (!map) return;
+        const sel = window.liveLayers?.earthquake?.getSelected?.();
+        if (!sel || sel.lat == null || sel.lng == null) return;
+
+        const vph = window.innerHeight;
+        const sheetVisH = snapName === 'full' ? card.offsetHeight
+                        : snapName === 'half' ? vph * HALF_VIEWPORT_RATIO
+                        : PEEK_HEIGHT_PX;
+
+        const visMapH = vph - sheetVisH;
+        if (visMapH < 80) return;
+
+        const pt = map.latLngToContainerPoint(L.latLng(sel.lat, sel.lng));
+        const targetY = visMapH / 2;
+        const dy = pt.y - targetY;
+        if (Math.abs(dy) < 20) return;
+
+        map.panBy([0, dy], { animate: true, duration: 0.34 });
+    }
+
     /* ── シート全体を閉じる / 復元 ───────────────────────────────────────── */
     function _closeSheet() {
         card.classList.add('is-sheet-closed');
-        card.classList.remove('is-expanded');
+        card.classList.remove('is-expanded', 'is-half');
         if (scrim) scrim.classList.remove('is-visible');
         if (_restoreBtn) _restoreBtn.classList.add('is-visible');
     }
@@ -89,11 +149,17 @@
         if (_restoreBtn) _restoreBtn.classList.remove('is-visible');
     }
 
+    /* scrim クリックなどの後方互換ラッパー */
+    function expand()   { snapTo('full'); }
+    function collapse() { snapTo('peek'); }
+
     /* ── カード中身をボトムシート構造へ再構成 ───────────────────────────── */
     function needsDecorate() {
         return mq.matches && card.children.length > 0 &&
                !card.querySelector(':scope > .sheet-scroll');
     }
+
+    let _initialSnap = true;
 
     function decorate() {
         if (!needsDecorate()) return;
@@ -104,7 +170,6 @@
         while (card.firstChild) scroll.appendChild(card.firstChild);
 
         // ── peek（折りたたみ時に見える要約）を構築 ──
-        // 上部のステータス行(.lac-item)からチップを生成。種別の断定はせず、本文をそのまま要約表示。
         const chips = [...scroll.querySelectorAll('.lac-item')].slice(0, 4).map(it => {
             const color = getComputedStyle(it).borderLeftColor;
             const txt   = (it.querySelector('.lac-text')?.textContent || '').trim();
@@ -141,28 +206,32 @@
         card.appendChild(peek);
         card.appendChild(scroll);
 
-        bindDrag(handle, peek);
-    }
+        bindDrag();
 
-    /* ── 展開 / 折りたたみ ───────────────────────────────────────────────── */
-    function expand() {
-        if (!mq.matches) return;
-        card.classList.add('is-expanded');
-        if (scrim) scrim.classList.add('is-visible');
-    }
-    function collapse() {
-        card.classList.remove('is-expanded');
-        if (scrim) scrim.classList.remove('is-visible');
+        // 初回コンテンツ表示時のみ half スナップへ（再レンダリング時は現状維持）
+        if (_initialSnap) {
+            _initialSnap = false;
+            setTimeout(() => { if (mq.matches) snapTo('half'); }, 50);
+        }
     }
 
     /* ── ドラッグ / タップ開閉 ──────────────────────────────────────────── */
     let bound = false;
-    function bindDrag(handle, peek) {
-        if (bound) return;            // ドラッグ系イベントは一度だけ登録（要素は再生成されないため handle 参照は最新を都度取得）
+    function bindDrag() {
+        if (bound) return;
         bound = true;
 
-        let startY = null, startExpanded = false, dragged = false, sheetH = 0, lastPos = 0;
-        const collapsedPx = () => Math.max(sheetH - 168, 1);
+        let startY     = null;
+        let startPos   = 0;
+        let dragged    = false;
+        let sheetH     = 0;
+        let lastPos    = 0;
+        let _velY      = 0;
+        let _prevMoveT = 0;
+        let _prevMoveY = 0;
+
+        const peekPx = () => Math.max(sheetH - PEEK_HEIGHT_PX, 1);
+        const halfPx = () => Math.max(sheetH - Math.round(window.innerHeight * HALF_VIEWPORT_RATIO), 0);
 
         const getHandle = () => card.querySelector('.sheet-handle');
         const getPeek   = () => card.querySelector('.sheet-peek');
@@ -173,36 +242,74 @@
             const t = e.target;
             if (t.closest('.sheet-close-btn')) return;
             if (!getHandle()?.contains(t) && !getPeek()?.contains(t)) return;
-            startY = (e.touches ? e.touches[0].clientY : e.clientY);
-            startExpanded = card.classList.contains('is-expanded');
-            dragged = false;
-            sheetH = card.offsetHeight;
-            lastPos = startExpanded ? 0 : collapsedPx();
+
+            sheetH   = card.offsetHeight;
+            startY   = (e.touches ? e.touches[0].clientY : e.clientY);
+            const snap = currentSnapName();
+            startPos = snap === 'full' ? 0
+                     : snap === 'half' ? halfPx()
+                     : peekPx();
+            lastPos  = startPos;
+            dragged  = false;
+            _velY    = 0;
+            _prevMoveT = performance.now();
+            _prevMoveY = startY;
             card.classList.add('is-dragging');
         }
+
         function onMove(e) {
             if (startY === null) return;
-            const y = (e.touches ? e.touches[0].clientY : e.clientY);
+            const y  = (e.touches ? e.touches[0].clientY : e.clientY);
             const dy = y - startY;
             if (Math.abs(dy) > 4) dragged = true;
-            const base = startExpanded ? 0 : collapsedPx();
-            lastPos = Math.min(Math.max(base + dy, 0), collapsedPx());
+
+            const now = performance.now();
+            const dt  = now - _prevMoveT;
+            if (dt > 0) _velY = (y - _prevMoveY) / dt; // px/ms (正=下方向)
+            _prevMoveT = now;
+            _prevMoveY = y;
+
+            lastPos = Math.min(Math.max(startPos + dy, 0), peekPx());
             card.style.transform = `translateY(${lastPos}px)`;
             if (scrim) {
                 scrim.classList.add('is-visible');
-                scrim.style.opacity = String(0.32 * (1 - lastPos / collapsedPx()));
+                scrim.style.opacity = String(0.32 * (1 - lastPos / peekPx()));
             }
             if (e.cancelable) e.preventDefault();
         }
+
         function onUp() {
             if (startY === null) return;
             card.classList.remove('is-dragging');
             card.style.transform = '';
             if (scrim) scrim.style.opacity = '';
+
+            const vel = _velY;
+            _velY      = 0;
+            _prevMoveT = 0;
+
             if (!dragged) {
-                startExpanded ? collapse() : expand();
+                // タップ: peek → half、それ以外 → peek
+                snapTo(currentSnapName() === 'peek' ? 'half' : 'peek');
             } else {
-                lastPos < collapsedPx() * 0.5 ? expand() : collapse();
+                const snaps = [
+                    { name: 'full', px: 0        },
+                    { name: 'half', px: halfPx() },
+                    { name: 'peek', px: peekPx() },
+                ];
+                const nearest = snaps.reduce((a, b) =>
+                    Math.abs(b.px - lastPos) < Math.abs(a.px - lastPos) ? b : a);
+
+                if (Math.abs(vel) > SNAP_VEL_THRESHOLD) {
+                    // フリック: 速度方向に1段送り（下=peek方向、上=full方向）
+                    const dir     = vel > 0 ? 1 : -1;
+                    const curIdx  = snaps.indexOf(nearest);
+                    const nextIdx = Math.min(Math.max(curIdx + dir, 0), snaps.length - 1);
+                    snapTo(snaps[nextIdx].name);
+                } else {
+                    // ゆっくりドラッグ: 最寄りスナップに確定
+                    snapTo(nearest.name);
+                }
             }
             startY = null;
         }
@@ -214,6 +321,11 @@
         window.addEventListener('mouseup', onUp);
         window.addEventListener('touchend', onUp);
     }
+
+    /* ── ビューポートリサイズ（アドレスバー伸縮・画面回転）対応 ─────────── */
+    window.addEventListener('resize', () => {
+        if (card.classList.contains('is-half')) updateHalfVar();
+    });
 
     /* ── 起動 ───────────────────────────────────────────────────────────── */
     function boot() {

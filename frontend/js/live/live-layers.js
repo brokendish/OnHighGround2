@@ -472,6 +472,7 @@
             getFallback:      () => _eqFallback,
             getMuniAvailable: () => _eqMuniAvailable,
             getSelectedId:    _eqGetSelectedId,
+            getSelected:      () => _eqData.find(e => e.event_id === _eqSelectedId) ?? null,
             selectById:       _eqSelectById,
         },
         tsunami: {
