@@ -558,6 +558,42 @@ html, body {
     margin-left: 3px;
 }
 
+/* ── 重要地震セクション ─────────────────────────────────────────────────────── */
+
+.lac-eq-important-section {
+    margin: 4px 0 4px 0;
+    border-left: 2px solid #ff4444;
+    padding-left: 6px;
+}
+
+.lac-eq-section-header {
+    font-size: 10px;
+    font-weight: 600;
+    color: #ff4444;
+    letter-spacing: 0.05em;
+    padding: 3px 0 2px;
+}
+
+.lac-eq-important-item {
+    padding: 4px 4px 4px 0;
+    border-bottom: 1px solid rgba(255, 68, 68, 0.15);
+    font-size: 11px;
+}
+
+.lac-eq-important-item:last-child {
+    border-bottom: none;
+}
+
+.lac-eq-fallback-note {
+    font-size: 9px;
+    color: #ff9944;
+    margin-top: 2px;
+    padding: 1px 4px;
+    background: rgba(255, 153, 68, 0.12);
+    border-radius: 2px;
+    display: inline-block;
+}
+
 /* ── 現在地パルスマーカー ────────────────────────────────────────────────────── */
 
 @keyframes live-location-pulse {

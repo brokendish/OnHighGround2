@@ -28,8 +28,10 @@
         earthquake: 'unknown',
         tsunami:    'unknown',
     };
-    let _fbTsunamiData = null;
-    let _fbEqData      = [];
+    let _fbTsunamiData    = null;
+    let _fbEqData         = [];
+    let _eqFallbackActive = false;
+    let _eqMuniAvailable  = true;
 
     // ── 津波表示ヘルパー ─────────────────────────────────────────────────────
 
@@ -54,6 +56,58 @@
         if (!top) return null;
         const names = areas.filter(a => a.level === top).map(a => a.name || a.label || '').slice(0, 3);
         return { level: top, label: _TSUNAMI_LABEL[top], color: _TSUNAMI_COLOR[top], areas: names };
+    }
+
+    // ── 重要地震ヘルパー ─────────────────────────────────────────────────────────
+
+    function _isImportantEqFE(eq) {
+        if (eq.isImportant !== undefined) return eq.isImportant;
+        if ((eq.magnitude || 0) >= 5.0) return true;
+        return ['5弱', '5強', '6弱', '6強', '7'].includes(eq.max_intensity || '');
+    }
+
+    function _displayIntensity(raw) {
+        if (!raw || raw === 'unknown') return '不明';
+        return raw;
+    }
+
+    function _importantEqCount(items) {
+        return (Array.isArray(items) ? items : []).filter(_isImportantEqFE).length;
+    }
+
+    function _buildImportantEqSection() {
+        const items = Array.isArray(_fbEqData) ? _fbEqData : [];
+        const important = items.filter(_isImportantEqFE);
+        if (!important.length) return '';
+
+        let html = `<div class="lac-eq-important-section">`;
+        html += `<div class="lac-eq-section-header">重要地震</div>`;
+
+        important.forEach(eq => {
+            const name       = eq.epicenter_name || eq.hypocenter_name || '震源不明';
+            const mag        = eq.magnitude != null ? `M${Number(eq.magnitude).toFixed(1)}` : 'M-';
+            const intensity  = _displayIntensity(eq.max_intensity);
+            const intStr     = intensity !== '不明' ? `震度${intensity}` : '最大震度不明';
+            const occurredAt = eq.occurred_at || eq.origin_time || '';
+            const at         = occurredAt ? occurredAt.slice(5, 16).replace('T', ' ') : '';
+            const canFocus   = eq.lat != null && eq.lng != null;
+            const focusAttrs = canFocus
+                ? `data-lat="${eq.lat}" data-lng="${eq.lng}" data-zoom="8" `
+                + `data-name="${name.replace(/"/g, '&quot;')}" data-detail="${mag} / ${intStr}"`
+                : '';
+            const muniNote   = !_eqMuniAvailable
+                ? `<div class="lac-eq-fallback-note">JMA fallback / 市区町村震度なし</div>`
+                : '';
+
+            html += `<div class="lac-eq-important-item${canFocus ? ' lac-eq-clickable' : ''}" ${focusAttrs}>
+                <div class="lac-eq-name">${name}</div>
+                <div class="lac-eq-meta">${mag} / ${intStr} <small>${at}</small></div>
+                ${muniNote}
+            </div>`;
+        });
+
+        html += `</div>`;
+        return html;
     }
 
     // ── 危険種別ラベル ───────────────────────────────────────────────────────
@@ -110,26 +164,35 @@
         const eqOk = summary.earthquake?.status !== 'offline';
         if (!eqOk) {
             html += `<div class="lac-item lac-offline"><span class="lac-text">地震情報: 取得失敗</span></div>`;
-        } else if (bigCount > 0) {
-            const recentArea = (dangerAreas.find(a => a.type === 'earthquake') || {}).label || '';
-            const arrow = _eqListExpanded ? '▴' : '▾';
-            const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
-            html += `
-                <div class="lac-item lac-warn lac-eq-toggle" data-action="eq-toggle"
-                     style="cursor:pointer; border-left-color:#ff6b35">
-                    <span class="lac-badge" style="background:#ff6b35;color:#fff">M5以上 ${bigCount}件</span>
-                    <span class="lac-text"><small>${recentArea}</small></span>
-                    <span class="lac-expand-arrow">${arrow}</span>
-                </div>
-                <div class="lac-eq-list-wrap"${listDisplay}>
-                    ${_buildEqListHtml()}
-                </div>`;
-        } else if (eqCount > 0) {
-            html += _eqToggleItemHtml(eqCount);
         } else {
-            html += `<div class="lac-item" style="border-left-color:#3fb950">
-                         <span class="lac-text">地震なし (3日間)</span>
-                     </div>`;
+            const importantCount = _importantEqCount(_fbEqData);
+            // 重要地震セクション（常時表示）
+            html += _buildImportantEqSection();
+            if (importantCount > 0) {
+                const recentArea = (dangerAreas.find(a => a.type === 'earthquake') || {}).label || '';
+                const arrow = _eqListExpanded ? '▴' : '▾';
+                const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
+                const fallbackNote = _eqFallbackActive
+                    ? `<div class="lac-eq-fallback-note">JMA fallback / 市区町村震度なし</div>`
+                    : '';
+                html += `
+                    <div class="lac-item lac-warn lac-eq-toggle" data-action="eq-toggle"
+                         style="cursor:pointer; border-left-color:#ff6b35">
+                        <span class="lac-badge" style="background:#ff6b35;color:#fff">M5以上/震度5弱 ${importantCount}件</span>
+                        <span class="lac-text"><small>${recentArea}</small></span>
+                        <span class="lac-expand-arrow">${arrow}</span>
+                    </div>
+                    ${fallbackNote}
+                    <div class="lac-eq-list-wrap"${listDisplay}>
+                        ${_buildEqListHtml()}
+                    </div>`;
+            } else if (eqCount > 0) {
+                html += _eqToggleItemHtml(eqCount);
+            } else {
+                html += `<div class="lac-item" style="border-left-color:#3fb950">
+                             <span class="lac-text">地震なし (3日間)</span>
+                         </div>`;
+            }
         }
 
         // 高潮
@@ -199,26 +262,35 @@
 
         if (_fbStatuses.earthquake === 'offline') {
             html += `<div class="lac-item lac-offline"><span class="lac-text">地震情報: 取得失敗</span></div>`;
-        } else if (bigCount > 0) {
-            const recentName = eqItems[0] ? (eqItems[0].epicenter_name || '') : '';
-            const arrow = _eqListExpanded ? '▴' : '▾';
-            const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
-            html += `
-                <div class="lac-item lac-warn lac-eq-toggle" data-action="eq-toggle"
-                     style="cursor:pointer; border-left-color:#ff6b35">
-                    <span class="lac-badge" style="background:#ff6b35;color:#fff">M5以上 ${bigCount}件</span>
-                    <span class="lac-text"><small>${recentName}</small></span>
-                    <span class="lac-expand-arrow">${arrow}</span>
-                </div>
-                <div class="lac-eq-list-wrap"${listDisplay}>
-                    ${_buildEqListHtml()}
-                </div>`;
-        } else if (eqCount > 0) {
-            html += _eqToggleItemHtml(eqCount);
         } else {
-            html += `<div class="lac-item" style="border-left-color:#3fb950">
-                         <span class="lac-text">地震なし (3日間)</span>
-                     </div>`;
+            const importantCount = _importantEqCount(eqItems);
+            // 重要地震セクション（常時表示）
+            html += _buildImportantEqSection();
+            if (importantCount > 0) {
+                const recentName = eqItems[0] ? (eqItems[0].epicenter_name || '') : '';
+                const arrow = _eqListExpanded ? '▴' : '▾';
+                const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
+                const fallbackNote = _eqFallbackActive
+                    ? `<div class="lac-eq-fallback-note">JMA fallback / 市区町村震度なし</div>`
+                    : '';
+                html += `
+                    <div class="lac-item lac-warn lac-eq-toggle" data-action="eq-toggle"
+                         style="cursor:pointer; border-left-color:#ff6b35">
+                        <span class="lac-badge" style="background:#ff6b35;color:#fff">M5以上/震度5弱 ${importantCount}件</span>
+                        <span class="lac-text"><small>${recentName}</small></span>
+                        <span class="lac-expand-arrow">${arrow}</span>
+                    </div>
+                    ${fallbackNote}
+                    <div class="lac-eq-list-wrap"${listDisplay}>
+                        ${_buildEqListHtml()}
+                    </div>`;
+            } else if (eqCount > 0) {
+                html += _eqToggleItemHtml(eqCount);
+            } else {
+                html += `<div class="lac-item" style="border-left-color:#3fb950">
+                             <span class="lac-text">地震なし (3日間)</span>
+                         </div>`;
+            }
         }
 
         // 高潮（フォールバック時は summary なし扱い）
@@ -269,7 +341,8 @@
         items.forEach(eq => {
             const name      = eq.epicenter_name || eq.hypocenter_name || '震源不明';
             const mag       = eq.magnitude != null ? `M${Number(eq.magnitude).toFixed(1)}` : 'M-';
-            const intensity = eq.max_intensity ? `震度${eq.max_intensity}` : '';
+            const intLabel  = _displayIntensity(eq.max_intensity);
+            const intensity = intLabel !== '不明' ? `震度${intLabel}` : '最大震度不明';
             const occurredAt = eq.occurred_at || eq.origin_time || '';
             const at        = occurredAt ? occurredAt.slice(5, 16).replace('T', ' ') : '';
             const dayLabel  = _eqDayLabel(occurredAt);
@@ -294,10 +367,14 @@
     function _eqToggleItemHtml(eqCount) {
         const arrow = _eqListExpanded ? '▴' : '▾';
         const listDisplay = _eqListExpanded ? '' : ' style="display:none"';
+        const fallbackNote = _eqFallbackActive
+            ? `<div class="lac-eq-fallback-note">JMA fallback / 市区町村震度なし</div>`
+            : '';
         return `<div class="lac-item lac-eq-toggle" data-action="eq-toggle"
                      style="cursor:pointer; border-left-color:#e3b341">
                     <span class="lac-text">地震 ${eqCount}件 (3日間) <span class="lac-expand-arrow">${arrow}</span></span>
                 </div>
+                ${fallbackNote}
                 <div class="lac-eq-list-wrap"${listDisplay}>
                     ${_buildEqListHtml()}
                 </div>`;
@@ -580,6 +657,10 @@
             ? eqResult.value : liveLayers.earthquake.getData();
         _fbStatuses.tsunami    = tsunamiResult.status === 'fulfilled' ? 'ok' : 'offline';
         _fbStatuses.earthquake = eqResult.status    === 'fulfilled' ? 'ok' : 'offline';
+
+        // JMA fallback 状態を earthquake レイヤーから取得
+        _eqFallbackActive = liveLayers.earthquake.getFallback?.() ?? false;
+        _eqMuniAvailable  = liveLayers.earthquake.getMuniAvailable?.() ?? true;
 
         // summary API 成功時はそちらを優先
         if (summaryResult.status === 'fulfilled') {

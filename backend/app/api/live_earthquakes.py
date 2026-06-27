@@ -5,6 +5,7 @@ GET /api/live/earthquakes/history?days=3
 
 P2P 地震情報を一次ソースとし、取得失敗・空の場合は JMA 地震情報にフォールバックする。
 JMA クライアントは 60 秒キャッシュ付きで、大地震後の P2P 過負荷時にも安定して動作する。
+各地震に isImportant / importantReasons / municipalityIntensityAvailable を付与する。
 """
 from __future__ import annotations
 
@@ -19,6 +20,37 @@ from services.jma_quake_client import fetch_recent_earthquakes
 
 router = APIRouter(prefix="/api/live/earthquakes", tags=["live-earthquakes"])
 logger = logging.getLogger(__name__)
+
+# 震度文字列 → ランク値（重要地震判定に使用）
+_INTENSITY_RANK: Dict[str, int] = {
+    "1": 10, "2": 20, "3": 30, "4": 40,
+    "5弱": 45, "5強": 50, "6弱": 55, "6強": 60, "7": 70,
+}
+
+
+def _annotate_item(item: Dict[str, Any], source: str) -> Dict[str, Any]:
+    """isImportant / importantReasons / municipalityIntensityAvailable を付与する。"""
+    item = dict(item)
+    reasons: List[str] = []
+
+    mag = item.get("magnitude")
+    try:
+        mag_float = float(mag) if mag is not None else None
+    except (TypeError, ValueError):
+        mag_float = None
+    if mag_float is not None:
+        item["magnitude"] = mag_float
+        if mag_float >= 5.0:
+            reasons.append("magnitude_ge_5")
+
+    max_int = str(item.get("max_intensity") or "")
+    if _INTENSITY_RANK.get(max_int, 0) >= 45:
+        reasons.append("intensity_ge_5weak")
+
+    item["isImportant"] = bool(reasons)
+    item["importantReasons"] = reasons
+    item["municipalityIntensityAvailable"] = (source == "p2p")
+    return item
 
 
 def _jma_compat(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -75,20 +107,28 @@ async def get_earthquake_history(
 
     一次ソース: P2P 地震情報（取得失敗・空の場合は JMA にフォールバック）
     """
-    items = await get_recent_earthquakes(days=days)
     source = "p2p"
+    try:
+        items = await get_recent_earthquakes(days=days)
+    except Exception as exc:
+        logger.warning("live/earthquakes/history P2P failed, falling back to JMA: %s", exc)
+        items = []
 
     if not items:
         logger.info("live/earthquakes/history P2P empty, falling back to JMA")
         items = await _jma_fallback(days=days)
         source = "jma"
 
+    annotated = [_annotate_item(it, source) for it in items]
+
     now = datetime.now(timezone.utc)
-    logger.info("live/earthquakes/history: days=%d count=%d source=%s", days, len(items), source)
+    logger.info("live/earthquakes/history: days=%d count=%d source=%s", days, len(annotated), source)
     return {
         "days": days,
         "source": source,
+        "fallback": source != "p2p",
+        "municipalityIntensityAvailable": source == "p2p",
         "updated_at": now.isoformat(),
-        "count": len(items),
-        "items": items,
+        "count": len(annotated),
+        "items": annotated,
     }
