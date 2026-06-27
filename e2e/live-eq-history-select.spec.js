@@ -346,3 +346,156 @@ test.describe('/live — 地震履歴選択 モバイル', () => {
         expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 5);
     });
 });
+
+// ── テスト: 多件数地震でも選択した1件のマーカーのみ表示 ─────────────────────────
+
+// 座標辞書を拡張（5地震分の地点を全てカバー）
+const COORDS_MULTI = Object.assign({}, COORDS_MOCK, {
+    '埼玉県|さいたま市': { lat: 35.862, lon: 139.645 },
+    '埼玉県|川越市':     { lat: 35.925, lon: 139.485 },
+    '埼玉県|越谷市':     { lat: 35.888, lon: 139.790 },
+    '静岡県|浜松市':     { lat: 34.710, lon: 137.726 },
+    '静岡県|静岡市':     { lat: 34.977, lon: 138.383 },
+});
+
+// 5件の地震: 各 points 件数が異なる（eq-p1=3, eq-p2=2, eq-p3=2, eq-p4=2, eq-p5=0）
+function makeMultiHistory() {
+    return {
+        days: 3,
+        source: 'p2p',
+        fallback: false,
+        municipalityIntensityAvailable: true,
+        updated_at: `${TODAY}T10:00:00+09:00`,
+        count: 5,
+        items: [
+            {
+                event_id: 'multi-a',
+                occurred_at: `${TODAY}T09:00:00+09:00`,
+                epicenter_name: '千葉県北東部',
+                lat: 35.7, lng: 140.5,
+                magnitude: 5.5, max_intensity: '4',
+                isImportant: true, importantReasons: ['magnitude_ge_5'],
+                municipalityIntensityAvailable: true, source: 'p2p',
+                points: [
+                    { pref: '千葉県', addr: '木更津市', isArea: false, scale: 40 },
+                    { pref: '千葉県', addr: '市原市',   isArea: false, scale: 30 },
+                    { pref: '東京都', addr: '江東区',   isArea: false, scale: 30 },
+                ],
+            },
+            {
+                event_id: 'multi-b',
+                occurred_at: `${TODAY}T08:00:00+09:00`,
+                epicenter_name: '神奈川県西部',
+                lat: 35.4, lng: 139.3,
+                magnitude: 5.1, max_intensity: '3',
+                isImportant: true, importantReasons: ['magnitude_ge_5'],
+                municipalityIntensityAvailable: true, source: 'p2p',
+                points: [
+                    { pref: '神奈川県', addr: '横浜市', isArea: false, scale: 30 },
+                    { pref: '神奈川県', addr: '川崎市', isArea: false, scale: 30 },
+                ],
+            },
+            {
+                event_id: 'multi-c',
+                occurred_at: `${TODAY}T07:00:00+09:00`,
+                epicenter_name: '埼玉県南部',
+                lat: 35.9, lng: 139.6,
+                magnitude: 3.2, max_intensity: '2',
+                isImportant: false, importantReasons: [],
+                municipalityIntensityAvailable: true, source: 'p2p',
+                points: [
+                    { pref: '埼玉県', addr: 'さいたま市', isArea: false, scale: 20 },
+                    { pref: '埼玉県', addr: '川越市',     isArea: false, scale: 20 },
+                ],
+            },
+            {
+                event_id: 'multi-d',
+                occurred_at: `${TODAY}T06:00:00+09:00`,
+                epicenter_name: '静岡県西部',
+                lat: 34.8, lng: 137.8,
+                magnitude: 4.0, max_intensity: '2',
+                isImportant: false, importantReasons: [],
+                municipalityIntensityAvailable: true, source: 'p2p',
+                points: [
+                    { pref: '静岡県', addr: '浜松市', isArea: false, scale: 20 },
+                    { pref: '静岡県', addr: '静岡市', isArea: false, scale: 20 },
+                ],
+            },
+            {
+                event_id: 'multi-e',
+                occurred_at: `${TODAY}T05:00:00+09:00`,
+                epicenter_name: '東京湾',
+                lat: 35.5, lng: 139.8,
+                magnitude: 2.5, max_intensity: '1',
+                isImportant: false, importantReasons: [],
+                municipalityIntensityAvailable: true, source: 'p2p',
+                points: [],
+            },
+        ],
+    };
+}
+
+test.describe('/live — 多件数地震: 選択地震のマーカーのみ表示', () => {
+
+    test.beforeEach(async ({ page }) => {
+        await mockBase(page, { eqHistory: makeMultiHistory(), coords: COORDS_MULTI });
+        await page.goto('/live.html');
+        await expect(page.locator('#live-loading')).toHaveClass(/hidden/, { timeout: 8000 });
+        await page.waitForTimeout(800);
+    });
+
+    test('初期表示: 最初の重要地震のマーカー 3 件のみ（全件描画しない）', async ({ page }) => {
+        // multi-a (3 points) が選択される。他の地震の points は描画されない
+        // もし全件描画なら 3+2+2+2+0=9 件になる
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(3, { timeout: 5000 });
+    });
+
+    test('2番目の重要地震クリック: 前の地震のマーカーが消え、2 件に切り替わる', async ({ page }) => {
+        // 初期: multi-a の 3 件
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(3, { timeout: 5000 });
+
+        // 2番目の重要地震 (multi-b) をクリック
+        const items = page.locator('.lac-eq-important-item.lac-eq-clickable');
+        await items.nth(1).click();
+        await page.waitForTimeout(600);
+
+        // multi-b の 2 件のみ表示（3+2=5 件にならない）
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(2, { timeout: 3000 });
+    });
+
+    test('JS経由で非重要地震を選択: そのマーカーに切り替わる', async ({ page }) => {
+        // 初期: multi-a の 3 件
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(3, { timeout: 5000 });
+
+        // multi-c を選択（2 points: さいたま市・川越市）
+        await page.evaluate(() => { window.liveLayers.earthquake.selectById('multi-c'); });
+        await page.waitForTimeout(500);
+
+        // multi-c の 2 件のみ（前の 3 件は消える）
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(2, { timeout: 3000 });
+    });
+
+    test('points なし地震を選択: マーカーがすべて消える（前の地震のマーカーも残らない）', async ({ page }) => {
+        // 初期: multi-a の 3 件
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(3, { timeout: 5000 });
+
+        // multi-e を選択（points なし）
+        await page.evaluate(() => { window.liveLayers.earthquake.selectById('multi-e'); });
+        await page.waitForTimeout(500);
+
+        // 市区町村マーカーはすべて消える
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(0, { timeout: 3000 });
+    });
+
+    test('存在しない event_id で selectById: 前の地震のマーカーもクリアされる', async ({ page }) => {
+        // 初期: multi-a の 3 件
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(3, { timeout: 5000 });
+
+        // 存在しない event_id で呼ぶ
+        await page.evaluate(() => { window.liveLayers.earthquake.selectById('nonexistent-id'); });
+        await page.waitForTimeout(500);
+
+        // マーカーがすべて消える（前のマーカーが残らない）
+        await expect(page.locator('.earthquake-intensity-marker')).toHaveCount(0, { timeout: 3000 });
+    });
+});

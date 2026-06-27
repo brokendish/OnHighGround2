@@ -318,14 +318,10 @@
 
     function _eqRender() {
         _eqLayerGroup.clearLayers();
-        if (!_eqEnabled) {
-            window.liveEarthquakeLayer?.clear?.();
-            return;
-        }
-        if (!_eqData.length) {
-            window.liveEarthquakeLayer?.clear?.();
-            return;
-        }
+        // 前回の市区町村マーカーを先にクリア（選択切替前に必ず消す）
+        window.liveEarthquakeLayer?.clear?.();
+
+        if (!_eqEnabled || !_eqData.length) return;
 
         // 初期選択: 選択が未設定 or データに存在しない場合は最新重要地震 or 最新地震
         const existsSelected = _eqSelectedId !== null && _eqData.some(eq => eq.event_id === _eqSelectedId);
@@ -334,53 +330,43 @@
             _eqSelectedId = (firstImportant ?? _eqData[0]).event_id ?? null;
         }
 
-        // 選択地震の市区町村震度マーカー描画（1件のみ）
+        // 選択地震の市区町村震度マーカー描画（1件のみ・全件描画禁止）
         const selected = _eqData.find(eq => eq.event_id === _eqSelectedId) ?? _eqData[0];
-        const muniRendered = selected
-            ? (window.liveEarthquakeLayer?.render?.(selected, true) ?? false)
-            : false;
-        if (!muniRendered) window.liveEarthquakeLayer?.clear?.();
+        // 選択地震の市区町村マーカーのみ描画（全件描画禁止）
+        if (selected) window.liveEarthquakeLayer?.render?.(selected, true);
 
-        // 通常地震を先に描画（SVG描画順で重要地震が前面に来るよう後回し）
+        // 震源マーカーを描画（全件・市区町村マーカーとは別レイヤー）
         _eqData.forEach(eq => {
-            if (_isImportantEq(eq)) return;
-            if (muniRendered && eq.event_id === _eqSelectedId) return;
-            _renderEqMarker(eq, false, eq.event_id === _eqSelectedId);
+            if (!_isImportantEq(eq)) _renderEqMarker(eq, false, eq.event_id === _eqSelectedId);
         });
-
-        // 重要地震を後から描画（前面に表示される）
         _eqData.forEach(eq => {
-            if (!_isImportantEq(eq)) return;
-            if (muniRendered && eq.event_id === _eqSelectedId) return;
-            _renderEqMarker(eq, true, eq.event_id === _eqSelectedId);
+            if (_isImportantEq(eq)) _renderEqMarker(eq, true, eq.event_id === _eqSelectedId);
         });
     }
 
     function _eqSelectById(eventId) {
         _eqSelectedId = eventId;
+        // 前回の市区町村マーカーを必ずクリア（event_id 不一致でも残さない）
+        window.liveEarthquakeLayer?.clear?.();
+
         const eq = _eqData.find(e => e.event_id === eventId);
         if (!eq || !_eqEnabled) return;
 
-        // 市区町村震度マーカーを切り替え
-        const muniRendered = window.liveEarthquakeLayer?.render?.(eq, true) ?? false;
-        if (!muniRendered) window.liveEarthquakeLayer?.clear?.();
+        // 選択地震の市区町村震度マーカーを描画
+        window.liveEarthquakeLayer?.render?.(eq, true);
 
         // 地図フォーカス
         if (eq.lat != null && eq.lng != null) {
             liveMap.flyTo([eq.lat, eq.lng], Math.max(liveMap.getZoom(), 7));
         }
 
-        // 震源マーカーの選択状態を更新
+        // 震源マーカーの選択状態を更新（全件描画：市区町村マーカーとは別レイヤー）
         _eqLayerGroup.clearLayers();
         _eqData.forEach(e => {
-            if (_isImportantEq(e)) return;
-            if (muniRendered && e.event_id === _eqSelectedId) return;
-            _renderEqMarker(e, false, e.event_id === _eqSelectedId);
+            if (!_isImportantEq(e)) _renderEqMarker(e, false, e.event_id === _eqSelectedId);
         });
         _eqData.forEach(e => {
-            if (!_isImportantEq(e)) return;
-            if (muniRendered && e.event_id === _eqSelectedId) return;
-            _renderEqMarker(e, true, e.event_id === _eqSelectedId);
+            if (_isImportantEq(e)) _renderEqMarker(e, true, e.event_id === _eqSelectedId);
         });
     }
 

@@ -55,11 +55,20 @@
 
     // ── 座標辞書（メインアプリと同一ファイルを参照） ─────────────────────────
 
-    let _coordDict = null;
+    let _coordDict   = null;
+    let _pendingEvent = null; // 辞書未ロード時に受けたリクエストを保持
 
     fetch('/data/municipality_coords.json')
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-        .then(d => { _coordDict = d; })
+        .then(d => {
+            _coordDict = d;
+            // 辞書ロード前に render() が呼ばれていた場合は再描画
+            if (_pendingEvent) {
+                const ev = _pendingEvent;
+                _pendingEvent = null;
+                render(ev, true);
+            }
+        })
         .catch(e => { console.warn('[live-eq] 座標辞書ロード失敗:', e); _coordDict = {}; });
 
     // ── 住所解析（earthquake-intensity-layer.js の _parseAddrToUnit と同一） ─
@@ -186,12 +195,11 @@
         const eid = event.event_id || '';
 
         if (!_coordDict) {
-            console.info(
-                'live earthquake municipality markers unavailable, fallback to representative marker:',
-                `event_id=${eid}`,
-            );
+            // 辞書未ロード: ロード完了後に自動再描画
+            _pendingEvent = event;
             return false;
         }
+        _pendingEvent = null;
 
         const points = _extractPoints(event);
         if (!points || points.length === 0) {
@@ -252,6 +260,7 @@
     }
 
     function clear() {
+        _pendingEvent = null; // 保留中の再描画もキャンセル
         _muniGroup.clearLayers();
         _removeFromMap();
     }
