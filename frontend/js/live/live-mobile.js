@@ -27,9 +27,12 @@
     let fab = null, scrim = null, _restoreBtn = null;
 
     /* ── CSS変数 --sheet-half をカード実測高から更新 ─────────────────────── */
+    /* visualViewport.height は iOS Safari でアドレスバー高を除いた実可視高を返す */
+    function _vph() { return window.visualViewport?.height ?? window.innerHeight; }
+
     function updateHalfVar() {
         const h = card.offsetHeight;
-        const t = Math.max(h - Math.round(window.innerHeight * HALF_VIEWPORT_RATIO), 0);
+        const t = Math.max(h - Math.round(_vph() * HALF_VIEWPORT_RATIO), 0);
         card.style.setProperty('--sheet-half', `${t}px`);
     }
 
@@ -121,7 +124,7 @@
         const sel = window.liveLayers?.earthquake?.getSelected?.();
         if (!sel || sel.lat == null || sel.lng == null) return;
 
-        const vph = window.innerHeight;
+        const vph = _vph();
         const sheetVisH = snapName === 'full' ? card.offsetHeight
                         : snapName === 'half' ? vph * HALF_VIEWPORT_RATIO
                         : PEEK_HEIGHT_PX;
@@ -231,7 +234,7 @@
         let _prevMoveY = 0;
 
         const peekPx = () => Math.max(sheetH - PEEK_HEIGHT_PX, 1);
-        const halfPx = () => Math.max(sheetH - Math.round(window.innerHeight * HALF_VIEWPORT_RATIO), 0);
+        const halfPx = () => Math.max(sheetH - Math.round(_vph() * HALF_VIEWPORT_RATIO), 0);
 
         const getHandle = () => card.querySelector('.sheet-handle');
         const getPeek   = () => card.querySelector('.sheet-peek');
@@ -323,9 +326,14 @@
     }
 
     /* ── ビューポートリサイズ（アドレスバー伸縮・画面回転）対応 ─────────── */
-    window.addEventListener('resize', () => {
+    function _onViewportResize() {
         if (card.classList.contains('is-half')) updateHalfVar();
-    });
+    }
+    window.addEventListener('resize', _onViewportResize);
+    // iOS Safari のアドレスバー伸縮は visualViewport の resize で通知される
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', _onViewportResize);
+    }
 
     /* ── 起動 ───────────────────────────────────────────────────────────── */
     function boot() {

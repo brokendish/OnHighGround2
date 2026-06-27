@@ -936,6 +936,7 @@ html, body {
         min-width: 0;
         max-width: none;
         max-height: 82vh;
+        max-height: 82dvh;          /* アドレスバー高さを除いた動的ビューポート基準 */
         padding: 0;                 /* 内側パーツで個別に余白 */
         border: none;
         border-top: 1px solid rgba(48, 54, 61, 0.9);
@@ -947,7 +948,7 @@ html, body {
         flex-direction: column;
         transform: translateY(var(--sheet-collapsed, calc(100% - 168px)));
         transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
-        touch-action: none;
+        /* touch-action は handle/peek のみ none にして scroll は pan-y を許可 */
     }
     #live-alert-card.is-expanded  {
         transform: translateY(0);
@@ -1057,12 +1058,19 @@ html, body {
     }
     .peek-meta .peek-expand { color: #58a6ff; font-weight: 600; }
 
+    /* ドラッグ操作はハンドル行/ピーク行のみ。スクロール領域は縦パンを許可 */
+    .sheet-handle,
+    .sheet-peek { touch-action: none; }
+
     /* 展開時のスクロール領域 */
     .sheet-scroll {
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
-        padding: 4px 16px calc(18px + env(safe-area-inset-bottom));
+        touch-action: pan-y;        /* iOS Safariでタッチスクロールを有効化 */
+        /* safe-area-inset-bottom に加え 44px の余白でツールバーに被らないようにする */
+        padding: 4px 16px max(calc(env(safe-area-inset-bottom) + 18px), 62px);
         flex: 1;
+        min-height: 0;
     }
     /* peek 状態のみ本文を隠す（half / full では表示） */
     #live-alert-card:not(.is-expanded):not(.is-half) .sheet-scroll { opacity: 0; pointer-events: none; }
