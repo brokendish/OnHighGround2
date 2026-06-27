@@ -527,23 +527,56 @@
         }
     }
 
-    // カードクリック → 該当路線へ fitBounds + ポップアップ
-    function focusRailway(railway_id) {
-        if (!_baseLayer || !window.liveMap) return;
-        const bounds = L.latLngBounds([]);
-        let firstMatch = null;
-        _baseLayer.eachLayer(fl => {
-            const props = fl.feature?.properties || {};
-            const match = _findMatch(props, _lastItems);
-            if (match && match.railway_id === railway_id) {
-                try { bounds.extend(fl.getBounds()); } catch (_) {}
-                if (!firstMatch) firstMatch = fl;
-            }
-        });
-        if (bounds.isValid()) {
-            window.liveMap.fitBounds(bounds, { padding: [20, 20], maxZoom: 13 });
-            if (firstMatch) firstMatch.openPopup();
+    // カードクリック → 該当路線へ fitBounds + 描画
+    // 現在のズームレベル・画面範囲に関わらず全フィーチャーから路線を探して表示する
+    async function focusRailway(railway_id) {
+        const map = window.liveMap;
+        if (!map) return;
+
+        // 静的データを確保（キャッシュ済みなら即返る）
+        let allFeatures;
+        try {
+            allFeatures = await _loadStatic();
+        } catch (e) {
+            console.warn('[live-train-osm] focusRailway: データ読み込み失敗', e);
+            const fb = _lastItems.find(i => i.railway_id === railway_id);
+            if (fb?.lat != null) map.flyTo([fb.lat, fb.lng], 10);
+            return;
         }
+
+        // 対象路線の全フィーチャーを抽出（現在の bounds を無視）
+        const aliases = _ODPT_TO_OSM[railway_id] || [];
+        const matching = aliases.length
+            ? allFeatures.filter(feat => {
+                const haystack = _lineNameCandidates(feat.properties || {}).join(' ').toLowerCase();
+                return aliases.some(a => haystack.includes(a.toLowerCase()));
+            })
+            : [];
+
+        if (!matching.length) {
+            // GeoJSONにマッチしない路線 → 代表座標へフォールバック
+            const fb = _lastItems.find(i => i.railway_id === railway_id);
+            if (fb?.lat != null) map.flyTo([fb.lat, fb.lng], 10);
+            return;
+        }
+
+        // 路線全体の bounds を計算
+        const bounds = L.latLngBounds([]);
+        matching.forEach(feat => {
+            _coordinatesAsLines(feat.geometry).forEach(line =>
+                line.forEach(([lon, lat]) => bounds.extend([lat, lon]))
+            );
+        });
+
+        if (!bounds.isValid()) return;
+
+        // fitBounds: minZoom:8 で _MIN_ZOOM チェックを確実にパスさせる
+        map.fitBounds(bounds, { padding: [40, 40], minZoom: 8, maxZoom: 12 });
+
+        // boundsキャッシュを無効化 → moveend 後の _refresh で必ず再描画
+        _lastBoundsKey = null;
+        // moveend を待たず即時もスケジュール（debounce 込み）
+        _scheduleRefresh();
     }
 
     window.liveTrainOsmLayer = { setDisruptions, setVisible, focusRailway };
