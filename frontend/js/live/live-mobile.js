@@ -110,7 +110,8 @@
         } else if (name === 'half') {
             updateHalfVar();
             card.classList.add('is-half');
-            if (scrim) scrim.classList.add('is-visible');
+            // half では地図上半分を操作できるようスクリムを表示しない
+            if (scrim) scrim.classList.remove('is-visible');
         } else {
             if (scrim) scrim.classList.remove('is-visible');
         }
@@ -275,8 +276,15 @@
             lastPos = Math.min(Math.max(startPos + dy, 0), peekPx());
             card.style.transform = `translateY(${lastPos}px)`;
             if (scrim) {
-                scrim.classList.add('is-visible');
-                scrim.style.opacity = String(0.32 * (1 - lastPos / peekPx()));
+                // full(0px)に近づくほど暗くなる。half相当以下では表示しない
+                const ratio = 1 - lastPos / peekPx();
+                if (ratio > 0.55) {
+                    scrim.classList.add('is-visible');
+                    scrim.style.opacity = String(0.32 * ratio);
+                } else {
+                    scrim.classList.remove('is-visible');
+                    scrim.style.opacity = '';
+                }
             }
             if (e.cancelable) e.preventDefault();
         }

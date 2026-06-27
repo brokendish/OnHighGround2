@@ -1067,8 +1067,9 @@ html, body {
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         touch-action: pan-y;        /* iOS Safariでタッチスクロールを有効化 */
-        /* safe-area-inset-bottom に加え 44px の余白でツールバーに被らないようにする */
-        padding: 4px 16px max(calc(env(safe-area-inset-bottom) + 18px), 62px);
+        /* iOS Safari のツールバー(~49px)はenv(safe-area-inset-bottom)に含まれないため
+           100px を最低保証とし、ホームインジケータ込みの端末でも十分な余白を確保する */
+        padding: 4px 16px max(calc(env(safe-area-inset-bottom) + 60px), 100px);
         flex: 1;
         min-height: 0;
     }
