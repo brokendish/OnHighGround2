@@ -84,9 +84,14 @@ async function mockBase(page, eqResponse) {
     await page.route('/api/live/sun-moon',           r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SUN_MOON_RESPONSE) }));
     await page.route('/api/live/tide/stations',      r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STATIONS_RESPONSE) }));
     await page.route('/api/live/summary',            r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LIVE_SUMMARY) }));
-    await page.route('/api/live/storm_surge/**',     r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', evaluated: true, summary: { active: false }, areas: [] }) }));
-    await page.route('/api/earthquakes**',           r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(eqResponse) }));
-    await page.route('/api/tsunami/**',              r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TSUNAMI_RESPONSE) }));
+    await page.route('/api/live/storm_surge/**',         r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', evaluated: true, summary: { active: false }, areas: [] }) }));
+    await page.route('/api/live/trains/summary**',       r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', items: [], scope: {}, stale: false }) }));
+    await page.route('/api/live/road-traffic/summary**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', items: [], scope: {}, stale: false }) }));
+    await page.route('/api/live/earthquakes/**',         r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ source: 'p2p', fallback: false, municipalityIntensityAvailable: true, count: eqResponse.count, items: eqResponse.items }) }));
+    await page.route('/api/earthquakes**',               r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(eqResponse) }));
+    await page.route('/api/tsunami/**',                  r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TSUNAMI_RESPONSE) }));
+    await page.route('/layers/railways/kanto_railways.geojson',  r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [] }) }));
+    await page.route('/layers/roads/kanto_roads_main.geojson',   r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [] }) }));
     await page.route('/api/weather/rain/tile/times', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('/api/live/rain/timeline',      r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('**/jmatile/**',                r => r.fulfill({ status: 200, contentType: 'image/png',        body: TRANSPARENT_PNG }));

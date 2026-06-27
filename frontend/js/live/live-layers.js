@@ -236,6 +236,7 @@
     let _eqSource        = 'p2p';
     let _eqFallback      = false;
     let _eqMuniAvailable = true;
+    let _eqSelectedId    = null; // 選択中の event_id
 
     function _isImportantEq(eq) {
         if (eq.isImportant !== undefined) return eq.isImportant;
@@ -269,7 +270,7 @@
         return 0.38;
     }
 
-    function _renderEqMarker(eq, isImportant) {
+    function _renderEqMarker(eq, isImportant, isSelected) {
         const lat = eq.lat;
         const lng = eq.lng;
         if (lat == null || lng == null) return;
@@ -291,10 +292,12 @@
         }
 
         const baseRadius  = _eqMagRadius(mag);
-        const radius      = isImportant ? Math.max(baseRadius + 5, 16) : baseRadius;
-        const weight      = isImportant ? 2.5 : (opacity < 0.6 ? 0.5 : 1);
-        const borderColor = isImportant ? '#ff4444' : '#fff';
-        const fillOpacity = isImportant ? Math.max(opacity, 0.75) : opacity;
+        const radius      = isSelected
+            ? Math.max(baseRadius + 6, 18)
+            : (isImportant ? Math.max(baseRadius + 5, 16) : baseRadius);
+        const weight      = isSelected ? 3 : (isImportant ? 2.5 : (opacity < 0.6 ? 0.5 : 1));
+        const borderColor = isSelected ? '#58a6ff' : (isImportant ? '#ff4444' : '#fff');
+        const fillOpacity = (isSelected || isImportant) ? Math.max(opacity, 0.75) : opacity;
 
         const fallbackLine = isImportant && _eqFallback
             ? '<br><small style="color:#ff9944">JMA fallback / 市区町村震度なし</small>'
@@ -319,25 +322,65 @@
             window.liveEarthquakeLayer?.clear?.();
             return;
         }
+        if (!_eqData.length) {
+            window.liveEarthquakeLayer?.clear?.();
+            return;
+        }
 
-        // 最新地震に市区町村震度マーカーを試みる（liveEarthquakeLayer が利用可能な場合のみ）
-        const latest = _eqData[0] ?? null;
-        const muniRendered = latest
-            ? (window.liveEarthquakeLayer?.render?.(latest, true) ?? false)
+        // 初期選択: 選択が未設定 or データに存在しない場合は最新重要地震 or 最新地震
+        const existsSelected = _eqSelectedId !== null && _eqData.some(eq => eq.event_id === _eqSelectedId);
+        if (!existsSelected) {
+            const firstImportant = _eqData.find(_isImportantEq);
+            _eqSelectedId = (firstImportant ?? _eqData[0]).event_id ?? null;
+        }
+
+        // 選択地震の市区町村震度マーカー描画（1件のみ）
+        const selected = _eqData.find(eq => eq.event_id === _eqSelectedId) ?? _eqData[0];
+        const muniRendered = selected
+            ? (window.liveEarthquakeLayer?.render?.(selected, true) ?? false)
             : false;
+        if (!muniRendered) window.liveEarthquakeLayer?.clear?.();
 
         // 通常地震を先に描画（SVG描画順で重要地震が前面に来るよう後回し）
         _eqData.forEach(eq => {
             if (_isImportantEq(eq)) return;
-            if (muniRendered && eq.event_id === latest?.event_id) return;
-            _renderEqMarker(eq, false);
+            if (muniRendered && eq.event_id === _eqSelectedId) return;
+            _renderEqMarker(eq, false, eq.event_id === _eqSelectedId);
         });
 
         // 重要地震を後から描画（前面に表示される）
         _eqData.forEach(eq => {
             if (!_isImportantEq(eq)) return;
-            if (muniRendered && eq.event_id === latest?.event_id) return;
-            _renderEqMarker(eq, true);
+            if (muniRendered && eq.event_id === _eqSelectedId) return;
+            _renderEqMarker(eq, true, eq.event_id === _eqSelectedId);
+        });
+    }
+
+    function _eqSelectById(eventId) {
+        _eqSelectedId = eventId;
+        const eq = _eqData.find(e => e.event_id === eventId);
+        if (!eq || !_eqEnabled) return;
+
+        // 市区町村震度マーカーを切り替え
+        const muniRendered = window.liveEarthquakeLayer?.render?.(eq, true) ?? false;
+        if (!muniRendered) window.liveEarthquakeLayer?.clear?.();
+
+        // 地図フォーカス
+        if (eq.lat != null && eq.lng != null) {
+            liveMap.flyTo([eq.lat, eq.lng], Math.max(liveMap.getZoom(), 7));
+        }
+
+        // 震源マーカーの選択状態を更新
+        _eqLayerGroup.clearLayers();
+        _eqData.forEach(e => {
+            if (_isImportantEq(e)) return;
+            if (muniRendered && e.event_id === _eqSelectedId) return;
+            _renderEqMarker(e, false, e.event_id === _eqSelectedId);
+        });
+        _eqData.forEach(e => {
+            if (!_isImportantEq(e)) return;
+            if (muniRendered && e.event_id === _eqSelectedId) return;
+            _renderEqMarker(e, true, e.event_id === _eqSelectedId);
         });
     }
 
@@ -371,7 +414,8 @@
         _eqRender();
     }
 
-    function _eqGetData() { return _eqData; }
+    function _eqGetData()       { return _eqData; }
+    function _eqGetSelectedId() { return _eqSelectedId; }
 
     // ─────────────────────────────────────────────────────────────────────────
     // 津波情報（データ取得 + マップレイヤー連携）
@@ -441,6 +485,8 @@
             getSource:        () => _eqSource,
             getFallback:      () => _eqFallback,
             getMuniAvailable: () => _eqMuniAvailable,
+            getSelectedId:    _eqGetSelectedId,
+            selectById:       _eqSelectById,
         },
         tsunami: {
             setVisible: _tsunamiSetVisible,

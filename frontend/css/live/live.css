@@ -594,6 +594,19 @@ html, body {
     display: inline-block;
 }
 
+.lac-eq-selected {
+    background: rgba(88, 166, 255, 0.12);
+    border-left: 2px solid #58a6ff !important;
+    padding-left: 4px;
+}
+
+.lac-eq-update-count {
+    font-size: 9px;
+    color: #8b949e;
+    margin-left: 4px;
+    opacity: 0.75;
+}
+
 /* ── 現在地パルスマーカー ────────────────────────────────────────────────────── */
 
 @keyframes live-location-pulse {

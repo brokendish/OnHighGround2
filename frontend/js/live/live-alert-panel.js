@@ -79,6 +79,7 @@
         const items = Array.isArray(_fbEqData) ? _fbEqData : [];
         const important = items.filter(_isImportantEqFE);
         if (!important.length) return '';
+        const selectedId = window.liveLayers?.earthquake?.getSelectedId?.() ?? null;
 
         let html = `<div class="lac-eq-important-section">`;
         html += `<div class="lac-eq-section-header">重要地震</div>`;
@@ -91,17 +92,22 @@
             const occurredAt = eq.occurred_at || eq.origin_time || '';
             const at         = occurredAt ? occurredAt.slice(5, 16).replace('T', ' ') : '';
             const canFocus   = eq.lat != null && eq.lng != null;
+            const eqId       = eq.event_id || '';
+            const isSelected = eqId && eqId === selectedId;
             const focusAttrs = canFocus
                 ? `data-lat="${eq.lat}" data-lng="${eq.lng}" data-zoom="8" `
-                + `data-name="${name.replace(/"/g, '&quot;')}" data-detail="${mag} / ${intStr}"`
-                : '';
+                + `data-name="${name.replace(/"/g, '&quot;')}" data-detail="${mag} / ${intStr}" data-eq-id="${eqId}"`
+                : `data-eq-id="${eqId}"`;
             const muniNote   = !_eqMuniAvailable
                 ? `<div class="lac-eq-fallback-note">JMA fallback / 市区町村震度なし</div>`
                 : '';
+            const updateNote = (eq.update_count || 0) > 1
+                ? `<span class="lac-eq-update-count">更新${eq.update_count}件</span>`
+                : '';
 
-            html += `<div class="lac-eq-important-item${canFocus ? ' lac-eq-clickable' : ''}" ${focusAttrs}>
+            html += `<div class="lac-eq-important-item${canFocus ? ' lac-eq-clickable' : ''}${isSelected ? ' lac-eq-selected' : ''}" ${focusAttrs}>
                 <div class="lac-eq-name">${name}</div>
-                <div class="lac-eq-meta">${mag} / ${intStr} <small>${at}</small></div>
+                <div class="lac-eq-meta">${mag} / ${intStr} <small>${at}</small>${updateNote}</div>
                 ${muniNote}
             </div>`;
         });
@@ -335,6 +341,7 @@
 
     function _buildEqListHtml() {
         const items = Array.isArray(_fbEqData) ? _fbEqData.slice(0, 30) : [];
+        const selectedId = window.liveLayers?.earthquake?.getSelectedId?.() ?? null;
         if (!items.length) return '<div class="lac-eq-empty">履歴なし</div>';
         let html = '';
         let lastDayLabel = '';
@@ -347,8 +354,14 @@
             const at        = occurredAt ? occurredAt.slice(5, 16).replace('T', ' ') : '';
             const dayLabel  = _eqDayLabel(occurredAt);
             const canFocus  = eq.lat != null && eq.lng != null;
+            const eqId      = eq.event_id || '';
+            const isSelected = eqId && eqId === selectedId;
+            const updateNote = (eq.update_count || 0) > 1
+                ? `<span class="lac-eq-update-count">更新${eq.update_count}件</span>`
+                : '';
             const focusAttrs = canFocus
-                ? `data-lat="${eq.lat}" data-lng="${eq.lng}" data-zoom="8" data-name="${name.replace(/"/g, '&quot;')}" data-detail="${mag}${intensity ? ' / ' + intensity : ''}"` : '';
+                ? `data-lat="${eq.lat}" data-lng="${eq.lng}" data-zoom="8" data-name="${name.replace(/"/g, '&quot;')}" data-detail="${mag}${intensity ? ' / ' + intensity : ''}" data-eq-id="${eqId}"`
+                : `data-eq-id="${eqId}"`;
 
             // 日付区切り（初回またはラベルが変わったとき）
             if (dayLabel && dayLabel !== lastDayLabel) {
@@ -356,9 +369,9 @@
                 lastDayLabel = dayLabel;
             }
 
-            html += `<div class="lac-eq-item${canFocus ? ' lac-eq-clickable' : ''}" ${focusAttrs}>
+            html += `<div class="lac-eq-item${canFocus ? ' lac-eq-clickable' : ''}${isSelected ? ' lac-eq-selected' : ''}" ${focusAttrs}>
                 <div class="lac-eq-name">${name}</div>
-                <div class="lac-eq-meta">${mag}${intensity ? ' / ' + intensity : ''} <small>${at}</small></div>
+                <div class="lac-eq-meta">${mag}${intensity ? ' / ' + intensity : ''} <small>${at}</small>${updateNote}</div>
             </div>`;
         });
         return html;
@@ -580,21 +593,36 @@
                 }
             });
         });
-        // 地震リストアイテムクリック（DOM に含まれていれば登録）
+        // 地震リストアイテムクリック（市区町村マーカー切り替え + 地図フォーカス）
         _card.querySelectorAll('.lac-eq-clickable').forEach(el => {
             el.addEventListener('click', () => {
                 const lat    = parseFloat(el.dataset.lat);
                 const lng    = parseFloat(el.dataset.lng);
-                const zoom   = parseInt(el.dataset.zoom) || 8;
+                const eqId   = el.dataset.eqId  || '';
                 const name   = el.dataset.name   || '震源不明';
                 const detail = el.dataset.detail || '';
-                if (!isNaN(lat) && !isNaN(lng)) {
-                    liveMap.setView([lat, lng], zoom);
+
+                if (eqId && window.liveLayers?.earthquake?.selectById) {
+                    // 地震選択: 市区町村マーカー切り替え + flyTo
+                    window.liveLayers.earthquake.selectById(eqId);
+                    // ポップアップも表示（flyTo 先の座標に）
+                    if (!isNaN(lat) && !isNaN(lng)) {
+                        L.popup()
+                            .setLatLng([lat, lng])
+                            .setContent(`<b>${name}</b><br><small>${detail}</small>`)
+                            .openOn(liveMap);
+                    }
+                } else if (!isNaN(lat) && !isNaN(lng)) {
+                    liveMap.setView([lat, lng], parseInt(el.dataset.zoom) || 8);
                     L.popup()
                         .setLatLng([lat, lng])
                         .setContent(`<b>${name}</b><br><small>${detail}</small>`)
                         .openOn(liveMap);
                 }
+
+                // 選択ハイライト更新（DOM 直接更新）
+                _card.querySelectorAll('.lac-eq-clickable').forEach(e => e.classList.remove('lac-eq-selected'));
+                el.classList.add('lac-eq-selected');
             });
         });
         // パネル最小化ボタン（デスクトップのみ有効）

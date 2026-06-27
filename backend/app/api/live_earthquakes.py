@@ -69,6 +69,33 @@ def _jma_compat(event: Dict[str, Any]) -> Dict[str, Any]:
     return e
 
 
+def _deduplicate_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """同一地震（発生時刻＋震源地が一致）を1件に統合し update_count を付与する。
+    最多 points を持つ更新を代表として選ぶ。同数なら最大震度ランクが高い方を優先する。
+    """
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for item in items:
+        key = f"{item.get('occurred_at', '')}|{item.get('epicenter_name', '')}"
+        groups.setdefault(key, []).append(item)
+
+    result: List[Dict[str, Any]] = []
+    for group in groups.values():
+        best = max(
+            group,
+            key=lambda x: (
+                len(x.get("points") or []),
+                _INTENSITY_RANK.get(str(x.get("max_intensity") or ""), 0),
+            ),
+        )
+        merged = dict(best)
+        if len(group) > 1:
+            merged["update_count"] = len(group)
+        result.append(merged)
+
+    result.sort(key=lambda x: x.get("occurred_at", ""), reverse=True)
+    return result
+
+
 async def _jma_fallback(days: int) -> List[Dict[str, Any]]:
     """JMA から直近地震を取得し、days 日以内にフィルタして返す。"""
     try:
@@ -118,6 +145,8 @@ async def get_earthquake_history(
         logger.info("live/earthquakes/history P2P empty, falling back to JMA")
         items = await _jma_fallback(days=days)
         source = "jma"
+    elif source == "p2p":
+        items = _deduplicate_items(items)
 
     annotated = [_annotate_item(it, source) for it in items]
 
