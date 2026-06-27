@@ -1064,9 +1064,11 @@ html, body {
         padding: 4px 16px calc(18px + env(safe-area-inset-bottom));
         flex: 1;
     }
-    /* 折りたたみ時は本文を隠す（高さがピークだけになる） */
-    #live-alert-card:not(.is-expanded) .sheet-scroll { opacity: 0; pointer-events: none; }
-    #live-alert-card.is-expanded .sheet-peek { opacity: 0.35; }
+    /* peek 状態のみ本文を隠す（half / full では表示） */
+    #live-alert-card:not(.is-expanded):not(.is-half) .sheet-scroll { opacity: 0; pointer-events: none; }
+    /* half / full ではペク行を非表示にして本文エリアを広げる */
+    #live-alert-card.is-half .sheet-peek,
+    #live-alert-card.is-expanded .sheet-peek { display: none; }
 
     /* シート内: 既存カード本文の余白調整 */
     .sheet-scroll .lac-title { display: none; }   /* タイトルはハンドル領域に集約 */
