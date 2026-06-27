@@ -8,12 +8,73 @@
     // 雨雲レイヤー（JMA 降水ナウキャスト）
     // ─────────────────────────────────────────────────────────────────────────
 
+    // JMA 降水ナウキャスト色テーブル（data_lake/registry/weather/jma_nowcast_color_table.json に準拠）
+    // alphaScale: 元 alpha に乗算する係数。弱雨ほど低く、強雨ほど高く設定する。
+    const _RAIN_PIXEL_TABLE = [
+        { r: 160, g: 210, b: 255, s: 0.25 }, // weak 弱い雨（薄青）
+        { r:  33, g: 140, b: 255, s: 0.25 }, // weak 弱い雨（青）
+        { r:   0, g:  65, b: 255, s: 0.40 }, // moderate 雨（濃青）
+        { r:   0, g: 200, b: 200, s: 0.40 }, // moderate 雨（シアン）
+        { r:   0, g: 200, b:   0, s: 0.65 }, // strong 強い雨（緑）
+        { r: 255, g: 215, b:   0, s: 0.65 }, // strong 強い雨（黄）
+        { r: 255, g: 140, b:   0, s: 0.70 }, // severe 非常に激しい雨（橙）
+        { r: 255, g:   0, b:   0, s: 0.82 }, // severe 非常に激しい雨（赤）
+        { r: 180, g:   0, b: 180, s: 0.90 }, // severe 猛烈な雨（紫）
+    ];
+    const _RAIN_THRESHOLD_SQ = 1600; // 距離 40 の 2 乗（バックエンド distance_threshold: 40 と同値）
+    const _RAIN_BG_MIN       = 230;  // R/G/B がすべてこの値以上なら背景（降水なし）
+    const _RAIN_ALPHA_MIN    = 50;   // alpha がこの値未満なら透明ピクセル
+
+    function _rainAlphaScale(r, g, b, a) {
+        if (a < _RAIN_ALPHA_MIN) return 0;
+        if (r >= _RAIN_BG_MIN && g >= _RAIN_BG_MIN && b >= _RAIN_BG_MIN) return 0;
+        let bestScale = 0.25;
+        let bestDist  = Infinity;
+        for (const c of _RAIN_PIXEL_TABLE) {
+            const d = (r - c.r) * (r - c.r) + (g - c.g) * (g - c.g) + (b - c.b) * (b - c.b);
+            if (d < bestDist) { bestDist = d; bestScale = c.s; }
+        }
+        return bestDist <= _RAIN_THRESHOLD_SQ ? bestScale : 0.35;
+    }
+
+    function _rainProcessPixels(data) {
+        for (let i = 0; i < data.length; i += 4) {
+            data[i + 3] = Math.round(data[i + 3] * _rainAlphaScale(data[i], data[i + 1], data[i + 2], data[i + 3]));
+        }
+    }
+
     // JMA hrpns タイルは偶数ズームにのみデータがある（kikikuru-layer.js と同様の理由）
+    // createTile を override し Canvas でピクセルごとに alpha を調整する（案A）。
+    // CORS でピクセル読み取り不可の場合は opacity 0.35 の描画にフォールバック（案B）。
     const _RainTileLayer = L.TileLayer.extend({
         _clampZoom(zoom) {
             let z = L.TileLayer.prototype._clampZoom.call(this, zoom);
             if (z % 2 !== 0) z = Math.max(z - 1, 2);
             return z;
+        },
+        createTile(coords, done) {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function () {
+                ctx.drawImage(img, 0, 0);
+                try {
+                    const imageData = ctx.getImageData(0, 0, 256, 256);
+                    _rainProcessPixels(imageData.data);
+                    ctx.putImageData(imageData, 0, 0);
+                } catch (_) {
+                    // CORS fallback: タイル全体を opacity 0.35 で描画
+                    ctx.clearRect(0, 0, 256, 256);
+                    ctx.globalAlpha = 0.35;
+                    ctx.drawImage(img, 0, 0);
+                }
+                done(null, canvas);
+            };
+            img.onerror = function (e) { done(e, canvas); };
+            img.src = this.getTileUrl(coords);
+            return canvas;
         },
     });
 
@@ -21,7 +82,6 @@
     let _rainEnabled = true;
 
     const _RAIN_LAYER_OPTIONS = {
-        opacity:       0.50,
         attribution:   '気象庁 降水ナウキャスト',
         minZoom:       1,
         maxNativeZoom: 10,
@@ -54,7 +114,7 @@
         }
         if (!_rainEnabled) return;
 
-        console.log(`[live-rain] live rain layer opacity: value=${_RAIN_LAYER_OPTIONS.opacity}`);
+        console.log('[live-rain] live rain layer updated (canvas pixel processing)');
         _rainLayer = new _RainTileLayer(current.tile_url_template, _RAIN_LAYER_OPTIONS).addTo(liveMap);
     }
 
@@ -171,8 +231,17 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     const _eqLayerGroup = L.layerGroup().addTo(liveMap);
-    let _eqEnabled = true;
-    let _eqData    = [];
+    let _eqEnabled       = true;
+    let _eqData          = [];
+    let _eqSource        = 'p2p';
+    let _eqFallback      = false;
+    let _eqMuniAvailable = true;
+
+    function _isImportantEq(eq) {
+        if (eq.isImportant !== undefined) return eq.isImportant;
+        if ((eq.magnitude || 0) >= 5.0) return true;
+        return ['5弱', '5強', '6弱', '6強', '7'].includes(eq.max_intensity || '');
+    }
 
     function _eqMagColor(mag) {
         if (mag >= 6.0) return '#cc0000';
@@ -200,6 +269,50 @@
         return 0.38;
     }
 
+    function _renderEqMarker(eq, isImportant) {
+        const lat = eq.lat;
+        const lng = eq.lng;
+        if (lat == null || lng == null) return;
+
+        const mag        = eq.magnitude || 0;
+        const intensityRaw = eq.max_intensity || '-';
+        const intensity  = intensityRaw === 'unknown' ? '不明' : intensityRaw;
+        const name       = eq.epicenter_name || eq.hypocenter_name || '不明';
+        const occurredAt = eq.occurred_at || eq.origin_time || '';
+        const at         = occurredAt ? occurredAt.slice(0, 16).replace('T', ' ') : '';
+        const opacity    = _eqAgeOpacity(occurredAt);
+
+        let dayLabel = '';
+        if (occurredAt) {
+            const ageDays = Math.floor((Date.now() - new Date(occurredAt).getTime()) / (1000 * 60 * 60 * 24));
+            if (ageDays === 0) dayLabel = '今日';
+            else if (ageDays === 1) dayLabel = '昨日';
+            else dayLabel = `${ageDays}日前`;
+        }
+
+        const baseRadius  = _eqMagRadius(mag);
+        const radius      = isImportant ? Math.max(baseRadius + 5, 16) : baseRadius;
+        const weight      = isImportant ? 2.5 : (opacity < 0.6 ? 0.5 : 1);
+        const borderColor = isImportant ? '#ff4444' : '#fff';
+        const fillOpacity = isImportant ? Math.max(opacity, 0.75) : opacity;
+
+        const fallbackLine = isImportant && _eqFallback
+            ? '<br><small style="color:#ff9944">JMA fallback / 市区町村震度なし</small>'
+            : '';
+
+        L.circleMarker([lat, lng], {
+            radius,
+            color:       borderColor,
+            weight,
+            fillColor:   _eqMagColor(mag),
+            fillOpacity,
+        }).bindPopup(
+            `${isImportant ? '<b>重要地震</b><br>' : ''}<b>${name}</b>${dayLabel ? ` <small>(${dayLabel})</small>` : ''}<br>`
+            + `M ${mag != null ? mag.toFixed(1) : '-'} / 震度 ${intensity}<br>`
+            + `<small>${at}</small>${fallbackLine}`
+        ).addTo(_eqLayerGroup);
+    }
+
     function _eqRender() {
         _eqLayerGroup.clearLayers();
         if (!_eqEnabled) {
@@ -213,58 +326,40 @@
             ? (window.liveEarthquakeLayer?.render?.(latest, true) ?? false)
             : false;
 
+        // 通常地震を先に描画（SVG描画順で重要地震が前面に来るよう後回し）
         _eqData.forEach(eq => {
-            const lat = eq.lat;
-            const lng = eq.lng;
-            if (lat == null || lng == null) return;
+            if (_isImportantEq(eq)) return;
+            if (muniRendered && eq.event_id === latest?.event_id) return;
+            _renderEqMarker(eq, false);
+        });
 
-            // 市区町村マーカーが描画された最新地震は代表マーカーをスキップ
-            if (muniRendered && eq.event_id === latest.event_id) return;
-
-            const mag       = eq.magnitude || 0;
-            const intensity = eq.max_intensity || '-';
-            const name      = eq.epicenter_name || eq.hypocenter_name || '不明';
-            const occurredAt = eq.occurred_at || eq.origin_time || '';
-            const at        = occurredAt ? occurredAt.slice(0, 16).replace('T', ' ') : '';
-            const opacity   = _eqAgeOpacity(occurredAt);
-
-            // 日付ラベル（今日/昨日/N日前）
-            let dayLabel = '';
-            if (occurredAt) {
-                const ageMs = Date.now() - new Date(occurredAt).getTime();
-                const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
-                if (ageDays === 0) dayLabel = '今日';
-                else if (ageDays === 1) dayLabel = '昨日';
-                else dayLabel = `${ageDays}日前`;
-            }
-
-            L.circleMarker([lat, lng], {
-                radius:      _eqMagRadius(mag),
-                color:       '#fff',
-                weight:      opacity < 0.6 ? 0.5 : 1,
-                fillColor:   _eqMagColor(mag),
-                fillOpacity: opacity,
-            }).bindPopup(
-                `<b>${name}</b>${dayLabel ? ` <small>(${dayLabel})</small>` : ''}<br>`
-                + `M ${mag != null ? mag.toFixed(1) : '-'} / 震度 ${intensity}<br>`
-                + `<small>${at}</small>`
-            ).addTo(_eqLayerGroup);
+        // 重要地震を後から描画（前面に表示される）
+        _eqData.forEach(eq => {
+            if (!_isImportantEq(eq)) return;
+            if (muniRendered && eq.event_id === latest?.event_id) return;
+            _renderEqMarker(eq, true);
         });
     }
 
     async function _eqRefresh() {
-        // 新エンドポイント（3日間履歴）、未デプロイ時は旧エンドポイントにフォールバック
+        // 新エンドポイント（3日間履歴・fallback情報付き）、未デプロイ時は旧エンドポイントにフォールバック
         try {
             const res = await fetch('/api/live/earthquakes/history?days=3');
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            _eqData = (data.items || []).slice(0, 300);
+            _eqData          = (data.items || []).slice(0, 300);
+            _eqSource        = data.source        || 'p2p';
+            _eqFallback      = data.fallback      === true;
+            _eqMuniAvailable = data.municipalityIntensityAvailable !== false;
         } catch (e) {
             console.warn('[live-eq] history endpoint unavailable, fallback to /api/earthquakes:', e.message);
             const res = await fetch('/api/earthquakes?days=1');
             if (!res.ok) throw new Error(`[live-eq] HTTP ${res.status}`);
             const data = await res.json();
-            _eqData = (data.items || []).slice(0, 50);
+            _eqData          = (data.items || []).slice(0, 50);
+            _eqSource        = 'p2p';
+            _eqFallback      = false;
+            _eqMuniAvailable = true;
         }
         _eqRender();
         return _eqData;
@@ -340,9 +435,12 @@
             setKindVisible: _kikikuruSetKindVisible,
         },
         earthquake: {
-            setVisible: _eqSetVisible,
-            refresh:    _eqRefresh,
-            getData:    _eqGetData,
+            setVisible:       _eqSetVisible,
+            refresh:          _eqRefresh,
+            getData:          _eqGetData,
+            getSource:        () => _eqSource,
+            getFallback:      () => _eqFallback,
+            getMuniAvailable: () => _eqMuniAvailable,
         },
         tsunami: {
             setVisible: _tsunamiSetVisible,
