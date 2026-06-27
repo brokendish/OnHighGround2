@@ -7,13 +7,16 @@ import asyncio
 import json
 import logging
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_P2P_URL = "https://api.p2pquake.net/v2/history?codes=551&limit=300"
+# P2P API は limit=300 を受け付けない（HTTP 400）。確認済み上限は 100。
+_P2P_HISTORY_LIMIT = 100
+_P2P_URL = f"https://api.p2pquake.net/v2/history?codes=551&limit={_P2P_HISTORY_LIMIT}"
 _JST = timezone(timedelta(hours=9))
 _CACHE_TTL = 60  # 秒 — 大地震後の P2P 集中アクセスを緩和
 
@@ -124,6 +127,15 @@ def _fetch_raw_sync() -> List[Dict[str, Any]]:
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        logger.warning(
+            "P2P 地震情報取得失敗: status=%d limit=%d reason=%s → fallbackへ",
+            exc.code, _P2P_HISTORY_LIMIT, exc.reason,
+        )
+        if _cache:
+            logger.warning("P2P stale cache を返す")
+            return _cache["data"]
+        raise
     except Exception as exc:
         # タイムアウト・接続失敗時はキャッシュがあれば返す
         if _cache:
@@ -140,7 +152,7 @@ def _fetch_raw_sync() -> List[Dict[str, Any]]:
 
 
 async def fetch_earthquakes() -> List[Dict[str, Any]]:
-    """P2P 地震情報 API から最新 300 件を取得し正規化して返す（60秒キャッシュ）。"""
+    """P2P 地震情報 API から最新 100 件を取得し正規化して返す（60秒キャッシュ）。"""
     try:
         raw_list = await asyncio.to_thread(_fetch_raw_sync)
     except Exception as exc:
