@@ -311,21 +311,23 @@
                 }),
             },
 
-            // ── 路線名ラベル：全国（zoom 9〜12）─────────────────────────────
-            // zoom 13+ は全駅名の強制描画を優先し、路線名による上書きを避ける。
+            // ── 路線名ラベル：全国（zoom 9+）────────────────────────────────
+            // zoom 13+ は駅名（paintRules）と干渉を減らすため小フォントで表示。
+            // LineLabelSymbolizer はライン沿い配置のため、
+            // 駅ドット真上に置く駅名テキストとは異なる位置になりやすい。
             {
                 dataLayer: 'railways',
                 filter: _isDisplayable,
                 minzoom: 9,
-                maxzoom: 12,
                 symbolizer: new P.LineLabelSymbolizer({
                     label_props: ['name'],
                     fill:   (zoom, f) => _resolveRailColor(f.props),
                     stroke: '#00000099',
                     width:  3,
                     font:   (zoom) => {
-                        if (zoom >= 13) return 'bold 10px sans-serif';
-                        return '9px sans-serif';
+                        if (zoom >= 13) return '8px sans-serif';
+                        if (zoom >= 11) return '9px sans-serif';
+                        return '8px sans-serif';
                     },
                 }),
             },
