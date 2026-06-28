@@ -195,6 +195,57 @@
         return true;
     }
 
+    // ── 全国主要ターミナル（zoom 10 から先行表示） ──────────────────────────────
+    const _MAJOR_TERMINALS = new Set([
+        // 首都圏
+        '東京', '新宿', '渋谷', '池袋', '品川', '上野', '秋葉原', '有楽町', '新橋',
+        '横浜', '川崎', '大宮', '千葉', '立川', '八王子', '横須賀',
+        // 関西
+        '大阪', '梅田', '新大阪', '難波', '天王寺', '京都', '三ノ宮', '神戸',
+        // 中部
+        '名古屋', '静岡', '浜松', '豊橋',
+        // 北陸・甲信越
+        '金沢', '富山', '新潟', '長野',
+        // 東北
+        '仙台', '郡山', '福島', '盛岡', '青森',
+        // 北海道
+        '札幌', '函館', '旭川',
+        // 中国・四国
+        '広島', '岡山', '高松', '松山', '高知', '徳島',
+        // 九州・沖縄
+        '博多', '小倉', '熊本', '長崎', '大分', '宮崎', '鹿児島中央', '那覇',
+    ]);
+
+    // ── 全駅名強制描画シンボライザー（衝突回避なし）────────────────────────────
+    // paintRules に登録することで protomaps-leaflet のラベル衝突バッファを通らず、
+    // 全駅名を必ず描画する。近接駅は重なる場合があるが、ズームインで解消できる。
+    // ※ canvas は tile 座標系でクリップされるため、タイル境界付近の駅名は
+    //   隣タイルでも描画されるため実用上の問題は限定的。
+    class _StationNameSymbolizer {
+        draw(ctx, geom, z, feature) {
+            const name = (feature.props.name || feature.props['name:ja'] || '').trim();
+            if (!name) return;
+            const font = z >= 14 ? 'bold 11px sans-serif' : '10px sans-serif';
+            for (const ring of geom) {
+                for (const pt of ring) {
+                    ctx.save();
+                    ctx.font        = font;
+                    ctx.textAlign   = 'center';
+                    ctx.textBaseline = 'bottom';
+                    // アウトライン（暗背景での視認性）
+                    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+                    ctx.lineWidth   = 3;
+                    ctx.lineJoin    = 'round';
+                    ctx.strokeText(name, pt.x, pt.y - 6);
+                    // テキスト本体
+                    ctx.fillStyle = '#e2e8f0';
+                    ctx.fillText(name, pt.x, pt.y - 6);
+                    ctx.restore();
+                }
+            }
+        }
+    }
+
     function _buildPaintRules() {
         const P = window.protomapsL;
         return [
@@ -207,6 +258,21 @@
                     opacity: _railOpacity,
                 }),
             },
+            // zoom 10: 主要ターミナルのみ大きめドット
+            {
+                dataLayer: 'stations',
+                minzoom: 10,
+                maxzoom: 10,
+                filter: (zoom, f) => _MAJOR_TERMINALS.has(f.props.name || ''),
+                symbolizer: new P.CircleSymbolizer({
+                    fill:    '#94a3b8',
+                    radius:  4,
+                    stroke:  '#ffffff',
+                    width:   1.5,
+                    opacity: 0.85,
+                }),
+            },
+            // zoom 11+: 全駅ドット
             {
                 dataLayer: 'stations',
                 minzoom: 11,
@@ -218,17 +284,40 @@
                     opacity: 0.75,
                 }),
             },
+            // zoom 13+: 全駅名を衝突回避なしで強制描画
+            {
+                dataLayer: 'stations',
+                minzoom: 13,
+                symbolizer: new _StationNameSymbolizer(),
+            },
         ];
     }
 
     function _buildLabelRules() {
         const P = window.protomapsL;
         return [
-            // ── 路線名ラベル：全国（zoom 9+, 路線色でライン沿い表示）──────────
+            // ── 駅名ラベル zoom 9〜12: 主要ターミナルのみ（衝突回避あり・少数なので十分）
+            {
+                dataLayer: 'stations',
+                minzoom: 9,
+                maxzoom: 12,
+                filter: (zoom, f) => _MAJOR_TERMINALS.has(f.props.name || ''),
+                symbolizer: new P.CenteredTextSymbolizer({
+                    label_props: ['name'],
+                    fill:        '#f1f5f9',
+                    stroke:      '#000000bb',
+                    width:       2.5,
+                    font:        () => 'bold 11px sans-serif',
+                }),
+            },
+
+            // ── 路線名ラベル：全国（zoom 9〜12）─────────────────────────────
+            // zoom 13+ は全駅名の強制描画を優先し、路線名による上書きを避ける。
             {
                 dataLayer: 'railways',
                 filter: _isDisplayable,
                 minzoom: 9,
+                maxzoom: 12,
                 symbolizer: new P.LineLabelSymbolizer({
                     label_props: ['name'],
                     fill:   (zoom, f) => _resolveRailColor(f.props),
@@ -237,22 +326,6 @@
                     font:   (zoom) => {
                         if (zoom >= 13) return 'bold 10px sans-serif';
                         return '9px sans-serif';
-                    },
-                }),
-            },
-
-            // ── 駅名ラベル（zoom 12+）────────────────────────────────────────
-            {
-                dataLayer: 'stations',
-                minzoom: 12,
-                symbolizer: new P.CenteredTextSymbolizer({
-                    label_props: ['name'],
-                    fill:        '#e2e8f0',
-                    stroke:      '#00000099',
-                    width:       2,
-                    font:        (zoom) => {
-                        if (zoom >= 14) return 'bold 11px sans-serif';
-                        return '10px sans-serif';
                     },
                 }),
             },
@@ -274,6 +347,9 @@
                 labelRules:  _buildLabelRules(),
                 // PMTilesはz14まで。z15以上はz14タイルをオーバーズームして継続表示。
                 maxDataZoom: _MAX_DATA_ZOOM,
+                // protomaps-leaflet の既定値は levelDiff=1 で、表示 z13 がデータ z12 を読む。
+                // 駅名は z13 から全駅表示したいため、表示ズームとデータズームを一致させる。
+                levelDiff:   0,
                 maxZoom:     20,
                 attribution: '© OpenStreetMap contributors',
             });

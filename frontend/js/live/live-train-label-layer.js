@@ -12,7 +12,7 @@
         [15, 80], [13, 60], [11, 40], [8, 20],
     ];
     const _STATION_LIMITS = [
-        [15, 80], [13, 40], [11, 10], [8, 0],
+        [15, 80], [13, 40], [11, 10], [9, 5], [8, 0],
     ];
 
     // zoom 13〜14 で優先表示する主要駅
@@ -248,6 +248,8 @@
     // ── 駅ラベルレンダリング ──────────────────────────────────────────────────
 
     function _renderStationLabels(zoom, bounds) {
+        // PMTiles が全国駅名を描画しているときは GeoJSON 駅名ラベルを二重描画しない
+        if (window.liveTrainPmtilesLayer?.isReady?.()) return;
         if (!_allStations) return;
         const max = _limitFor(_STATION_LIMITS, zoom);
         if (max <= 0) return;
@@ -311,7 +313,7 @@
 
         _renderRouteLabels(zoom, bounds);
 
-        if (zoom >= 11) {
+        if (zoom >= 9) {
             try {
                 await _loadStations();
                 _renderStationLabels(zoom, bounds);

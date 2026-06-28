@@ -158,9 +158,15 @@ tippecanoe \
     "${SCRATCH_DIR}/railways_filtered.geojson"
 
 # 駅レイヤー: zoom 9〜14（低ズームでは非表示）
+# --drop-rate=1: ズーム別の通常 thinning を止め、z13 でも全駅を保持する
+# --no-feature-limit: タイル内フィーチャー数上限による間引きを防ぐ
+# --no-tile-size-limit: タイルサイズ超過による間引きを防ぐ
 tippecanoe \
     -o "${SCRATCH_DIR}/stations.pmtiles" \
     -Z 9 -z 14 \
+    --drop-rate=1 \
+    --no-feature-limit \
+    --no-tile-size-limit \
     --layer=stations \
     --name="Japan Stations" \
     --description="Japan railway stations from OSM" \
@@ -174,6 +180,7 @@ log "[6/6] 路線+駅 PMTiles をマージ中..."
 tile-join \
     -o "${OUTPUT_DIR}/railways_japan.pmtiles" \
     --force \
+    --no-tile-size-limit \
     "${SCRATCH_DIR}/railways.pmtiles" \
     "${SCRATCH_DIR}/stations.pmtiles"
 
