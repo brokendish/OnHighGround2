@@ -6,13 +6,13 @@ live_road_traffic_service.py — 道路交通影響レイヤー サービス
 
 API仕様（令和8年1月版）:
   エンドポイント : https://api.jartic-open-traffic.org/geoserver
-  認証          : x-api-key ヘッダー（利用規約同意後に発行）
+  認証          : APIキー不要（オープンデータAPIとして公開）
   プロトコル    : WFS 2.0.0 GetFeature
   typeNames     : t_travospublic_measure_5m（5分値）
   観測タイミング: 観測から概ね20分後
+  CQL注意       : 日本語フィールド名はダブルクォートで囲まない
 
 環境変数:
-  ROAD_TRAFFIC_API_KEY      - x-api-key ヘッダー値（未設定時はunavailable扱い）
   ROAD_TRAFFIC_API_BASE_URL - APIベースURL（デフォルト: https://api.jartic-open-traffic.org/geoserver）
   ROAD_TRAFFIC_USE_MOCK     - "true" のときモックデータを返す（テスト用）
 
@@ -61,10 +61,6 @@ _cache_at: float = 0.0
 
 
 # ── 設定 ──────────────────────────────────────────────────────────────────────
-
-def _api_key() -> Optional[str]:
-    return os.getenv("ROAD_TRAFFIC_API_KEY") or None
-
 
 def _base_url() -> str:
     return os.getenv("ROAD_TRAFFIC_API_BASE_URL", "https://api.jartic-open-traffic.org/geoserver")
@@ -210,8 +206,8 @@ def _build_wfs_url(base_url: str, bbox_str: str) -> str:
     min_lng, min_lat, max_lng, max_lat = parts
 
     cql = (
-        f'"道路種別"=\'3\' AND "時間コード"={time_code} AND '
-        f'BBOX("ジオメトリ",{min_lng},{min_lat},{max_lng},{max_lat},\'EPSG:4326\')'
+        f"道路種別='3' AND 時間コード={time_code} AND "
+        f"BBOX(ジオメトリ,{min_lng},{min_lat},{max_lng},{max_lat},'EPSG:4326')"
     )
     qs = urlencode({
         "service": "WFS",
@@ -301,17 +297,10 @@ def _normalize_jartic_feature(feature: Dict[str, Any]) -> List[RoadTrafficItem]:
     return items
 
 
-def _fetch_raw(api_key: str, base_url: str, bbox_str: str = _DEFAULT_JAPAN_BBOX) -> List[Dict[str, Any]]:
-    """
-    JARTIC WFS API から GeoJSON Feature リストを取得する。
-
-    認証: x-api-key ヘッダー（AWS API Gateway）
-    """
+def _fetch_raw(base_url: str, bbox_str: str = _DEFAULT_JAPAN_BBOX) -> List[Dict[str, Any]]:
+    """JARTIC WFS API から GeoJSON Feature リストを取得する（APIキー不要）。"""
     url = _build_wfs_url(base_url, bbox_str)
-    headers = {
-        "User-Agent": "OnHighGround2/live-road-traffic-layer",
-        "x-api-key": api_key,
-    }
+    headers = {"User-Agent": "OnHighGround2/live-road-traffic-layer"}
     req = Request(url, headers=headers)
     with urlopen(req, timeout=20) as resp:
         data = json.loads(resp.read().decode())
@@ -430,12 +419,8 @@ async def _fetch_all_items() -> List[RoadTrafficItem]:
         logger.info("live road traffic: mock mode")
         return _mock_items()
 
-    api_key  = _api_key()
     base_url = _base_url()
-    if not api_key:
-        raise ValueError("ROAD_TRAFFIC_API_KEY not set")
-
-    raw_features: List[Dict[str, Any]] = await asyncio.to_thread(_fetch_raw, api_key, base_url)
+    raw_features: List[Dict[str, Any]] = await asyncio.to_thread(_fetch_raw, base_url)
 
     items: List[RoadTrafficItem] = []
     for feature in raw_features:
@@ -541,18 +526,6 @@ async def build_road_traffic_summary(
         }
     """
     global _cache, _cache_at
-
-    # APIキー未設定かつモックも無効
-    if not _api_key() and not _use_mock():
-        result: Dict[str, Any] = {
-            "status":     "unavailable",
-            "stale":      False,
-            "message":    "道路交通量情報を取得できません",
-            "scope":      {},
-            "updated_at": _now_jst(),
-            "items":      [],
-        }
-        return _apply_scope(result, lat, lng, prefecture, bbox)
 
     now = _monotonic()
 

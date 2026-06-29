@@ -321,22 +321,27 @@ def test_summary_bbox_priority_over_prefecture():
     assert result["scope"]["mode"] == "bbox"
 
 
-def test_summary_unavailable_without_key_and_mock():
+def test_summary_unavailable_on_fetch_failure():
+    """通信失敗時に status=unavailable が返る（APIキー未設定は理由にならない）。"""
     import app.services.live_road_traffic_service as svc
+    from urllib.error import URLError
     svc._cache = None
     svc._cache_at = 0.0
-    with patch.dict(os.environ, {"ROAD_TRAFFIC_USE_MOCK": "false", "ROAD_TRAFFIC_API_KEY": ""}):
-        result = asyncio.run(build_road_traffic_summary())
+    with patch.dict(os.environ, {"ROAD_TRAFFIC_USE_MOCK": "false"}):
+        with patch.object(svc, "_fetch_all_items", new=AsyncMock(side_effect=URLError("timeout"))):
+            result = asyncio.run(build_road_traffic_summary())
     assert result["status"] == "unavailable"
     assert result["items"] == []
 
 
 def test_summary_unavailable_has_message():
     import app.services.live_road_traffic_service as svc
+    from urllib.error import URLError
     svc._cache = None
     svc._cache_at = 0.0
-    with patch.dict(os.environ, {"ROAD_TRAFFIC_USE_MOCK": "false", "ROAD_TRAFFIC_API_KEY": ""}):
-        result = asyncio.run(build_road_traffic_summary())
+    with patch.dict(os.environ, {"ROAD_TRAFFIC_USE_MOCK": "false"}):
+        with patch.object(svc, "_fetch_all_items", new=AsyncMock(side_effect=URLError("timeout"))):
+            result = asyncio.run(build_road_traffic_summary())
     assert "message" in result
     assert "道路交通" in result["message"]
 

@@ -750,6 +750,52 @@ function buildLayerPanel() {
     navDebugStatus.textContent = '0 / 100 events';
     container.appendChild(navDebugStatus);
 
+    // ── 交通量観測点セクション ──────────────────────────────────────────
+    const jtSep = document.createElement('hr');
+    jtSep.style.cssText = 'margin:6px 0; border:none; border-top:1px solid rgba(0,0,0,0.12);';
+    container.appendChild(jtSep);
+
+    const jtHeader = document.createElement('div');
+    jtHeader.className = 'mou-panel-section-label';
+    jtHeader.textContent = '交通情報（補助）';
+    jtHeader.style.fontWeight = '700';
+    container.appendChild(jtHeader);
+
+    const jtToggleLbl = document.createElement('label');
+    jtToggleLbl.className = 'shelter-panel-item';
+    jtToggleLbl.id = 'jartic-traffic-toggle-label';
+
+    const jtToggle = document.createElement('input');
+    jtToggle.type = 'checkbox';
+    jtToggle.id = 'jartic-traffic-toggle';
+    jtToggle.checked = false;
+
+    const jtDot = document.createElement('span');
+    jtDot.className = 'shelter-panel-dot';
+    jtDot.style.cssText = 'background:#42a5f5; border:1.5px solid #1565c0;';
+
+    jtToggle.addEventListener('change', () => {
+        if (jtToggle.checked) {
+            if (typeof window.showJarticTrafficLayer === 'function') {
+                window.showJarticTrafficLayer();
+            }
+        } else {
+            if (typeof window.hideJarticTrafficLayer === 'function') {
+                window.hideJarticTrafficLayer();
+            }
+        }
+    });
+
+    jtToggleLbl.appendChild(jtToggle);
+    jtToggleLbl.appendChild(jtDot);
+    jtToggleLbl.appendChild(document.createTextNode(' 交通量観測点'));
+    container.appendChild(jtToggleLbl);
+
+    const jtNote = document.createElement('div');
+    jtNote.style.cssText = 'font-size:10px; color:#888; padding:2px 0 4px 18px;';
+    jtNote.textContent = '表示範囲内の観測点のみ表示 / 出典: JARTIC';
+    container.appendChild(jtNote);
+
     panel.appendChild(container);
     syncHazardLayerPanelState();
     if (typeof window.syncNavigationDebugLayerControls === 'function') {
