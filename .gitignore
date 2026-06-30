@@ -124,3 +124,7 @@ tasks/screenshots
 tasks/live/verification_screenshots
 tasks/live/*.png
 tasks/live/*/*.png
+
+# ---- jartic traffic ----
+backend/data_runtime/backend/jartic/manifest.json
+backend/data_runtime/backend/jartic/latest_traffic.json
