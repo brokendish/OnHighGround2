@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全国災害監視ライブ · /live/stream MVP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+/* =========================================================================
+   /live/stream  —  災害監視 Live 配信レイアウト  (1920 x 1080 固定)
+   -------------------------------------------------------------------------
+   ■ 領域サイズ確定 (1) / 責務 (2)
+     ┌──────────────────────────────────────────────────────────┐
+     │ HEADER  1920 x 72   … 名称 / 時刻 / カテゴリ件数 / LIVE      │
+     ├──────────┬───────────────────────────┬──────────────────┤
+     │ 左カラム   │        中央 全国マップ        │   右カラム        │
+     │ 476px     │        flex (=900px)        │   476px          │
+     │ ┌地震┐    │  全国の警戒地点をパルス表示    │  ┌鉄道┐          │
+     │ │458px│   │  平穏時「現在、表示対象なし」  │  │458px│         │
+     │ └────┘   │                             │  └────┘         │
+     │ ┌豪雨┐    │                             │  ┌潮位┐          │
+     │ │458px│   │                             │  │458px│         │
+     │ └────┘   │                             │  └────┘         │
+     ├──────────┴───────────────────────────┴──────────────────┤
+     │ TICKER  1920 x 46   … 速報テロップ (marquee)               │
+     └──────────────────────────────────────────────────────────┘
+     本文領域 高さ = 1080 - 72 - 46 = 962。padding 16/20 を含む。
+     3カラム: 476 + gap14 + 900 + gap14 + 476 = 1880 (= 1920 - 左右20)。
+     小窓高さ = (962 - 上下16 - gap14) / 2 = 458。
+
+   ■ 色ルール (4) は下の :root にCSS変数で集約。JSはこの変数を読む。
+   ========================================================================= */
+
+:root{
+  /* --- カテゴリ色ルール (単一の真実) --- */
+  --c-eq:      #ff4d3d;   /* 地震: 赤〜オレンジ */
+  --c-eq-2:    #ff9a3c;
+  --c-eq-3:    #ffc266;
+  --c-rain:    #2f7bff;   /* キキクル・豪雨: 青〜水色 */
+  --c-rain-2:  #34d6ff;
+  --c-rail:    #2bd576;   /* 鉄道: 緑 (路線色は個別に付与) */
+  --c-tide:    #c64be0;   /* 潮位/水位: 紫〜マゼンタ */
+  --c-tide-2:  #d24be0;
+
+  /* 警戒レベル */
+  --c-alert:   #ff2d2d;
+  --c-safe:    #2bd576;
+
+  /* --- レイアウト寸法 --- */
+  --stage-w: 1920px;
+  --stage-h: 1080px;
+  --header-h: 72px;
+  --ticker-h: 46px;
+  --col-w: 476px;
+  --gap: 14px;
+
+  /* --- 面・文字 --- */
+  --bg-0: #070a11;
+  --bg-1: #0b1019;
+  --bg-hdr: #0a0f19;
+  --panel: rgba(255,255,255,.012);
+  --line: rgba(120,160,210,.16);
+  --ink: #e8edf5;
+  --ink-2: #c5cedd;
+  --ink-3: #8b97a9;
+  --ink-4: #6b7686;
+  --mono: 'Share Tech Mono', ui-monospace, monospace;
+  --sans: 'Zen Kaku Gothic New', system-ui, sans-serif;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:#04060a;overflow:hidden;font-family:var(--sans);color:var(--ink)}
+
+/* ---- fit-to-viewport (OBS では 1920x1080 なので scale=1) ---- */
+.fit{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#04060a}
+.stage{
+  width:var(--stage-w);height:var(--stage-h);flex:none;position:relative;
+  background:radial-gradient(120% 90% at 50% 0%,#0c121d,#070a11 70%);
+  transform-origin:center;
+}
+
+/* ============================ HEADER ============================ */
+.hdr{
+  position:absolute;top:0;left:0;right:0;height:var(--header-h);
+  display:flex;align-items:center;justify-content:space-between;padding:0 28px;
+  background:linear-gradient(180deg,#0e1626,#0a0f19);border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:14px}
+.brand h1{font-size:22px;font-weight:900;letter-spacing:.04em;line-height:1;margin:0}
+.brand .sub{font:11px var(--mono);color:var(--ink-3);letter-spacing:.18em;margin-top:3px}
+.clock{text-align:center}
+.clock .t{font:38px var(--mono);letter-spacing:.06em;line-height:1}
+.clock .d{font:12px var(--mono);color:var(--ink-3);letter-spacing:.14em;margin-top:3px}
+.counts{display:flex;align-items:center;gap:9px}
+.cbadge{display:flex;align-items:center;gap:7px;padding:7px 11px;border-radius:7px;
+  background:color-mix(in srgb,var(--cc) 12%,transparent);border:1px solid color-mix(in srgb,var(--cc) 45%,transparent)}
+.cbadge i{width:8px;height:8px;border-radius:50%;background:var(--cc)}
+.cbadge .lb{font-size:12px;color:color-mix(in srgb,var(--cc) 55%,#fff)}
+.cbadge .n{font:15px var(--mono);color:#fff}
+.cbadge--eq{--cc:var(--c-eq)} .cbadge--rain{--cc:var(--c-rain-2)}
+.cbadge--rail{--cc:var(--c-rail)} .cbadge--tide{--cc:var(--c-tide-2)}
+.live{display:flex;align-items:center;gap:7px;padding:8px 13px;border-radius:7px;background:var(--c-alert);margin-left:4px}
+.live i{width:8px;height:8px;border-radius:50%;background:#fff;animation:blink 1.4s infinite}
+.live span{font-size:14px;font-weight:900;letter-spacing:.08em}
+
+/* ============================ BODY ============================ */
+.body{position:absolute;top:var(--header-h);left:0;right:0;bottom:var(--ticker-h);
+  display:flex;gap:var(--gap);padding:16px 20px}
+.col{width:var(--col-w);display:flex;flex-direction:column;gap:var(--gap)}
+.center{flex:1}
+
+/* ---- 小窓 ---- */
+.win{flex:1;display:flex;flex-direction:column;min-height:0;border:2px solid var(--win);border-radius:10px;
+  overflow:hidden;background:var(--bg-1);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--win) 15%,transparent),0 0 24px color-mix(in srgb,var(--win) 10%,transparent)}
+.win--eq{--win:var(--c-eq)}
+.win--rain{--win:var(--c-rain)}
+.win--rail{--win:var(--c-rail)}
+.win--tide{--win:var(--c-tide)}
+.win-hd{display:flex;align-items:center;justify-content:space-between;padding:9px 13px;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--win) 22%,transparent),transparent);
+  border-bottom:1px solid color-mix(in srgb,var(--win) 38%,transparent)}
+.win-hd h2{font-size:16px;font-weight:800;line-height:1;margin:0}
+.win-hd .en{font:9px var(--mono);color:color-mix(in srgb,var(--win) 55%,#fff);letter-spacing:.16em;margin-top:2px}
+.win-meta{display:flex;align-items:center;gap:8px;font:11px var(--mono);color:#94a2b6}
+.win-meta .cyc{width:7px;height:7px;border-radius:50%;background:var(--win);animation:cyc 8s infinite}
+.win-meta .cyc-note{font:10px var(--mono);color:var(--ink-4)}
+.win-meta .quiet{font:11px var(--mono);color:#5d6878}
+.win-body{flex:1;display:flex;min-height:0}
+.win-side{width:184px;padding:9px 10px;border-right:1px solid rgba(255,255,255,.06);background:var(--panel);overflow:hidden}
+.win-side--wide{width:210px}
+.win-side--tide{width:158px;padding:11px 12px}
+.win-map{flex:1;position:relative;overflow:hidden}
+.side-h{font:9px var(--mono);color:var(--ink-4);letter-spacing:.14em;margin-bottom:7px}
+
+/* リスト行 */
+.row{display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.row .tm{font:10px var(--mono);color:var(--ink-3);width:34px;flex:none}
+.row .nm{font-size:11px;color:#d4dbe6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .mag{font:10px var(--mono);color:#9aa6b8}
+.chip{font:11px var(--mono);font-weight:700;color:#07090e;min-width:20px;text-align:center;border-radius:4px;padding:1px 4px}
+.sq{width:8px;height:8px;border-radius:2px;flex:none}
+.lv{font-size:10px;font-weight:700;color:#fff;border-radius:4px;padding:1px 6px}
+
+/* 地図ポップアップ */
+.popup{position:absolute;top:10px;left:10px;padding:7px 11px;background:rgba(10,14,22,.82);border-radius:7px;animation:fade .4s both}
+.popup--eq{border:1px solid color-mix(in srgb,var(--c-eq) 50%,transparent)}
+.popup--rain{border:1px solid color-mix(in srgb,var(--c-rain) 50%,transparent)}
+.popup .p{font-size:13px;font-weight:700}
+.popup .l{font:11px var(--mono);margin-top:1px}
+.popup--eq .p{color:#ffd9d3} .popup--eq .l{color:#ff9a8a}
+.popup--rain .p{color:#d3e6ff} .popup--rain .l{color:#8fc1ff}
+.popup.zoomin{animation:popIn .5s .4s both}
+@keyframes popIn{0%{opacity:0;transform:translateY(-6px) scale(.94)}100%{opacity:1;transform:none}}
+
+/* 平穏プレースホルダ (小窓) */
+.win-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.win-empty .m{font-size:15px;font-weight:700;color:var(--ink-3)}
+.win-empty .s{font:10px var(--mono);color:#5d6878;letter-spacing:.1em}
+.map-cap{position:absolute;bottom:10px;left:12px;font:10px var(--mono);color:var(--ink-3);letter-spacing:.12em}
+
+/* 鉄道カード */
+.rail-card{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.rail-card .bar{width:5px;align-self:stretch;border-radius:3px;flex:none}
+.rail-card .body{flex:1;min-width:0}
+.rail-card .nm{font-size:12px;font-weight:700;color:var(--ink);line-height:1.1}
+.rail-card .note{font-size:10px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rail-card .st{font-size:10px;font-weight:700;color:#fff;border-radius:4px;padding:2px 6px;flex:none}
+.rail-empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.rail-empty i{width:8px;height:8px;border-radius:50%;background:var(--c-safe)}
+.rail-empty .m{font-size:13px;font-weight:700;color:#a7e8c4}
+.rail-empty .s{font:10px var(--mono);color:#5d6878}
+
+/* 潮位: 2拠点を縦に並べ、時間経過で拠点を巡回 */
+.tide-body{flex:1;display:flex;flex-direction:column;min-height:0}
+.tide-cell{flex:1;display:flex;min-height:0;padding:9px 12px;gap:10px}
+.tide-cell + .tide-cell{border-top:1px solid rgba(255,255,255,.06)}
+.tide-cell.alert{background:linear-gradient(90deg,color-mix(in srgb,var(--c-tide) 12%,transparent),transparent)}
+.tide-info{width:132px;flex:none;display:flex;flex-direction:column;justify-content:center}
+.tide-name{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:800;color:var(--ink)}
+.tide-name .dot{width:7px;height:7px;border-radius:50%;background:var(--c-tide-2)}
+.tide-flag{font-size:9px;font-weight:700;color:#fff;background:#c026d3;border-radius:4px;padding:1px 6px;margin-left:auto}
+.tide-now{display:flex;align-items:baseline;gap:3px;margin-top:3px}
+.tide-now b{font:30px var(--mono);color:#f0d7f5;line-height:1;font-weight:400}
+.tide-now span{font-size:12px;color:#b48cc0}
+.tide-hl{margin-top:5px;display:flex;flex-wrap:wrap;gap:2px 10px;font:10px var(--mono);color:var(--ink-2)}
+.tide-hl .hi{color:#e879f9} .tide-hl .lo{color:#5cc8ff} .tide-hl .dv{color:#7ee0a0}
+.tide-chart{flex:1;min-width:0;position:relative;display:flex;flex-direction:column;justify-content:center}
+
+/* ---- 中央マップ ---- */
+.center{position:relative;border:1px solid rgba(120,160,210,.18);border-radius:10px;overflow:hidden;background:#080d15}
+.center-map{position:absolute;inset:0}
+.center-title{position:absolute;top:14px;left:16px}
+.center-title .t{font-size:15px;font-weight:800;letter-spacing:.05em}
+.center-title .s{font:10px var(--mono);color:var(--ink-3);letter-spacing:.16em;margin-top:2px}
+.level{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:20px}
+.level i{width:7px;height:7px;border-radius:50%;animation:blink 1.4s infinite}
+.level span{font-size:12px;font-weight:700}
+.level[data-lv="high"]{background:rgba(255,45,45,.14);border:1px solid color-mix(in srgb,var(--c-eq) 50%,transparent)}
+.level[data-lv="high"] i,.level[data-lv="high"] span{background:none;color:#ffb3aa}
+.level[data-lv="high"] i{background:var(--c-eq)}
+.level[data-lv="calm"]{background:rgba(43,213,118,.12);border:1px solid color-mix(in srgb,var(--c-safe) 40%,transparent)}
+.level[data-lv="calm"] i{background:var(--c-safe)} .level[data-lv="calm"] span{color:var(--c-safe)}
+.center-clock{position:absolute;bottom:14px;left:16px}
+.center-clock .t{font:28px var(--mono);line-height:1}
+.center-clock .d{font:11px var(--mono);color:var(--ink-3);margin-top:3px}
+.legend{position:absolute;bottom:14px;right:16px;display:flex;flex-direction:column;gap:5px;padding:9px 12px;
+  background:rgba(8,12,20,.7);border:1px solid rgba(255,255,255,.08);border-radius:8px}
+.legend div{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--ink-2)}
+.legend i{width:9px;height:9px;border-radius:50%}
+.center-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.center-empty .ring{width:60px;height:60px;border:2px solid rgba(120,165,220,.4);border-radius:50%;display:grid;place-items:center}
+.center-empty .ring div{width:12px;height:12px;border-radius:50%;background:rgba(120,165,220,.5)}
+.center-empty .m{font-size:24px;font-weight:800;letter-spacing:.04em;color:var(--ink-2)}
+.center-empty .s{font:12px var(--mono);color:var(--ink-4);letter-spacing:.16em}
+
+/* ============================ TICKER ============================ */
+.ticker{position:absolute;bottom:0;left:0;right:0;height:var(--ticker-h);display:flex;align-items:center;
+  background:var(--bg-hdr);border-top:1px solid var(--line);overflow:hidden}
+.ticker .tag{flex:none;height:100%;display:flex;align-items:center;padding:0 16px;background:var(--c-alert);
+  font-size:14px;font-weight:900;letter-spacing:.08em}
+.ticker .track{flex:1;overflow:hidden;position:relative;height:100%}
+.ticker .move{position:absolute;top:0;left:0;height:100%;display:flex;align-items:center;gap:46px;white-space:nowrap;
+  animation:marquee 34s linear infinite;font:15px var(--mono);color:var(--ink-2)}
+
+/* ---- dev 状態スイッチ (配信では ?chrome=off で非表示) ---- */
+.dev{position:fixed;top:10px;left:10px;z-index:99;display:flex;gap:6px;font-family:var(--mono)}
+.dev button{font:12px var(--mono);color:var(--ink-2);background:#111826;border:1px solid #2a3648;border-radius:6px;padding:6px 12px;cursor:pointer}
+.dev button.on{background:var(--c-eq);border-color:var(--c-eq);color:#fff}
+.dev.hidden{display:none}
+
+@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes cyc{0%,45%{opacity:1}55%,95%{opacity:.2}100%{opacity:1}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes ring{0%{transform:scale(.45);opacity:.85}70%{opacity:.18}100%{transform:scale(2.7);opacity:0}}
+@keyframes core{0%,100%{opacity:1}50%{opacity:.55}}
+</style>
+</head>
+<body>
+<div class="dev" id="dev">
+  <button data-state="calm">平穏時</button>
+  <button data-state="alert">警戒時</button>
+  <button data-state="demo">自動デモ</button>
+</div>
+
+<div class="fit">
+  <div class="stage" id="stage">
+    <!-- HEADER -->
+    <header class="hdr">
+      <div class="brand">
+        <svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" fill="none" stroke="var(--c-eq)" stroke-width="1.6"/><circle cx="20" cy="20" r="4" fill="var(--c-eq)"/><line x1="20" y1="2" x2="20" y2="11" stroke="var(--c-eq)" stroke-width="1.6"/><line x1="20" y1="29" x2="20" y2="38" stroke="var(--c-eq)" stroke-width="1.6"/><line x1="2" y1="20" x2="11" y2="20" stroke="var(--c-eq)" stroke-width="1.6"/><line x1="29" y1="20" x2="38" y2="20" stroke="var(--c-eq)" stroke-width="1.6"/></svg>
+        <div><h1>全国災害監視ライブ</h1><div class="sub">NATIONAL HAZARD WATCH · 監視卓</div></div>
+      </div>
+      <div class="clock"><div class="t" id="clock">--:--:--</div><div class="d" id="date">2026.07.01 TUE · JST</div></div>
+      <div class="counts">
+        <div class="cbadge cbadge--eq"><i></i><span class="lb">地震</span><span class="n" id="ct-eq">0</span></div>
+        <div class="cbadge cbadge--rain"><i></i><span class="lb">豪雨</span><span class="n" id="ct-rain">0</span></div>
+        <div class="cbadge cbadge--rail"><i></i><span class="lb">鉄道</span><span class="n" id="ct-rail">0</span></div>
+        <div class="cbadge cbadge--tide"><i></i><span class="lb">潮位</span><span class="n" id="ct-tide">0</span></div>
+        <div class="live"><i></i><span>LIVE</span></div>
+      </div>
+    </header>
+
+    <!-- BODY -->
+    <div class="body">
+      <!-- 左カラム -->
+      <div class="col">
+        <!-- 地震 -->
+        <section class="win win--eq">
+          <div class="win-hd"><div><h2>地震情報</h2><div class="en">EARTHQUAKE</div></div><div class="win-meta" id="eq-meta"></div></div>
+          <div class="win-body">
+            <div class="win-side">
+              <div class="side-h">過去12時間の履歴</div>
+              <div id="eq-history"></div>
+            </div>
+            <div class="win-map"><div class="center-map" id="eq-map"></div><div id="eq-overlay"></div></div>
+          </div>
+        </section>
+        <!-- 豪雨 -->
+        <section class="win win--rain">
+          <div class="win-hd"><div><h2>キキクル・豪雨情報</h2><div class="en">HEAVY RAIN RISK</div></div><div class="win-meta" id="rain-meta"></div></div>
+          <div class="win-body">
+            <div class="win-side">
+              <div class="side-h">警報・注意報</div>
+              <div id="rain-alerts"></div>
+            </div>
+            <div class="win-map"><div class="center-map" id="rain-map"></div><div id="rain-overlay"></div></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- 中央 -->
+      <div class="center">
+        <div class="center-map" id="center-map"></div>
+        <div class="center-title"><div class="t">全国モニタ</div><div class="s">NATIONWIDE · 監視中</div></div>
+        <div class="level" id="level" data-lv="calm"><i></i><span id="level-text">平常 · 監視中</span></div>
+        <div class="center-clock"><div class="t" id="clock-short">--:--</div><div class="d" id="date-short">2026.07.01 現在</div></div>
+        <div class="legend">
+          <div><i style="background:var(--c-eq)"></i>地震</div>
+          <div><i style="background:var(--c-rain-2)"></i>豪雨</div>
+          <div><i style="background:var(--c-rail)"></i>鉄道</div>
+          <div><i style="background:var(--c-tide-2)"></i>潮位</div>
+        </div>
+        <div id="center-overlay"></div>
+      </div>
+
+      <!-- 右カラム -->
+      <div class="col">
+        <!-- 鉄道 -->
+        <section class="win win--rail">
+          <div class="win-hd"><div><h2>鉄道情報</h2><div class="en">RAILWAY · 首都圏</div></div><div class="win-meta" id="rail-meta"></div></div>
+          <div class="win-body">
+            <div class="win-side win-side--wide" id="rail-side"></div>
+            <div class="win-map"><div class="center-map" id="rail-map"></div><div class="map-cap">首都圏路線図 · 影響路線のみ強調</div></div>
+          </div>
+        </section>
+        <!-- 潮位 -->
+        <section class="win win--tide">
+          <div class="win-hd"><div><h2>潮位・水位</h2><div class="en">TIDE / WATER LEVEL</div></div><div class="win-meta" id="tide-meta"></div></div>
+          <div class="win-body tide-body" id="tide-body"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- TICKER -->
+    <div class="ticker">
+      <div class="tag">速報</div>
+      <div class="track"><div class="move"><span id="ticker-a"></span><span id="ticker-b"></span></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   データ (5) — /live 差し替え点 (6)
+   -------------------------------------------------------------------------
+   SCENES.calm / SCENES.alert は「/live を加工した後」の描画用ビューモデル。
+   本番では buildScene(rawLiveData) を実装し、下と同じ形の object を返せば
+   そのまま render() に流せる。座標系は地図 SVG の viewBox (0..1000, 0..1300)。
+   ========================================================================= */
+
+// 地図座標ヘルパ: だいたいの県 → (x,y)。実装では /live の緯度経度から算出。
+const PT = {
+  iwate:[640,360], miyagi:[636,418], fukushima:[628,452], ibaraki:[612,486],
+  shizuoka:[470,582], aichi:[428,622], yamanashi:[500,556], nagano:[476,540], gifu:[430,560],
+  tokyo:[582,500], tokyoBay:[586,506],
+};
+
+const HISTORY_12H = [   // 地震: 過去12時間 (常時表示、平穏でも残る)
+  {t:'19:34',p:'宮城県沖',   m:'M4.2',s:'2',  c:'var(--c-eq-2)'},
+  {t:'19:21',p:'岩手県沖',   m:'M6.1',s:'5弱',c:'var(--c-eq)'},
+  {t:'17:55',p:'福島県沖',   m:'M3.8',s:'1',  c:'var(--c-eq-3)'},
+  {t:'15:02',p:'茨城県北部', m:'M3.1',s:'1',  c:'var(--c-eq-3)'},
+  {t:'12:30',p:'青森県東方沖',m:'M4.0',s:'2', c:'var(--c-eq-2)'},
+  {t:'09:14',p:'十勝沖',     m:'M3.5',s:'1',  c:'var(--c-eq-3)'},
+];
+
+const RAIL_LINES_BASE = [ // 首都圏 路線ジオメトリ (影響時は太線、平穏時は細いグレー)
+  {id:'chuo',  name:'中央線快速', color:'#f15a22', points:'498,470 536,452 576,448 614,452'},
+  {id:'yamanote',name:'山手線',   color:'#9acd32', points:'536,452 562,462 568,490 548,506 522,496 518,470 536,452'},
+  {id:'keihin',name:'京浜東北線', color:'#00a7e0', points:'512,432 540,490 560,534'},
+  {id:'saikyo',name:'埼京線',     color:'#00ac9b', points:'520,428 540,452 596,448 624,452'},
+];
+
+/* 潮位観測点プール — 小窓に2拠点ずつ、時間経過で巡回。
+   実装では /live の観測点ごとの潮位時系列に置き換え (base/amp/phase は近似正弦モデル)。 */
+const TIDE_POOL = [
+  {name:'東京',   at:[586,506], base:106, amp:78, phase:2.4, dev:6},
+  {name:'横浜',   at:[590,516], base:110, amp:70, phase:2.9, dev:4},
+  {name:'千葉',   at:[602,494], base:100, amp:82, phase:2.1, dev:8},
+  {name:'名古屋', at:[430,566], base:96,  amp:66, phase:3.4, dev:5},
+  {name:'清水',   at:[478,590], base:112, amp:84, phase:2.6, dev:7},
+  {name:'銚子',   at:[624,472], base:118, amp:74, phase:1.8, dev:5},
+];
+function fmtHM(t){const h=Math.floor(t)%24,m=Math.round((t-Math.floor(t))*60)%60;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');}
+// alertSet に含まれる拠点は高潮警戒 (現在潮位・偏差を上振れ) にする
+function makeTide(alertNames){
+  const set=new Set(alertNames||[]);
+  return TIDE_POOL.map(s=>{
+    const alert=set.has(s.name);
+    const amp=alert?s.amp+26:s.amp, base=alert?s.base+34:s.base;
+    const lvl=t=>base+amp*Math.sin(2*Math.PI*(t-s.phase)/12.42);
+    let hiT=0,loT=0,hi=-1e9,lo=1e9;
+    for(let t=0;t<=24;t+=0.05){const v=lvl(t);if(v>hi){hi=v;hiT=t}if(v<lo){lo=v;loT=t}}
+    return {name:s.name, at:s.at, base, amp, phase:s.phase, alert,
+      current:Math.round(lvl(19.42)),
+      high:fmtHM(hiT)+' '+Math.round(hi)+'cm',
+      low:fmtHM(loT)+' '+Math.round(lo)+'cm',
+      dev:'+'+(alert?s.dev+22:s.dev)+'cm'};
+  });
+}
+
+const SCENES = {
+  /* ---------------- 平穏時 ---------------- */
+  calm:{
+    level:'calm',
+    earthquake:{ targets:[], history:HISTORY_12H },
+    rain:{ targets:[], alerts:[] },
+    rail:{ affected:[] },   // 影響路線なし
+    tide:{ stations: makeTide([]) },   // 全拠点 平常
+  },
+  /* ---------------- 警戒時 ---------------- */
+  alert:{
+    level:'high',
+    earthquake:{
+      targets:[  // 複数 → 8秒で自動切替
+        {p:'岩手県沖',m:'M6.1',s:'5弱',t:'19:21',at:PT.iwate, r:15},
+        {p:'宮城県沖',m:'M4.2',s:'2', t:'19:34',at:PT.miyagi,r:12},
+      ],
+      history:HISTORY_12H,
+    },
+    rain:{
+      targets:[  // 複数 → 8秒で自動切替
+        {r:'静岡県 中部',lv:'危険',lvColor:'#e879f9',amt:'1h 62mm',at:PT.shizuoka,
+         cells:[[470,582,50,.55],[430,620,36,.5],[500,600,26,.45],[452,560,22,.4]]},
+        {r:'愛知県 東部',lv:'警戒',lvColor:'#fb7185',amt:'1h 44mm',at:PT.aichi,
+         cells:[[428,622,46,.55],[400,600,30,.5],[452,640,22,.42]]},
+      ],
+      alerts:[
+        {r:'静岡県 中部',lv:'危険',cl:'#a21caf'},
+        {r:'山梨県 南部',lv:'警戒',cl:'#e11d48'},
+        {r:'愛知県 東部',lv:'警戒',cl:'#e11d48'},
+        {r:'長野県 南部',lv:'注意',cl:'#d4a017'},
+        {r:'岐阜県 美濃',lv:'注意',cl:'#d4a017'},
+      ],
+    },
+    rail:{
+      affected:[
+        {id:'chuo',  name:'中央線快速',status:'見合わせ', note:'三鷹〜東京 / 人身事故',stColor:'var(--c-eq)'},
+        {id:'yamanote',name:'山手線',  status:'遅延',     note:'内回り 最大20分',    stColor:'#d4a017'},
+        {id:'keihin',name:'京浜東北線',status:'一部運休', note:'大宮〜田端',          stColor:'var(--c-eq-2)'},
+        {id:'saikyo',name:'埼京線',    status:'遅延',     note:'最大15分',           stColor:'#d4a017'},
+      ],
+    },
+    tide:{ stations: makeTide(['清水','名古屋']) },   // 2拠点で高潮警戒
+  },
+};
+
+const TICKER_TEXT = '【地震】19:21 岩手県沖 M6.1 最大震度5弱 — 津波の心配なし　／　【大雨】静岡県中部に土砂災害キキクル「危険」　／　【鉄道】中央線快速 三鷹〜東京で運転見合わせ　／　【潮位】東京 満潮 05:00 189cm　／　';
+
+/* =========================================================================
+   地図レンダラ (中央 & 各小窓で共用)
+   ========================================================================= */
+const MAP_PATHS = `
+  <path d="M612,150 C648,108 742,104 800,146 C842,176 832,250 778,268 C726,285 648,272 618,228 C600,202 596,170 612,150 Z"/>
+  <path d="M700,300 C724,322 724,352 720,388 C716,440 730,470 724,506 C720,532 700,548 668,560 C600,584 520,600 452,648 C392,690 332,726 268,758 C244,770 232,748 256,732 C320,694 388,660 446,620 C512,576 576,544 612,498 C646,454 656,398 662,352 C666,320 680,294 700,300 Z"/>
+  <path d="M322,792 C360,784 404,794 408,824 C412,852 372,872 326,866 C292,861 276,834 290,812 C298,800 310,795 322,792 Z"/>
+  <path d="M236,772 C272,764 300,790 300,828 C300,876 278,940 244,960 C220,974 198,956 200,916 C203,866 214,808 226,780 C229,776 232,773 236,772 Z"/>
+  <circle cx="160" cy="1110" r="12"/><circle cx="138" cy="1156" r="9"/><circle cx="120" cy="1200" r="7"/>`;
+
+let gridStr = '';
+for(let x=100;x<=900;x+=100) gridStr += `<line x1="${x}" y1="60" x2="${x}" y2="1240"/>`;
+for(let y=100;y<=1200;y+=100) gridStr += `<line x1="60" y1="${y}" x2="940" y2="${y}"/>`;
+
+function renderMap(el, {view={zoom:1,cx:500,cy:650}, markers=[], rain=[], rail=[], graticule=false}={}){
+  const z=view.zoom, cx=view.cx, cy=view.cy;
+  const tf = `translate(500 650) scale(${z}) translate(${-cx} ${-cy})`;
+  const grid = graticule ? `<g opacity="0.5" stroke="rgba(86,128,180,0.16)" stroke-width="1">${gridStr}</g>` : '';
+  const rainStr = rain.map(([x,y,r,o])=>`<circle cx="${x}" cy="${y}" r="${r}" fill="var(--c-rain)" opacity="${o}"/>`).join('');
+  const railStr = rail.map(l=>`<polyline points="${l.points}" stroke="${l.color}" stroke-width="${l.w}" opacity="${l.o}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
+  const mk = markers.map(m=>{
+    const r=m.r||9, inv=1/z;
+    return `<g transform="translate(${m.x} ${m.y}) scale(${inv})">
+      <circle cx="0" cy="0" r="${r+4}" fill="none" stroke="${m.color}" stroke-width="2.5" style="transform-box:fill-box;transform-origin:center;animation:ring 2.4s ease-out infinite"/>
+      <circle cx="0" cy="0" r="${r}" fill="${m.color}" stroke="rgba(255,255,255,.9)" stroke-width="2" style="animation:core 2.4s ease-in-out infinite"/>
+      ${m.label?`<text x="0" y="${-(r+8)}" text-anchor="middle" font-family="var(--mono)" font-size="${m.fs||16}" font-weight="700" fill="#fff">${m.label}</text>`:''}
+    </g>`;
+  }).join('');
+  el.innerHTML = `<svg viewBox="0 0 1000 1300" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block">
+    <defs>
+      <filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="13"/></filter>
+      <radialGradient id="sea" cx="50%" cy="42%" r="75%"><stop offset="0%" stop-color="#0e1622"/><stop offset="100%" stop-color="#070a11"/></radialGradient>
+    </defs>
+    <rect width="1000" height="1300" fill="url(#sea)"/>
+    <g transform="${tf}">
+      ${grid}
+      <g fill="#1c2735" stroke="rgba(125,172,228,0.42)" stroke-width="1.6" stroke-linejoin="round">${MAP_PATHS}</g>
+      <g filter="url(#soft)">${rainStr}</g>
+      <g>${railStr}</g>
+      ${mk}
+    </g>
+  </svg>`;
+}
+
+/* 全国 → 対象地点へ寄っていくズームアップ (rAF トゥイーン)。
+   対象切替のたびに from=全国ビュー から target ビューへ約0.9秒でイージング。 */
+const EASE = x => 1 - Math.pow(1 - x, 3);   // easeOutCubic
+function zoomToTarget(el, toView, opts, dur=900){
+  const from = {zoom:1, cx:500, cy:650};
+  if(el.__raf) cancelAnimationFrame(el.__raf);
+  const t0 = performance.now();
+  function step(now){
+    const k = Math.min(1,(now-t0)/dur), e = EASE(k);
+    const v = {
+      zoom: from.zoom + (toView.zoom-from.zoom)*e,
+      cx:   from.cx   + (toView.cx  -from.cx  )*e,
+      cy:   from.cy   + (toView.cy  -from.cy  )*e,
+    };
+    renderMap(el, {...opts, view:v});
+    if(k<1) el.__raf = requestAnimationFrame(step); else el.__raf = null;
+  }
+  el.__raf = requestAnimationFrame(step);
+}
+
+/* =========================================================================
+   潮位カーブ
+   ========================================================================= */
+function renderTide(el, st){
+  const base=st.base, amp=st.amp, phase=st.phase;
+  const x0=30,x1=336,y0=10,y1=94, cmMax=Math.max(220, base+amp+20);
+  const lvl=t=>base+amp*Math.sin(2*Math.PI*(t-phase)/12.42);
+  const X=t=>x0+(t/24)*(x1-x0), Y=cm=>y1-(cm/cmMax)*(y1-y0);
+  let line=''; for(let i=0;i<=96;i++){const t=i/96*24;line+=(i?'L':'M')+X(t).toFixed(1)+' '+Y(lvl(t)).toFixed(1)+' ';}
+  const area=line+`L${x1} ${y1} L${x0} ${y1} Z`;
+  let hiT=0,loT=0,hiV=-1e9,loV=1e9; for(let t=0;t<=24;t+=0.1){const v=lvl(t);if(v>hiV){hiV=v;hiT=t}if(v<loV){loV=v;loT=t}}
+  const cur=19.42, vg=[3,9,15,21];
+  const accent = st.alert ? '#e879f9' : 'var(--c-tide-2)';
+  el.innerHTML=`<svg viewBox="0 0 346 106" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
+    <g stroke="rgba(180,150,220,0.14)" stroke-width="1"><line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y1}"/><line x1="${x0}" y1="${y1}" x2="${x1}" y2="${y1}"/>
+      ${vg.map(t=>`<line x1="${X(t)}" y1="${y0+4}" x2="${X(t)}" y2="${y1}"/>`).join('')}</g>
+    <path d="${area}" fill="rgba(170,80,210,0.14)"/>
+    <path d="${line.trim()}" fill="none" stroke="${accent}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+    <line x1="${X(cur)}" y1="${y0}" x2="${X(cur)}" y2="${y1}" stroke="${accent}" stroke-width="1.2" stroke-dasharray="3 3" opacity=".8"/>
+    <circle cx="${X(hiT)}" cy="${Y(hiV)}" r="3.5" fill="none" stroke="${accent}" stroke-width="1.8"/>
+    <circle cx="${X(loT)}" cy="${Y(loV)}" r="3.5" fill="none" stroke="rgba(120,200,255,.9)" stroke-width="1.8"/>
+    <circle cx="${X(cur)}" cy="${Y(lvl(cur))}" r="4.5" fill="${accent}" stroke="#fff" stroke-width="1.8"/>
+  </svg>`;
+}
+
+/* =========================================================================
+   描画 (3) 平穏 ⇄ 警戒 の2状態
+   ========================================================================= */
+const FULL_VIEW={zoom:1,cx:500,cy:650};
+const $=id=>document.getElementById(id);
+
+function render(scene, tick){
+  const eq=scene.earthquake, rain=scene.rain, rail=scene.rail, tide=scene.tide;
+  const tideAlerts = tide.stations.filter(s=>s.alert);
+  const eqOn=eq.targets.length>0, rainOn=rain.targets.length>0, railOn=rail.affected.length>0, tideOn=tideAlerts.length>0;
+  const calm = !eqOn && !rainOn && !railOn && !tideOn;
+
+  // 8秒サイクルの選択インデックス
+  const cyc = Math.floor(tick/8);
+  const eqI = eqOn ? cyc%eq.targets.length : 0;
+  const rainI = rainOn ? cyc%rain.targets.length : 0;
+  const eqCur = eq.targets[eqI], rainCur = rain.targets[rainI];
+
+  /* --- ヘッダー件数 --- */
+  $('ct-eq').textContent   = eq.targets.length;
+  $('ct-rain').textContent = rainOn ? rain.alerts.length : 0;
+  $('ct-rail').textContent = rail.affected.length;
+  $('ct-tide').textContent = tideAlerts.length;
+
+  /* --- 中央マップ: 全カテゴリの現在対象をパルス表示 --- */
+  const cm=[], cr=[];
+  if(eqOn){ cm.push({x:eqCur.at[0],y:eqCur.at[1],color:'var(--c-eq)',r:(eqCur.r||12)-2,label:eqCur.s,fs:16}); }
+  if(rainOn){ cm.push({x:rainCur.at[0],y:rainCur.at[1],color:'var(--c-rain-2)',r:9,label:''}); rainCur.cells.forEach(c=>cr.push(c)); }
+  if(railOn){ cm.push({x:545,y:476,color:'var(--c-rail)',r:8,label:''}); }        // 鉄道はポップアップ無し・小マーカーのみ
+  tideAlerts.forEach(s=>cm.push({x:s.at[0],y:s.at[1],color:'var(--c-tide-2)',r:8,label:''}));
+  renderMap($('center-map'),{view:FULL_VIEW,markers:cm,rain:cr,graticule:true});
+  $('center-overlay').innerHTML = calm
+    ? `<div class="center-empty"><div class="ring"><div></div></div><div class="m">現在、表示対象なし</div><div class="s">ALL CLEAR · 全国の警戒情報を監視中</div></div>` : '';
+  $('level').dataset.lv = calm?'calm':'high';
+  $('level-text').textContent = calm?'平常 · 監視中':'警戒レベル 高';
+
+  /* --- 地震小窓 --- */
+  $('eq-meta').innerHTML = eqOn
+    ? (eq.targets.length>1 ? `<span>対象 ${eqI+1}/${eq.targets.length}</span><span class="cyc"></span><span class="cyc-note">8s切替</span>` : `<span>対象 1/1</span>`)
+    : `<span class="quiet">監視中</span>`;
+  $('eq-history').innerHTML = eq.history.map(e=>
+    `<div class="row"><span class="tm">${e.t}</span><span class="nm">${e.p}</span><span class="mag">${e.m}</span><span class="chip" style="background:${e.c}">${e.s}</span></div>`).join('');
+  if(eqOn){
+    zoomToTarget($('eq-map'), {zoom:3.2,cx:eqCur.at[0],cy:eqCur.at[1]}, {markers:[{x:eqCur.at[0],y:eqCur.at[1],color:'var(--c-eq)',r:eqCur.r||15,label:eqCur.s,fs:19}]});
+    $('eq-overlay').innerHTML = `<div class="popup popup--eq zoomin"><div class="p">${eqCur.p}</div><div class="l">${eqCur.m} ・ 震度<b style="color:#fff;font-size:14px">${eqCur.s}</b> ・ ${eqCur.t}</div></div>`;
+  }else{
+    if($('eq-map').__raf){ cancelAnimationFrame($('eq-map').__raf); $('eq-map').__raf=null; }
+    renderMap($('eq-map'),{view:FULL_VIEW,graticule:true});
+    $('eq-overlay').innerHTML = `<div class="win-empty"><div class="m">現在 対象なし</div><div class="s">全国を監視中</div></div>`;
+  }
+
+  /* --- 豪雨小窓 --- */
+  $('rain-meta').innerHTML = rainOn
+    ? (rain.targets.length>1 ? `<span>対象 ${rainI+1}/${rain.targets.length}</span><span class="cyc"></span><span class="cyc-note">8s切替</span>` : `<span>対象 1/1</span>`)
+    : `<span class="quiet">監視中</span>`;
+  $('rain-alerts').innerHTML = rain.alerts.map(a=>
+    `<div class="row"><span class="sq" style="background:${a.cl}"></span><span class="nm">${a.r}</span><span class="lv" style="background:${a.cl}">${a.lv}</span></div>`).join('')
+    || `<div style="font:10px var(--mono);color:#5d6878;padding-top:8px">発表なし</div>`;
+  if(rainOn){
+    zoomToTarget($('rain-map'), {zoom:3.1,cx:rainCur.at[0],cy:rainCur.at[1]}, {rain:rainCur.cells});
+    $('rain-overlay').innerHTML = `<div class="popup popup--rain zoomin"><div class="p">${rainCur.r}</div><div class="l">土砂災害 ・ <b style="color:${rainCur.lvColor}">${rainCur.lv}</b> ・ ${rainCur.amt}</div></div>`;
+  }else{
+    if($('rain-map').__raf){ cancelAnimationFrame($('rain-map').__raf); $('rain-map').__raf=null; }
+    renderMap($('rain-map'),{view:FULL_VIEW,graticule:true});
+    $('rain-overlay').innerHTML = `<div class="win-empty"><div class="m">現在 対象なし</div><div class="s">全国を監視中</div></div>`;
+  }
+
+  /* --- 鉄道小窓: 影響路線のみ太線、ポップアップ無し、左に路線色カード --- */
+  $('rail-meta').innerHTML = railOn ? `<span>影響 ${rail.affected.length}路線</span>` : `<span class="quiet" style="color:#7ee0a0">平常運転</span>`;
+  const affIds = new Set(rail.affected.map(a=>a.id));
+  const railGeom = RAIL_LINES_BASE.map(l => affIds.has(l.id)
+    ? {points:l.points,color:l.color,w:l.id==='yamanote'?6:5,o:1}
+    : {points:l.points,color:'#37445a',w:3,o:.55});
+  renderMap($('rail-map'),{view:{zoom:3.4,cx:552,cy:478},rail:railGeom});
+  $('rail-side').innerHTML = railOn
+    ? rail.affected.map(c=>{ const geo=RAIL_LINES_BASE.find(g=>g.id===c.id)||{};
+        return `<div class="rail-card"><span class="bar" style="background:${geo.color}"></span><div class="body"><div class="nm">${c.name}</div><div class="note">${c.note}</div></div><span class="st" style="background:${c.stColor}">${c.status}</span></div>`;}).join('')
+    : `<div class="rail-empty"><i></i><div class="m">影響路線なし</div><div class="s">平常運転</div></div>`;
+
+  /* --- 潮位小窓: 2拠点ずつ表示、8秒で巡回 --- */
+  const N=tide.stations.length, pairStart=(Math.floor(tick/8)*2)%N;
+  const shown=[tide.stations[pairStart%N], tide.stations[(pairStart+1)%N]];
+  $('tide-meta').innerHTML = N>2
+    ? `<span>拠点 ${(pairStart%N)+1}・${((pairStart+1)%N)+1}/${N}</span><span class="cyc"></span><span class="cyc-note">8s巡回</span>`
+    : `<span>拠点 ${N}/${N}</span>`;
+  $('tide-body').innerHTML = shown.map((s,i)=>
+    `<div class="tide-cell${s.alert?' alert':''}">
+       <div class="tide-info">
+         <div class="tide-name"><span class="dot"></span>${s.name}${s.alert?'<span class="tide-flag">高潮警戒</span>':''}</div>
+         <div class="tide-now"><b>${s.current}</b><span>cm</span></div>
+         <div class="tide-hl"><span class="hi">▲${s.high}</span><span class="lo">▼${s.low}</span><span class="dv">偏差${s.dev}</span></div>
+       </div>
+       <div class="tide-chart" id="tide-chart-${i}"></div>
+     </div>`).join('');
+  shown.forEach((s,i)=>renderTide($('tide-chart-'+i), s));
+
+  /* --- テロップ --- */
+  $('ticker-a').textContent = TICKER_TEXT;
+  $('ticker-b').textContent = TICKER_TEXT;
+}
+
+/* =========================================================================
+   状態制御 / 時計 / フィット
+   ========================================================================= */
+const params = new URLSearchParams(location.search);
+let mode = params.get('state') || 'demo';   // calm | alert | demo
+if(params.get('chrome')==='off') $('dev').classList.add('hidden');
+
+let tick = 0, lastSig = '';
+function frame(force){
+  let scene, kind;
+  if(mode==='calm'){ scene=SCENES.calm; kind='calm'; }
+  else if(mode==='alert'){ scene=SCENES.alert; kind='alert'; }
+  else { // demo: 16秒平穏 → 48秒警戒 のループ
+    const tt=tick%64;
+    if(tt<16){ scene=SCENES.calm; kind='calm'; } else { scene=SCENES.alert; kind='alert'; }
+  }
+  // 実際に描画が変わる時 (モード変更 / 状態遷移 / 8秒サイクル進行) のみ再描画。
+  // これでアニメーションが毎秒リセットされるのを防ぐ。時計は別インターバル。
+  const sig = mode + '|' + kind + '|' + Math.floor(tick/8);
+  if(!force && sig===lastSig) return;
+  lastSig = sig;
+  render(scene, tick);
+}
+setInterval(()=>{ tick++; frame(); }, 1000);
+
+// dev ボタン
+$('dev').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  mode=b.dataset.state; tick=0;
+  [...$('dev').querySelectorAll('button')].forEach(x=>x.classList.toggle('on',x===b));
+  frame(true);
+});
+[...$('dev').querySelectorAll('button')].forEach(x=>x.classList.toggle('on',x.dataset.state===mode));
+
+// 時計
+function clock(){
+  const base = 19*3600+25*60+48+tick;
+  const p=n=>String(n).padStart(2,'0');
+  const hh=Math.floor(base/3600)%24, mm=Math.floor(base/60)%60, ss=base%60;
+  $('clock').textContent = `${p(hh)}:${p(mm)}:${p(ss)}`;
+  $('clock-short').textContent = `${p(hh)}:${p(mm)}`;
+}
+setInterval(clock, 1000);
+
+// フィット (プレビュー用; OBS 1920x1080 では scale=1)
+function fit(){
+  const s = Math.min(innerWidth/1920, innerHeight/1080);
+  $('stage').style.transform = `scale(${s})`;
+}
+addEventListener('resize', fit);
+
+// 初期描画
+fit(); clock(); frame(true);
+</script>
+</body>
+</html>

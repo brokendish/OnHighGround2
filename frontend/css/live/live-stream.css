@@ -1,0 +1,277 @@
+/* /live/stream  —  災害監視 Live 配信レイアウト  (1920 x 1080 固定)
+ *
+ *  ┌──────────────────────────────────────────────────────────┐
+ *  │ HEADER  1920 x 72   … 名称 / 時刻 / カテゴリ件数 / LIVE      │
+ *  ├──────────┬───────────────────────────┬──────────────────┤
+ *  │ 左カラム   │        中央 全国マップ        │   右カラム        │
+ *  │ 476px     │        flex (=900px)        │   476px          │
+ *  │ ┌地震┐    │  全国の警戒地点をパルス表示    │  ┌鉄道┐          │
+ *  │ │458px│   │  平穏時「現在、表示対象なし」  │  │458px│         │
+ *  │ └────┘   │                             │  └────┘         │
+ *  │ ┌豪雨┐    │                             │  ┌潮位┐          │
+ *  │ │458px│   │                             │  │458px│         │
+ *  │ └────┘   │                             │  └────┘         │
+ *  ├──────────┴───────────────────────────┴──────────────────┤
+ *  │ TICKER  1920 x 46   … 速報テロップ (marquee)               │
+ *  └──────────────────────────────────────────────────────────┘
+ *  本文高さ = 1080 - 72 - 46 = 962。padding 16/20 を含む。
+ *  3カラム: 476 + gap14 + 900 + gap14 + 476 = 1880 (= 1920 - 左右20)。
+ *  小窓高さ = (962 - 上下16 - gap14) / 2 = 458。
+ */
+
+:root {
+  /* カテゴリ色 */
+  --c-eq:      #ff4d3d;
+  --c-eq-2:    #ff9a3c;
+  --c-eq-3:    #ffc266;
+  --c-rain:    #2f7bff;
+  --c-rain-2:  #34d6ff;
+  --c-rail:    #2bd576;
+  --c-tide:    #c64be0;
+  --c-tide-2:  #d24be0;
+  --c-alert:   #ff2d2d;
+  --c-safe:    #2bd576;
+
+  /* レイアウト寸法 */
+  --stage-w:   1920px;
+  --stage-h:   1080px;
+  --header-h:  72px;
+  --ticker-h:  46px;
+  --col-w:     476px;
+  --gap:       14px;
+
+  /* 面・文字 */
+  --bg-0:    #070a11;
+  --bg-1:    #0b1019;
+  --bg-hdr:  #0a0f19;
+  --panel:   rgba(255,255,255,.012);
+  --line:    rgba(120,160,210,.16);
+  --ink:     #e8edf5;
+  --ink-2:   #c5cedd;
+  --ink-3:   #8b97a9;
+  --ink-4:   #6b7686;
+  --mono:    'Share Tech Mono', ui-monospace, monospace;
+  --sans:    'Zen Kaku Gothic New', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: #04060a; overflow: hidden;
+  font-family: var(--sans); color: var(--ink);
+}
+
+/* ---- fit-to-viewport (OBS 1920x1080 では scale=1) ---- */
+.ls-fit {
+  position: fixed; inset: 0; display: flex;
+  align-items: center; justify-content: center; background: #04060a;
+}
+.ls-stage {
+  width: var(--stage-w); height: var(--stage-h); flex: none; position: relative;
+  background: radial-gradient(120% 90% at 50% 0%, #0c121d, #070a11 70%);
+  transform-origin: center;
+}
+
+/* ============================ HEADER ============================ */
+.ls-hdr {
+  position: absolute; top: 0; left: 0; right: 0; height: var(--header-h);
+  display: flex; align-items: center; justify-content: space-between; padding: 0 28px;
+  background: linear-gradient(180deg,#0e1626,#0a0f19); border-bottom: 1px solid var(--line);
+}
+.ls-brand { display: flex; align-items: center; gap: 14px; }
+.ls-brand h1 { font-size: 22px; font-weight: 900; letter-spacing: .04em; line-height: 1; margin: 0; }
+.ls-brand .sub { font: 11px var(--mono); color: var(--ink-3); letter-spacing: .18em; margin-top: 3px; }
+.ls-clock { text-align: center; }
+.ls-clock .t { font: 38px var(--mono); letter-spacing: .06em; line-height: 1; }
+.ls-clock .d { font: 12px var(--mono); color: var(--ink-3); letter-spacing: .14em; margin-top: 3px; }
+.ls-counts { display: flex; align-items: center; gap: 9px; }
+.cbadge {
+  display: flex; align-items: center; gap: 7px; padding: 7px 11px; border-radius: 7px;
+  background: color-mix(in srgb, var(--cc) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cc) 45%, transparent);
+}
+.cbadge i { width: 8px; height: 8px; border-radius: 50%; background: var(--cc); }
+.cbadge .lb { font-size: 12px; color: color-mix(in srgb, var(--cc) 55%, #fff); }
+.cbadge .n  { font: 15px var(--mono); color: #fff; }
+.cbadge--eq   { --cc: var(--c-eq); }
+.cbadge--rain { --cc: var(--c-rain-2); }
+.cbadge--rail { --cc: var(--c-rail); }
+.cbadge--tide { --cc: var(--c-tide-2); }
+.ls-live {
+  display: flex; align-items: center; gap: 7px; padding: 8px 13px;
+  border-radius: 7px; background: var(--c-alert); margin-left: 4px;
+}
+.ls-live i { width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: blink 1.4s infinite; }
+.ls-live span { font-size: 14px; font-weight: 900; letter-spacing: .08em; }
+
+/* ============================ BODY ============================ */
+.ls-body {
+  position: absolute; top: var(--header-h); left: 0; right: 0; bottom: var(--ticker-h);
+  display: flex; gap: var(--gap); padding: 16px 20px;
+}
+.ls-col { width: var(--col-w); display: flex; flex-direction: column; gap: var(--gap); }
+.ls-center { flex: 1; }
+
+/* ---- 小窓 ---- */
+.win {
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+  border: 2px solid var(--win); border-radius: 10px; overflow: hidden; background: var(--bg-1);
+  box-shadow: 0 0 0 1px color-mix(in srgb,var(--win) 15%,transparent),
+              0 0 24px color-mix(in srgb,var(--win) 10%,transparent);
+}
+.win--eq   { --win: var(--c-eq); }
+.win--rain { --win: var(--c-rain); }
+.win--rail { --win: var(--c-rail); }
+.win--tide { --win: var(--c-tide); }
+.win-hd {
+  display: flex; align-items: center; justify-content: space-between; padding: 9px 13px;
+  background: linear-gradient(90deg, color-mix(in srgb,var(--win) 22%,transparent), transparent);
+  border-bottom: 1px solid color-mix(in srgb,var(--win) 38%,transparent);
+}
+.win-hd h2 { font-size: 16px; font-weight: 800; line-height: 1; margin: 0; }
+.win-hd .en { font: 9px var(--mono); color: color-mix(in srgb,var(--win) 55%,#fff); letter-spacing: .16em; margin-top: 2px; }
+.win-meta { display: flex; align-items: center; gap: 8px; font: 11px var(--mono); color: #94a2b6; }
+.win-meta .cyc { width: 7px; height: 7px; border-radius: 50%; background: var(--win); animation: cyc 8s infinite; }
+.win-meta .cyc-note { font: 10px var(--mono); color: var(--ink-4); }
+.win-meta .quiet { font: 11px var(--mono); color: #5d6878; }
+.win-body { flex: 1; display: flex; min-height: 0; }
+.win-side { width: 184px; padding: 9px 10px; border-right: 1px solid rgba(255,255,255,.06); background: var(--panel); overflow: hidden; }
+.win-side--wide { width: 210px; }
+.win-side--tide { width: 158px; padding: 11px 12px; }
+.win-map { flex: 1; position: relative; overflow: hidden; }
+.side-h { font: 9px var(--mono); color: var(--ink-4); letter-spacing: .14em; margin-bottom: 7px; }
+
+/* リスト行 */
+.row { display: flex; align-items: center; gap: 7px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+.row .tm  { font: 10px var(--mono); color: var(--ink-3); width: 34px; flex: none; }
+.row .nm  { font-size: 11px; color: #d4dbe6; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .mag { font: 10px var(--mono); color: #9aa6b8; }
+.chip { font: 11px var(--mono); font-weight: 700; color: #07090e; min-width: 20px; text-align: center; border-radius: 4px; padding: 1px 4px; }
+.sq   { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.lv   { font-size: 10px; font-weight: 700; color: #fff; border-radius: 4px; padding: 1px 6px; }
+
+/* 地図ポップアップ */
+.popup {
+  position: absolute; top: 10px; left: 10px; padding: 7px 11px;
+  background: rgba(10,14,22,.82); border-radius: 7px; animation: fade .4s both;
+}
+.popup--eq   { border: 1px solid color-mix(in srgb,var(--c-eq) 50%,transparent); }
+.popup--rain { border: 1px solid color-mix(in srgb,var(--c-rain) 50%,transparent); }
+.popup .p { font-size: 13px; font-weight: 700; }
+.popup .l { font: 11px var(--mono); margin-top: 1px; }
+.popup--eq .p   { color: #ffd9d3; } .popup--eq .l   { color: #ff9a8a; }
+.popup--rain .p { color: #d3e6ff; } .popup--rain .l { color: #8fc1ff; }
+.popup.zoomin { animation: popIn .5s .4s both; }
+
+/* 平穏プレースホルダ (小窓) */
+.win-empty {
+  position: absolute; inset: 0; display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+}
+.win-empty .m { font-size: 15px; font-weight: 700; color: var(--ink-3); }
+.win-empty .s { font: 10px var(--mono); color: #5d6878; letter-spacing: .1em; }
+.map-cap { position: absolute; bottom: 10px; left: 12px; font: 10px var(--mono); color: var(--ink-3); letter-spacing: .12em; }
+
+/* 鉄道カード */
+.rail-card { display: flex; align-items: center; gap: 9px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+.rail-card .bar  { width: 5px; align-self: stretch; border-radius: 3px; flex: none; }
+.rail-card .body { flex: 1; min-width: 0; }
+.rail-card .nm   { font-size: 12px; font-weight: 700; color: var(--ink); line-height: 1.1; }
+.rail-card .note { font-size: 10px; color: var(--ink-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-card .st   { font-size: 10px; font-weight: 700; color: #fff; border-radius: 4px; padding: 2px 6px; flex: none; }
+.rail-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.rail-empty i  { width: 8px; height: 8px; border-radius: 50%; background: var(--c-safe); }
+.rail-empty .m { font-size: 13px; font-weight: 700; color: #a7e8c4; }
+.rail-empty .s { font: 10px var(--mono); color: #5d6878; }
+
+/* 潮位 */
+.tide-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.tide-cell { flex: 1; display: flex; min-height: 0; padding: 9px 12px; gap: 10px; }
+.tide-cell + .tide-cell { border-top: 1px solid rgba(255,255,255,.06); }
+.tide-cell.alert { background: linear-gradient(90deg, color-mix(in srgb,var(--c-tide) 12%,transparent), transparent); }
+.tide-info { width: 132px; flex: none; display: flex; flex-direction: column; justify-content: center; }
+.tide-name { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 800; color: var(--ink); }
+.tide-name .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c-tide-2); }
+.tide-flag { font-size: 9px; font-weight: 700; color: #fff; background: #c026d3; border-radius: 4px; padding: 1px 6px; margin-left: auto; }
+.tide-now  { display: flex; align-items: baseline; gap: 3px; margin-top: 3px; }
+.tide-now b    { font: 30px var(--mono); color: #f0d7f5; line-height: 1; font-weight: 400; }
+.tide-now span { font-size: 12px; color: #b48cc0; }
+.tide-hl { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 2px 10px; font: 10px var(--mono); color: var(--ink-2); }
+.tide-hl .hi { color: #e879f9; } .tide-hl .lo { color: #5cc8ff; } .tide-hl .dv { color: #7ee0a0; }
+.tide-chart { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; justify-content: center; }
+
+/* ---- 中央マップ ---- */
+.ls-center {
+  position: relative; border: 1px solid rgba(120,160,210,.18);
+  border-radius: 10px; overflow: hidden; background: #080d15;
+}
+.center-map    { position: absolute; inset: 0; }
+.center-title  { position: absolute; top: 14px; left: 16px; }
+.center-title .t { font-size: 15px; font-weight: 800; letter-spacing: .05em; }
+.center-title .s { font: 10px var(--mono); color: var(--ink-3); letter-spacing: .16em; margin-top: 2px; }
+.level {
+  position: absolute; top: 14px; right: 16px; display: flex; align-items: center;
+  gap: 7px; padding: 6px 11px; border-radius: 20px;
+}
+.level i    { width: 7px; height: 7px; border-radius: 50%; animation: blink 1.4s infinite; }
+.level span { font-size: 12px; font-weight: 700; }
+.level[data-lv="high"]  { background: rgba(255,45,45,.14); border: 1px solid color-mix(in srgb,var(--c-eq) 50%,transparent); }
+.level[data-lv="high"] i    { background: var(--c-eq); }
+.level[data-lv="high"] span { color: #ffb3aa; }
+.level[data-lv="calm"]  { background: rgba(43,213,118,.12); border: 1px solid color-mix(in srgb,var(--c-safe) 40%,transparent); }
+.level[data-lv="calm"] i    { background: var(--c-safe); }
+.level[data-lv="calm"] span { color: var(--c-safe); }
+.center-clock { position: absolute; bottom: 14px; left: 16px; }
+.center-clock .t { font: 28px var(--mono); line-height: 1; }
+.center-clock .d { font: 11px var(--mono); color: var(--ink-3); margin-top: 3px; }
+.legend {
+  position: absolute; bottom: 14px; right: 16px; display: flex; flex-direction: column;
+  gap: 5px; padding: 9px 12px;
+  background: rgba(8,12,20,.7); border: 1px solid rgba(255,255,255,.08); border-radius: 8px;
+}
+.legend div { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--ink-2); }
+.legend i   { width: 9px; height: 9px; border-radius: 50%; }
+.center-empty {
+  position: absolute; inset: 0; display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+}
+.center-empty .ring { width: 60px; height: 60px; border: 2px solid rgba(120,165,220,.4); border-radius: 50%; display: grid; place-items: center; }
+.center-empty .ring div { width: 12px; height: 12px; border-radius: 50%; background: rgba(120,165,220,.5); }
+.center-empty .m { font-size: 24px; font-weight: 800; letter-spacing: .04em; color: var(--ink-2); }
+.center-empty .s { font: 12px var(--mono); color: var(--ink-4); letter-spacing: .16em; }
+
+/* ============================ TICKER ============================ */
+.ls-ticker {
+  position: absolute; bottom: 0; left: 0; right: 0; height: var(--ticker-h);
+  display: flex; align-items: center;
+  background: var(--bg-hdr); border-top: 1px solid var(--line); overflow: hidden;
+}
+.ls-ticker .tag {
+  flex: none; height: 100%; display: flex; align-items: center; padding: 0 16px;
+  background: var(--c-alert); font-size: 14px; font-weight: 900; letter-spacing: .08em;
+}
+.ls-ticker .track { flex: 1; overflow: hidden; position: relative; height: 100%; }
+.ls-ticker .move {
+  position: absolute; top: 0; left: 0; height: 100%;
+  display: flex; align-items: center; gap: 46px; white-space: nowrap;
+  animation: marquee 34s linear infinite;
+  font: 15px var(--mono); color: var(--ink-2);
+}
+
+/* ---- dev 状態スイッチ (配信では ?chrome=off で非表示) ---- */
+.ls-dev { position: fixed; top: 10px; left: 10px; z-index: 99; display: flex; gap: 6px; font-family: var(--mono); }
+.ls-dev button {
+  font: 12px var(--mono); color: var(--ink-2); background: #111826;
+  border: 1px solid #2a3648; border-radius: 6px; padding: 6px 12px; cursor: pointer;
+}
+.ls-dev button.on { background: var(--c-eq); border-color: var(--c-eq); color: #fff; }
+.ls-dev.hidden { display: none; }
+
+/* ============================ アニメーション ============================ */
+@keyframes marquee { from { transform: translateX(0); }   to { transform: translateX(-50%); } }
+@keyframes blink   { 0%,100% { opacity: 1; } 50% { opacity: .2; } }
+@keyframes cyc     { 0%,45% { opacity: 1; } 55%,95% { opacity: .2; } 100% { opacity: 1; } }
+@keyframes fade    { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ring    { 0% { transform: scale(.45); opacity: .85; } 70% { opacity: .18; } 100% { transform: scale(2.7); opacity: 0; } }
+@keyframes core    { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+@keyframes popIn   { 0% { opacity: 0; transform: translateY(-6px) scale(.94); } 100% { opacity: 1; transform: none; } }

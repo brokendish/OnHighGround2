@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全国災害監視ライブ · /live/stream</title>
+
+<!-- フォント: 和文 Zen Kaku Gothic New / 数値・英字 Share Tech Mono
+     将来は配信安定性のためセルフホスト化を検討 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="/css/live/live-stream.css">
+</head>
+<body>
+
+<!-- dev: 状態スイッチ (?chrome=off で非表示) -->
+<div class="ls-dev" id="dev" data-testid="live-stream-dev-chrome">
+  <button data-state="calm">平穏時</button>
+  <button data-state="alert">警戒時</button>
+  <button data-state="demo">自動デモ</button>
+</div>
+
+<div class="ls-fit">
+  <div class="ls-stage" id="stage" data-testid="live-stream-stage">
+
+    <!-- ===== HEADER ===== -->
+    <header class="ls-hdr" data-testid="live-stream-header">
+      <!-- 左: ロゴ + タイトル -->
+      <div class="ls-brand">
+        <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+          <circle cx="20" cy="20" r="17" fill="none" stroke="var(--c-eq)" stroke-width="1.6"/>
+          <circle cx="20" cy="20" r="4" fill="var(--c-eq)"/>
+          <line x1="20" y1="2"  x2="20" y2="11" stroke="var(--c-eq)" stroke-width="1.6"/>
+          <line x1="20" y1="29" x2="20" y2="38" stroke="var(--c-eq)" stroke-width="1.6"/>
+          <line x1="2"  y1="20" x2="11" y2="20" stroke="var(--c-eq)" stroke-width="1.6"/>
+          <line x1="29" y1="20" x2="38" y2="20" stroke="var(--c-eq)" stroke-width="1.6"/>
+        </svg>
+        <div>
+          <h1>全国災害監視ライブ</h1>
+          <div class="sub">NATIONAL HAZARD WATCH · 監視卓</div>
+        </div>
+      </div>
+
+      <!-- 中央: 時計 -->
+      <div class="ls-clock">
+        <div class="t" id="clock" data-testid="live-stream-clock">--:--:--</div>
+        <div class="d" id="date" data-testid="live-stream-date">---- . -- . -- --- · JST</div>
+      </div>
+
+      <!-- 右: カテゴリ件数 + LIVE -->
+      <div class="ls-counts" data-testid="live-stream-status-bar">
+        <div class="cbadge cbadge--eq">  <i></i><span class="lb">地震</span><span class="n" id="ct-eq">0</span></div>
+        <div class="cbadge cbadge--rain"><i></i><span class="lb">豪雨</span><span class="n" id="ct-rain">0</span></div>
+        <div class="cbadge cbadge--rail"><i></i><span class="lb">鉄道</span><span class="n" id="ct-rail">0</span></div>
+        <div class="cbadge cbadge--tide"><i></i><span class="lb">潮位</span><span class="n" id="ct-tide">0</span></div>
+        <div class="ls-live"><i></i><span>LIVE</span></div>
+      </div>
+    </header>
+
+    <!-- ===== BODY ===== -->
+    <div class="ls-body">
+
+      <!-- 左カラム -->
+      <div class="ls-col">
+
+        <!-- 地震小窓 -->
+        <section class="win win--eq" data-testid="live-stream-panel-earthquake">
+          <div class="win-hd">
+            <div><h2>地震情報</h2><div class="en">EARTHQUAKE</div></div>
+            <div class="win-meta" id="eq-meta"></div>
+          </div>
+          <div class="win-body">
+            <div class="win-side">
+              <div class="side-h">過去12時間の履歴</div>
+              <div id="eq-history" data-testid="live-stream-earthquake-list"></div>
+            </div>
+            <div class="win-map">
+              <div class="center-map" id="eq-map"></div>
+              <div id="eq-overlay"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- キキクル・豪雨小窓 -->
+        <section class="win win--rain" data-testid="live-stream-panel-rain">
+          <div class="win-hd">
+            <div><h2>キキクル・豪雨情報</h2><div class="en">HEAVY RAIN RISK</div></div>
+            <div class="win-meta" id="rain-meta"></div>
+          </div>
+          <div class="win-body">
+            <div class="win-side">
+              <div class="side-h">警報・注意報</div>
+              <div id="rain-alerts" data-testid="live-stream-rain-list"></div>
+            </div>
+            <div class="win-map">
+              <div class="center-map" id="rain-map"></div>
+              <div id="rain-overlay"></div>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- /左カラム -->
+
+      <!-- 中央: 全国モニタ -->
+      <div class="ls-center" data-testid="live-stream-center">
+        <div class="center-map" id="center-map" data-testid="live-stream-center-map"></div>
+        <div class="center-title">
+          <div class="t">全国モニタ</div>
+          <div class="s">NATIONWIDE · 監視中</div>
+        </div>
+        <div class="level" id="level" data-lv="calm" data-testid="live-stream-alert-level">
+          <i></i><span id="level-text">平常 · 監視中</span>
+        </div>
+        <div class="center-clock" data-testid="live-stream-center-time">
+          <div class="t" id="clock-short">--:--</div>
+          <div class="d" id="date-short">---- . -- . -- 現在</div>
+        </div>
+        <div class="legend">
+          <div><i style="background:var(--c-eq)"></i>地震</div>
+          <div><i style="background:var(--c-rain-2)"></i>豪雨</div>
+          <div><i style="background:var(--c-rail)"></i>鉄道</div>
+          <div><i style="background:var(--c-tide-2)"></i>潮位</div>
+        </div>
+        <div id="center-overlay"></div>
+      </div>
+
+      <!-- 右カラム -->
+      <div class="ls-col">
+
+        <!-- 鉄道小窓 (地図上ポップアップなし) -->
+        <section class="win win--rail" data-testid="live-stream-panel-rail">
+          <div class="win-hd">
+            <div><h2>鉄道情報</h2><div class="en">RAILWAY · 首都圏</div></div>
+            <div class="win-meta" id="rail-meta"></div>
+          </div>
+          <div class="win-body">
+            <div class="win-side win-side--wide" id="rail-side" data-testid="live-stream-rail-list"></div>
+            <div class="win-map">
+              <div class="center-map" id="rail-map"></div>
+              <div class="map-cap">首都圏路線図 · 影響路線のみ強調</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 潮位・水位小窓 -->
+        <section class="win win--tide" data-testid="live-stream-panel-tide">
+          <div class="win-hd">
+            <div><h2>潮位・水位</h2><div class="en">TIDE / WATER LEVEL</div></div>
+            <div class="win-meta" id="tide-meta"></div>
+          </div>
+          <div class="win-body tide-body" id="tide-body" data-testid="live-stream-tide-station-list"></div>
+        </section>
+
+      </div><!-- /右カラム -->
+
+    </div><!-- /ls-body -->
+
+    <!-- ===== TICKER ===== -->
+    <div class="ls-ticker" data-testid="live-stream-ticker">
+      <div class="tag">速報</div>
+      <div class="track" data-testid="live-stream-ticker-body">
+        <div class="move">
+          <span id="ticker-a"></span>
+          <span id="ticker-b"></span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /ls-stage -->
+</div><!-- /ls-fit -->
+
+<!-- JS ロード順: scene → adapters → map → panels → clock → ticker → main -->
+<script src="/js/live-stream/live-stream-scene.js"></script>
+<script src="/js/live-stream/live-stream-earthquake-adapter.js"></script>
+<script src="/js/live-stream/live-stream-rain-adapter.js"></script>
+<script src="/js/live-stream/live-stream-railway-adapter.js"></script>
+<script src="/js/live-stream/live-stream-tide-adapter.js"></script>
+<script src="/js/live-stream/live-stream-map.js"></script>
+<script src="/js/live-stream/live-stream-panels.js"></script>
+<script src="/js/live-stream/live-stream-clock.js"></script>
+<script src="/js/live-stream/live-stream-ticker.js"></script>
+<script src="/js/live-stream/live-stream-main.js"></script>
+</body>
+</html>
