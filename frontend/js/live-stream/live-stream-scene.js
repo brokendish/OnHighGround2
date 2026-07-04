@@ -7,6 +7,17 @@ const PT = {
   gifu:     [430, 560], tokyo:    [582, 500], tokyoBay:  [586, 506],
 };
 
+// PT の各地点に対応する実緯度経度 — Leaflet 本番地図 (中央マップ) のパルス配置用
+// PT (SVGモック座標) とは別に保持する。小窓地図は引き続き PT (SVG) を使用する。
+const PT_LATLON = {
+  iwate:    [39.2,  142.1], miyagi:   [38.4,  142.0], fukushima: [37.3,  141.7], ibaraki:  [36.4,  140.9],
+  shizuoka: [34.9,  138.2], aichi:    [34.9,  137.3], yamanashi: [35.4,  138.6], nagano:   [35.9,  138.0],
+  gifu:     [35.8,  136.9], tokyo:    [35.68, 139.77], tokyoBay: [35.55, 139.85],
+};
+
+// 鉄道パルス (中央マップ) — 首都圏を代表する固定地点。個別路線の緯度経度は持たないため中央付近に固定表示する。
+const RAIL_PULSE_LATLON = PT_LATLON.tokyo;
+
 const HISTORY_12H = [
   {t:'19:34', p:'宮城県沖',     m:'M4.2', s:'2',   c:'var(--c-eq-2)'},
   {t:'19:21', p:'岩手県沖',     m:'M6.1', s:'5弱', c:'var(--c-eq)'},
@@ -24,13 +35,14 @@ const RAIL_LINES_BASE = [
 ];
 
 // 潮位観測点プール — 実装では /live の観測点ごとの潮位時系列に置き換える
+// lat/lon: Leaflet 本番地図 (中央マップ) のパルス配置用実緯度経度
 const TIDE_POOL = [
-  {name:'東京',   at:[586, 506], base:106, amp:78, phase:2.4, dev:6},
-  {name:'横浜',   at:[590, 516], base:110, amp:70, phase:2.9, dev:4},
-  {name:'千葉',   at:[602, 494], base:100, amp:82, phase:2.1, dev:8},
-  {name:'名古屋', at:[430, 566], base:96,  amp:66, phase:3.4, dev:5},
-  {name:'清水',   at:[478, 590], base:112, amp:84, phase:2.6, dev:7},
-  {name:'銚子',   at:[624, 472], base:118, amp:74, phase:1.8, dev:5},
+  {name:'東京',   at:[586, 506], lat:35.65, lon:139.77, base:106, amp:78, phase:2.4, dev:6},
+  {name:'横浜',   at:[590, 516], lat:35.45, lon:139.65, base:110, amp:70, phase:2.9, dev:4},
+  {name:'千葉',   at:[602, 494], lat:35.61, lon:140.10, base:100, amp:82, phase:2.1, dev:8},
+  {name:'名古屋', at:[430, 566], lat:35.18, lon:136.91, base:96,  amp:66, phase:3.4, dev:5},
+  {name:'清水',   at:[478, 590], lat:35.01, lon:138.49, base:112, amp:84, phase:2.6, dev:7},
+  {name:'銚子',   at:[624, 472], lat:35.73, lon:140.83, base:118, amp:74, phase:1.8, dev:5},
 ];
 
 function fmtHM(t) {
@@ -58,7 +70,7 @@ function makeTide(alertNames) {
       if (v < lo) { lo = v; loT = t; }
     }
     return {
-      name: s.name, at: s.at, base, amp, phase: s.phase, alert,
+      name: s.name, at: s.at, lat: s.lat, lon: s.lon, base, amp, phase: s.phase, alert,
       // current は render 時に LiveStreamClock.getCurrentHourFloat() から動的計算する
       high: fmtHM(hiT) + ' ' + Math.round(hi) + 'cm',
       low:  fmtHM(loT) + ' ' + Math.round(lo) + 'cm',
@@ -81,16 +93,43 @@ const SCENES = {
     level: 'high',
     earthquake: {
       targets: [
-        {p:'岩手県沖', m:'M6.1', s:'5弱', t:'19:21', at:PT.iwate,  r:15},
-        {p:'宮城県沖', m:'M4.2', s:'2',   t:'19:34', at:PT.miyagi, r:12},
+        {
+          id:'eq-demo-iwate',  p:'岩手県沖', m:'M6.1', s:'5弱', t:'19:21', at:PT.iwate,  lat:PT_LATLON.iwate[0],  lon:PT_LATLON.iwate[1],  r:15,
+          // Stream Phase 5-A.1 demo: 広域 (東北全体) の市区町村震度 — リスト自動スクロール・小地図巡回の両方を確認できる件数にする。
+          // 末尾1件は座標辞書に存在しない架空地名 (missingCoordinateCount 検証用)。
+          points: [
+            {pref:'岩手県', addr:'盛岡市',       isArea:false, scale:45},
+            {pref:'岩手県', addr:'宮古市',       isArea:false, scale:45},
+            {pref:'岩手県', addr:'大船渡市',     isArea:false, scale:40},
+            {pref:'岩手県', addr:'花巻市',       isArea:false, scale:40},
+            {pref:'岩手県', addr:'北上市',       isArea:false, scale:30},
+            {pref:'岩手県', addr:'久慈市',       isArea:false, scale:30},
+            {pref:'宮城県', addr:'石巻市',       isArea:false, scale:40},
+            {pref:'宮城県', addr:'仙台青葉区',   isArea:false, scale:30},
+            {pref:'青森県', addr:'八戸市',       isArea:false, scale:30},
+            {pref:'青森県', addr:'十和田市',     isArea:false, scale:20},
+            {pref:'秋田県', addr:'秋田市',       isArea:false, scale:20},
+            {pref:'福島県', addr:'福島市',       isArea:false, scale:20},
+            {pref:'福島県', addr:'いわき市',     isArea:false, scale:10},
+            {pref:'岩手県', addr:'西方村',       isArea:false, scale:30},
+          ],
+        },
+        {
+          id:'eq-demo-miyagi', p:'宮城県沖', m:'M4.2', s:'2',   t:'19:34', at:PT.miyagi, lat:PT_LATLON.miyagi[0], lon:PT_LATLON.miyagi[1], r:12,
+          // 局所的な地震 — リストは自動スクロール不要・小地図も単一フレームで収まる件数にする。
+          points: [
+            {pref:'宮城県', addr:'石巻市',     isArea:false, scale:20},
+            {pref:'宮城県', addr:'仙台若林区', isArea:false, scale:20},
+          ],
+        },
       ],
       history: HISTORY_12H,
     },
     rain: {
       targets: [
-        {r:'静岡県 中部', lv:'危険', lvColor:'#e879f9', amt:'1h 62mm', at:PT.shizuoka,
+        {id:'kikikuru-静岡県 中部-land', r:'静岡県 中部', lv:'危険', lvColor:'#e879f9', level:'danger', rawType:'kikikuru', amt:'1h 62mm', at:PT.shizuoka, lat:PT_LATLON.shizuoka[0], lon:PT_LATLON.shizuoka[1],
          cells:[[470,582,50,.55],[430,620,36,.5],[500,600,26,.45],[452,560,22,.4]]},
-        {r:'愛知県 東部', lv:'警戒', lvColor:'#fb7185', amt:'1h 44mm', at:PT.aichi,
+        {id:'kikikuru-愛知県 東部-land', r:'愛知県 東部', lv:'警戒', lvColor:'#fb7185', level:'warning', rawType:'kikikuru', amt:'1h 44mm', at:PT.aichi, lat:PT_LATLON.aichi[0], lon:PT_LATLON.aichi[1],
          cells:[[428,622,46,.55],[400,600,30,.5],[452,640,22,.42]]},
       ],
       alerts: [
@@ -103,10 +142,10 @@ const SCENES = {
     },
     rail: {
       affected: [
-        {id:'chuo',     name:'中央線快速',  status:'見合わせ', note:'三鷹〜東京 / 人身事故',  stColor:'var(--c-eq)'},
-        {id:'yamanote', name:'山手線',       status:'遅延',     note:'内回り 最大20分',         stColor:'#d4a017'},
-        {id:'keihin',   name:'京浜東北線',  status:'一部運休', note:'大宮〜田端',               stColor:'var(--c-eq-2)'},
-        {id:'saikyo',   name:'埼京線',       status:'遅延',     note:'最大15分',                stColor:'#d4a017'},
+        {id:'chuo',     mapId:'chuo',     name:'中央線快速',  status:'見合わせ', statusCode:'suspended',          note:'三鷹〜東京 / 人身事故',  stColor:'var(--c-eq)'},
+        {id:'yamanote', mapId:'yamanote', name:'山手線',       status:'遅延',     statusCode:'delay',              note:'内回り 最大20分',         stColor:'#d4a017'},
+        {id:'keihin',   mapId:'keihin',   name:'京浜東北線',  status:'一部運休', statusCode:'partial_suspension', note:'大宮〜田端',               stColor:'var(--c-eq-2)'},
+        {id:'saikyo',   mapId:'saikyo',   name:'埼京線',       status:'遅延',     statusCode:'delay',              note:'最大15分',                stColor:'#d4a017'},
       ],
     },
     tide: { stations: makeTide(['清水', '名古屋']) },
@@ -249,18 +288,101 @@ function buildTickerItems(scene) {
 /**
  * ticker item 配列をテロップ表示文字列に変換する。
  * items が空のとき (calm / 対象なし) は監視中テロップを返す。
+ * dataState='unavailable' (全カテゴリ取得失敗) のときは取得待機メッセージを優先する
+ * (Stream Phase 3-C: 取得失敗を平常と誤表示しないための区別)。
  *
  * @param {Array} items
+ * @param {string} [dataState]  LiveStreamEventStore.getSummary().dataState
  * @returns {string}
  */
-function buildTickerText(items) {
+function buildTickerText(items, dataState) {
+  if (dataState === 'unavailable') {
+    return '【監視中】一部データの取得を確認中です。画面は最新取得済み情報をもとに監視を継続しています　／　';
+  }
   if (!items || items.length === 0) {
     return '【監視中】全国の地震・豪雨・潮位・交通影響を監視中　／　';
   }
   return items.map(it => `【${it.label}】${it.text}`).join('　／　') + '　／　';
 }
 
+const _TICKER_LABEL_BY_TYPE = { earthquake: '地震', rain: '大雨', kikikuru: '大雨', railway: '鉄道', tide: '潮位', water: '水位' };
+const _TICKER_PRIORITY_BY_SEVERITY = { critical: 100, high: 80, medium: 50, low: 20, info: 5 };
+
+/**
+ * StreamMapEvents.build() の正規化イベント配列から下部テロップ用 item 配列を生成する。
+ * 中央マップと同じ配列を参照するため、地図とテロップの内容が食い違わない (Stream Phase 3-C)。
+ * カテゴリごとに最優先の1件のみ採用する (events は呼び出し側で severity 降順ソート済み)。
+ *
+ * @param {Array} events  StreamMapEvents.build() の出力 (LiveStreamEventStore.getEvents() 等)
+ * @returns {Array<{label, text, priority, category}>} priority 降順
+ */
+function buildTickerItemsFromEvents(events) {
+  if (!events || events.length === 0) return [];
+  const seenLabel = new Set();
+  const items = [];
+  for (const e of events) {
+    const label = _TICKER_LABEL_BY_TYPE[e.type] || e.type;
+    if (seenLabel.has(label)) continue;
+    seenLabel.add(label);
+    const title = _safeStr(e.title) || '不明';
+    const subtitle = _safeStr(e.subtitle);
+    items.push({
+      label,
+      text: subtitle ? `${title} ${subtitle}` : title,
+      priority: _TICKER_PRIORITY_BY_SEVERITY[e.severity] || 10,
+      category: e.type,
+    });
+  }
+  items.sort((a, b) => b.priority - a.priority);
+  return items;
+}
+
+/**
+ * Stream Phase 4-A: 自動巡回で注目中の event を「注目」ラベルとしてテロップ先頭へ差し込む。
+ * 同じカテゴリの通常項目と内容が重複して見えないよう、そのカテゴリの通常項目は取り除く。
+ * demo/real いずれの ticker item 配列にも適用できる汎用関数 (focusEvent は正規化イベント形式)。
+ *
+ * @param {Array} items       buildTickerItems() / buildTickerItemsFromEvents() の出力
+ * @param {object|null} focusEvent  LiveStreamFocusController.getState().activeEvent (focus中でなければ null)
+ * @returns {Array}
+ */
+function mergeFocusIntoTickerItems(items, focusEvent) {
+  if (!focusEvent) return items || [];
+  const title = _safeStr(focusEvent.title) || '不明';
+  const subtitle = _safeStr(focusEvent.subtitle);
+  const focusItem = {
+    label: '注目',
+    text: subtitle ? `${title} ${subtitle}` : title,
+    priority: 999,
+    category: focusEvent.type,
+  };
+  const rest = (items || []).filter(it => it.category !== focusEvent.type);
+  return [focusItem, ...rest];
+}
+
 /* ================================================================ */
+
+/**
+ * demo シーン (SCENES.alert / SCENES.calm) を StreamMapEvents.build() が期待する
+ * { eqModel, rainModel, railModel, tideModel } 形式へ変換する。
+ * これにより demo=1 も本番データと同じ正規化パイプラインを通せる
+ * (Stream Phase 3-C: 「demo も同じ event source を使う」)。
+ *
+ * @param {object} scene  buildScene() が返す scene オブジェクト
+ * @returns {{eqModel:object, rainModel:object, railModel:object, tideModel:object}}
+ */
+function buildDemoStreamModels(scene) {
+  const eq = (scene && scene.earthquake) || { targets: [], history: [] };
+  const rain = (scene && scene.rain) || { targets: [] };
+  const rail = (scene && scene.rail) || { affected: [] };
+  const tide = (scene && scene.tide) || { stations: [] };
+  return {
+    eqModel:   { status: 'ok', targets: eq.targets || [], mapEvents: eq.targets || [] },
+    rainModel: { status: 'ok', targets: rain.targets || [] },
+    railModel: { status: 'ok', affected: rail.affected || [] },
+    tideModel: { status: 'ok', stations: tide.stations || [] },
+  };
+}
 
 /**
  * rainModel から scene.rain セクションを構築する。
@@ -315,9 +437,11 @@ function buildScene(eqModel, options) {
     return { ...base, rain, rail, tide };
   }
 
-  // 取得失敗: デモ内容は出すが eq.status='error' をセットしてヘッダーを '-' にする
+  // 取得失敗: rain/rail/tide と同様に空状態を返す (status='error' でヘッダーは '-' になる)。
+  // Stream Phase 3-C: 以前はここで base (デモ) の地震ターゲットを残していたため、
+  // 取得失敗時に中央マップ (0件) とパネル/ポップアップ (デモ2件) の内容が食い違っていた。
   if (eqModel.status === 'error') {
-    return { ...base, earthquake: { ...base.earthquake, status: 'error' }, rain, rail, tide };
+    return { ...base, earthquake: { targets: [], history: [], status: 'error' }, rain, rail, tide };
   }
 
   // 実データあり: SCENES.alert をベースに地震部分だけ置換

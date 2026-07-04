@@ -62,7 +62,9 @@ test('12h filter excludes events older than demoNow-12h', async ({ page }) => {
   await expect(page.locator('#ct-eq')).toHaveText('2');
   await expect(page.getByTestId('live-stream-earthquake-list').getByText('震源A')).toBeVisible();
   await expect(page.getByTestId('live-stream-earthquake-list').getByText('震源C')).toHaveCount(0);
-  await expect(page.getByTestId('live-stream-pulse-earthquake')).toBeVisible();
+  // 中央マップは本番データモード (Stream Phase 3-B) では live-stream-map-event-* を使う
+  // (live-stream-pulse-* は demo=1 専用)
+  await expect(page.getByTestId('live-stream-map-event-earthquake').first()).toBeVisible();
   expect(errs, 'console errors').toEqual([]);
 });
 

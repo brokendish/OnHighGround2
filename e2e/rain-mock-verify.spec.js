@@ -86,8 +86,9 @@ test('kikikuru danger area: shows in targets and pulse, ct-rain=1', async ({ pag
   await page.goto(`${BASE}/live/stream?state=alert&chrome=off&demoNow=${DEMO_1942}`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);
 
-  // 中央地図にパルス表示
-  await expect(page.getByTestId('live-stream-pulse-rain')).toBeVisible();
+  // 中央地図にイベント表示 (本番データモードでは live-stream-map-event-kikikuru。
+  // live-stream-pulse-rain は demo=1 専用 — Stream Phase 3-B)
+  await expect(page.getByTestId('live-stream-map-event-kikikuru')).toBeVisible();
   // 件数
   await expect(page.locator('#ct-rain')).toHaveText('1');
   // ポップアップ

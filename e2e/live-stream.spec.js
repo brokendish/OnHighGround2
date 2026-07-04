@@ -15,7 +15,19 @@ async function gotoAndCaptureErrors(page, url) {
   const consoleErrors = [];
   const pageErrors = [];
   page.on('console', msg => {
-    if (msg.type() === 'error') consoleErrors.push(msg.text());
+    if (msg.type() !== 'error') return;
+    const text = msg.text();
+    const sourceUrl = (msg.location() && msg.location().url) || '';
+    // Stream Phase 4-C: 鉄道路線レイヤー (protomaps-leaflet) が PMTiles を fetch() の Range
+    // リクエストで読む。同一 page で連続 goto するテスト (このファイル特有) では、前の遷移が
+    // 開始した PMTiles fetch がナビゲーションで中断され "Failed to fetch" が無害に出ることがある
+    // (実際の不具合ではない)。ブラウザの報告形式により、フルスタック付きのこともあれば
+    // "TypeError: Failed to fetch" のみのこともあるため、発生元URL (protomaps-leaflet) も併せて見る。
+    // 他の live-stream 系 spec と同様、既知の無害なネットワーク由来ノイズのみをフィルタする。
+    const isPmtilesFetchAbort = text.includes('Failed to fetch')
+      && (text.includes('protomaps-leaflet') || sourceUrl.includes('protomaps-leaflet'));
+    if (isPmtilesFetchAbort) return;
+    consoleErrors.push(text);
   });
   page.on('pageerror', error => {
     pageErrors.push(error.message || String(error));

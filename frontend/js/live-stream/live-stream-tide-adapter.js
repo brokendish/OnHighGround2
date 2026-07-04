@@ -128,6 +128,8 @@ const TideStreamAdapter = (function () {
     return {
       name,
       at,
+      lat: detail.lat != null ? detail.lat : null,
+      lon: detail.lon != null ? detail.lon : null,
       alert:    false,     // MVP: 高潮警報ロジック未実装
       source:   'jma',     // 実データ識別フラグ (panels.js でのブランチ用)
       records,             // [{h, cm}] — 今日の時間別データ

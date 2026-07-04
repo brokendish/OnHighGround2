@@ -1,0 +1,151 @@
+'use strict';
+
+const { test, expect } = require('@playwright/test');
+
+const DOCKER_BASE = process.env.LIVE_STREAM_E2E_BASE_URL || 'http://127.0.0.1:8080';
+const OBSERVED_AT = '2026-07-03T13:00:00+09:00';
+const DEMO_NOW = '2026-07-03T13:05:00%2B09:00';
+
+function streamUrl(query) {
+  const sep = query.includes('?') ? '&' : '?';
+  return `${DOCKER_BASE}/live/stream${query}${sep}focusSpeed=test&runtimeSpeed=test&demoNow=${DEMO_NOW}`;
+}
+
+function railItem(overrides) {
+  return Object.assign({
+    railway_id: 'odpt.Railway:JR-East.ChuoRapid',
+    railway_name: '中央線快速',
+    operator_name: 'JR東日本',
+    status: 'suspended',
+    status_label: '運転見合わせ',
+    severity: 4,
+    description: '三鷹〜東京間で人身事故のため運転を見合わせています。',
+    updated_at: OBSERVED_AT,
+    source: 'JR東日本公式',
+    lat: 35.86,
+    lng: 139.98,
+  }, overrides || {});
+}
+
+const LONG_DESC = 'つくばエクスプレス線は、車両点検の影響で、守谷〜つくば駅間の運転を一時見合わせております。振替輸送は関東鉄道常総線・関東鉄道竜ヶ崎線でご利用いただけます。運転再開の見込みは現在のところ立っておらず、詳細が分かり次第公式サイトでお知らせいたします。ご迷惑をおかけしております。';
+
+async function mockAllLiveApis(page, { railItems } = {}) {
+  await page.route('**/api/live/earthquakes/history**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/live/summary**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ rain: { status: 'ok', areas: [] }, kikikuru: { status: 'ok', areas: [] } }) }));
+  await page.route('**/api/live/trains/summary**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: railItems != null ? railItems : [] }) }));
+  await page.route('**/api/live/tide/stations**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ stations: [] }) }));
+}
+
+async function gotoAndCapturePageErrors(page, url) {
+  const pageErrors = [];
+  page.on('pageerror', e => {
+    const text = e.message || String(e);
+    if (text.includes('Failed to fetch')) return;
+    pageErrors.push(text);
+  });
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  return pageErrors;
+}
+
+async function waitForRailFocus(page, id, timeout) {
+  await page.waitForFunction(want => document.body.dataset.streamFocusEventId === want, id, { timeout: timeout || 8000 });
+}
+
+test.describe('/live/stream — Stream Phase 5-B 鉄道子画面 太線強調・詳細全文・ズーム', () => {
+
+  test('1: a line whose backend name falls back to a raw ODPT id fragment is still resolved to its Japanese name and highlighted', async ({ page }) => {
+    // 'odpt.Railway:MIR.TsukubaExpress' は backend の _RAILWAY_NAMES に無いため、
+    // backend は railway_name として ID 末尾の英字 'TsukubaExpress' をそのまま返す。
+    await mockAllLiveApis(page, {
+      railItems: [railItem({
+        railway_id: 'odpt.Railway:MIR.TsukubaExpress',
+        railway_name: 'TsukubaExpress',
+        operator_name: '首都圏新都市鉄道',
+        description: LONG_DESC,
+      })],
+    });
+    const errors = await gotoAndCapturePageErrors(page, streamUrl('?state=alert'));
+    await page.waitForFunction(() => {
+      const d = window.__LiveStreamDiagnostics && window.__LiveStreamDiagnostics.getSnapshot();
+      return !!(d && d.railwayMiniMap && d.railwayMiniMap.loaded);
+    }, null, { timeout: 8000 });
+
+    // カード表示名は英字のフォールバックではなく日本語名になっている
+    const nameText = await page.locator('[data-testid="live-stream-rail-line-name"]').first().textContent();
+    expect(nameText).toContain('つくばエクスプレス');
+    expect(nameText).not.toContain('TsukubaExpress');
+
+    const diag = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap);
+    expect(diag.affectedCount).toBe(1);
+    expect(diag.highlightedCount).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
+  test('2: focusing an affected line zooms the mini map in, and returning to no-focus zooms back out', async ({ page }) => {
+    await mockAllLiveApis(page, { railItems: [railItem({ railway_id: 'rail-zoom-1' })] });
+    await gotoAndCapturePageErrors(page, streamUrl('?state=alert'));
+    await page.waitForFunction(() => {
+      const d = window.__LiveStreamDiagnostics && window.__LiveStreamDiagnostics.getSnapshot();
+      return !!(d && d.railwayMiniMap && d.railwayMiniMap.loaded);
+    }, null, { timeout: 8000 });
+
+    const baseline = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap);
+    expect(baseline.zoomedEventId).toBeNull();
+
+    await waitForRailFocus(page, 'rail-zoom-1');
+    await page.waitForFunction(() => {
+      const d = window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap;
+      return d && d.zoomedEventId === 'rail-zoom-1';
+    }, null, { timeout: 8000 });
+    const zoomedIn = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap);
+    expect(zoomedIn.zoom).toBeGreaterThan(baseline.zoom);
+  });
+
+  test('3: full description text is shown in the scrollable list below the card list, not truncated', async ({ page }) => {
+    await mockAllLiveApis(page, { railItems: [railItem({ railway_id: 'rail-full-1', description: LONG_DESC })] });
+    await gotoAndCapturePageErrors(page, streamUrl('?state=alert'));
+    await waitForRailFocus(page, 'rail-full-1');
+    await expect(page.locator('[data-testid="live-stream-railway-detail-panel"]')).toBeVisible();
+    const bodyText = await page.locator('[data-testid="live-stream-railway-detail-body"]').first().textContent();
+    expect(bodyText).toContain('守谷〜つくば駅間');
+    expect(bodyText).toContain('ご迷惑をおかけしております。'); // 末尾まで欠けていない
+    expect(bodyText).toContain('出典'); // 出典表記も全文側に含まれる
+  });
+
+  test('4: the floating popup on the mini map only shows a short summary (no full body text)', async ({ page }) => {
+    await mockAllLiveApis(page, { railItems: [railItem({ railway_id: 'rail-short-popup', description: LONG_DESC })] });
+    await gotoAndCapturePageErrors(page, streamUrl('?state=alert'));
+    await waitForRailFocus(page, 'rail-short-popup');
+    const popupText = await page.locator('[data-testid="live-stream-railway-detail"]').textContent();
+    expect(popupText).not.toContain('守谷〜つくば駅間');
+  });
+
+  test('6: a line with no representative coordinates at all is still highlighted, focusable, and zoomed via a generic fallback point', async ({ page }) => {
+    // 事業者代表点 (_operator_representative_latlng) が取得できない場合を再現する
+    // (lat/lng を持たない API レスポンス)。以前はこの場合 event 自体が EventStore から除外され、
+    // 太線強調にも自動巡回の focus 対象にもなれなかった。
+    await mockAllLiveApis(page, {
+      railItems: [railItem({ railway_id: 'rail-nocoord-1', railway_name: '京王線', lat: undefined, lng: undefined })],
+    });
+    await gotoAndCapturePageErrors(page, streamUrl('?state=alert'));
+    await waitForRailFocus(page, 'rail-nocoord-1');
+    await page.waitForFunction(() => {
+      const d = window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap;
+      return d && d.zoomedEventId === 'rail-nocoord-1';
+    }, null, { timeout: 8000 });
+
+    const diag = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap);
+    expect(diag.highlightedCount).toBe(1);
+    expect(diag.zoomedEventId).toBe('rail-nocoord-1');
+
+    await expect(page.locator('[data-testid="live-stream-railway-detail-panel"]')).toBeVisible();
+    const bodyText = await page.locator('[data-testid="live-stream-railway-detail-body"]').first().textContent();
+    expect(bodyText).toContain('人身事故');
+  });
+
+  test('7: /live is unaffected by the railway phase 5-B changes', async ({ page }) => {
+    const errors = await gotoAndCapturePageErrors(page, `${DOCKER_BASE}/live`);
+    await page.waitForTimeout(1500);
+    expect(errors).toEqual([]);
+  });
+});

@@ -51,14 +51,23 @@ const RainStreamAdapter = (function () {
     const lon = area.lng != null ? area.lng : area.lon;
     const [x, y] = _latLonToSvg(lat, lon);
     const level = area.level || 'warning';
+    const kind = area.type === 'rain' ? 'rain' : 'kikikuru';
+    const name = area.area_name || area.label || '不明';
     return {
-      r:        area.area_name || area.label || '不明',
-      lv:       _LEVEL_LABEL[level] || level,
-      lvColor:  _LEVEL_COLOR[level] || '#fb7185',
-      amt:      '',
-      at:       [x, y],
-      cells:    _makeCells(x, y),
-      category: _catLabel(area),
+      id:         `${kind}-${name}-${area.hazard || ''}`,
+      r:          name,
+      lv:         _LEVEL_LABEL[level] || level,
+      lvColor:    _LEVEL_COLOR[level] || '#fb7185',
+      amt:        '',
+      at:         [x, y],
+      lat:        lat != null ? lat : null,
+      lon:        lon != null ? lon : null,
+      level,
+      rawType:    area.type || null,      // 'rain' | 'kikikuru' 等 (StreamMapEvents の type 分類用)
+      hazard:     area.hazard || null,    // kikikuru のみ: land | inund | flood_mesh
+      observedAt: area.observed_at || null,
+      cells:      _makeCells(x, y),
+      category:   _catLabel(area),
     };
   }
 

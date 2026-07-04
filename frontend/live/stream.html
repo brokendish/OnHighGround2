@@ -11,6 +11,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 
+<!-- Leaflet: 中央メイン地図 本番地図基盤 (Stream Phase 3-A) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
 <link rel="stylesheet" href="/css/live/live-stream.css">
 </head>
 <body>
@@ -39,7 +42,7 @@
         </svg>
         <div>
           <h1>全国災害監視ライブ</h1>
-          <div class="sub">NATIONAL HAZARD WATCH · 監視卓</div>
+          <div class="sub">NATIONAL HAZARD WATCH</div>
         </div>
       </div>
 
@@ -51,10 +54,10 @@
 
       <!-- 右: カテゴリ件数 + LIVE -->
       <div class="ls-counts" data-testid="live-stream-status-bar">
-        <div class="cbadge cbadge--eq">  <i></i><span class="lb">地震</span><span class="n" id="ct-eq">0</span></div>
-        <div class="cbadge cbadge--rain"><i></i><span class="lb">豪雨</span><span class="n" id="ct-rain">0</span></div>
-        <div class="cbadge cbadge--rail"><i></i><span class="lb">鉄道</span><span class="n" id="ct-rail">0</span></div>
-        <div class="cbadge cbadge--tide"><i></i><span class="lb">潮位</span><span class="n" id="ct-tide">0</span></div>
+        <div class="cbadge cbadge--eq"   data-stream-category="earthquake" data-testid="live-stream-category-badge-earthquake">  <i></i><span class="lb">地震</span><span class="n" id="ct-eq">0</span></div>
+        <div class="cbadge cbadge--rain" data-stream-category="rain"       data-testid="live-stream-category-badge-rain"><i></i><span class="lb">豪雨</span><span class="n" id="ct-rain">0</span></div>
+        <div class="cbadge cbadge--rail" data-stream-category="railway"    data-testid="live-stream-category-badge-railway"><i></i><span class="lb">鉄道</span><span class="n" id="ct-rail">0</span></div>
+        <div class="cbadge cbadge--tide" data-stream-category="tide"       data-testid="live-stream-category-badge-tide"><i></i><span class="lb">潮位</span><span class="n" id="ct-tide">0</span></div>
         <div class="ls-live"><i></i><span>LIVE</span></div>
       </div>
     </header>
@@ -66,7 +69,7 @@
       <div class="ls-col">
 
         <!-- 地震小窓 -->
-        <section class="win win--eq" data-testid="live-stream-panel-earthquake">
+        <section class="win win--eq" data-testid="live-stream-panel-earthquake" data-panel="earthquake" data-earthquake-detail-id="">
           <div class="win-hd">
             <div><h2>地震情報</h2><div class="en">EARTHQUAKE</div></div>
             <div class="win-meta" id="eq-meta"></div>
@@ -75,16 +78,26 @@
             <div class="win-side">
               <div class="side-h">過去12時間の履歴</div>
               <div id="eq-history" data-testid="live-stream-earthquake-list"></div>
+              <!-- Stream Phase 5-A.1: 現在対象震源の市区町村震度一覧 (多数時は縦マーキーで自動スクロール) -->
+              <div class="eq-muni" id="eq-muni" data-testid="live-stream-earthquake-municipal-panel" data-earthquake-intensity-list hidden
+                   data-eq-muni-scroll-mode="" data-eq-muni-count="0" data-eq-muni-marker-count="0" data-eq-muni-missing-count="0">
+                <div class="side-h eq-muni-h">市区町村震度</div>
+                <div class="eq-muni-viewport">
+                  <div class="eq-muni-track" id="eq-muni-track"></div>
+                </div>
+              </div>
             </div>
             <div class="win-map">
-              <div class="center-map" id="eq-map"></div>
-              <div id="eq-overlay"></div>
+              <!-- Stream Phase 5-A bundle: 本番Leaflet地図化 (LiveStreamMapView singleton) -->
+              <div class="center-map" id="eq-map" data-earthquake-intensity-map
+                   data-eq-mini-map-mode="" data-eq-mini-map-frame-index="0" data-eq-mini-map-frame-total="0"></div>
+              <div id="eq-overlay" data-earthquake-detail-header></div>
             </div>
           </div>
         </section>
 
         <!-- キキクル・豪雨小窓 -->
-        <section class="win win--rain" data-testid="live-stream-panel-rain">
+        <section class="win win--rain" data-testid="live-stream-panel-rain" data-panel="rain">
           <div class="win-hd">
             <div><h2>キキクル・豪雨情報</h2><div class="en">HEAVY RAIN RISK</div></div>
             <div class="win-meta" id="rain-meta"></div>
@@ -110,6 +123,12 @@
           <div class="t">全国モニタ</div>
           <div class="s">NATIONWIDE · 監視中</div>
         </div>
+        <!-- Stream Phase 4-B: 自動巡回 Focus HUD (focus中のみ表示。data属性は overview/returning でも常時更新) -->
+        <div class="stream-focus-hud" id="focus-hud" data-testid="stream-focus-hud"
+             data-focus-mode="overview" data-focus-event-id="" data-focus-type="" data-focus-severity="" hidden>
+          <div class="stream-focus-hud-title" id="focus-hud-title"></div>
+          <div class="stream-focus-hud-sub" id="focus-hud-sub"></div>
+        </div>
         <div class="level" id="level" data-lv="calm" data-testid="live-stream-alert-level">
           <i></i><span id="level-text">平常 · 監視中</span>
         </div>
@@ -129,23 +148,39 @@
       <!-- 右カラム -->
       <div class="ls-col">
 
-        <!-- 鉄道小窓 (地図上ポップアップなし) -->
-        <section class="win win--rail" data-testid="live-stream-panel-rail">
+        <!-- 鉄道小窓 -->
+        <section class="win win--rail" data-testid="live-stream-panel-rail" data-panel="railway" data-railway-detail-id="">
           <div class="win-hd">
             <div><h2>鉄道情報</h2><div class="en">RAILWAY · 首都圏</div></div>
             <div class="win-meta" id="rail-meta"></div>
           </div>
           <div class="win-body">
-            <div class="win-side win-side--wide" id="rail-side" data-testid="live-stream-rail-list"></div>
+            <div class="win-side win-side--wide win-side--rail">
+              <div id="rail-side" data-testid="live-stream-rail-list"></div>
+              <!-- focus中の1路線の詳細本文を表示するスクロールリスト (地震子画面の#eq-muniと同じ方式)。
+                   小地図上の小さいポップアップでは長文が見切れるため、こちらを主表示にする。 -->
+              <div class="rail-detail" id="rail-detail" data-testid="live-stream-railway-detail-panel" hidden
+                   data-railway-detail-scroll-mode="">
+                <div class="side-h rail-detail-h">詳細</div>
+                <div class="rail-detail-viewport">
+                  <div class="rail-detail-track" id="rail-detail-track"></div>
+                </div>
+              </div>
+            </div>
             <div class="win-map">
-              <div class="center-map" id="rail-map"></div>
-              <div class="map-cap">首都圏路線図 · 影響路線のみ強調</div>
+              <!-- Stream Phase 5-A.1 (railway calm map): 平常時も路線図を表示する本番Leaflet+PMTiles地図。
+                   fixed bounds (STREAM_RAILWAY_DEFAULT_BOUNDS) で首都圏ODPT対応路線が収まる範囲に固定。
+                   影響路線に focus した場合は該当路線へ一時的にズームする。 -->
+              <div class="center-map" id="rail-map" data-testid="live-stream-railway-default-map"></div>
+              <div class="map-cap" data-testid="live-stream-railway-scope-label">首都圏路線図 · ODPT対応路線のみ監視</div>
+              <!-- Stream Phase 5-A bundle B: 対象路線1件の概要 (路線名・状態・事業者・更新時刻のみ。詳細本文は#rail-detail側) -->
+              <div id="rail-overlay" data-railway-detail-header hidden></div>
             </div>
           </div>
         </section>
 
         <!-- 潮位・水位小窓 -->
-        <section class="win win--tide" data-testid="live-stream-panel-tide">
+        <section class="win win--tide" data-testid="live-stream-panel-tide" data-panel="tide">
           <div class="win-hd">
             <div><h2>潮位・水位</h2><div class="en">TIDE / WATER LEVEL</div></div>
             <div class="win-meta" id="tide-meta"></div>
@@ -171,13 +206,30 @@
   </div><!-- /ls-stage -->
 </div><!-- /ls-fit -->
 
-<!-- JS ロード順: scene → adapters → map → panels → clock → ticker → main -->
+<!-- Leaflet: 中央メイン地図 本番地図基盤 (Stream Phase 3-A) -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- protomaps-leaflet: 鉄道路線 PMTiles 表示に使用 (Stream Phase 4-C)。/live 本体と同じバージョン。 -->
+<script src="https://unpkg.com/protomaps-leaflet@4.1.1/dist/protomaps-leaflet.js"></script>
+
+<!-- JS ロード順: scene → adapters → earthquake-detail(市区町村震度正規化) → map(SVG小窓) → map-view(Leaflet中央)
+     → rain-layer/railway-layer(中央地図オーバーレイ)
+     → map-events(本番データ正規化) → event-store(地図/パネル/テロップ共通ソース) → focus-policy/focus-controller(自動巡回)
+     → runtime(配信運用diagnostics) → panels → clock → ticker → main -->
 <script src="/js/live-stream/live-stream-scene.js"></script>
 <script src="/js/live-stream/live-stream-earthquake-adapter.js"></script>
+<script src="/js/live-stream/live-stream-earthquake-detail.js"></script>
 <script src="/js/live-stream/live-stream-rain-adapter.js"></script>
 <script src="/js/live-stream/live-stream-railway-adapter.js"></script>
 <script src="/js/live-stream/live-stream-tide-adapter.js"></script>
 <script src="/js/live-stream/live-stream-map.js"></script>
+<script src="/js/live-stream/live-stream-rain-layer.js"></script>
+<script src="/js/live-stream/live-stream-railway-layer.js"></script>
+<script src="/js/live-stream/live-stream-map-view.js"></script>
+<script src="/js/live-stream/live-stream-map-events.js"></script>
+<script src="/js/live-stream/live-stream-event-store.js"></script>
+<script src="/js/live-stream/live-stream-focus-policy.js"></script>
+<script src="/js/live-stream/live-stream-focus-controller.js"></script>
+<script src="/js/live-stream/live-stream-runtime.js"></script>
 <script src="/js/live-stream/live-stream-panels.js"></script>
 <script src="/js/live-stream/live-stream-clock.js"></script>
 <script src="/js/live-stream/live-stream-ticker.js"></script>

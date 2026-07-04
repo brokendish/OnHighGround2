@@ -66,16 +66,21 @@ const EarthquakeStreamAdapter = (function () {
     });
   }
 
-  // 最大震度 → M → 発生時刻の優先順で注目地震を選択
-  function _selectActive(items) {
-    if (!items.length) return null;
+  // 最大震度 → M → 発生時刻の優先順で子画面表示候補を並べる。
+  function _sortByPriority(items) {
     return [...items].sort((a, b) => {
       const ri = _rank(b.max_intensity) - _rank(a.max_intensity);
       if (ri !== 0) return ri;
       const rm = (Number(b.magnitude) || 0) - (Number(a.magnitude) || 0);
       if (rm !== 0) return rm;
       return (b.occurred_at || '') > (a.occurred_at || '') ? 1 : -1;
-    })[0];
+    });
+  }
+
+  // 最大震度 → M → 発生時刻の優先順で注目地震を選択
+  function _selectActive(items) {
+    if (!items.length) return null;
+    return _sortByPriority(items)[0];
   }
 
   function _toTarget(item) {
@@ -85,14 +90,20 @@ const EarthquakeStreamAdapter = (function () {
     const s = String(item.max_intensity || '不明');
     const name = item.epicenter_name || item.hypocenter_name || '震源不明';
     return {
+      id: item.event_id || null,
       p: name,
       m: _fmtMag(item.magnitude),
       s,
       t: _fmtHM(item.occurred_at || item.origin_time),
       at: svgAt,
+      lat: lat != null ? lat : null,
+      lon: lon != null ? lon : null,
+      occurredAt: item.occurred_at || item.origin_time || null,
       r: _pulseR(item.magnitude),
       depth: item.depth_km != null ? `${item.depth_km}km` : null,
       tsunami: item.tsunami_info || null,
+      // Stream Phase 5-A.1: 市区町村震度一覧 (LiveStreamEarthquakeDetail が正規化する)
+      points: Array.isArray(item.points) ? item.points : [],
     };
   }
 
@@ -124,14 +135,22 @@ const EarthquakeStreamAdapter = (function () {
     const now = nowMs || Date.now();
     const items12h = _filter12h(rawData.items, now);
     const active = _selectActive(items12h);
-    const targets = active ? [_toTarget(active)] : [];
+    // Stream Phase 5-A bundle: 地震子画面は「対象 n/m 8s切替」と表示するため、
+    // 注目1件だけではなく、12h内の地震候補を優先順で複数渡す。先頭は従来どおり active
+    // (最大震度→M→時刻) なので既存の初期表示・テロップ優先度は維持される。
+    const targets = active ? _sortByPriority(items12h).slice(0, 8).map(_toTarget) : [];
     const history = items12h.slice(0, 8).map(_toHistoryRow);
+    // mapEvents: 中央マップ (Stream Phase 3-B) 用の候補イベント一覧。
+    // targets は単一の注目震源のみを保持するため、複数地点を地図に描くための候補プールを別途公開する。
+    // 表示件数の絞り込み (M5以上/震度3以上優先、最大5件) は呼び出し側 (StreamMapEvents) が行う。
+    const mapEvents = items12h.slice(0, 12).map(_toTarget);
 
     return {
       status: 'ok',
       hasActiveEarthquake: targets.length > 0,
       targets,
       history,
+      mapEvents,
       statusCount: items12h.length,
     };
   }

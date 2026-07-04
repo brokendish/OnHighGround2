@@ -29,9 +29,14 @@ function renderMap(el, {view = {zoom:1, cx:500, cy:650}, markers = [], rain = []
   const mk = markers.map(m => {
     const r = m.r || 9, inv = 1 / z;
     const tid = m.testid ? ` data-testid="${m.testid}"` : '';
-    return `<g transform="translate(${m.x} ${m.y}) scale(${inv})"${tid}>
-      <circle cx="0" cy="0" r="${r+4}" fill="none" stroke="${m.color}" stroke-width="2.5" style="transform-box:fill-box;transform-origin:center;animation:ring 2.4s ease-out infinite"/>
-      <circle cx="0" cy="0" r="${r}" fill="${m.color}" stroke="rgba(255,255,255,.9)" stroke-width="2" style="animation:core 2.4s ease-in-out infinite"/>
+    // Stream Phase 5-A.1: 市区町村震度マーカー等、既存パルス(震源)マーカーと異なる見た目/属性を
+    // 個別に指定したい呼び出し元向けの任意拡張点。未指定時は従来通りの震源パルス表示のまま。
+    const cls = m.cls ? ` class="${m.cls}"` : '';
+    const attrs = m.attrs || '';
+    const ring = m.noRing ? '' : `<circle cx="0" cy="0" r="${r+4}" fill="none" stroke="${m.color}" stroke-width="2.5" style="transform-box:fill-box;transform-origin:center;animation:ring 2.4s ease-out infinite"/>`;
+    return `<g transform="translate(${m.x} ${m.y}) scale(${inv})"${tid}${cls}${attrs}>
+      ${ring}
+      <circle cx="0" cy="0" r="${r}" fill="${m.color}" stroke="rgba(255,255,255,.9)" stroke-width="2" style="${m.noRing ? '' : 'animation:core 2.4s ease-in-out infinite'}"/>
       ${m.label ? `<text x="0" y="${-(r+8)}" text-anchor="middle" font-family="var(--mono)" font-size="${m.fs||16}" font-weight="700" fill="#fff">${m.label}</text>` : ''}
     </g>`;
   }).join('');
