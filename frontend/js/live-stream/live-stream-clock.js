@@ -8,8 +8,15 @@
 //   未指定                                  → 実時刻
 //
 // URL の '+' はブラウザが ' '(スペース) にデコードする場合があるため replace で補正する。
+//
+// Stream Phase 5-B.1: streamer container (VPS配信用、OS timezoneがUTCの場合が多い) でも
+// 画面表示は必ずJSTになるようにする。Date の getHours()/getDate() 等はブラウザ/OSの
+// ローカルタイムゾーン依存のため使わず、UTC+9 オフセットを明示的に加算してから
+// getUTCXxx() で値を取り出す (TideStreamAdapter._jstHour() 等と同じ方式)。
 
 const LiveStreamClock = (function () {
+  const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
   const _raw   = new URLSearchParams(location.search).get('demoNow');
   const _fixed = _raw ? new Date(_raw.replace(/ /g, '+')) : null;
   const _valid = _fixed && !isNaN(_fixed.getTime());
@@ -25,36 +32,52 @@ const LiveStreamClock = (function () {
     return _valid ? new Date(_fixed.getTime()) : new Date();
   }
 
+  /** now (実時刻 or demoNow固定) を JST の暦・時刻要素に変換する。 */
+  function _toJstParts(now) {
+    const jst = new Date(now.getTime() + JST_OFFSET_MS);
+    return {
+      year:    jst.getUTCFullYear(),
+      month:   jst.getUTCMonth() + 1,
+      date:    jst.getUTCDate(),
+      day:     jst.getUTCDay(),
+      hours:   jst.getUTCHours(),
+      minutes: jst.getUTCMinutes(),
+      seconds: jst.getUTCSeconds(),
+    };
+  }
+
   /**
    * 現在時刻を JST "時間単位の小数" で返す。潮位カーブの現在位置算出に使用。
    * TideStreamAdapter._jstHour() と同じ JST 基準とするため明示的に UTC+9 で計算する。
    * 例: 2026-06-30T19:42:00+09:00 → 19.7
    */
   function getCurrentHourFloat() {
-    const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-    const now = getNow();
-    const jst = new Date(now.getTime() + JST_OFFSET_MS);
-    return jst.getUTCHours() + jst.getUTCMinutes() / 60 + jst.getUTCSeconds() / 3600;
+    const p = _toJstParts(getNow());
+    return p.hours + p.minutes / 60 + p.seconds / 3600;
   }
 
-  /** ヘッダー時計: HH:MM:SS */
+  /** ヘッダー時計: HH:MM:SS (JST) */
   function formatHeaderTime(now) {
-    return `${_p(now.getHours())}:${_p(now.getMinutes())}:${_p(now.getSeconds())}`;
+    const p = _toJstParts(now);
+    return `${_p(p.hours)}:${_p(p.minutes)}:${_p(p.seconds)}`;
   }
 
   /** ヘッダー日付行: YYYY.MM.DD DAY · JST */
   function formatDateLine(now) {
-    return `${now.getFullYear()}.${_p(now.getMonth() + 1)}.${_p(now.getDate())} ${_DAYS[now.getDay()]} · JST`;
+    const p = _toJstParts(now);
+    return `${p.year}.${_p(p.month)}.${_p(p.date)} ${_DAYS[p.day]} · JST`;
   }
 
-  /** 中央地図内時計: HH:MM */
+  /** 中央地図内時計: HH:MM (JST) */
   function formatMapTime(now) {
-    return `${_p(now.getHours())}:${_p(now.getMinutes())}`;
+    const p = _toJstParts(now);
+    return `${_p(p.hours)}:${_p(p.minutes)}`;
   }
 
-  /** 中央地図内日付: YYYY.MM.DD 現在 */
+  /** 中央地図内日付: YYYY.MM.DD 現在 (JST) */
   function formatMapDate(now) {
-    return `${now.getFullYear()}.${_p(now.getMonth() + 1)}.${_p(now.getDate())} 現在`;
+    const p = _toJstParts(now);
+    return `${p.year}.${_p(p.month)}.${_p(p.date)} 現在`;
   }
 
   return { isFixedDemoTime, getNow, getCurrentHourFloat, formatHeaderTime, formatDateLine, formatMapTime, formatMapDate };

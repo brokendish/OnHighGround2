@@ -6,10 +6,17 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Stream Phase 5-B.1: VPS/コンテナのOS timezoneは既定でUTCであることが多いため、
+# コンテナ自体のtimezoneもJSTに合わせておく (ログ・date コマンド等の可読性のため)。
+# 画面表示自体は frontend/js/live-stream 側でタイムゾーン非依存 (UTC+9固定計算) に
+# 修正済みなので、この設定が無くても画面はJSTになるが、二重の安全策として設定する。
+ENV TZ=Asia/Tokyo
+
 # chromium: /live/stream 表示用ヘッドレスブラウザ
 # xvfb:     仮想ディスプレイ (DISPLAY=:99)
 # ffmpeg:   x11grab による録画/RTMPS送信
 # fonts-noto-cjk / fonts-noto-color-emoji: 日本語が豆腐にならないようにする
+# tzdata:   TZ=Asia/Tokyo を実際に反映させるために必要 (Debian slim には既定で無い)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium \
         xvfb \
@@ -17,10 +24,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
         fonts-noto-color-emoji \
         ca-certificates \
+        tzdata \
         curl \
         jq \
         tini \
         bash \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /recordings /tmp/chromium-profile

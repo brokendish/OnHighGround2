@@ -4,6 +4,11 @@
 
 const EarthquakeStreamAdapter = (function () {
 
+  // Stream Phase 5-B.1: streamer container 等 OS timezone が UTC の環境でも表示が JST になるよう、
+  // ローカルタイムゾーン依存の getHours()/getMinutes() ではなく UTC+9 オフセット経由で計算する
+  // (live-stream-tide-adapter.js / live-stream-railway-adapter.js と同じ方式)。
+  const _JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
   const _RANK = {
     '1': 10, '2': 20, '3': 30, '4': 40,
     '5弱': 45, '5強': 50, '6弱': 55, '6強': 60, '7': 70,
@@ -34,7 +39,8 @@ const EarthquakeStreamAdapter = (function () {
     try {
       const d = new Date(isoStr);
       if (isNaN(d.getTime())) return '—';
-      return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      const jst = new Date(d.getTime() + _JST_OFFSET_MS);
+      return String(jst.getUTCHours()).padStart(2, '0') + ':' + String(jst.getUTCMinutes()).padStart(2, '0');
     } catch (_) { return '—'; }
   }
 
