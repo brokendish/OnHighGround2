@@ -130,3 +130,6 @@ tasks/live/*/*.png
 # ---- jartic traffic ----
 backend/data_runtime/backend/jartic/manifest.json
 backend/data_runtime/backend/jartic/latest_traffic.json
+
+# ---- VPS側でのストリーム設定と起動、停止 ----
+VPS側でのストリーム設定と起動、停止.txt
