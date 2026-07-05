@@ -81,24 +81,38 @@ test.describe('/live/stream — Stream Phase 5-B 鉄道子画面 太線強調・
     expect(errors).toEqual([]);
   });
 
-  test('2: focusing an affected line zooms the mini map in, and returning to no-focus zooms back out', async ({ page }) => {
+  test('2: an affected line zooms the mini map in (via local 8s rotation, not just when globally focused), and clearing the line zooms back out', async ({ page }) => {
     await mockAllLiveApis(page, { railItems: [railItem({ railway_id: 'rail-zoom-1' })] });
-    await gotoAndCapturePageErrors(page, streamUrl('?state=alert'));
+    await gotoAndCapturePageErrors(page, streamUrl('?state=alert&runtimeSpeed=test'));
     await page.waitForFunction(() => {
       const d = window.__LiveStreamDiagnostics && window.__LiveStreamDiagnostics.getSnapshot();
       return !!(d && d.railwayMiniMap && d.railwayMiniMap.loaded);
     }, null, { timeout: 8000 });
 
-    const baseline = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap);
-    expect(baseline.zoomedEventId).toBeNull();
-
-    await waitForRailFocus(page, 'rail-zoom-1');
+    // Stream Phase 6-D: 鉄道子画面は地震/豪雨と同じく「グローバル自動巡回が来ていなくても、
+    // 自身の8秒巡回(ローカルfallback)で対象を表示・ズームする」。1件しかない場合は
+    // 巡回インデックスが常に0を指すため、グローバルfocusを待たずズームインされる。
     await page.waitForFunction(() => {
       const d = window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap;
       return d && d.zoomedEventId === 'rail-zoom-1';
     }, null, { timeout: 8000 });
+    await page.waitForTimeout(1200); // focusOn アニメーションの収束を待つ
     const zoomedIn = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap);
-    expect(zoomedIn.zoom).toBeGreaterThan(baseline.zoom);
+    expect(zoomedIn.zoomedEventId).toBe('rail-zoom-1');
+    expect(zoomedIn.zoom).toBeGreaterThan(10.5);
+
+    // 対象路線が無くなれば (影響路線ゼロへ切り替われば)、既定の首都圏表示へ戻る。
+    await page.unroute('**/api/live/trains/summary**');
+    await page.route('**/api/live/trains/summary**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+    await page.evaluate(() => window.__LiveStreamDiagnostics.forceRefresh());
+    await page.waitForFunction(() => {
+      const d = window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap;
+      return d && d.zoomedEventId === null;
+    }, null, { timeout: 8000 });
+    await page.waitForTimeout(1200); // fitTo アニメーションの収束を待つ
+    const zoomedOut = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap);
+    expect(zoomedOut.zoomedEventId).toBeNull();
+    expect(zoomedOut.zoom).toBeLessThan(10.5); // focusOn(..., 12) より広角(=既定の首都圏表示)に戻っている
   });
 
   test('3: full description text is shown in the scrollable list below the card list, not truncated', async ({ page }) => {
@@ -146,6 +160,33 @@ test.describe('/live/stream — Stream Phase 5-B 鉄道子画面 太線強調・
   test('7: /live is unaffected by the railway phase 5-B changes', async ({ page }) => {
     const errors = await gotoAndCapturePageErrors(page, `${DOCKER_BASE}/live`);
     await page.waitForTimeout(1500);
+    expect(errors).toEqual([]);
+  });
+
+  test('8 (Stream Phase 6-D): every line in a multi-line list eventually gets the detail popup and mini-map zoom, not just the first one', async ({ page }) => {
+    await mockAllLiveApis(page, {
+      railItems: [
+        railItem({ railway_id: 'rail-multi-1', railway_name: '中央線快速' }),
+        railItem({ railway_id: 'rail-multi-2', railway_name: '山手線' }),
+        railItem({ railway_id: 'rail-multi-3', railway_name: '銀座線' }),
+        railItem({ railway_id: 'rail-multi-4', railway_name: '丸ノ内線' }),
+      ],
+    });
+    const errors = await gotoAndCapturePageErrors(page, streamUrl('?state=alert&focusSpeed=test&runtimeSpeed=test'));
+
+    const seenDetailIds = new Set();
+    const seenZoomIds = new Set();
+    const expected = ['rail-multi-1', 'rail-multi-2', 'rail-multi-3', 'rail-multi-4'];
+    for (let i = 0; i < 90 && (seenDetailIds.size < 4 || seenZoomIds.size < 4); i++) {
+      await page.waitForTimeout(500);
+      const diag = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot());
+      if (diag.railwayDetail && diag.railwayDetail.activeRailwayEventId) seenDetailIds.add(diag.railwayDetail.activeRailwayEventId);
+      if (diag.railwayMiniMap && diag.railwayMiniMap.zoomedEventId) seenZoomIds.add(diag.railwayMiniMap.zoomedEventId);
+    }
+    for (const id of expected) {
+      expect(seenDetailIds.has(id)).toBe(true);
+      expect(seenZoomIds.has(id)).toBe(true);
+    }
     expect(errors).toEqual([]);
   });
 });

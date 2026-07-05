@@ -50,6 +50,8 @@ Thumbs.db
 # 環境変数
 .env
 .env.local
+# streamer (Stream Phase 6-B): YouTube Stream Key 等の実値を含むため必ず除外する
+.env.stream
 # ---- Generated tile files (large, reproducible via build_tiles.py) ----
 tiles/*.mbtiles
 data_lake/tiles_*/

@@ -121,6 +121,32 @@ services:
     command: --config /config/martin.yaml
     restart: unless-stopped
 
+  # Stream Phase 6-B/6-C: /live/stream 配信・録画専用コンテナ (PoC)。
+  # 本体 (frontend/backend/martin/osrm-walking) から隔離しており、
+  # `--profile streamer` を明示しない限り `docker compose up` で起動しない。
+  # 重い/不安定な場合は `docker compose stop streamer` でこのコンテナだけ止められる。
+  #
+  # 画質・録画時間等の既定値は streamer/Dockerfile の ENV (1280x720/30fps/300秒等、安全側)
+  # に持たせてあり、ここでは重複させない。.env.stream (git管理外。YOUTUBE_* や上書きしたい
+  # 値のみ書く) や `docker compose run --rm -e KEY=VALUE` が Dockerfile の既定値を上書きする。
+  streamer:
+    build:
+      context: ./streamer
+    container_name: onhighground-live-streamer
+    depends_on:
+      - frontend
+    env_file:
+      - path: .env.stream
+        required: false
+    volumes:
+      - ./test-results/streamer:/recordings
+    shm_size: "512m"
+    cpus: "1.0"
+    mem_limit: "1024m"
+    restart: "no"
+    profiles:
+      - streamer
+
 networks:
   default:
     name: evacuation-navi-network

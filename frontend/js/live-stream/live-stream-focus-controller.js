@@ -26,6 +26,14 @@ const LiveStreamFocusController = (function () {
   let _timer = null;
   let _lastRebuildAt = 0;
   const _listeners = [];
+  // Stream Phase 6-D: hold の存在チェック用に、候補上限/rebuild抑制の影響を受けない
+  // 「直近 updateCandidates() に渡された生イベントの id 一覧」を別途持つ。_candidates は
+  // MAX_CANDIDATES/カテゴリ上限/minRebuild間引きで絞り込まれた部分集合でしかないため、
+  // これを「イベントがまだ存在するか」の判定に流用すると、候補上限に乗れなかった/
+  // 直後にまだ候補として反映されていないイベントの hold を誤って即時破棄してしまう
+  // (地震/豪雨/鉄道の各子画面が「自分の8秒巡回で全件を順番に見せる」ローカルfallbackを
+  // 持つようになったことで顕在化した)。
+  let _allEventIds = new Set();
 
   // Stream Phase 5-A.1: 子画面側 (地震詳細の市区町村震度スクロール/小地図巡回など) が
   // 「まだ見せ終わっていない」間、自動巡回の advance を一時停止するための最小限の hold 機構。
@@ -83,7 +91,10 @@ const LiveStreamFocusController = (function () {
     let changed = false;
     for (const [source, h] of _holds) {
       if (Date.now() >= h.until) { _holds.delete(source); changed = true; continue; }
-      if (h.eventId && !_candidates.some(e => e.id === h.eventId)) { _holds.delete(source); changed = true; }
+      // 存在チェックは _candidates (候補上限で絞り込まれた部分集合) ではなく _allEventIds
+      // (直近の生イベント全件) で行う。_candidates を使うと、候補上限に乗れなかった
+      // だけの現存イベントの hold まで誤って破棄してしまう。
+      if (h.eventId && !_allEventIds.has(h.eventId)) { _holds.delete(source); changed = true; }
     }
     if (changed) _applyHoldToBody();
   }
@@ -180,6 +191,8 @@ const LiveStreamFocusController = (function () {
    * @param {Array} events  LiveStreamEventStore.getEvents() の出力。calm 時は呼び出し側で [] を渡す。
    */
   function updateCandidates(events) {
+    // rebuild抑制(下記)の影響を受けず、毎回最新の生イベントIDで更新する (hold存在チェック用)。
+    _allEventIds = new Set((events || []).map(e => e.id));
     const next = (typeof LiveStreamFocusPolicy !== 'undefined') ? LiveStreamFocusPolicy.selectCandidates(events) : [];
     const nextIds = next.map(e => e.id).join('|');
     const curIds = _candidates.map(e => e.id).join('|');
@@ -229,6 +242,7 @@ const LiveStreamFocusController = (function () {
     _mode = 'overview';
     _activeIndex = -1;
     _candidates = [];
+    _allEventIds = new Set();
     _lastRebuildAt = 0;
     _applyModeToBody();
     _scheduleIfEnabled(_advance, _d().overview);

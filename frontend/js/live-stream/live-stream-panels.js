@@ -800,7 +800,18 @@ function render(scene, tick, mapEvents) {
   const eqCur  = eq.targets[eqI];
   const rainCur = rain.targets[rainI];
   const focusedRailIdx = activeEventId && railOn ? rail.affected.findIndex(a => a.id === activeEventId) : -1;
-  const railPulseSource = railOn ? rail.affected[focusedRailIdx >= 0 ? focusedRailIdx : 0] : null;
+  // Stream Phase 6-D: 鉄道子画面にも地震/豪雨と同じ「グローバルfocusが無ければ自身の8秒巡回で
+  // 全件を順番に見せる」フォールバックを追加する。以前は focusedRailIdx が無い場合 index 0 固定
+  // だったため、グローバル自動巡回の候補上限 (LiveStreamFocusPolicy) に乗れなかった路線は
+  // ポップアップ・ズームインが永久に表示されないバグがあった。
+  const railHold = (typeof LiveStreamFocusController !== 'undefined' && LiveStreamFocusController.getHold)
+    ? LiveStreamFocusController.getHold('railway-detail') : null;
+  const railHoldEventId = railHold ? railHold.eventId : null;
+  const heldRailIdx = railHoldEventId && railOn ? rail.affected.findIndex(a => a.id === railHoldEventId) : -1;
+  const railI = railOn && rail.affected.length > 0
+    ? (heldRailIdx >= 0 ? heldRailIdx : (focusedRailIdx >= 0 ? focusedRailIdx : cyc % rail.affected.length))
+    : -1;
+  const railPulseSource = railOn ? rail.affected[railI >= 0 ? railI : 0] : null;
 
   /* ---- ヘッダー件数・カテゴリバッジ・全体ステータス (Stream Phase 3-D: EventStore summary が単一参照元) ---- */
   const summary = (typeof LiveStreamEventStore !== 'undefined') ? LiveStreamEventStore.getSummary() : null;
@@ -1025,7 +1036,9 @@ function render(scene, tick, mapEvents) {
       $s('rail-meta').innerHTML = `<span class="quiet">一時的に取得不可</span>`;
       $s('rail-side').innerHTML = `<div class="rail-empty" data-testid="live-stream-rail-unavailable" style="color:#5d6878"><div class="m">一時的に取得不可</div><div class="s">鉄道情報を取得できません</div></div>`;
     } else if (railOn) {
-      $s('rail-meta').innerHTML = `<span>影響 ${rail.affected.length}路線</span>`;
+      $s('rail-meta').innerHTML = rail.affected.length > 1
+        ? `<span data-testid="live-stream-rail-target-status">対象 ${railI + 1}/${rail.affected.length}</span><span class="cyc"></span><span class="cyc-note">8s切替</span>`
+        : `<span data-testid="live-stream-rail-target-status">影響 1路線</span>`;
       $s('rail-side').innerHTML = rail.affected.map(c => {
         const mapId   = c.mapId || c.id;
         const geo     = RAIL_LINES_BASE.find(g => g.id === mapId) || {};
@@ -1047,10 +1060,12 @@ function render(scene, tick, mapEvents) {
       $s('rail-side').innerHTML = `<div class="rail-empty" data-testid="live-stream-rail-empty"><i></i><div class="m">影響路線なし</div><div class="s">平常運転</div></div>`;
     }
 
-    // Stream Phase 5-A bundle B: 自動巡回/focus中の鉄道 event 1件のみ詳細表示する。
-    // 対象がない (focus対象が鉄道でない/取得失敗/影響路線なし) 場合は非表示・holdも解除する。
-    const focusedRailLine = (rail.status !== 'error' && railOn && activeEventId)
-      ? rail.affected.find(a => a.id === activeEventId) : null;
+    // Stream Phase 5-A bundle B / 6-D: 鉄道 event 1件の詳細表示。グローバル自動巡回が鉄道に
+    // focus していればそれを優先し、していなければ railI (自身の8秒巡回) が指す対象を表示する
+    // (地震/豪雨と同じ「対象が無ければ自分で全件を順番に見せる」方式。これにより自動巡回の
+    // 候補上限に乗れなかった路線も、いずれ必ずポップアップ・ズームインの対象になる)。
+    const focusedRailLine = (rail.status !== 'error' && railOn && railI >= 0)
+      ? rail.affected[railI] : null;
     if (focusedRailLine) _renderRailDetail(focusedRailLine);
     else _clearRailDetail();
   }
