@@ -164,6 +164,9 @@ const LiveStreamRuntime = (function () {
       railCards:         count('.rail-card'),
       tideCells:         count('.tide-cell'),
       tickerTextNodes:   count('.ls-ticker .move > *'),
+      // Stream Phase 6-A: OBSリハーサルの長時間soakで Leaflet インスタンスが増殖していないか
+      // 外部から確認できるようにする (中央地図 + 地震/雨/鉄道 各小地図で通常4件)。
+      leafletContainerCount: count('.leaflet-container'),
     };
   }
 
@@ -181,6 +184,9 @@ const LiveStreamRuntime = (function () {
     const consecutiveFailures = Math.max(...CATEGORIES.map(c => _cat[c].consecutiveFailures));
     const lastSuccessAt = CATEGORIES.map(c => _cat[c].lastSuccessAt).filter(Boolean).sort().pop() || null;
     const lastErrorAt   = CATEGORIES.map(c => _cat[c].lastErrorAt).filter(Boolean).sort().pop() || null;
+    // Stream Phase 6-A: 成否を問わず「直近に何らかのfetchが完了した時刻」(OBSリハーサルで
+    // fetchサイクル自体が止まっていないかの確認用)。lastSuccessAt/lastErrorAt とは別に持つ。
+    const lastRefreshAt = CATEGORIES.map(c => _cat[c].lastFinishedAt).filter(Boolean).sort().pop() || null;
 
     const eventStoreDiag = (typeof LiveStreamEventStore !== 'undefined' && LiveStreamEventStore.getDiagnostics)
       ? LiveStreamEventStore.getDiagnostics() : null;
@@ -206,6 +212,7 @@ const LiveStreamRuntime = (function () {
       consecutiveFailures,
       lastSuccessAt,
       lastErrorAt,
+      lastRefreshAt,
       recentFetchFailures: _recentFetchFailures.slice(),
 
       eventCount:      eventStoreDiag ? eventStoreDiag.eventCount : null,
@@ -218,6 +225,9 @@ const LiveStreamRuntime = (function () {
 
       mapInitialized: mapDiag ? mapDiag.mapInitialized : null,
       markerCount:    mapDiag ? (mapDiag.eventMarkerCount + mapDiag.pulseMarkerCount) : null,
+      // Stream Phase 6-A: dom.leafletContainerCount と同値。OBSリハーサルprobeから
+      // トップレベルで参照しやすいようにする (dom.* は既存構造のため据え置き)。
+      leafletContainerCount: dom ? dom.leafletContainerCount : null,
 
       dom,
       byCategory,

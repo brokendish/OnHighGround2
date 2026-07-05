@@ -71,7 +71,13 @@
         <!-- 地震小窓 -->
         <section class="win win--eq" data-testid="live-stream-panel-earthquake" data-panel="earthquake" data-earthquake-detail-id="">
           <div class="win-hd">
-            <div><h2>地震情報</h2><div class="en">EARTHQUAKE</div></div>
+            <div>
+              <div class="win-title-row">
+                <h2>地震情報</h2>
+                <span class="win-src" data-testid="live-stream-source-badge-earthquake">JMA / P2P震度</span>
+              </div>
+              <div class="en">EARTHQUAKE</div>
+            </div>
             <div class="win-meta" id="eq-meta"></div>
           </div>
           <div class="win-body">
@@ -99,7 +105,13 @@
         <!-- キキクル・豪雨小窓 -->
         <section class="win win--rain" data-testid="live-stream-panel-rain" data-panel="rain">
           <div class="win-hd">
-            <div><h2>キキクル・豪雨情報</h2><div class="en">HEAVY RAIN RISK</div></div>
+            <div>
+              <div class="win-title-row">
+                <h2>キキクル・豪雨情報</h2>
+                <span class="win-src" data-testid="live-stream-source-badge-rain">JMA キキクル/ナウキャスト</span>
+              </div>
+              <div class="en">HEAVY RAIN RISK</div>
+            </div>
             <div class="win-meta" id="rain-meta"></div>
           </div>
           <div class="win-body">
@@ -151,7 +163,14 @@
         <!-- 鉄道小窓 -->
         <section class="win win--rail" data-testid="live-stream-panel-rail" data-panel="railway" data-railway-detail-id="">
           <div class="win-hd">
-            <div><h2>鉄道情報</h2><div class="en">RAILWAY · 首都圏</div></div>
+            <div>
+              <div class="win-title-row">
+                <h2>鉄道情報</h2>
+                <span class="win-src" data-testid="live-stream-source-badge-railway">ODPT</span>
+                <span class="win-src-note" data-testid="live-stream-source-note-railway">※ ODPT対応路線のみ</span>
+              </div>
+              <div class="en">RAILWAY · 首都圏</div>
+            </div>
             <div class="win-meta" id="rail-meta"></div>
           </div>
           <div class="win-body">
@@ -182,7 +201,13 @@
         <!-- 潮位・水位小窓 -->
         <section class="win win--tide" data-testid="live-stream-panel-tide" data-panel="tide">
           <div class="win-hd">
-            <div><h2>潮位・水位</h2><div class="en">TIDE / WATER LEVEL</div></div>
+            <div>
+              <div class="win-title-row">
+                <h2>潮位・水位</h2>
+                <span class="win-src" data-testid="live-stream-source-badge-tide">JMA 潮位観測</span>
+              </div>
+              <div class="en">TIDE / WATER LEVEL</div>
+            </div>
             <div class="win-meta" id="tide-meta"></div>
           </div>
           <div class="win-body tide-body" id="tide-body" data-testid="live-stream-tide-station-list"></div>

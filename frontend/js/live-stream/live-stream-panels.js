@@ -958,13 +958,20 @@ function render(scene, tick, mapEvents) {
         {rain:rainCur.cells}
       );
     }
-    const catLabel = rainCur.category ? rainCur.category + '災害' : '土砂災害';
-    const amtPart  = rainCur.amt ? ` ・ ${rainCur.amt}` : '';
     const rainActive = _activeMarkup(rainCur.id, activeEventId);
+    // Stream Phase 6-C: 同一地点で複数 hazard (土砂/浸水/洪水/豪雨) が該当する場合、
+    // 従来は代表1件しか表示できず「何が危険なのか」が分からなかった。
+    // rainCur.hazards (レベル降順、最低1件) を全件展開して表示する。
+    const hazardLines = (rainCur.hazards && rainCur.hazards.length ? rainCur.hazards : [{
+      label: rainCur.category || '土砂', level: rainCur.level, levelLabel: rainCur.lv, levelColor: rainCur.lvColor,
+    }]).map(h => `<div class="l">${_eqEsc(h.label)}災害 ・ <b style="color:${h.levelColor}">${_eqEsc(h.levelLabel)}</b></div>`).join('');
+    const updatedLine = rainCur.updatedAt
+      ? `<div class="popup-note" data-testid="live-stream-rain-updated">更新 ${_eqEsc(rainCur.updatedAt)}</div>` : '';
     $s('rain-overlay').innerHTML =
       `<div class="popup popup--rain zoomin${rainActive.cls}" data-testid="live-stream-rain-popup" data-event-id="${rainCur.id || ''}"${rainActive.attr}>
-        <div class="p" data-testid="live-stream-rain-active">${rainCur.r}</div>
-        <div class="l">${catLabel} ・ <b style="color:${rainCur.lvColor}">${rainCur.lv}</b>${amtPart}</div>
+        <div class="p" data-testid="live-stream-rain-active">${_eqEsc(rainCur.r)}</div>
+        ${hazardLines}
+        ${updatedLine}
       </div>`;
   } else {
     _rainMiniMapActiveId = null;

@@ -46,13 +46,24 @@ const RainStreamAdapter = (function () {
     return area.type === 'rain' ? '豪雨' : 'キキクル';
   }
 
-  function _toTarget(area) {
+  // 同一地点で複数 hazard (土砂/浸水/洪水/豪雨) が同時に警戒/危険となっている場合、
+  // area_name だけで重複除去すると最初の1件以外が握りつぶされ、ポップアップに
+  //「何が危険なのか」の全体像が出せなくなる。hazard ごとの内訳を維持するため、
+  // group.hazards (レベル降順) を返す。group.primary は代表 (最高レベル) の area。
+  function _toTarget(group) {
+    const area = group.primary;
     const lat = area.lat;
     const lon = area.lng != null ? area.lng : area.lon;
     const [x, y] = _latLonToSvg(lat, lon);
     const level = area.level || 'warning';
     const kind = area.type === 'rain' ? 'rain' : 'kikikuru';
     const name = area.area_name || area.label || '不明';
+    const hazards = group.hazards.map(a => ({
+      label:      _catLabel(a),
+      level:      a.level || 'warning',
+      levelLabel: _LEVEL_LABEL[a.level] || a.level,
+      levelColor: _LEVEL_COLOR[a.level] || '#fb7185',
+    }));
     return {
       id:         `${kind}-${name}-${area.hazard || ''}`,
       r:          name,
@@ -66,8 +77,12 @@ const RainStreamAdapter = (function () {
       rawType:    area.type || null,      // 'rain' | 'kikikuru' 等 (StreamMapEvents の type 分類用)
       hazard:     area.hazard || null,    // kikikuru のみ: land | inund | flood_mesh
       observedAt: area.observed_at || null,
+      updatedAt:  _fmtHM(area.observed_at),
       cells:      _makeCells(x, y),
       category:   _catLabel(area),
+      // Stream Phase 6-C: 同一地点内の全 hazard 内訳 (ポップアップの detail 表示用)。
+      // 単一hazardのみの場合も1件の配列として持つ (呼び出し側の分岐を単純にするため)。
+      hazards,
     };
   }
 
@@ -112,19 +127,31 @@ const RainStreamAdapter = (function () {
 
     const _byLevel = (a, b) => (_LEVEL_RANK[b.level] || 0) - (_LEVEL_RANK[a.level] || 0);
 
-    // warning/danger のみ targets に含める (watch は左パネル alerts のみ)
-    // 同一地域名の重複は level 優先で 1件に絞る (APIが hazard 種別ごとに重複する場合に対応)
-    const _seenTarget = new Set();
-    const targetAreas = allAreas
+    // warning/danger のみ targets に含める (watch は左パネル alerts のみ)。
+    // 同一地点で複数 hazard (土砂/浸水/洪水/豪雨) が同時に該当する場合は、area_name で
+    // まとめて1つの target にしつつ、hazard ごとの内訳は group.hazards に保持する
+    // (以前は area_name だけで重複除去しており、2件目以降の hazard が握りつぶされていた)。
+    const _areaGroups = new Map(); // area_name -> { primary, hazards: [area,...] }
+    allAreas
       .filter(a => a.level === 'danger' || a.level === 'warning')
-      .sort(_byLevel)
-      .filter(a => {
+      .forEach(a => {
         const key = a.area_name || a.label || '';
-        if (_seenTarget.has(key)) return false;
-        _seenTarget.add(key);
-        return true;
-      })
-      .slice(0, 5);
+        if (!_areaGroups.has(key)) _areaGroups.set(key, []);
+        _areaGroups.get(key).push(a);
+      });
+    const targetGroups = Array.from(_areaGroups.values()).map(items => {
+      // 同一 hazard の重複 (取得タイミング差等) はレベルの高い方だけ残す
+      const byHazard = new Map();
+      items.forEach(a => {
+        const h = a.hazard || a.type || 'unknown';
+        const existing = byHazard.get(h);
+        if (!existing || (_LEVEL_RANK[a.level] || 0) > (_LEVEL_RANK[existing.level] || 0)) byHazard.set(h, a);
+      });
+      const hazards = Array.from(byHazard.values()).sort(_byLevel);
+      return { primary: hazards[0], hazards };
+    });
+    targetGroups.sort((x, y) => _byLevel(x.primary, y.primary));
+    const targetAreas = targetGroups.slice(0, 5);
 
     const _seenAlert = new Set();
     const alertAreas = allAreas
