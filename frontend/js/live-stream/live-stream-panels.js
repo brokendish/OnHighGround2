@@ -575,6 +575,12 @@ const _RAIL_DETAIL_MAX_MS = 30000;
 // 地震情報より大幅に長く hold されて「切り替わるまで時間がかかる」原因になっていた)。
 const _RAIL_DETAIL_SCROLL_CHARS = 260;
 
+// Stream Phase 6-G: 潮位小窓の8秒巡回ペア切替を検知するための直前 pairStart。
+// tide-body の innerHTML は現在値 (cm) 更新のため毎秒作り直すが、スライド演出は
+// ペアが実際に切り替わったタイミングでのみ発火させたい (毎秒アニメーションが
+// 再生されると単調さの解消どころかチカチカして逆効果になるため)。
+let _tidePairStart = -1;
+
 let _railDetailActiveId = null;
 let _railDetailScrollMode = 'idle'; // idle | static | scrolling
 let _railDetailStartedAt = 0;
@@ -1106,11 +1112,16 @@ function render(scene, tick, mapEvents) {
       $s('tide-body').innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%"><div style="color:#5d6878;font:12px var(--mono)">現在、表示対象なし</div><div style="color:#3d4a5a;font:10px var(--mono);margin-top:4px">潮位データを監視中</div></div>`;
     } else {
       const pairStart = (Math.floor(tick / 8) * 2) % N;
+      // Stream Phase 6-G: ペアが切り替わった瞬間だけスライドインを再生する (毎秒の
+      // innerHTML再構築のたびに再生すると単調解消どころか常時チラつくだけになるため)。
+      const isNewPair = pairStart !== _tidePairStart;
+      _tidePairStart = pairStart;
       const shown = [0, 1].map(j => tide.stations[(pairStart + j) % N]).filter(Boolean);
       $s('tide-meta').innerHTML = N > 2
         ? `<span data-testid="live-stream-tide-status">拠点 ${(pairStart%N)+1}・${((pairStart+1)%N)+1}/${N}</span><span class="cyc"></span><span class="cyc-note">8s巡回</span>`
         : `<span data-testid="live-stream-tide-status">拠点 ${shown.length}/${N}</span>`;
       const curHF = LiveStreamClock.getCurrentHourFloat();
+      const slideCls = isNewPair ? ' tide-slide-in' : '';
       $s('tide-body').innerHTML = shown.map((s, i) => {
         const isReal = !!s.source;
         const rawCm = isReal
@@ -1119,7 +1130,7 @@ function render(scene, tick, mapEvents) {
         const curCmStr = rawCm != null && isFinite(rawCm) ? String(Math.round(rawCm)) : '--';
         const devStr = s.dev != null ? `偏差${s.dev}` : '';
         const tideActive = _activeMarkup(`tide-${s.name}`, activeEventId);
-        return `<div class="tide-cell${s.alert ? ' alert' : ''}${tideActive.cls}" data-testid="live-stream-tide-station" data-event-id="tide-${s.name}"${tideActive.attr}>
+        return `<div class="tide-cell${s.alert ? ' alert' : ''}${tideActive.cls}${slideCls}" data-testid="live-stream-tide-station" data-event-id="tide-${s.name}"${tideActive.attr} style="--tide-slide-delay:${i * 70}ms">
            <div class="tide-info">
              <div class="tide-name" data-testid="live-stream-tide-station-name"><span class="dot"></span>${s.name}${s.alert ? '<span class="tide-flag">高潮警戒</span>' : ''}</div>
              <div class="tide-now" data-testid="live-stream-tide-current"><b>${curCmStr}</b><span>cm</span></div>
