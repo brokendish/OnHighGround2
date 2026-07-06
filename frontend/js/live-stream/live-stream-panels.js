@@ -580,6 +580,11 @@ let _railDetailScrollMode = 'idle'; // idle | static | scrolling
 let _railDetailStartedAt = 0;
 let _railDetailDurationMs = 0;
 let _railMiniMapZoomedId = null; // 小地図を最後にズームインした対象路線の event id (対象切替の重複flyTo防止)
+let _railMiniMapLastZoomAt = 0;  // 直前に focusOn/fitTo を呼んだ時刻 (flyToアニメーション中の割り込み防止用)
+// Stream Phase 6-E: focusOn の flyTo (duration:1.0s) が終わりきる前に次の focusOn/fitTo が
+// 割り込むと、アニメーションが中断されて「引っかかったような動き」に見える。
+// 対象がテンポよく切り替わっても毎回律儀に呼ばず、直前の呼び出しから最低この間隔は空ける。
+const _RAIL_MINI_MAP_ZOOM_MIN_INTERVAL_MS = 1500;
 
 function _railEsc(v) {
   return String(v == null ? '' : v).replace(/[&<>"']/g, ch =>
@@ -604,11 +609,7 @@ function _clearRailDetail() {
   }
   const sectionEl = document.querySelector('[data-testid="live-stream-panel-rail"]');
   if (sectionEl) sectionEl.dataset.railwayDetailId = '';
-  // 対象が消えたら小地図も既定の首都圏表示へ戻す (Stream Phase 5-B)。
-  if (_railMiniMapView && !_railMiniMapView.failed && _railMiniMapZoomedId !== null) {
-    _railMiniMapZoomedId = null;
-    _railMiniMapView.fitTo(STREAM_RAILWAY_DEFAULT_BOUNDS, { animate: true });
-  }
+  // 小地図のズームアウトは _syncRailMiniMapZoom() が render() 側で一元管理する (Stream Phase 6-E)。
   _pushRailDetailDiagnostics();
 }
 
@@ -672,19 +673,38 @@ function _renderRailDetail(line) {
     LiveStreamFocusController.requestHold({ source: 'railway-detail', eventId: line.id, durationMs: _railDetailDurationMs });
   }
 
-  // ---- 小地図を対象路線 (の事業者代表点) へズーム (Stream Phase 5-B) ----
-  if (_railMiniMapView && !_railMiniMapView.failed) {
-    const hasLatLng = line.lat != null && line.lng != null && isFinite(line.lat) && isFinite(line.lng);
-    if (hasLatLng) {
-      _railMiniMapZoomedId = line.id;
-      _railMiniMapView.focusOn(line.lat, line.lng, 12);
-    } else if (_railMiniMapZoomedId !== null) {
-      _railMiniMapZoomedId = null;
-      _railMiniMapView.fitTo(STREAM_RAILWAY_DEFAULT_BOUNDS, { animate: true });
-    }
-  }
-
+  // 小地図のズームインは _syncRailMiniMapZoom() が render() 側で一元管理する (Stream Phase 6-E)。
   _pushRailDetailDiagnostics();
+}
+
+// Stream Phase 6-E: 小地図のズーム対象を、対象路線の表示 (_renderRailDetail/_clearRailDetail) と
+// 切り離して一元管理する。対象の id が変わっても、直前の切替から最低
+// _RAIL_MINI_MAP_ZOOM_MIN_INTERVAL_MS は空ける (これ自体は今後も対象が高頻度で
+// 入れ替わるケースの保険として残す)。
+// これは render() から毎 tick (1秒毎) 無条件に呼ばれる — 対象がまだ切り替わっていなければ
+// 即座に何もしない (二重呼び出し防止)。間隔不足でスキップした場合は _railMiniMapZoomedId を
+// 更新しないため、次の tick で改めて切替が試みられ、対象を見失うことはない。
+//
+// Stream Phase 6-F: flyTo によるアニメーション (duration 1.0s, requestAnimationFrame駆動) は、
+// OBS配信用の streamer コンテナ (ヘッドレスChromium・非フォーカスのタブ) やバックグラウンドタブ化した
+// ブラウザで rAF がスロットリングされ、ズーム値が中途半端な値のまま数秒間「固まる」ことが実機確認で
+// 判明した (ユーザー報告の「何かに引っかかったような動き」の実体)。この小地図は配信 HUD の一情報源
+// であり滑らかなカメラワークが必須ではないため、アニメーションを使わず setView/fitBounds を
+// animate:false で即座に適用する — rAF スロットリングやアニメーション中断の影響を受けない。
+function _syncRailMiniMapZoom(line) {
+  if (!_railMiniMapView || _railMiniMapView.failed || !_railMiniMapView.map) return;
+  const hasLatLng = !!(line && line.lat != null && line.lng != null && isFinite(line.lat) && isFinite(line.lng));
+  const targetId = hasLatLng ? line.id : null;
+  if (targetId === _railMiniMapZoomedId) return;
+  const now = Date.now();
+  if (now - _railMiniMapLastZoomAt < _RAIL_MINI_MAP_ZOOM_MIN_INTERVAL_MS) return;
+  _railMiniMapZoomedId = targetId;
+  _railMiniMapLastZoomAt = now;
+  if (targetId !== null) {
+    _railMiniMapView.map.setView([line.lat, line.lng], 12, { animate: false });
+  } else {
+    _railMiniMapView.fitTo(STREAM_RAILWAY_DEFAULT_BOUNDS, { animate: false });
+  }
 }
 
 function _pushRailDetailDiagnostics() {
@@ -812,6 +832,17 @@ function render(scene, tick, mapEvents) {
     ? (heldRailIdx >= 0 ? heldRailIdx : (focusedRailIdx >= 0 ? focusedRailIdx : cyc % rail.affected.length))
     : -1;
   const railPulseSource = railOn ? rail.affected[railI >= 0 ? railI : 0] : null;
+  // Stream Phase 5-A bundle B / 6-D: 鉄道 event 1件の詳細表示。グローバル自動巡回が鉄道に
+  // focus していればそれを優先し、していなければ railI (自身の8秒巡回) が指す対象を表示する
+  // (地震/豪雨と同じ「対象が無ければ自分で全件を順番に見せる」方式。これにより自動巡回の
+  // 候補上限に乗れなかった路線も、いずれ必ずポップアップ・ズームインの対象になる)。
+  const focusedRailLine = (rail.status !== 'error' && railOn && railI >= 0)
+    ? rail.affected[railI] : null;
+  // Stream Phase 6-E: 小地図のズーム同期は、診断情報 (setRailwayMiniMapDiagnostics) の
+  // スナップショットより前に行う必要がある。後段で呼ぶと診断値が1描画パス分古いままになり
+  // (実際のズーム挙動自体は正しいのに) E2E からは「ズーム対象が変な順序で切り替わっている」
+  // ように見えてしまう。
+  _syncRailMiniMapZoom(focusedRailLine);
 
   /* ---- ヘッダー件数・カテゴリバッジ・全体ステータス (Stream Phase 3-D: EventStore summary が単一参照元) ---- */
   const summary = (typeof LiveStreamEventStore !== 'undefined') ? LiveStreamEventStore.getSummary() : null;
@@ -1060,12 +1091,6 @@ function render(scene, tick, mapEvents) {
       $s('rail-side').innerHTML = `<div class="rail-empty" data-testid="live-stream-rail-empty"><i></i><div class="m">影響路線なし</div><div class="s">平常運転</div></div>`;
     }
 
-    // Stream Phase 5-A bundle B / 6-D: 鉄道 event 1件の詳細表示。グローバル自動巡回が鉄道に
-    // focus していればそれを優先し、していなければ railI (自身の8秒巡回) が指す対象を表示する
-    // (地震/豪雨と同じ「対象が無ければ自分で全件を順番に見せる」方式。これにより自動巡回の
-    // 候補上限に乗れなかった路線も、いずれ必ずポップアップ・ズームインの対象になる)。
-    const focusedRailLine = (rail.status !== 'error' && railOn && railI >= 0)
-      ? rail.affected[railI] : null;
     if (focusedRailLine) _renderRailDetail(focusedRailLine);
     else _clearRailDetail();
   }
