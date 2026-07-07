@@ -163,7 +163,7 @@ test.describe('/live/stream — Stream Phase 5-B 鉄道子画面 太線強調・
     expect(errors).toEqual([]);
   });
 
-  test('8 (Stream Phase 6-D): every line in a multi-line list eventually gets the detail popup and mini-map zoom, not just the first one', async ({ page }) => {
+  test('8 (Stream Phase 6-D): every line in a multi-line list eventually gets the detail popup (text card rotation is unaffected by the map bounds change)', async ({ page }) => {
     await mockAllLiveApis(page, {
       railItems: [
         railItem({ railway_id: 'rail-multi-1', railway_name: '中央線快速' }),
@@ -175,18 +175,40 @@ test.describe('/live/stream — Stream Phase 5-B 鉄道子画面 太線強調・
     const errors = await gotoAndCapturePageErrors(page, streamUrl('?state=alert&focusSpeed=test&runtimeSpeed=test'));
 
     const seenDetailIds = new Set();
-    const seenZoomIds = new Set();
     const expected = ['rail-multi-1', 'rail-multi-2', 'rail-multi-3', 'rail-multi-4'];
-    for (let i = 0; i < 90 && (seenDetailIds.size < 4 || seenZoomIds.size < 4); i++) {
+    for (let i = 0; i < 90 && seenDetailIds.size < 4; i++) {
       await page.waitForTimeout(500);
       const diag = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot());
       if (diag.railwayDetail && diag.railwayDetail.activeRailwayEventId) seenDetailIds.add(diag.railwayDetail.activeRailwayEventId);
-      if (diag.railwayMiniMap && diag.railwayMiniMap.zoomedEventId) seenZoomIds.add(diag.railwayMiniMap.zoomedEventId);
     }
     for (const id of expected) {
       expect(seenDetailIds.has(id)).toBe(true);
-      expect(seenZoomIds.has(id)).toBe(true);
     }
+    expect(errors).toEqual([]);
+  });
+
+  test('9 (Stream Phase 6-H): multiple simultaneously affected lines are all fit into the mini-map bounds at once, not zoomed to a single shared representative point', async ({ page }) => {
+    // 京王線 (西部) と 東武東上線 (北西部/川越方面) は実際には大きく離れた別路線だが、
+    // 事業者代表点は意図的に同一座標にモックしてある (以前のバグ: 代表点方式だと必ずこの
+    // 1点にしか寄れず、他方の路線は画面外になっていた)。
+    await mockAllLiveApis(page, {
+      railItems: [
+        railItem({ railway_id: 'rail-bounds-keio', railway_name: '京王線', operator_name: '京王電鉄', lat: 35.69, lng: 139.692 }),
+        railItem({ railway_id: 'rail-bounds-tobu', railway_name: '東武東上線', operator_name: '東武鉄道', lat: 35.69, lng: 139.692 }),
+      ],
+    });
+    const errors = await gotoAndCapturePageErrors(page, streamUrl('?state=alert'));
+    await page.waitForFunction(() => {
+      const d = window.__LiveStreamDiagnostics && window.__LiveStreamDiagnostics.getSnapshot();
+      return !!(d && d.railwayMiniMap && d.railwayMiniMap.fittedLineIds && d.railwayMiniMap.fittedLineIds.length === 2);
+    }, null, { timeout: 15000 });
+
+    const diag = await page.evaluate(() => window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap);
+    // 両路線が同時に fit 対象に含まれている (どちらか1件だけを巡回して見せているのではない)。
+    expect(diag.fittedLineIds.sort()).toEqual(['rail-bounds-keio', 'rail-bounds-tobu']);
+    // 代表点1点への固定ズーム (旧仕様は zoom=12 固定) より広角になっている = 両路線の実際の
+    // 広がりを反映した bounds になっている証拠。
+    expect(diag.zoom).toBeLessThan(11);
     expect(errors).toEqual([]);
   });
 });

@@ -585,12 +585,12 @@ let _railDetailActiveId = null;
 let _railDetailScrollMode = 'idle'; // idle | static | scrolling
 let _railDetailStartedAt = 0;
 let _railDetailDurationMs = 0;
-let _railMiniMapZoomedId = null; // 小地図を最後にズームインした対象路線の event id (対象切替の重複flyTo防止)
-let _railMiniMapLastZoomAt = 0;  // 直前に focusOn/fitTo を呼んだ時刻 (flyToアニメーション中の割り込み防止用)
-// Stream Phase 6-E: focusOn の flyTo (duration:1.0s) が終わりきる前に次の focusOn/fitTo が
-// 割り込むと、アニメーションが中断されて「引っかかったような動き」に見える。
-// 対象がテンポよく切り替わっても毎回律儀に呼ばず、直前の呼び出しから最低この間隔は空ける。
-const _RAIL_MINI_MAP_ZOOM_MIN_INTERVAL_MS = 1500;
+// Stream Phase 6-H: 小地図のズームは「対象1件の代表点へ固定ズーム」ではなく、現在の障害路線
+// *全件* の実ジオメトリから統合 bounds を作って fitBounds する方式に変更 (東西に離れた複数路線が
+// 同時に障害でも、事業者の代表点1点にしか寄れず他路線が画面外になっていた不具合の対応)。
+let _railBoundsSig = null;      // 直近にfitした対象路線名集合のシグネチャ (再フィット要否判定)
+let _railBoundsInFlight = null; // 問い合わせ中のシグネチャ (対象が変わったら古い結果は捨てる)
+let _railFittedIds = [];        // 直近のfitに実際に含まれた対象路線の event id 一覧 (診断用)
 
 function _railEsc(v) {
   return String(v == null ? '' : v).replace(/[&<>"']/g, ch =>
@@ -683,33 +683,59 @@ function _renderRailDetail(line) {
   _pushRailDetailDiagnostics();
 }
 
-// Stream Phase 6-E: 小地図のズーム対象を、対象路線の表示 (_renderRailDetail/_clearRailDetail) と
-// 切り離して一元管理する。対象の id が変わっても、直前の切替から最低
-// _RAIL_MINI_MAP_ZOOM_MIN_INTERVAL_MS は空ける (これ自体は今後も対象が高頻度で
-// 入れ替わるケースの保険として残す)。
-// これは render() から毎 tick (1秒毎) 無条件に呼ばれる — 対象がまだ切り替わっていなければ
-// 即座に何もしない (二重呼び出し防止)。間隔不足でスキップした場合は _railMiniMapZoomedId を
-// 更新しないため、次の tick で改めて切替が試みられ、対象を見失うことはない。
+// Stream Phase 6-H: 小地図のズーム対象を、対象路線の表示 (_renderRailDetail/_clearRailDetail) と
+// 切り離して一元管理する。render() から毎 tick 無条件に呼ばれるが、実際に fit し直すのは
+// 「現在の障害路線名の集合」が前回と変わったときだけ (_railBoundsSig による signature 比較)。
 //
-// Stream Phase 6-F: flyTo によるアニメーション (duration 1.0s, requestAnimationFrame駆動) は、
-// OBS配信用の streamer コンテナ (ヘッドレスChromium・非フォーカスのタブ) やバックグラウンドタブ化した
-// ブラウザで rAF がスロットリングされ、ズーム値が中途半端な値のまま数秒間「固まる」ことが実機確認で
-// 判明した (ユーザー報告の「何かに引っかかったような動き」の実体)。この小地図は配信 HUD の一情報源
-// であり滑らかなカメラワークが必須ではないため、アニメーションを使わず setView/fitBounds を
-// animate:false で即座に適用する — rAF スロットリングやアニメーション中断の影響を受けない。
-function _syncRailMiniMapZoom(line) {
+// 以前は「巡回中の1路線の代表点 (事業者代表点。無ければ東京駅の汎用フォールバック) へ固定ズーム
+// (zoom 12)」だったため、東西に離れた複数路線が同時に障害でも、常に同じ代表点 (例: 東京メトロの
+// 路線なら全部同じ1点) にしか寄れず、他の路線は画面外だった。LiveStreamRailwayLayer.getBoundsForNames()
+// で障害路線 *全件* の実ジオメトリ (GeoJSON LineString) から統合 bounds を作り、それに fitBounds する。
+// 実ジオメトリが1件も見つからない (名称不一致等) ときのみ、代表点群からの bounds へフォールバックする。
+//
+// Stream Phase 6-F: flyTo アニメーション (requestAnimationFrame駆動) は、OBS配信用の streamer
+// コンテナ (ヘッドレスChromium・非フォーカスのタブ) やバックグラウンドタブ化したブラウザで rAF が
+// スロットリングされ、ズーム値が中途半端な値のまま固まることが実機確認で判明した。この小地図は
+// 配信HUDの一情報源であり滑らかなカメラワークは必須ではないため、常に animate:false で即座に適用する。
+async function _syncRailMiniMapZoom(affectedLines) {
   if (!_railMiniMapView || _railMiniMapView.failed || !_railMiniMapView.map) return;
-  const hasLatLng = !!(line && line.lat != null && line.lng != null && isFinite(line.lat) && isFinite(line.lng));
-  const targetId = hasLatLng ? line.id : null;
-  if (targetId === _railMiniMapZoomedId) return;
-  const now = Date.now();
-  if (now - _railMiniMapLastZoomAt < _RAIL_MINI_MAP_ZOOM_MIN_INTERVAL_MS) return;
-  _railMiniMapZoomedId = targetId;
-  _railMiniMapLastZoomAt = now;
-  if (targetId !== null) {
-    _railMiniMapView.map.setView([line.lat, line.lng], 12, { animate: false });
-  } else {
+  const lines = affectedLines || [];
+  const names = [...new Set(lines.map(l => l.name).filter(Boolean))].sort();
+  const sig = names.join('|');
+  if (sig === _railBoundsSig || sig === _railBoundsInFlight) return;
+  _railBoundsInFlight = sig;
+
+  if (names.length === 0) {
+    _railBoundsInFlight = null;
+    _railBoundsSig = sig;
+    _railFittedIds = [];
     _railMiniMapView.fitTo(STREAM_RAILWAY_DEFAULT_BOUNDS, { animate: false });
+    return;
+  }
+
+  const bounds = (typeof LiveStreamRailwayLayer !== 'undefined' && LiveStreamRailwayLayer.getBoundsForNames)
+    ? await LiveStreamRailwayLayer.getBoundsForNames(names)
+    : null;
+
+  // 問い合わせ中に対象集合が変わっていたら、この結果は古いので破棄する (最新の呼び出しに委ねる)。
+  if (_railBoundsInFlight !== sig) return;
+  _railBoundsInFlight = null;
+  _railBoundsSig = sig;
+  _railFittedIds = lines.map(l => l.id).filter(Boolean);
+
+  if (bounds) {
+    _railMiniMapView.fitTo([[bounds.south, bounds.west], [bounds.north, bounds.east]], {
+      animate: false, padding: [24, 24], maxZoom: 13,
+    });
+  } else {
+    const pts = lines
+      .filter(l => l.lat != null && l.lng != null && isFinite(l.lat) && isFinite(l.lng))
+      .map(l => [l.lat, l.lng]);
+    if (pts.length > 0) {
+      _railMiniMapView.fitTo(pts, { animate: false, padding: [24, 24], maxZoom: 13, singleZoom: 12 });
+    } else {
+      _railMiniMapView.fitTo(STREAM_RAILWAY_DEFAULT_BOUNDS, { animate: false });
+    }
   }
 }
 
@@ -844,11 +870,11 @@ function render(scene, tick, mapEvents) {
   // 候補上限に乗れなかった路線も、いずれ必ずポップアップ・ズームインの対象になる)。
   const focusedRailLine = (rail.status !== 'error' && railOn && railI >= 0)
     ? rail.affected[railI] : null;
-  // Stream Phase 6-E: 小地図のズーム同期は、診断情報 (setRailwayMiniMapDiagnostics) の
-  // スナップショットより前に行う必要がある。後段で呼ぶと診断値が1描画パス分古いままになり
-  // (実際のズーム挙動自体は正しいのに) E2E からは「ズーム対象が変な順序で切り替わっている」
-  // ように見えてしまう。
-  _syncRailMiniMapZoom(focusedRailLine);
+  // Stream Phase 6-H: 小地図のズームは「巡回中の1路線」ではなく「現在の障害路線 *全件*」を
+  // 対象に統合 bounds を作る (東西に離れた複数路線が同時に画面内へ収まるようにするため)。
+  // 診断情報 (setRailwayMiniMapDiagnostics) のスナップショットより前に呼ぶ必要がある —
+  // 後段で呼ぶと診断値が1描画パス分古いままになる (Stream Phase 6-E で判明した順序制約)。
+  _syncRailMiniMapZoom(rail.status !== 'error' && railOn ? rail.affected : []);
 
   /* ---- ヘッダー件数・カテゴリバッジ・全体ステータス (Stream Phase 3-D: EventStore summary が単一参照元) ---- */
   const summary = (typeof LiveStreamEventStore !== 'undefined') ? LiveStreamEventStore.getSummary() : null;
@@ -1060,9 +1086,14 @@ function render(scene, tick, mapEvents) {
         routeCount: usingLeaflet && LiveStreamRailwayLayer.getKnownRouteCount ? LiveStreamRailwayLayer.getKnownRouteCount() : null,
         affectedCount: rail.status === 'error' ? 0 : rail.affected.length,
         highlightedCount: rail.status === 'error' ? 0 : rail.affected.length,
-        // Stream Phase 5-B: 対象路線へのズームイン/アウト (focusOn/fitTo) が実際に地図へ反映されたかを
+        // Stream Phase 5-B: 対象路線へのズームイン/アウト (fitTo) が実際に地図へ反映されたかを
         // E2E から確認できるようにする (現在の中心座標・ズームレベル)。
-        zoomedEventId: _railMiniMapZoomedId,
+        // Stream Phase 6-H: 「1件の代表点への固定ズーム」から「障害路線 *全件* の統合bounds」へ
+        // 変更したため、単一の zoomedEventId では表現しきれない。後方互換として、fit対象がちょうど
+        // 1件のときだけ zoomedEventId にその id を入れる (0件/複数件は null)。fittedLineIds は
+        // 直近の fit に含まれた全 event id (複数件でも全件を検証できるようにするための新フィールド)。
+        zoomedEventId: _railFittedIds.length === 1 ? _railFittedIds[0] : null,
+        fittedLineIds: _railFittedIds.slice(),
         zoom: leafletMap ? leafletMap.getZoom() : null,
         center: leafletMap ? { lat: leafletMap.getCenter().lat, lng: leafletMap.getCenter().lng } : null,
         lastError: null,

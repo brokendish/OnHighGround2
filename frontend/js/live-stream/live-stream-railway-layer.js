@@ -8,6 +8,11 @@
 const LiveStreamRailwayLayer = (function () {
   const PMTILES_URL = '/layers/railways/railways_japan.pmtiles';
   const MAX_DATA_ZOOM = 14;
+  // Stream Phase 6-H: 鉄道子画面小地図のズーム bounds 算出専用に、実座標を持つ GeoJSON
+  // (/live 本体の live-train-osm-layer.js と同じ静的ファイルを「利用」する。/live 側は改変しない)。
+  // PMTiles (protomaps-leaflet) はタイル単位描画で個々のfeature座標をJS側に渡さないため、
+  // 「障害路線の実形状から統合boundsを作る」用途にはこちらの生GeoJSONが必要。
+  const GEOJSON_URL = '/layers/railways/kanto_railways.geojson';
 
   // Stream Phase 5-A bundle C: /live 側の公式/準公式路線カラー定義を移植したもの。
   // 出典: frontend/js/live/live-train-pmtiles-layer.js の _LINE_COLORS / _resolveRailColor
@@ -84,10 +89,17 @@ const LiveStreamRailwayLayer = (function () {
   let _affectedNames = new Set();
   let _lastError = null;
 
+  // Stream Phase 6-H: 完全一致だけでなく部分一致も見る。OSM由来の name は「東京メトロ有楽町線」
+  // のように事業者名を前置した表記が多く、ODPT/backend 側の裸の路線名 ("有楽町線") とは
+  // 完全一致しない (Tokyo Metro/都営地下鉄の全路線でこれが起きていた — 太線強調が効かない
+  // 実質的な不具合)。_resolveRailColor() と同じ「部分一致」方針に揃える。
   function _isAffected(props) {
     if (_affectedNames.size === 0) return false;
-    const candidates = [props.name, props['name:ja'], props['name:en'], props.ref].filter(Boolean);
-    return candidates.some(c => _affectedNames.has(c));
+    const candidates = [props.name, props['name:ja'], props['name:en'], props.ref].filter(Boolean).map(String);
+    for (const bare of _affectedNames) {
+      if (candidates.some(c => c === bare || c.includes(bare))) return true;
+    }
+    return false;
   }
 
   // 平常路線は控えめ (細く/薄く)、障害路線は少し太く/明るく — 路線色自体は変えない (C-1/C-2)。
@@ -284,5 +296,75 @@ const LiveStreamRailwayLayer = (function () {
     return !!(inst && inst.layer);
   }
 
-  return { init, setAffectedEvents, getKnownRouteCount, isInstanceLoaded };
+  // ---- Stream Phase 6-H: 障害路線の実ジオメトリから統合 bounds を作る ----------------------
+  // 鉄道子画面小地図のズームが「事業者代表点1つへの固定ズーム」だったため、東西に離れた
+  // 複数路線が同時に障害でも常に同じ代表点 (例: 東京メトロなら1点) へしか寄れず、他の路線が
+  // 画面外になる不具合があった。GEOJSON_URL (実座標を持つ路線形状) を一度だけ読み込み、
+  // 路線名 → bbox のインデックスを作っておき、対象路線名の集合が来るたびに bbox を統合する。
+  function _coordLines(geometry) {
+    if (!geometry) return [];
+    if (geometry.type === 'LineString') return [geometry.coordinates || []];
+    if (geometry.type === 'MultiLineString') return geometry.coordinates || [];
+    return [];
+  }
+
+  let _geoIndexPromise = null;
+
+  function _loadGeoIndex() {
+    if (_geoIndexPromise) return _geoIndexPromise;
+    _geoIndexPromise = fetch(GEOJSON_URL)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        const idx = new Map(); // osm name -> { south, west, north, east }
+        const features = (data && Array.isArray(data.features)) ? data.features : [];
+        for (const feat of features) {
+          const name = feat.properties && feat.properties.name;
+          if (!name) continue;
+          for (const line of _coordLines(feat.geometry)) {
+            for (const pt of line) {
+              const lng = pt[0], lat = pt[1];
+              if (!isFinite(lat) || !isFinite(lng)) continue;
+              let b = idx.get(name);
+              if (!b) { b = { south: lat, west: lng, north: lat, east: lng }; idx.set(name, b); }
+              else {
+                if (lat < b.south) b.south = lat;
+                if (lat > b.north) b.north = lat;
+                if (lng < b.west) b.west = lng;
+                if (lng > b.east) b.east = lng;
+              }
+            }
+          }
+        }
+        return idx;
+      })
+      .catch(() => new Map());
+    return _geoIndexPromise;
+  }
+
+  // _isAffected() と同じ「部分一致」方針 (OSM name は事業者名を前置した表記が多いため)。
+  function _osmNameMatchesBare(osmName, bareName) {
+    return osmName === bareName || osmName.includes(bareName);
+  }
+
+  /**
+   * @param {Array<string>} names  裸の路線名の配列 (例: ['有楽町線', '副都心線'])
+   * @returns {Promise<{south,west,north,east}|null>}  実ジオメトリで一致した路線が1つも
+   *   無ければ null (呼び出し側で代表点等へのフォールバックを行う)。
+   */
+  async function getBoundsForNames(names) {
+    const bareNames = (names || []).filter(Boolean);
+    if (bareNames.length === 0) return null;
+    const idx = await _loadGeoIndex();
+    let south = null, west = null, north = null, east = null;
+    for (const [osmName, b] of idx) {
+      if (!bareNames.some(bare => _osmNameMatchesBare(osmName, bare))) continue;
+      south = south == null ? b.south : Math.min(south, b.south);
+      west  = west  == null ? b.west  : Math.min(west,  b.west);
+      north = north == null ? b.north : Math.max(north, b.north);
+      east  = east  == null ? b.east  : Math.max(east,  b.east);
+    }
+    return south == null ? null : { south, west, north, east };
+  }
+
+  return { init, setAffectedEvents, getKnownRouteCount, isInstanceLoaded, getBoundsForNames };
 })();
