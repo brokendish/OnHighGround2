@@ -445,9 +445,13 @@ function buildScene(eqModel, options) {
   }
 
   // 実データあり: SCENES.alert をベースに地震部分だけ置換
+  // history が空配列なのは「直近12hに地震なし」という正当な実データ状態であり、
+  // demo (base.earthquake.history) へフォールバックしてはいけない。フォールバックすると
+  // targets は実データの空のままなのに history だけ demo の架空地震が残り、
+  // 一覧には地震が出ているのに地図がズームしない/詳細が出ない、という食い違いになる。
   const eq = {
     targets:     eqModel.targets,
-    history:     eqModel.history.length > 0 ? eqModel.history : base.earthquake.history,
+    history:     eqModel.history,
     statusCount: eqModel.statusCount,
     status:      'ok',
   };
