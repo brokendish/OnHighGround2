@@ -348,22 +348,25 @@ const LiveStreamRailwayLayer = (function () {
 
   /**
    * @param {Array<string>} names  裸の路線名の配列 (例: ['有楽町線', '副都心線'])
-   * @returns {Promise<{south,west,north,east}|null>}  実ジオメトリで一致した路線が1つも
-   *   無ければ null (呼び出し側で代表点等へのフォールバックを行う)。
+   * @returns {Promise<{south,west,north,east,matchedNames:Array<string>}|null>}  実ジオメトリで
+   *   一致した路線が1つも無ければ null (呼び出し側で代表点等へのフォールバックを行う)。
    */
   async function getBoundsForNames(names) {
     const bareNames = (names || []).filter(Boolean);
     if (bareNames.length === 0) return null;
     const idx = await _loadGeoIndex();
     let south = null, west = null, north = null, east = null;
+    const matched = new Set();
     for (const [osmName, b] of idx) {
-      if (!bareNames.some(bare => _osmNameMatchesBare(osmName, bare))) continue;
+      const matchedBare = bareNames.filter(bare => _osmNameMatchesBare(osmName, bare));
+      if (matchedBare.length === 0) continue;
+      matchedBare.forEach(name => matched.add(name));
       south = south == null ? b.south : Math.min(south, b.south);
       west  = west  == null ? b.west  : Math.min(west,  b.west);
       north = north == null ? b.north : Math.max(north, b.north);
       east  = east  == null ? b.east  : Math.max(east,  b.east);
     }
-    return south == null ? null : { south, west, north, east };
+    return south == null ? null : { south, west, north, east, matchedNames: [...matched] };
   }
 
   return { init, setAffectedEvents, getKnownRouteCount, isInstanceLoaded, getBoundsForNames };

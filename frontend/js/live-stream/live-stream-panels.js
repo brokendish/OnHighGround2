@@ -592,6 +592,17 @@ let _railBoundsSig = null;      // 直近にfitした対象路線名集合のシ
 let _railBoundsInFlight = null; // 問い合わせ中のシグネチャ (対象が変わったら古い結果は捨てる)
 let _railFittedIds = [];        // 直近のfitに実際に含まれた対象路線の event id 一覧 (診断用)
 
+function _expandBoundsWithPoint(bounds, lat, lng) {
+  if (lat == null || lng == null || !isFinite(lat) || !isFinite(lng)) return bounds;
+  if (!bounds) return { south: lat, west: lng, north: lat, east: lng };
+  return {
+    south: Math.min(bounds.south, lat),
+    west:  Math.min(bounds.west,  lng),
+    north: Math.max(bounds.north, lat),
+    east:  Math.max(bounds.east,  lng),
+  };
+}
+
 function _railEsc(v) {
   return String(v == null ? '' : v).replace(/[&<>"']/g, ch =>
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
@@ -713,7 +724,7 @@ async function _syncRailMiniMapZoom(affectedLines) {
     return;
   }
 
-  const bounds = (typeof LiveStreamRailwayLayer !== 'undefined' && LiveStreamRailwayLayer.getBoundsForNames)
+  let bounds = (typeof LiveStreamRailwayLayer !== 'undefined' && LiveStreamRailwayLayer.getBoundsForNames)
     ? await LiveStreamRailwayLayer.getBoundsForNames(names)
     : null;
 
@@ -724,6 +735,14 @@ async function _syncRailMiniMapZoom(affectedLines) {
   _railFittedIds = lines.map(l => l.id).filter(Boolean);
 
   if (bounds) {
+    // GeoJSONで見つかった路線は実ジオメトリを使い、見つからなかった路線だけ代表点を
+    // boundsへ追加する。以前の実装は1件でもGeoJSON一致があると未一致路線の代表点を
+    // 捨ててしまい、混在時に一部路線が画面外になり得た。
+    const matchedNames = new Set(Array.isArray(bounds.matchedNames) ? bounds.matchedNames : names);
+    for (const line of lines) {
+      if (matchedNames.has(line.name)) continue;
+      bounds = _expandBoundsWithPoint(bounds, line.lat, line.lng);
+    }
     _railMiniMapView.fitTo([[bounds.south, bounds.west], [bounds.north, bounds.east]], {
       animate: false, padding: [24, 24], maxZoom: 13,
     });
@@ -1096,6 +1115,12 @@ function render(scene, tick, mapEvents) {
         fittedLineIds: _railFittedIds.slice(),
         zoom: leafletMap ? leafletMap.getZoom() : null,
         center: leafletMap ? { lat: leafletMap.getCenter().lat, lng: leafletMap.getCenter().lng } : null,
+        bounds: leafletMap ? {
+          south: leafletMap.getBounds().getSouth(),
+          west: leafletMap.getBounds().getWest(),
+          north: leafletMap.getBounds().getNorth(),
+          east: leafletMap.getBounds().getEast(),
+        } : null,
         lastError: null,
       });
     }
