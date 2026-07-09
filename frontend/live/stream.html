@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
 <link rel="stylesheet" href="/css/live/live-stream.css">
+<link rel="stylesheet" href="/css/live/live-weather-ticker.css">
 </head>
 <body>
 
@@ -160,6 +161,19 @@
       <!-- 右カラム -->
       <div class="ls-col">
 
+        <!-- 全国気象ミニテロップ (Phase 8-A): Open-Meteo Forecast backend proxy 経由。
+             地震・豪雨・鉄道・潮位とは独立した補助情報。主要イベントストア/自動巡回には非連携。 -->
+        <section class="win-weather-mini" data-testid="live-stream-panel-weather" data-panel="weather">
+          <div class="wm-hd">
+            <div class="wm-title-row">
+              <span class="wm-title">全国気象</span>
+              <span class="wm-src" id="weather-source" data-testid="live-stream-source-badge-weather">Open-Meteo Forecast</span>
+            </div>
+            <div class="wm-meta" id="weather-meta" data-testid="live-stream-weather-meta">取得中...</div>
+          </div>
+          <div class="wm-body" id="weather-body" data-testid="live-stream-weather-grid"></div>
+        </section>
+
         <!-- 鉄道小窓 -->
         <section class="win win--rail" data-testid="live-stream-panel-rail" data-panel="railway" data-railway-detail-id="">
           <div class="win-hd">
@@ -258,6 +272,8 @@
 <script src="/js/live-stream/live-stream-panels.js"></script>
 <script src="/js/live-stream/live-stream-clock.js"></script>
 <script src="/js/live-stream/live-stream-ticker.js"></script>
+<!-- 全国気象ミニテロップ (Phase 8-A): 他モジュールに依存しない自己完結ウィジェット -->
+<script src="/js/live-stream/live-stream-weather-widget.js"></script>
 <script src="/js/live-stream/live-stream-main.js"></script>
 </body>
 </html>

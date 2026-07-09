@@ -89,6 +89,7 @@ function buildMinimalPmtilesBuffer() {
 
 async function mockBaseLiveApis(page, trainResponse = TRAIN_OK_EMPTY) {
     await page.route('/data/municipality_coords.json', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    await page.route('/api/live/weather/jma/prefectures**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'unavailable', source: 'Open-Meteo Forecast', forecast_time: null, fetched_at: null, cache_status: 'unavailable', items: [] }) }));
     await page.route('/api/live/sun-moon', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
     await page.route('/api/earthquakes**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, items: [] }) }));
     await page.route('/api/live/earthquakes/**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], source: 'p2p', fallback: false }) }));

@@ -235,6 +235,7 @@ const SUN_MOON = {
 async function mockBase(page, { eqHistory, summary = SUMMARY_WITH_M5 }) {
     await page.route('/data/municipality_coords.json', r =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    await page.route('/api/live/weather/jma/prefectures**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'unavailable', source: 'Open-Meteo Forecast', forecast_time: null, fetched_at: null, cache_status: 'unavailable', items: [] }) }));
     await page.route('/api/live/sun-moon', r =>
         r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SUN_MOON) }));
     await page.route('/api/live/tide/stations', r =>

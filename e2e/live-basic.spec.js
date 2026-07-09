@@ -103,6 +103,7 @@ async function mockLiveTraffic(page) {
         contentType: 'application/json',
         body:        '{}',
     }));
+    await page.route('/api/live/weather/jma/prefectures**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'unavailable', source: 'Open-Meteo Forecast', forecast_time: null, fetched_at: null, cache_status: 'unavailable', items: [] }) }));
     await page.route('/api/live/sun-moon', route => route.fulfill({
         status:      200,
         contentType: 'application/json',
@@ -275,6 +276,7 @@ async function mockLiveTrafficWith(page, { eqResponse = EQ_RESPONSE, tsunamiResp
         status: 200, contentType: 'application/json',
         body:   '{}',
     }));
+    await page.route('/api/live/weather/jma/prefectures**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'unavailable', source: 'Open-Meteo Forecast', forecast_time: null, fetched_at: null, cache_status: 'unavailable', items: [] }) }));
     await page.route('/api/live/sun-moon', route => route.fulfill({
         status: 200, contentType: 'application/json',
         body:   JSON.stringify(SUN_MOON_RESPONSE),

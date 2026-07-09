@@ -1,0 +1,532 @@
+[
+  {
+    "id": "okinawa_naha",
+    "pref_code": "47",
+    "pref_name": "沖縄県",
+    "point_name": "那覇",
+    "lat": 26.212,
+    "lon": 127.681,
+    "region": "okinawa",
+    "display_order": 10
+  },
+  {
+    "id": "kyushu_kagoshima",
+    "pref_code": "46",
+    "pref_name": "鹿児島県",
+    "point_name": "鹿児島",
+    "lat": 31.56,
+    "lon": 130.558,
+    "region": "kyushu",
+    "display_order": 20
+  },
+  {
+    "id": "kyushu_miyazaki",
+    "pref_code": "45",
+    "pref_name": "宮崎県",
+    "point_name": "宮崎",
+    "lat": 31.911,
+    "lon": 131.424,
+    "region": "kyushu",
+    "display_order": 30
+  },
+  {
+    "id": "kyushu_nagasaki",
+    "pref_code": "42",
+    "pref_name": "長崎県",
+    "point_name": "長崎",
+    "lat": 32.744,
+    "lon": 129.873,
+    "region": "kyushu",
+    "display_order": 40
+  },
+  {
+    "id": "kyushu_kumamoto",
+    "pref_code": "43",
+    "pref_name": "熊本県",
+    "point_name": "熊本",
+    "lat": 32.789,
+    "lon": 130.742,
+    "region": "kyushu",
+    "display_order": 50
+  },
+  {
+    "id": "kyushu_oita",
+    "pref_code": "44",
+    "pref_name": "大分県",
+    "point_name": "大分",
+    "lat": 33.238,
+    "lon": 131.613,
+    "region": "kyushu",
+    "display_order": 60
+  },
+  {
+    "id": "kyushu_saga",
+    "pref_code": "41",
+    "pref_name": "佐賀県",
+    "point_name": "佐賀",
+    "lat": 33.249,
+    "lon": 130.299,
+    "region": "kyushu",
+    "display_order": 70
+  },
+  {
+    "id": "shikoku_kochi",
+    "pref_code": "39",
+    "pref_name": "高知県",
+    "point_name": "高知",
+    "lat": 33.559,
+    "lon": 133.531,
+    "region": "shikoku",
+    "display_order": 80
+  },
+  {
+    "id": "kyushu_fukuoka",
+    "pref_code": "40",
+    "pref_name": "福岡県",
+    "point_name": "福岡",
+    "lat": 33.606,
+    "lon": 130.418,
+    "region": "kyushu",
+    "display_order": 90
+  },
+  {
+    "id": "shikoku_matsuyama",
+    "pref_code": "38",
+    "pref_name": "愛媛県",
+    "point_name": "松山",
+    "lat": 33.842,
+    "lon": 132.766,
+    "region": "shikoku",
+    "display_order": 100
+  },
+  {
+    "id": "shikoku_tokushima",
+    "pref_code": "36",
+    "pref_name": "徳島県",
+    "point_name": "徳島",
+    "lat": 34.066,
+    "lon": 134.559,
+    "region": "shikoku",
+    "display_order": 110
+  },
+  {
+    "id": "chugoku_yamaguchi",
+    "pref_code": "35",
+    "pref_name": "山口県",
+    "point_name": "山口",
+    "lat": 34.186,
+    "lon": 131.47,
+    "region": "chugoku",
+    "display_order": 120
+  },
+  {
+    "id": "kansai_wakayama",
+    "pref_code": "30",
+    "pref_name": "和歌山県",
+    "point_name": "和歌山",
+    "lat": 34.226,
+    "lon": 135.168,
+    "region": "kansai",
+    "display_order": 130
+  },
+  {
+    "id": "shikoku_takamatsu",
+    "pref_code": "37",
+    "pref_name": "香川県",
+    "point_name": "高松",
+    "lat": 34.34,
+    "lon": 134.043,
+    "region": "shikoku",
+    "display_order": 140
+  },
+  {
+    "id": "chugoku_hiroshima",
+    "pref_code": "34",
+    "pref_name": "広島県",
+    "point_name": "広島",
+    "lat": 34.396,
+    "lon": 132.46,
+    "region": "chugoku",
+    "display_order": 150
+  },
+  {
+    "id": "chugoku_okayama",
+    "pref_code": "33",
+    "pref_name": "岡山県",
+    "point_name": "岡山",
+    "lat": 34.661,
+    "lon": 133.934,
+    "region": "chugoku",
+    "display_order": 160
+  },
+  {
+    "id": "kansai_nara",
+    "pref_code": "29",
+    "pref_name": "奈良県",
+    "point_name": "奈良",
+    "lat": 34.685,
+    "lon": 135.833,
+    "region": "kansai",
+    "display_order": 170
+  },
+  {
+    "id": "kansai_osaka",
+    "pref_code": "27",
+    "pref_name": "大阪府",
+    "point_name": "大阪",
+    "lat": 34.686,
+    "lon": 135.52,
+    "region": "kansai",
+    "display_order": 180
+  },
+  {
+    "id": "kansai_kobe",
+    "pref_code": "28",
+    "pref_name": "兵庫県",
+    "point_name": "神戸",
+    "lat": 34.691,
+    "lon": 135.183,
+    "region": "kansai",
+    "display_order": 190
+  },
+  {
+    "id": "chubu_tsu",
+    "pref_code": "24",
+    "pref_name": "三重県",
+    "point_name": "津",
+    "lat": 34.73,
+    "lon": 136.509,
+    "region": "chubu",
+    "display_order": 200
+  },
+  {
+    "id": "chubu_shizuoka",
+    "pref_code": "22",
+    "pref_name": "静岡県",
+    "point_name": "静岡",
+    "lat": 34.977,
+    "lon": 138.383,
+    "region": "chubu",
+    "display_order": 210
+  },
+  {
+    "id": "kansai_otsu",
+    "pref_code": "25",
+    "pref_name": "滋賀県",
+    "point_name": "大津",
+    "lat": 35.004,
+    "lon": 135.869,
+    "region": "kansai",
+    "display_order": 220
+  },
+  {
+    "id": "kansai_kyoto",
+    "pref_code": "26",
+    "pref_name": "京都府",
+    "point_name": "京都",
+    "lat": 35.021,
+    "lon": 135.756,
+    "region": "kansai",
+    "display_order": 230
+  },
+  {
+    "id": "chubu_nagoya",
+    "pref_code": "23",
+    "pref_name": "愛知県",
+    "point_name": "名古屋",
+    "lat": 35.18,
+    "lon": 136.906,
+    "region": "chubu",
+    "display_order": 240
+  },
+  {
+    "id": "chubu_gifu",
+    "pref_code": "21",
+    "pref_name": "岐阜県",
+    "point_name": "岐阜",
+    "lat": 35.391,
+    "lon": 136.722,
+    "region": "chubu",
+    "display_order": 250
+  },
+  {
+    "id": "kanto_yokohama",
+    "pref_code": "14",
+    "pref_name": "神奈川県",
+    "point_name": "横浜",
+    "lat": 35.447,
+    "lon": 139.642,
+    "region": "kanto",
+    "display_order": 260
+  },
+  {
+    "id": "chugoku_matsue",
+    "pref_code": "32",
+    "pref_name": "島根県",
+    "point_name": "松江",
+    "lat": 35.472,
+    "lon": 133.051,
+    "region": "chugoku",
+    "display_order": 270
+  },
+  {
+    "id": "chugoku_tottori",
+    "pref_code": "31",
+    "pref_name": "鳥取県",
+    "point_name": "鳥取",
+    "lat": 35.503,
+    "lon": 134.238,
+    "region": "chugoku",
+    "display_order": 280
+  },
+  {
+    "id": "kanto_chiba",
+    "pref_code": "12",
+    "pref_name": "千葉県",
+    "point_name": "千葉",
+    "lat": 35.605,
+    "lon": 140.123,
+    "region": "kanto",
+    "display_order": 290
+  },
+  {
+    "id": "chubu_kofu",
+    "pref_code": "19",
+    "pref_name": "山梨県",
+    "point_name": "甲府",
+    "lat": 35.664,
+    "lon": 138.568,
+    "region": "chubu",
+    "display_order": 300
+  },
+  {
+    "id": "kanto_tokyo",
+    "pref_code": "13",
+    "pref_name": "東京都",
+    "point_name": "東京",
+    "lat": 35.69,
+    "lon": 139.692,
+    "region": "kanto",
+    "display_order": 310
+  },
+  {
+    "id": "kanto_saitama",
+    "pref_code": "11",
+    "pref_name": "埼玉県",
+    "point_name": "さいたま",
+    "lat": 35.857,
+    "lon": 139.649,
+    "region": "kanto",
+    "display_order": 320
+  },
+  {
+    "id": "chubu_fukui",
+    "pref_code": "18",
+    "pref_name": "福井県",
+    "point_name": "福井",
+    "lat": 36.065,
+    "lon": 136.222,
+    "region": "chubu",
+    "display_order": 330
+  },
+  {
+    "id": "kanto_mito",
+    "pref_code": "08",
+    "pref_name": "茨城県",
+    "point_name": "水戸",
+    "lat": 36.341,
+    "lon": 140.447,
+    "region": "kanto",
+    "display_order": 340
+  },
+  {
+    "id": "kanto_maebashi",
+    "pref_code": "10",
+    "pref_name": "群馬県",
+    "point_name": "前橋",
+    "lat": 36.391,
+    "lon": 139.06,
+    "region": "kanto",
+    "display_order": 350
+  },
+  {
+    "id": "kanto_utsunomiya",
+    "pref_code": "09",
+    "pref_name": "栃木県",
+    "point_name": "宇都宮",
+    "lat": 36.566,
+    "lon": 139.883,
+    "region": "kanto",
+    "display_order": 360
+  },
+  {
+    "id": "chubu_kanazawa",
+    "pref_code": "17",
+    "pref_name": "石川県",
+    "point_name": "金沢",
+    "lat": 36.594,
+    "lon": 136.626,
+    "region": "chubu",
+    "display_order": 370
+  },
+  {
+    "id": "chubu_nagano",
+    "pref_code": "20",
+    "pref_name": "長野県",
+    "point_name": "長野",
+    "lat": 36.651,
+    "lon": 138.181,
+    "region": "chubu",
+    "display_order": 380
+  },
+  {
+    "id": "chubu_toyama",
+    "pref_code": "16",
+    "pref_name": "富山県",
+    "point_name": "富山",
+    "lat": 36.695,
+    "lon": 137.211,
+    "region": "chubu",
+    "display_order": 390
+  },
+  {
+    "id": "tohoku_fukushima",
+    "pref_code": "07",
+    "pref_name": "福島県",
+    "point_name": "福島",
+    "lat": 37.75,
+    "lon": 140.468,
+    "region": "tohoku",
+    "display_order": 400
+  },
+  {
+    "id": "chubu_niigata",
+    "pref_code": "15",
+    "pref_name": "新潟県",
+    "point_name": "新潟",
+    "lat": 37.902,
+    "lon": 139.023,
+    "region": "chubu",
+    "display_order": 410
+  },
+  {
+    "id": "tohoku_yamagata",
+    "pref_code": "06",
+    "pref_name": "山形県",
+    "point_name": "山形",
+    "lat": 38.24,
+    "lon": 140.363,
+    "region": "tohoku",
+    "display_order": 420
+  },
+  {
+    "id": "tohoku_sendai",
+    "pref_code": "04",
+    "pref_name": "宮城県",
+    "point_name": "仙台",
+    "lat": 38.268,
+    "lon": 140.872,
+    "region": "tohoku",
+    "display_order": 430
+  },
+  {
+    "id": "tohoku_morioka",
+    "pref_code": "03",
+    "pref_name": "岩手県",
+    "point_name": "盛岡",
+    "lat": 39.703,
+    "lon": 141.153,
+    "region": "tohoku",
+    "display_order": 440
+  },
+  {
+    "id": "tohoku_akita",
+    "pref_code": "05",
+    "pref_name": "秋田県",
+    "point_name": "秋田",
+    "lat": 39.718,
+    "lon": 140.103,
+    "region": "tohoku",
+    "display_order": 450
+  },
+  {
+    "id": "tohoku_aomori",
+    "pref_code": "02",
+    "pref_name": "青森県",
+    "point_name": "青森",
+    "lat": 40.824,
+    "lon": 140.74,
+    "region": "tohoku",
+    "display_order": 460
+  },
+  {
+    "id": "hokkaido_hakodate",
+    "pref_code": "01",
+    "pref_name": "北海道",
+    "point_name": "函館",
+    "lat": 41.7687,
+    "lon": 140.7288,
+    "region": "hokkaido",
+    "display_order": 470
+  },
+  {
+    "id": "hokkaido_obihiro",
+    "pref_code": "01",
+    "pref_name": "北海道",
+    "point_name": "帯広",
+    "lat": 42.9237,
+    "lon": 143.1963,
+    "region": "hokkaido",
+    "display_order": 480
+  },
+  {
+    "id": "hokkaido_kushiro",
+    "pref_code": "01",
+    "pref_name": "北海道",
+    "point_name": "釧路",
+    "lat": 42.9849,
+    "lon": 144.382,
+    "region": "hokkaido",
+    "display_order": 490
+  },
+  {
+    "id": "hokkaido_sapporo",
+    "pref_code": "01",
+    "pref_name": "北海道",
+    "point_name": "札幌",
+    "lat": 43.0618,
+    "lon": 141.3545,
+    "region": "hokkaido",
+    "display_order": 500
+  },
+  {
+    "id": "hokkaido_asahikawa",
+    "pref_code": "01",
+    "pref_name": "北海道",
+    "point_name": "旭川",
+    "lat": 43.7706,
+    "lon": 142.3649,
+    "region": "hokkaido",
+    "display_order": 510
+  },
+  {
+    "id": "hokkaido_abashiri",
+    "pref_code": "01",
+    "pref_name": "北海道",
+    "point_name": "網走",
+    "lat": 44.0206,
+    "lon": 144.2735,
+    "region": "hokkaido",
+    "display_order": 520
+  },
+  {
+    "id": "hokkaido_wakkanai",
+    "pref_code": "01",
+    "pref_name": "北海道",
+    "point_name": "稚内",
+    "lat": 45.409,
+    "lon": 141.6733,
+    "region": "hokkaido",
+    "display_order": 530
+  }
+]

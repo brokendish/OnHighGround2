@@ -1,0 +1,135 @@
+/* live-weather-ticker.css — 全国気象ミニテロップ (Phase 8-A)
+ *
+ * /live/stream 右カラム最上部、および /live 右上レイヤーパネル下部の両方から読み込む。
+ * 既存の .win (鉄道/潮位、/live/streamのみ) は flex:1 のため、本カードを flex:0 0 auto の
+ * 固定高さにすることで、他カードを自動的に少し圧縮しつつ配置される。
+ * 警報・キキクル・鉄道障害などの主要警戒色と競合しないよう、彩度は控えめにする。
+ *
+ * /live/stream (live-stream.css) の :root 変数 (--ink 等) がある場合はそれを継承し、
+ * ない場合 (/live 単体) はここで定義するフォールバック値を使う。
+ */
+
+:root {
+  --wm-bg-1:   var(--bg-1,   #0b1019);
+  --wm-line:   var(--line,   rgba(120,160,210,.16));
+  --wm-ink:    var(--ink,    #e8edf5);
+  --wm-ink-2:  var(--ink-2,  #c5cedd);
+  --wm-ink-3:  var(--ink-3,  #8b97a9);
+  --wm-ink-4:  var(--ink-4,  #6b7686);
+  --wm-mono:   var(--mono,   'Share Tech Mono', ui-monospace, monospace);
+  --wm-sans:   var(--sans,   system-ui, sans-serif);
+  /* 全国気象カードの識別色（水色）。鉄道=緑(--c-rail)・潮位=紫(--c-tide)と同じ役割で
+     枠線・ヘッダー帯に使う。 */
+  --wm-accent: #4fc3f7;
+}
+
+.win-weather-mini {
+  /* Youtube配信で判読できるよう .win-hd h2 / .rail-card 相当のフォントサイズに揃えた分、
+     カード高さも拡張する（3列x3行=9件/ページ → 3列x2行=6件/ページに圧縮して確保）。 */
+  flex: 0 0 158px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 2px solid var(--wm-accent);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--wm-bg-1);
+}
+
+.wm-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: linear-gradient(90deg, rgba(79,195,247,.16), transparent);
+  border-bottom: 1px solid rgba(79,195,247,.32);
+  flex: none;
+}
+.wm-title-row { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+/* 鉄道情報カードの .win-hd h2 と同じ 17px / font-weight 800 */
+.wm-title { font-size: 17px; font-weight: 800; color: var(--wm-ink-2); white-space: nowrap; }
+.wm-src {
+  /* 鉄道情報の .win-src と同じ 12px */
+  font: 700 12px var(--wm-mono); color: var(--wm-ink-4);
+  border: 1px solid rgba(79,195,247,.45); border-radius: 4px;
+  padding: 1px 6px; letter-spacing: .02em; white-space: nowrap;
+}
+.wm-meta { font: 12px var(--wm-mono); color: var(--wm-ink-3); white-space: nowrap; }
+.wm-status--stale       { color: #e3b341; }
+.wm-status--unavailable { color: var(--wm-ink-4); }
+.wm-status--pending     { color: var(--wm-ink-4); }
+
+/* /live レイヤーパネル用: .wm-hd (背景・下線付きヘッダー帯) の簡易版。
+   live-panel-title と同じ行にバッジだけ添える。 */
+.wm-hd-inline {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  margin-bottom: 2px;
+}
+
+.wm-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  /* 3列 x 2行 = 6件/ページ（フォント拡大に伴い 9件/ページから縮小） */
+  grid-template-rows: repeat(2, 1fr);
+  gap: 4px 8px;
+  padding: 6px 10px;
+  overflow: hidden;
+}
+
+/* /live 右上レイヤーパネルは幅が狭い（min-width:130px）ため 3列グリッドではなく
+   縦1列リストにする。ページサイズもJS側で少なくする (6件/ページ)。 */
+.wm-body--list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0;
+}
+.wm-body--list .wm-point {
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(120,160,210,.08);
+}
+.wm-body--list .wm-point:last-child { border-bottom: none; }
+
+.wm-empty {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; font: 12px var(--wm-mono); color: var(--wm-ink-4);
+}
+
+.wm-point {
+  display: flex; flex-direction: column; justify-content: center;
+  gap: 1px; min-width: 0;
+}
+.wm-point-row { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.wm-point-name {
+  /* 鉄道情報の .rail-card .nm と同じ 13px */
+  font-size: 13px; font-weight: 700; color: var(--wm-ink-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 3.8em;
+}
+.wm-temp { font: 13px var(--wm-mono); color: var(--wm-ink); white-space: nowrap; }
+.wm-temp.wm-flag-temp-hot  { color: #ff8a5c; font-weight: 700; }
+.wm-temp.wm-flag-temp-cold { color: #6fc3ff; font-weight: 700; }
+
+/* 鉄道情報の .rail-card .note と同じ 12px */
+.wm-point-sub { display: flex; gap: 8px; font: 12px var(--wm-mono); color: var(--wm-ink-4); }
+.wm-humidity.wm-flag-humidity-high { color: #e8c96a; font-weight: 700; }
+.wm-precip.wm-flag-precip-high {
+  color: #7fb0f5; font-weight: 700;
+  background: rgba(60,120,220,.16); border-radius: 3px; padding: 0 3px;
+}
+
+/* 天気バッジ (彩度控えめ・警戒色と非競合)。鉄道情報の .rail-card .st と同じ 11px */
+.wm-badge {
+  font: 700 11px var(--wm-sans); border-radius: 3px; padding: 1px 5px;
+  line-height: 1.4; white-space: nowrap;
+}
+.wm-badge--sunny   { background: rgba(230,180,60,.20);  color: #e8c96a; }
+.wm-badge--cloudy  { background: rgba(140,150,165,.22); color: #b7c0cf; }
+.wm-badge--rain    { background: rgba(60,120,220,.20);  color: #7fb0f5; }
+.wm-badge--snow    { background: rgba(150,210,230,.20); color: #bfe6f2; }
+.wm-badge--thunder { background: rgba(150,110,220,.22); color: #c9a8f0; }
+.wm-badge--fog     { background: rgba(150,150,150,.18); color: #a9adb3; }
+.wm-badge--unknown { background: rgba(100,100,100,.18); color: #888e97; }

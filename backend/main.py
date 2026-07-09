@@ -45,6 +45,7 @@ from app.api.live_rain_timeline import router as live_rain_timeline_router
 from app.api.live_train import router as live_train_router
 from app.api.live_road_traffic import router as live_road_traffic_router
 from app.api.live_earthquakes import router as live_earthquakes_router
+from app.api.live_weather_jma import router as live_weather_jma_router
 from app.api.jartic_traffic import router as jartic_traffic_router
 from app.services.earthquake_realtime_service import get_realtime_service
 from app.services.job_manager import get_job_manager
@@ -217,6 +218,7 @@ app.include_router(live_rain_timeline_router)
 app.include_router(live_train_router)
 app.include_router(live_road_traffic_router)
 app.include_router(live_earthquakes_router)
+app.include_router(live_weather_jma_router)
 app.include_router(jartic_traffic_router)
 
 

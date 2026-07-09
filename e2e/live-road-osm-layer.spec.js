@@ -93,6 +93,7 @@ function makeRoadFeatures(count, roadClass = 'primary', namePrefix = '主要道�
 async function mockBaseLiveApis(page) {
     await page.route('/data/municipality_coords.json', r =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    await page.route('/api/live/weather/jma/prefectures**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'unavailable', source: 'Open-Meteo Forecast', forecast_time: null, fetched_at: null, cache_status: 'unavailable', items: [] }) }));
     await page.route('/api/live/sun-moon', r =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
     await page.route('/api/earthquakes**', r =>
