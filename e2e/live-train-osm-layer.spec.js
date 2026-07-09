@@ -128,10 +128,13 @@ const STATIC_URL = '/layers/railways/kanto_railways.geojson';
 
 async function mockBaseLiveApis(page, trainResponse = TRAIN_OK_EMPTY) {
     await page.route('/data/municipality_coords.json', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    await page.route('/api/live/weather/jma/prefectures**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'unavailable', source: 'Open-Meteo Forecast', forecast_time: null, fetched_at: null, cache_status: 'unavailable', items: [] }) }));
     await page.route('/api/live/sun-moon', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
     await page.route('/api/earthquakes**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, items: [] }) }));
+    await page.route('/api/live/earthquakes/history**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
     await page.route('/api/tsunami/**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ observed_at: null, updated_at: null, ttl_seconds: 60, areas: [], message: '' }) }));
     await page.route('/api/live/storm_surge/**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', evaluated: true, summary: { active: false, warning_area_count: 0 }, areas: [] }) }));
+    await page.route('/api/live/road-traffic/summary**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', items: [] }) }));
     await page.route('/api/weather/rain/tile/times', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('/api/live/rain/timeline', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('/api/live/summary', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LIVE_SUMMARY) }));
@@ -151,7 +154,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('交通影響', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('交通影響', { timeout: 5000 });
 
         const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 9));
@@ -172,7 +175,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('交通影響', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('交通影響', { timeout: 5000 });
 
         const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 9));
@@ -207,7 +210,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
             }));
 
             await page.goto('/live.html');
-            await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
+            await expect(page.locator('#lac-train-slot')).toContainText('銀座線', { timeout: 5000 });
 
             const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
             await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 10));
@@ -238,7 +241,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('銀座線', { timeout: 5000 });
 
         const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 10));
@@ -262,7 +265,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('銀座線', { timeout: 5000 });
 
         const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 10));
@@ -283,7 +286,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('交通影響', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('交通影響', { timeout: 5000 });
 
         const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 12));
@@ -311,7 +314,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         });
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('交通影響', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('交通影響', { timeout: 5000 });
 
         await page.evaluate(() => window.liveMap.setZoom(7));
         await page.locator('#toggle-train').check();
@@ -327,7 +330,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         await page.route(STATIC_URL, r => r.fulfill({ status: 503, body: 'error' }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('銀座線', { timeout: 5000 });
 
         await page.evaluate(() => window.liveMap.setZoom(9));
         await page.locator('#toggle-train').check();
@@ -346,7 +349,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('銀座線', { timeout: 5000 });
 
         const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 10));
@@ -366,7 +369,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('銀座線', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('銀座線', { timeout: 5000 });
 
         const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 10));
@@ -392,7 +395,7 @@ test.describe('/live — OSM鉄道路線ベースレイヤー', () => {
         }));
 
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('交通影響', { timeout: 5000 });
+        await expect(page.locator('#lac-train-slot')).toContainText('交通影響', { timeout: 5000 });
 
         const staticPromise = page.waitForResponse(STATIC_URL, { timeout: 5000 });
         await page.evaluate(() => window.liveMap.setView([35.68, 139.77], 9));

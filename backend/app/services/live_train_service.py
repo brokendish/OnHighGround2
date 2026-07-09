@@ -21,7 +21,8 @@ import math
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 import json
@@ -223,9 +224,12 @@ _RAILWAY_NAMES: Dict[str, str] = {
     "Seibu.Ikebukuro": "池袋線",
     "Seibu.Shinjuku":  "新宿線",
     # 東武
-    "Tobu.Isesaki":  "伊勢崎線",
-    "Tobu.Nikko":    "日光線",
-    "Tobu.Tojo":     "東上線",
+    "Tobu.Isesaki":     "伊勢崎線",
+    "Tobu.Nikko":       "日光線",
+    "Tobu.Tojo":        "東上線",
+    # 実際のODPT railway_id表記（Isesaki/Tojoではなく以下が使われる）
+    "Tobu.TobuSkytree": "伊勢崎線",
+    "Tobu.TobuTojo":    "東上線",
     # 近鉄
     "Kintetsu.Osaka":      "大阪線",
     "Kintetsu.Nara":       "奈良線",
@@ -239,6 +243,89 @@ _RAILWAY_NAMES: Dict[str, str] = {
     "Hanshin.Main":    "本線",
     "Hanshin.Namba":   "なんば線",
 }
+
+
+# ── チャレンジ/期間限定データ除外 ───────────────────────────────────────────────
+# ODPTチャレンジ限定・期間限定・実験的公開データには追随しない。
+# odpt:operator / odpt:railway / @id のみを対象に判定する（dc:date 等の日付フィールドは
+# 対象外にし、日付文字列に含まれる年号による誤爆を避ける）。
+# ODPT_EXCLUDE_KEYWORDS 環境変数（カンマ区切り）で上書き可能。
+
+_DEFAULT_EXCLUDE_KEYWORDS: Tuple[str, ...] = (
+    "challenge", "contest", "2026", "limited", "temporary", "experimental",
+)
+
+
+def _excluded_keywords() -> Tuple[str, ...]:
+    raw = os.getenv("ODPT_EXCLUDE_KEYWORDS")
+    if raw is None:
+        return _DEFAULT_EXCLUDE_KEYWORDS
+    keywords = tuple(k.strip().lower() for k in raw.split(",") if k.strip())
+    return keywords or _DEFAULT_EXCLUDE_KEYWORDS
+
+
+def _is_excluded_source(raw: Dict[str, Any]) -> bool:
+    """チャレンジ2026限定・期間限定・実験的データを識別子から判定する。"""
+    keywords = _excluded_keywords()
+    if not keywords:
+        return False
+    id_fields = (
+        str(raw.get("odpt:operator") or ""),
+        str(raw.get("odpt:railway") or ""),
+        str(raw.get("@id") or ""),
+    )
+    haystack = " ".join(id_fields).lower()
+    return any(kw in haystack for kw in keywords)
+
+
+# ── GeoJSON 一致診断 (matched_geojson) ────────────────────────────────────────
+# frontend の live-train-osm-layer.js / live-stream-railway-layer.js が実際に
+# 実路線ジオメトリ描画に使う静的ファイルを「利用」して、路線ごとの一致有無を診断する。
+# フロント資産は改変しない（ファイルを読み取るだけ）。
+
+_GEOJSON_PATH = (
+    Path(__file__).resolve().parents[3] / "frontend" / "layers" / "railways" / "kanto_railways.geojson"
+)
+_geojson_names_cache: Optional[Set[str]] = None
+_MIN_BARE_NAME_LEN = 3  # これ未満の短い路線名は完全一致のみ許可（誤一致対策）
+
+
+def _load_geojson_route_names() -> Set[str]:
+    """静的GeoJSONから路線名の集合を読み込む（初回のみ・以降はキャッシュ）。"""
+    global _geojson_names_cache
+    if _geojson_names_cache is not None:
+        return _geojson_names_cache
+    names: Set[str] = set()
+    try:
+        with open(_GEOJSON_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        for feat in data.get("features", []):
+            props = feat.get("properties") or {}
+            for key in ("name", "name:ja"):
+                name = props.get(key)
+                if name:
+                    names.add(str(name).strip())
+    except Exception as exc:
+        logger.warning("live train: GeoJSON路線名読み込み失敗: %s", exc)
+        names = set()
+    _geojson_names_cache = names
+    return names
+
+
+def _matches_geojson(railway_name: str) -> bool:
+    """railway_name (bare名) が静的GeoJSONの実路線名に一致するか判定する。
+
+    OSM名は事業者名接頭辞付き表記が多い（例: 東京メトロ有楽町線）ため、
+    OSM名がbare名を含むかで判定する。ただし短すぎるbare名（例: 本線）は
+    誤一致しやすいため完全一致のみ許可する。
+    """
+    bare = (railway_name or "").strip()
+    if not bare:
+        return False
+    names = _load_geojson_route_names()
+    if len(bare) < _MIN_BARE_NAME_LEN:
+        return bare in names
+    return any(osm_name == bare or bare in osm_name for osm_name in names)
 
 
 # ── ステータス正規化 ───────────────────────────────────────────────────────────
@@ -329,17 +416,19 @@ def normalize_odpt_item(raw: Dict[str, Any]) -> Optional[TrainInfoItem]:
     updated_at = raw.get("dc:date") or raw.get("dct:valid") or ""
     description = _extract_ja_text(text_obj) or STATUS_LABEL.get(status, "")
 
+    railway_name = _railway_name_from_id(railway_id)
     item = TrainInfoItem(
         railway_id=railway_id,
         operator_id=operator_id,
         operator_name=_operator_name_from_id(operator_id),
-        railway_name=_railway_name_from_id(railway_id),
+        railway_name=railway_name,
         status=status,
         status_label=STATUS_LABEL[status],
         severity=SEVERITY[status],
         description=description,
         updated_at=updated_at,
         source="ODPT",
+        matched_geojson=_matches_geojson(railway_name),
     )
     point = _operator_representative_latlng(operator_id)
     if point is not None:
@@ -434,7 +523,11 @@ async def _fetch_all_disruptions() -> List[TrainInfoItem]:
     )
 
     items: List[TrainInfoItem] = []
+    excluded_count = 0
     for raw in raw_list:
+        if _is_excluded_source(raw):
+            excluded_count += 1
+            continue
         item = normalize_odpt_item(raw)
         if item is not None:
             items.append(item)
@@ -442,6 +535,8 @@ async def _fetch_all_disruptions() -> List[TrainInfoItem]:
     items.sort(key=lambda x: (-x["severity"], x["updated_at"]), reverse=False)
     items.sort(key=lambda x: x["severity"], reverse=True)
 
+    if excluded_count:
+        logger.info("live train summary: excluded=%d (challenge/experimental等)", excluded_count)
     logger.info("live train summary: items=%d", len(items))
     return items
 

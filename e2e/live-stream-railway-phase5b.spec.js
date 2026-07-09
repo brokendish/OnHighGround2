@@ -134,15 +134,19 @@ test.describe('/live/stream — Stream Phase 5-B 鉄道子画面 太線強調・
     expect(popupText).not.toContain('守谷〜つくば駅間');
   });
 
-  test('6: a line with no representative coordinates at all is still highlighted, focusable, and zoomed via a generic fallback point', async ({ page }) => {
+  test('6: a line with no representative coordinates at all is still highlighted and shown via the mini map\'s own local rotation (no generic fallback point, no central-map focus)', async ({ page }) => {
     // 事業者代表点 (_operator_representative_latlng) が取得できない場合を再現する
-    // (lat/lng を持たない API レスポンス)。以前はこの場合 event 自体が EventStore から除外され、
-    // 太線強調にも自動巡回の focus 対象にもなれなかった。
+    // (lat/lng を持たない API レスポンス)。
+    // Phase 7-A.5 (全国ODPT対応): 「代表点が無ければ東京駅等へ安易に寄せない」という要件のため、
+    // 座標の無い路線はもう中央地図のイベント化・グローバル自動巡回の focus 対象にはならない
+    // (東京駅への汎用フォールバックは廃止)。ただし鉄道小画面は rail.affected を直接参照する
+    // 別経路 (自身の8秒巡回) のため、太線強調・詳細カード・小地図のズーム対象には引き続きなれる。
     await mockAllLiveApis(page, {
       railItems: [railItem({ railway_id: 'rail-nocoord-1', railway_name: '京王線', lat: undefined, lng: undefined })],
     });
     await gotoAndCapturePageErrors(page, streamUrl('?state=alert'));
-    await waitForRailFocus(page, 'rail-nocoord-1');
+    // グローバル中央地図の focus (document.body.dataset.streamFocusEventId) はもう発火しない
+    // ため待たない。小地図自身の local rotation (1件しかないので即座に index 0 を指す) を待つ。
     await page.waitForFunction(() => {
       const d = window.__LiveStreamDiagnostics.getSnapshot().railwayMiniMap;
       return d && d.zoomedEventId === 'rail-nocoord-1';
@@ -155,6 +159,10 @@ test.describe('/live/stream — Stream Phase 5-B 鉄道子画面 太線強調・
     await expect(page.locator('[data-testid="live-stream-railway-detail-panel"]')).toBeVisible();
     const bodyText = await page.locator('[data-testid="live-stream-railway-detail-body"]').first().textContent();
     expect(bodyText).toContain('人身事故');
+
+    // 中央地図・自動巡回の focus 対象にはならないことを確認する (東京駅固定フォールバック回帰防止)。
+    const focusEventId = await page.evaluate(() => document.body.dataset.streamFocusEventId || null);
+    expect(focusEventId).not.toBe('rail-nocoord-1');
   });
 
   test('7: /live is unaffected by the railway phase 5-B changes', async ({ page }) => {

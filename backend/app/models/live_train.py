@@ -48,15 +48,16 @@ SEVERITY: Dict[str, int] = {
 
 
 class TrainInfoItem(TypedDict):
-    railway_id:    str
-    operator_id:   str
-    operator_name: str
-    railway_name:  str
-    status:        str
-    status_label:  str
-    severity:      int
-    description:   str
-    updated_at:    str
-    source:        str
-    lat:           NotRequired[float]
-    lng:           NotRequired[float]
+    railway_id:      str
+    operator_id:     str
+    operator_name:   str
+    railway_name:    str
+    status:          str
+    status_label:    str
+    severity:        int
+    description:     str
+    updated_at:      str
+    source:          str
+    matched_geojson: bool
+    lat:             NotRequired[float]
+    lng:             NotRequired[float]

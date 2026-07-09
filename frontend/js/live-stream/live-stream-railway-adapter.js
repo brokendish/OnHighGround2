@@ -113,12 +113,6 @@ const RailwayStreamAdapter = (function () {
     'YokohamaMunicipal.Blue': 'ブルーライン', 'YokohamaMunicipal.Green': 'グリーンライン',
   };
 
-  // Stream Phase 5-B: 事業者代表点 (backend の _operator_representative_latlng) が
-  // 取得できない事業者の路線でも、鉄道子画面のズームイン (focusOn) が必ず発火するよう、
-  // 最終手段として東京駅付近を汎用フォールバック地点として使う
-  // (frontend/js/live-stream/live-stream-map-events.js の RAIL_GENERIC_FALLBACK_POINT と同じ値)。
-  const _GENERIC_FALLBACK_LATLNG = { lat: 35.6812, lng: 139.7671 }; // 東京駅
-
   function _railwayKey(railwayId) {
     if (!railwayId) return '';
     const idx = railwayId.indexOf(':');
@@ -201,10 +195,11 @@ const RailwayStreamAdapter = (function () {
       source:       item.source || '',
       updatedAt:    _fmtUpdated(item.updated_at),
       updatedAtRaw: item.updated_at || null,
-      // 事業者が運行する都道府県の重心座標 (粗い代表点)。取得できない事業者は汎用フォールバック
-      // (東京駅付近) を使う — 精度を主張するものではなく、子画面のズームインを常に発火させるため。
-      lat:          item.lat != null ? item.lat : _GENERIC_FALLBACK_LATLNG.lat,
-      lng:          item.lng != null ? item.lng : _GENERIC_FALLBACK_LATLNG.lng,
+      // 事業者が運行する都道府県の重心座標 (粗い代表点)。取得できない事業者は null のままにする
+      // (Phase 7-A.5: 東京駅等への固定フォールバックはしない)。呼び出し側 (live-stream-panels.js
+      // の bounds 合成・live-stream-map-events.js の中央地図イベント化) は null を無視できる。
+      lat:          item.lat != null ? item.lat : null,
+      lng:          item.lng != null ? item.lng : null,
       stColor:      _ST_COLOR[item.status] || '#5d6878',
       lineColor:    _lineColor(item, name),
       severity:     Number(item.severity) || 0,

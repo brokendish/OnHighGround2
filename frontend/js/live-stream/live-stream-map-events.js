@@ -39,12 +39,12 @@ const StreamMapEvents = (function () {
     keihin:   { lat: 35.9068, lng: 139.6238 }, // 大宮
     saikyo:   { lat: 35.7295, lng: 139.7109 }, // 池袋
   };
-  // Stream Phase 5-B: backend の operator 代表点 (_operator_representative_latlng) が
-  // 未登録の事業者・上記の旧SVG対応4路線にも該当しない路線が「座標が取れない」という理由だけで
-  // event 自体から除外され、自動巡回の focus 対象にすらなれない (= 詳細全文表示もズームインも
-  // 一切発火しない) ことがあった。座標が粗くても「focus 対象にはなれる」ことを優先し、
-  // 最終手段として東京駅付近を汎用フォールバック地点として使う。
-  const RAIL_GENERIC_FALLBACK_POINT = { lat: 35.6812, lng: 139.7671 }; // 東京駅
+  // Phase 7-A.5 (全国ODPT対応): 以前は東京駅付近への汎用フォールバック地点を持っていたが、
+  // 「代表点が無い場合は東京駅など固定点へ安易に寄せない」という要件のため廃止した。
+  // 座標も上記の既知路線代表駅も無い路線は中央地図のピン・自動巡回のフォーカス対象からは
+  // 除外する (_fromRailway で null → filter で除去)。ただし鉄道小画面の詳細カード一覧・
+  // 統合bounds計算は scene.rail.affected を直接参照する別経路 (live-stream-panels.js) の
+  // ため、座標が無くてもそちらの表示・巡回には影響しない。
 
   function _validCoord(lat, lng) {
     return typeof lat === 'number' && isFinite(lat)
@@ -142,11 +142,11 @@ const StreamMapEvents = (function () {
     if (!railModel || railModel.status !== 'ok') return [];
     return (railModel.affected || [])
       .map(a => {
-        // Stream Phase 5-B: 座標が取れない路線でも event 自体は作る (自動巡回の focus 対象から
-        // 除外しない)。RAIL_GENERIC_FALLBACK_POINT はあくまで最終手段の粗い代表点であり、
-        // 精度を主張するものではない。
+        // Phase 7-A.5: 座標も既知路線代表駅も無い路線は地図イベントを作らない (東京駅等への
+        // 固定フォールバックはしない)。詳細カード一覧・小地図boundsは別経路のため影響しない。
         const pt = _validCoord(a.lat, a.lng) ? { lat: a.lat, lng: a.lng }
-          : (a.mapId && RAIL_FALLBACK_POINT[a.mapId]) || RAIL_GENERIC_FALLBACK_POINT;
+          : (a.mapId && RAIL_FALLBACK_POINT[a.mapId]) || null;
+        if (!pt) return null;
         // 鉄道: 取得時刻不明 or 24h超過は stale class を付けるが、表示自体は除外しない
         const { stale } = _staleInfo('railway', a.updatedAtRaw, nowMs);
         return {
@@ -163,7 +163,7 @@ const StreamMapEvents = (function () {
           stale,
         };
       })
-      // 鉄道は座標が無くても汎用フォールバック地点を持つため除外されない。
+      .filter(Boolean)
       // 取得時刻不明の場合も stale class のみ付与し、除外はしない。
       .sort((a, b) => SEVERITY_WEIGHT[b.severity] - SEVERITY_WEIGHT[a.severity]);
   }

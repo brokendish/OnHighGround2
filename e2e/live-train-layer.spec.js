@@ -81,10 +81,13 @@ const DISRUPTION_RESPONSE = {
 
 async function mockBaseLiveApis(page, trainResponseFactory = () => DISRUPTION_RESPONSE) {
     await page.route('/data/municipality_coords.json', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    await page.route('/api/live/weather/jma/prefectures**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'unavailable', source: 'Open-Meteo Forecast', forecast_time: null, fetched_at: null, cache_status: 'unavailable', items: [] }) }));
     await page.route('/api/live/sun-moon', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) }));
     await page.route('/api/earthquakes**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(EQ_RESPONSE) }));
+    await page.route('/api/live/earthquakes/history**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
     await page.route('/api/tsunami/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TSUNAMI_RESPONSE) }));
     await page.route('/api/live/storm_surge/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STORM_SURGE_NONE) }));
+    await page.route('/api/live/road-traffic/summary**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', items: [] }) }));
     await page.route('/api/weather/rain/tile/times', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('/api/live/rain/timeline', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('/api/live/summary', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LIVE_SUMMARY) }));
@@ -102,13 +105,13 @@ test.describe('/live — 鉄道運行影響レイヤー', () => {
         await mockBaseLiveApis(page);
         await page.goto('/live.html');
 
-        await expect(page.locator('#live-train-card')).toContainText('交通影響');
-        await expect(page.locator('#live-train-card')).toContainText('京王線');
-        await expect(page.locator('#live-train-card')).toContainText('運転見合わせ');
-        await expect(page.locator('#live-train-card')).toContainText('小田原線');
-        await expect(page.locator('#live-train-card')).not.toContainText('銀座線');
+        await expect(page.locator('#lac-train-slot')).toContainText('交通影響');
+        await expect(page.locator('#lac-train-slot')).toContainText('京王線');
+        await expect(page.locator('#lac-train-slot')).toContainText('運転見合わせ');
+        await expect(page.locator('#lac-train-slot')).toContainText('小田原線');
+        await expect(page.locator('#lac-train-slot')).not.toContainText('銀座線');
 
-        const names = await page.locator('#live-train-card .ltc-name').allTextContents();
+        const names = await page.locator('#lac-train-slot .ltc-name').allTextContents();
         expect(names.slice(0, 2)).toEqual(['京王線', '小田原線']);
     });
 
@@ -117,12 +120,12 @@ test.describe('/live — 鉄道運行影響レイヤー', () => {
         await mockBaseLiveApis(page, () => response);
         await page.goto('/live.html');
 
-        await expect(page.locator('#live-train-card')).toContainText('東京都で運行障害は確認されていません');
+        await expect(page.locator('#lac-train-slot')).toContainText('東京都で運行障害は確認されていません');
 
         response = { status: 'unavailable', stale: false, scope: { mode: 'prefecture', prefecture: '東京都' }, updated_at: '2026-06-14T20:01:00+09:00', items: [] };
         await page.locator('#ltc-pref-select').selectOption('大阪府');
-        await expect(page.locator('#live-train-card')).toContainText('鉄道運行情報を取得できません');
-        await expect(page.locator('#live-train-card')).not.toContainText('運行障害は確認されていません');
+        await expect(page.locator('#lac-train-slot')).toContainText('鉄道運行情報を取得できません');
+        await expect(page.locator('#lac-train-slot')).not.toContainText('運行障害は確認されていません');
     });
 
     test('都道府県選択で API パラメーターが切り替わる', async ({ page }) => {
@@ -135,13 +138,13 @@ test.describe('/live — 鉄道運行影響レイヤー', () => {
         await page.locator('#ltc-pref-select').selectOption('福岡県');
 
         await expect.poll(() => requested.some(url => decodeURIComponent(url).includes('prefecture=福岡県'))).toBe(true);
-        await expect(page.locator('#live-train-card')).toContainText('福岡県で運行障害は確認されていません');
+        await expect(page.locator('#lac-train-slot')).toContainText('福岡県で運行障害は確認されていません');
     });
 
     test('鉄道運行影響レイヤーを ON/OFF でき、ポップアップに出典が表示される', async ({ page }) => {
         await mockBaseLiveApis(page);
         await page.goto('/live.html');
-        await expect(page.locator('#live-train-card')).toContainText('京王線');
+        await expect(page.locator('#lac-train-slot')).toContainText('京王線');
 
         await page.locator('#toggle-train').check();
         await expect(page.locator('.leaflet-overlay-pane svg path.leaflet-interactive')).toHaveCount(2, { timeout: 5000 });
@@ -158,7 +161,7 @@ test.describe('/live — 鉄道運行影響レイヤー', () => {
         await mockBaseLiveApis(page);
         await page.goto('/live.html');
 
-        await expect(page.locator('#live-train-card')).toBeVisible();
+        await expect(page.locator('#lac-train-slot')).toBeVisible();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
         expect(overflow).toBe(false);
     });

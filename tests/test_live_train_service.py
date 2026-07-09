@@ -26,7 +26,11 @@ from app.models.live_train import (
 from app.services.live_train_service import (
     _OPERATOR_NAMES,
     _RAILWAY_NAMES,
+    _excluded_keywords,
+    _fetch_all_disruptions,
+    _is_excluded_source,
     _item_matches_prefecture,
+    _matches_geojson,
     _nearest_prefecture_from_latlon,
     _operator_key,
     _railway_key,
@@ -402,3 +406,98 @@ def test_railway_name_fallback_for_unknown():
 def test_operator_name_fallback_for_unknown():
     name = _operator_name_from_id("odpt.Operator:FutureLine")
     assert name == "FutureLine"
+
+
+# ── チャレンジ/期間限定データ除外 (Phase 7-A.5) ───────────────────────────────
+
+def test_excluded_keywords_default_covers_challenge_terms():
+    keywords = _excluded_keywords()
+    for kw in ("challenge", "contest", "2026", "limited", "temporary", "experimental"):
+        assert kw in keywords
+
+
+def test_is_excluded_source_challenge_operator():
+    raw = _make_raw(operator="odpt.Operator:Challenge2026Operator", status={"ja": "遅延"})
+    assert _is_excluded_source(raw) is True
+
+
+def test_is_excluded_source_challenge_railway():
+    raw = _make_raw(railway="odpt.Railway:Challenge2026.SomeLine", status={"ja": "遅延"})
+    assert _is_excluded_source(raw) is True
+
+
+def test_is_excluded_source_normal_item_not_excluded():
+    raw = _make_raw(status={"ja": "遅延"})
+    assert _is_excluded_source(raw) is False
+
+
+def test_is_excluded_source_ignores_date_field():
+    """dc:date に '2026' を含んでいても、識別子フィールドでなければ除外しない。"""
+    raw = _make_raw(status={"ja": "遅延"}, date="2026-07-08T12:00:00+09:00")
+    assert _is_excluded_source(raw) is False
+
+
+def test_excluded_keywords_env_override(monkeypatch):
+    monkeypatch.setenv("ODPT_EXCLUDE_KEYWORDS", "foo,bar")
+    assert _excluded_keywords() == ("foo", "bar")
+
+
+def test_fetch_all_disruptions_filters_challenge_items():
+    """_fetch_all_disruptions が challenge2026 相当のraw itemを除外する。"""
+    import os
+
+    os.environ["ODPT_API_KEY"] = "test-key"
+    raw_list = [
+        _make_raw(railway="odpt.Railway:Challenge2026.SomeLine",
+                   operator="odpt.Operator:Challenge2026",
+                   status={"ja": "遅延"}),
+        _make_raw(railway="odpt.Railway:JR-West.Kobe",
+                   operator="odpt.Operator:JR-West",
+                   status={"ja": "遅延"}),
+    ]
+    try:
+        with patch("app.services.live_train_service._fetch_odpt_train_information",
+                   return_value=raw_list):
+            items = _run(_fetch_all_disruptions())
+        railway_ids = [it["railway_id"] for it in items]
+        assert "odpt.Railway:Challenge2026.SomeLine" not in railway_ids
+        assert "odpt.Railway:JR-West.Kobe" in railway_ids
+    finally:
+        os.environ.pop("ODPT_API_KEY", None)
+
+
+# ── matched_geojson 診断フィールド (Phase 7-A.5) ──────────────────────────────
+
+def test_matched_geojson_true_for_known_kanto_lines():
+    assert _matches_geojson("京王線") is True
+    assert _matches_geojson("東武東上線") is True
+    assert _matches_geojson("有楽町線") is True  # OSM名「東京メトロ有楽町線」に部分一致
+
+
+def test_matched_geojson_false_for_fictional_line():
+    assert _matches_geojson("検証架空線") is False
+
+
+def test_matched_geojson_empty_name_is_false():
+    assert _matches_geojson("") is False
+
+
+def test_matched_geojson_short_name_requires_exact_match():
+    """短い bare 名 (「本線」等) は部分一致による誤爆を避け、完全一致のみ許可する。"""
+    assert _matches_geojson("本線") is False
+
+
+def test_normalize_item_includes_matched_geojson_field():
+    raw = _make_raw(railway="odpt.Railway:Tobu.TobuTojo",
+                     operator="odpt.Operator:Tobu", status={"ja": "遅延"})
+    item = normalize_odpt_item(raw)
+    assert "matched_geojson" in item
+    assert item["matched_geojson"] is True
+    assert item["railway_name"] == "東上線"
+
+
+def test_normalize_item_matched_geojson_false_for_non_kanto_operator():
+    raw = _make_raw(railway="odpt.Railway:JR-Kyushu.Kagoshima",
+                     operator="odpt.Operator:JR-Kyushu", status={"ja": "遅延"})
+    item = normalize_odpt_item(raw)
+    assert item["matched_geojson"] is False

@@ -89,6 +89,15 @@ const LiveStreamRailwayLayer = (function () {
   let _affectedNames = new Set();
   let _lastError = null;
 
+  // Phase 7-A.5 (全国ODPT対応): bare名が短すぎる場合 (「本線」等) は部分一致だと別路線の
+  // OSM名 (「東海道本線」等) に誤ヒットするため、完全一致のみ許可する。
+  const _MIN_BARE_NAME_LEN = 3;
+  function _bareNameMatches(candidate, bare) {
+    if (candidate === bare) return true;
+    if (bare.length < _MIN_BARE_NAME_LEN) return false;
+    return candidate.includes(bare);
+  }
+
   // Stream Phase 6-H: 完全一致だけでなく部分一致も見る。OSM由来の name は「東京メトロ有楽町線」
   // のように事業者名を前置した表記が多く、ODPT/backend 側の裸の路線名 ("有楽町線") とは
   // 完全一致しない (Tokyo Metro/都営地下鉄の全路線でこれが起きていた — 太線強調が効かない
@@ -97,7 +106,7 @@ const LiveStreamRailwayLayer = (function () {
     if (_affectedNames.size === 0) return false;
     const candidates = [props.name, props['name:ja'], props['name:en'], props.ref].filter(Boolean).map(String);
     for (const bare of _affectedNames) {
-      if (candidates.some(c => c === bare || c.includes(bare))) return true;
+      if (candidates.some(c => _bareNameMatches(c, bare))) return true;
     }
     return false;
   }
@@ -342,8 +351,9 @@ const LiveStreamRailwayLayer = (function () {
   }
 
   // _isAffected() と同じ「部分一致」方針 (OSM name は事業者名を前置した表記が多いため)。
+  // 短すぎる bare 名は _bareNameMatches() と同じ理由で完全一致のみ許可する。
   function _osmNameMatchesBare(osmName, bareName) {
-    return osmName === bareName || osmName.includes(bareName);
+    return _bareNameMatches(osmName, bareName);
   }
 
   /**
