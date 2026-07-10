@@ -288,13 +288,21 @@ html, body {
 .map-cap { position: absolute; bottom: 10px; left: 12px; font: 11px var(--mono); color: var(--ink-3); letter-spacing: .12em; }
 
 /* 鉄道カード */
-.rail-card { display: flex; align-items: center; gap: 9px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
-.rail-card .bar  { width: 5px; align-self: stretch; border-radius: 3px; flex: none; }
+.rail-card { display: flex; align-items: center; gap: 9px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; }
+.rail-card .bar  { width: 5px; align-self: stretch; border-radius: 3px; flex: none; transition: width .15s ease; }
 .rail-card .body { flex: 1; min-width: 0; }
 .rail-card .nm   { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1.1; }
 .rail-card .note { font-size: 12px; color: var(--ink-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-card .st   { font-size: 11px; font-weight: 700; color: #fff; border-radius: 4px; padding: 2px 6px; flex: none; }
 .rail-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+
+/* Phase 7-A.6: リストで選択中の障害路線 (地図側ハイライトと連動)。点滅はさせない — うるさくなるため */
+.rail-card.is-selected {
+  background: rgba(34, 197, 94, .12);
+  outline: 1px solid rgba(74, 222, 128, .55);
+  outline-offset: -1px;
+}
+.rail-card.is-selected .bar { width: 8px; }
 .rail-empty i  { width: 8px; height: 8px; border-radius: 50%; background: var(--c-safe); }
 .rail-empty .m { font-size: 14px; font-weight: 700; color: #a7e8c4; }
 .rail-empty .s { font: 12px var(--mono); color: #5d6878; }
@@ -449,12 +457,27 @@ html, body {
 .stream-focus-hud[data-focus-mode="focus"] { border-color: rgba(255,255,255,.28); }
 @keyframes hudIn { from { opacity: 0; transform: translateX(-50%) translateY(-4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
+/* Phase 7-A.6: 鉄道子画面 路線図 — 選択中路線ハイライト (白縁取り + 公式カラー太線 + 控えめ点滅)。
+   路線図の通常レイヤーは preferCanvas:true 環境で Canvas 描画になるため CSS が効かない
+   (renderer:L.svg() を強制した layer だけがこの class を持つ — live-stream-railway-layer.js 側で担保)。 */
+.live-railway-selected-outline { pointer-events: none; }
+.live-railway-selected-core {
+  pointer-events: none;
+  animation: live-railway-selected-pulse 1.4s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, .75));
+}
+@keyframes live-railway-selected-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .4; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ls-pulse-ring, .ls-pulse-core,
   .stream-map-event::before, .stream-map-event::after,
   .stream-focus-hud,
   .eq-muni-track,
-  .rail-detail-track { animation: none !important; }
+  .rail-detail-track,
+  .live-railway-selected-core { animation: none !important; }
 }
 /* z-index: Leaflet の内部コントロール (.leaflet-top/.leaflet-bottom) は z-index:1000 を持つが、
    .center-map に z-index を与えて独立したスタッキングコンテキストを作ることでその内部に閉じ込め、

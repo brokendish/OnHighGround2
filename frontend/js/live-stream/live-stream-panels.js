@@ -63,6 +63,69 @@ let _railMiniMapView = null;
   _railMiniMapView = view;
 })();
 
+/* ================================================================
+   Phase 7-A.6 — 障害路線リスト選択 → 路線図ハイライト
+   リストは render() のたびに #rail-side.innerHTML を丸ごと作り直すため、子要素へ直接
+   click listener を付けても再描画のたびに失われる。#rail-side (静的な親要素) へ一度だけ
+   delegation で listener を付け、選択状態はこのモジュール側で保持する。
+   ================================================================ */
+let _selectedRailEventId = null;   // 現在選択中の rail.affected[].id (null = 未選択)
+let _selectedRailMatched = null;   // 直近の highlightSelectedRoute() 結果 (true/false/null=未選択)
+let _latestRailAffected = [];      // 直近の render() が受け取った rail.affected (click時の参照用)
+
+function _updateRailListSelectedDom() {
+  const container = $s('rail-side');
+  if (!container) return;
+  container.querySelectorAll('.rail-card').forEach(el => {
+    el.classList.toggle('is-selected', !!_selectedRailEventId && el.dataset.eventId === _selectedRailEventId);
+  });
+}
+
+function _clearRailwaySelection() {
+  _selectedRailEventId = null;
+  _selectedRailMatched = null;
+  _updateRailListSelectedDom();
+  if (typeof LiveStreamRailwayLayer !== 'undefined' && LiveStreamRailwayLayer.clearSelectedHighlight) {
+    LiveStreamRailwayLayer.clearSelectedHighlight();
+  }
+}
+
+async function _selectRailwayLine(line) {
+  _selectedRailEventId = line.id || null;
+  _selectedRailMatched = null;
+  _updateRailListSelectedDom();
+  if (typeof LiveStreamRailwayLayer === 'undefined' || !LiveStreamRailwayLayer.highlightSelectedRoute) return;
+  const map = (_railMiniMapView && !_railMiniMapView.failed) ? _railMiniMapView.map : null;
+  if (!map) return;
+  try {
+    const result = await LiveStreamRailwayLayer.highlightSelectedRoute(map, { id: line.id, name: line.name });
+    // await 中に別路線 (またはクリア) が選ばれていたら、この結果は古いので無視する。
+    if (_selectedRailEventId === (line.id || null)) _selectedRailMatched = !!(result && result.matched);
+  } catch (_) {
+    // ハイライト失敗時もリスト選択表示は維持する (指示書の要件)。
+    if (_selectedRailEventId === (line.id || null)) _selectedRailMatched = false;
+  }
+}
+
+function _onRailListClick(evt) {
+  const card = evt.target.closest ? evt.target.closest('.rail-card[data-event-id]') : null;
+  if (!card || !card.dataset.eventId) return;
+  const id = card.dataset.eventId;
+  if (id === _selectedRailEventId) {
+    _clearRailwaySelection();
+    return;
+  }
+  const line = _latestRailAffected.find(c => (c.id || '') === id);
+  if (!line) return;
+  _selectRailwayLine(line);
+}
+
+(function initRailListSelection() {
+  const container = $s('rail-side');
+  if (!container) return;
+  container.addEventListener('click', _onRailListClick);
+})();
+
 // Stream Phase 4-A/4-B — 自動巡回コントローラの状態変化を購読し、中央地図のカメラを動かす。
 // ユーザー操作は無効のままだが、プログラムによる移動 (flyTo/fitBounds) は許可する。
 const _FOCUS_ZOOM_BY_TYPE = { earthquake: 6, rain: 7, kikikuru: 7, railway: 9, tide: 8, water: 8 };
@@ -1122,12 +1185,17 @@ function render(scene, tick, mapEvents) {
           east: leafletMap.getBounds().getEast(),
         } : null,
         lastError: null,
+        // Phase 7-A.6: リスト選択 → 路線図ハイライトの状態を E2E から検証できるようにする。
+        selectedRailwayEventId: _selectedRailEventId,
+        selectedRailwayMatched: _selectedRailMatched,
       });
     }
 
     if (rail.status === 'error') {
       $s('rail-meta').innerHTML = `<span class="quiet">一時的に取得不可</span>`;
       $s('rail-side').innerHTML = `<div class="rail-empty" data-testid="live-stream-rail-unavailable" style="color:#5d6878"><div class="m">一時的に取得不可</div><div class="s">鉄道情報を取得できません</div></div>`;
+      _latestRailAffected = [];
+      if (_selectedRailEventId) _clearRailwaySelection();
     } else if (railOn) {
       $s('rail-meta').innerHTML = rail.affected.length > 1
         ? `<span data-testid="live-stream-rail-target-status">対象 ${railI + 1}/${rail.affected.length}</span><span class="cyc"></span><span class="cyc-note">8s切替</span>`
@@ -1148,9 +1216,20 @@ function render(scene, tick, mapEvents) {
            ${updLine}
          </div>`;
       }).join('');
+      // Phase 7-A.6: リストは毎回作り直されるため selected class を作り直し、click 時の
+      // 参照データも最新化する。選択中の路線が今回の障害路線一覧から消えていたら選択解除する
+      // (障害が解消した路線のハイライトが地図上に残り続けるのを防ぐ)。
+      _latestRailAffected = rail.affected;
+      if (_selectedRailEventId && !rail.affected.some(c => c.id === _selectedRailEventId)) {
+        _clearRailwaySelection();
+      } else {
+        _updateRailListSelectedDom();
+      }
     } else {
       $s('rail-meta').innerHTML = `<span class="quiet" style="color:#7ee0a0">平常運転</span>`;
       $s('rail-side').innerHTML = `<div class="rail-empty" data-testid="live-stream-rail-empty"><i></i><div class="m">影響路線なし</div><div class="s">平常運転</div></div>`;
+      _latestRailAffected = [];
+      if (_selectedRailEventId) _clearRailwaySelection();
     }
 
     if (focusedRailLine) _renderRailDetail(focusedRailLine);

@@ -317,37 +317,146 @@ const LiveStreamRailwayLayer = (function () {
     return [];
   }
 
+  // Phase 7-A.6: bbox 用インデックス (getBoundsForNames) と、選択路線ハイライト用の
+  // feature インデックス (getFeaturesForNames) の両方が同じ GEOJSON_URL を必要とするため、
+  // 生データの fetch 自体は一度だけ行い共有する (重複 fetch を避ける)。
+  let _geoDataPromise = null;
+  function _loadGeoData() {
+    if (_geoDataPromise) return _geoDataPromise;
+    _geoDataPromise = fetch(GEOJSON_URL)
+      .then(res => (res.ok ? res.json() : null))
+      .catch(() => null);
+    return _geoDataPromise;
+  }
+
   let _geoIndexPromise = null;
 
   function _loadGeoIndex() {
     if (_geoIndexPromise) return _geoIndexPromise;
-    _geoIndexPromise = fetch(GEOJSON_URL)
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => {
-        const idx = new Map(); // osm name -> { south, west, north, east }
-        const features = (data && Array.isArray(data.features)) ? data.features : [];
-        for (const feat of features) {
-          const name = feat.properties && feat.properties.name;
-          if (!name) continue;
-          for (const line of _coordLines(feat.geometry)) {
-            for (const pt of line) {
-              const lng = pt[0], lat = pt[1];
-              if (!isFinite(lat) || !isFinite(lng)) continue;
-              let b = idx.get(name);
-              if (!b) { b = { south: lat, west: lng, north: lat, east: lng }; idx.set(name, b); }
-              else {
-                if (lat < b.south) b.south = lat;
-                if (lat > b.north) b.north = lat;
-                if (lng < b.west) b.west = lng;
-                if (lng > b.east) b.east = lng;
-              }
+    _geoIndexPromise = _loadGeoData().then(data => {
+      const idx = new Map(); // osm name -> { south, west, north, east }
+      const features = (data && Array.isArray(data.features)) ? data.features : [];
+      for (const feat of features) {
+        const name = feat.properties && feat.properties.name;
+        if (!name) continue;
+        for (const line of _coordLines(feat.geometry)) {
+          for (const pt of line) {
+            const lng = pt[0], lat = pt[1];
+            if (!isFinite(lat) || !isFinite(lng)) continue;
+            let b = idx.get(name);
+            if (!b) { b = { south: lat, west: lng, north: lat, east: lng }; idx.set(name, b); }
+            else {
+              if (lat < b.south) b.south = lat;
+              if (lat > b.north) b.north = lat;
+              if (lng < b.west) b.west = lng;
+              if (lng > b.east) b.east = lng;
             }
           }
         }
-        return idx;
-      })
-      .catch(() => new Map());
+      }
+      return idx;
+    }).catch(() => new Map());
     return _geoIndexPromise;
+  }
+
+  // Phase 7-A.6: osm name -> Feature[] のインデックス (bbox ではなく実 geometry そのものが要る)。
+  // 選択のたびに全 feature を走査しないよう、一度だけ構築して Map lookup に留める。
+  let _featureIndexPromise = null;
+  function _loadFeatureIndex() {
+    if (_featureIndexPromise) return _featureIndexPromise;
+    _featureIndexPromise = _loadGeoData().then(data => {
+      const idx = new Map(); // osm name -> Feature[]
+      const features = (data && Array.isArray(data.features)) ? data.features : [];
+      for (const feat of features) {
+        const name = feat.properties && feat.properties.name;
+        if (!name) continue;
+        if (!idx.has(name)) idx.set(name, []);
+        idx.get(name).push(feat);
+      }
+      return idx;
+    }).catch(() => new Map());
+    return _featureIndexPromise;
+  }
+
+  /**
+   * @param {Array<string>} names  裸の路線名の配列 (例: ['千代田線'])
+   * @returns {Promise<Array>}  一致した GeoJSON Feature の配列 (0件のこともある)。
+   */
+  async function getFeaturesForNames(names) {
+    const bareNames = (names || []).filter(Boolean);
+    if (bareNames.length === 0) return [];
+    const idx = await _loadFeatureIndex();
+    const out = [];
+    for (const [osmName, feats] of idx) {
+      if (bareNames.some(bare => _osmNameMatchesBare(osmName, bare))) out.push(...feats);
+    }
+    return out;
+  }
+
+  // ---- Phase 7-A.6: 選択中路線の地図ハイライト (白縁取り + 公式カラー太線 + 控えめ点滅) --------
+  // preferCanvas:true の地図では通常 Path が Canvas 描画になり CSS class/animation が効かないため
+  // (Phase C 高潮沿岸ハイライトと同じ既知の制約)、この選択ハイライトだけ renderer:L.svg() を強制する。
+  let _selectedHighlightLayer = null;
+  let _selectedRouteId = null;
+
+  function clearSelectedHighlight() {
+    if (_selectedHighlightLayer) {
+      try { _selectedHighlightLayer.remove(); } catch (_) { /* noop */ }
+      _selectedHighlightLayer = null;
+    }
+    _selectedRouteId = null;
+  }
+
+  function getSelectedRouteId() {
+    return _selectedRouteId;
+  }
+
+  /**
+   * @param {L.Map} map  ハイライトを載せる地図 (例: 鉄道子画面小地図の Leaflet map)
+   * @param {{id?:string, name:string}} routeInfo  選択された路線 (name は裸の路線名)
+   * @returns {Promise<{matched:boolean, featureCount:number}>}
+   */
+  async function highlightSelectedRoute(map, routeInfo) {
+    clearSelectedHighlight();
+    if (!map || !routeInfo || typeof L === 'undefined') return { matched: false, featureCount: 0 };
+    const myId = routeInfo.id || routeInfo.name || null;
+    _selectedRouteId = myId;
+
+    let features = [];
+    try {
+      features = await getFeaturesForNames([routeInfo.name]);
+    } catch (_) {
+      features = [];
+    }
+
+    // 問い合わせ中に別路線が選ばれていたら、この結果は古いので破棄する。
+    if (_selectedRouteId !== myId) return { matched: false, featureCount: 0 };
+    if (!features.length) return { matched: false, featureCount: 0 };
+
+    const svgRenderer = L.svg();
+    const outlineLayer = L.geoJSON(features, {
+      renderer: svgRenderer,
+      interactive: false,
+      style: () => ({
+        color: 'rgba(255,255,255,0.88)', weight: 10, opacity: 0.85,
+        className: 'live-railway-selected-outline',
+      }),
+    });
+    const coreLayer = L.geoJSON(features, {
+      renderer: svgRenderer,
+      interactive: false,
+      style: (feature) => ({
+        color: _resolveRailColor((feature && feature.properties) || {}) || '#ffffff',
+        weight: 6, opacity: 1,
+        className: 'live-railway-selected-core',
+      }),
+    });
+
+    const group = L.layerGroup([outlineLayer, coreLayer]).addTo(map);
+    if (outlineLayer.bringToFront) outlineLayer.bringToFront();
+    if (coreLayer.bringToFront) coreLayer.bringToFront();
+    _selectedHighlightLayer = group;
+    return { matched: true, featureCount: features.length };
   }
 
   // _isAffected() と同じ「部分一致」方針 (OSM name は事業者名を前置した表記が多いため)。
@@ -379,5 +488,8 @@ const LiveStreamRailwayLayer = (function () {
     return south == null ? null : { south, west, north, east, matchedNames: [...matched] };
   }
 
-  return { init, setAffectedEvents, getKnownRouteCount, isInstanceLoaded, getBoundsForNames };
+  return {
+    init, setAffectedEvents, getKnownRouteCount, isInstanceLoaded, getBoundsForNames,
+    getFeaturesForNames, highlightSelectedRoute, clearSelectedHighlight, getSelectedRouteId,
+  };
 })();
