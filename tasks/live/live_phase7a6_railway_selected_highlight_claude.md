@@ -44,3 +44,33 @@
 - `prefers-reduced-motion: reduce` で `animationName` が `none` になることを確認
 - 新規 E2E: `e2e/live-stream-railway-selected-highlight.spec.js`（7件 PASS）
 - 既存回帰: `e2e/live-stream.spec.js`（53件）, `e2e/live-stream-railway-phase5b.spec.js`, `e2e/live-stream-railway-calm-map.spec.js`, `e2e/live-stream-railway-bounds-verification.spec.js` 含め計36件 追加実行、すべて PASS
+
+## 追補（2026-07-10）: 自動巡回との連動（YouTube配信視聴者対応）
+
+初回実装は「リスト手動クリック」のみが選択ハイライトを駆動しており、YouTube配信の視聴者はリストを
+クリックできないためハイライトが一切表示されない問題があった（本人によるYouTube配信での実地確認で発覚）。
+
+**Why:** 配信画面はブラウザ操作ができない視聴者が主な閲覧者であり、既存の詳細ポップアップ・小地図ズームを
+駆動している「自動巡回/focus対象 (`focusedRailLine`)」と同じ対象を選択ハイライトにも connect する必要がある。
+
+**How to apply:** `live-stream-panels.js` に状態機械 `_syncRailSelection(railAffected, focusedRailLine)` を追加し、
+render() から毎回呼ぶ単一の同期ポイントとした。
+
+- デフォルトは自動追従: `focusedRailLine`（8秒巡回 or グローバルfocus。既存の詳細ポップアップ・小地図ズームと同一対象）
+  が変わるたびに選択ハイライトも追従する。クリック操作が一切無くても、影響路線が1件以上あれば必ずどれか1件が
+  ハイライトされる。
+- ブラウザでの手動クリックは一時的な override として優先される（`_manualRailOverrideActive`）。
+  override は「自動巡回の対象 (`focusedRailLine.id`) が次に変わるまで」持続し、変わった時点で自動的に解除されて
+  自動追従へ戻る（配信の管理者がブラウザで特定路線を確認したい場合の一時プレビュー用途と、視聴者向けの
+  自動ハイライトを両立）。
+- 選択中路線が障害路線一覧から消えたら（障害解消・API切替）、手動/自動を問わず選択解除し override もリセットする。
+
+E2E追加（`e2e/live-stream-railway-selected-highlight.spec.js`、計9件）:
+
+- クリック無しでの自動選択（デフォルト動作）
+- 3路線での自動巡回が全路線を順番にハイライトすること
+- 手動クリックによる override とその解除（別路線クリック／同一路線再クリック）
+- 手動 override が自動巡回の進行でいずれ解除されること（永久固定されない）
+- 公式カラー・線幅・feature未一致・reduced-motion・回帰確認
+
+回帰確認: `e2e/live-stream.spec.js`（87件全体スイート、railway系5ファイル込み）全PASS。

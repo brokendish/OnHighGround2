@@ -68,10 +68,18 @@ let _railMiniMapView = null;
    リストは render() のたびに #rail-side.innerHTML を丸ごと作り直すため、子要素へ直接
    click listener を付けても再描画のたびに失われる。#rail-side (静的な親要素) へ一度だけ
    delegation で listener を付け、選択状態はこのモジュール側で保持する。
+
+   Phase 7-A.6追補: 配信 (YouTube等) の視聴者はリストをクリックできないため、ブラウザで
+   手動クリックしなくても「現在自動巡回/focus中の1路線」(focusedRailLine — 既存の詳細ポップアップ
+   ・小地図ズームと同じ対象) を自動的に選択状態としてハイライトする。ブラウザ側で手動クリックした
+   場合はそれを一時的な override として優先し、自動巡回が次の対象へ進んだ時点で override を解除して
+   自動追従へ戻す (「巡回に沿って選ばれ続ける」がデフォルト、手動選択は一時プレビュー扱い)。
    ================================================================ */
 let _selectedRailEventId = null;   // 現在選択中の rail.affected[].id (null = 未選択)
 let _selectedRailMatched = null;   // 直近の highlightSelectedRoute() 結果 (true/false/null=未選択)
 let _latestRailAffected = [];      // 直近の render() が受け取った rail.affected (click時の参照用)
+let _manualRailOverrideActive = false; // true の間は自動追従を止め、手動選択を優先する
+let _lastAutoRailFocusId = undefined;  // 直近の focusedRailLine.id (undefined=未初期化, null=対象なし)
 
 function _updateRailListSelectedDom() {
   const container = $s('rail-side');
@@ -111,6 +119,7 @@ function _onRailListClick(evt) {
   const card = evt.target.closest ? evt.target.closest('.rail-card[data-event-id]') : null;
   if (!card || !card.dataset.eventId) return;
   const id = card.dataset.eventId;
+  _manualRailOverrideActive = true; // 次に自動巡回の対象が変わるまで、手動選択を優先する
   if (id === _selectedRailEventId) {
     _clearRailwaySelection();
     return;
@@ -125,6 +134,44 @@ function _onRailListClick(evt) {
   if (!container) return;
   container.addEventListener('click', _onRailListClick);
 })();
+
+/**
+ * render() から毎回呼ぶ、選択状態の単一の同期ポイント。
+ * @param {Array} railAffected  現在の rail.affected (0件含む。rail.status==='error' 時は [])
+ * @param {object|null} focusedRailLine  現在自動巡回/focus中の1路線 (既存の詳細ポップアップ・
+ *   小地図ズームと同じ対象。render() 側で既に算出済みのものをそのまま渡す)
+ */
+function _syncRailSelection(railAffected, focusedRailLine) {
+  _latestRailAffected = railAffected || [];
+
+  // 選択中の路線が一覧から消えていたら (障害解消・API切替等) 、手動/自動を問わず解除する。
+  // 手動 override も併せて解除し、以後は自動追従に戻す (消えた路線に固執させない)。
+  if (_selectedRailEventId && !_latestRailAffected.some(c => c.id === _selectedRailEventId)) {
+    _clearRailwaySelection();
+    _manualRailOverrideActive = false;
+  }
+
+  const autoId = focusedRailLine ? (focusedRailLine.id || null) : null;
+  if (autoId !== _lastAutoRailFocusId) {
+    _lastAutoRailFocusId = autoId;
+    _manualRailOverrideActive = false; // 自動巡回/focusが次の対象へ進んだら、手動選択の優先は打ち切る
+  }
+
+  if (_manualRailOverrideActive) {
+    _updateRailListSelectedDom(); // リストDOMは毎回作り直されるため class だけ再適用する
+    return;
+  }
+
+  if (autoId === _selectedRailEventId) {
+    _updateRailListSelectedDom();
+    return;
+  }
+  if (autoId && focusedRailLine) {
+    _selectRailwayLine(focusedRailLine);
+  } else {
+    _clearRailwaySelection();
+  }
+}
 
 // Stream Phase 4-A/4-B — 自動巡回コントローラの状態変化を購読し、中央地図のカメラを動かす。
 // ユーザー操作は無効のままだが、プログラムによる移動 (flyTo/fitBounds) は許可する。
@@ -1194,8 +1241,6 @@ function render(scene, tick, mapEvents) {
     if (rail.status === 'error') {
       $s('rail-meta').innerHTML = `<span class="quiet">一時的に取得不可</span>`;
       $s('rail-side').innerHTML = `<div class="rail-empty" data-testid="live-stream-rail-unavailable" style="color:#5d6878"><div class="m">一時的に取得不可</div><div class="s">鉄道情報を取得できません</div></div>`;
-      _latestRailAffected = [];
-      if (_selectedRailEventId) _clearRailwaySelection();
     } else if (railOn) {
       $s('rail-meta').innerHTML = rail.affected.length > 1
         ? `<span data-testid="live-stream-rail-target-status">対象 ${railI + 1}/${rail.affected.length}</span><span class="cyc"></span><span class="cyc-note">8s切替</span>`
@@ -1216,21 +1261,14 @@ function render(scene, tick, mapEvents) {
            ${updLine}
          </div>`;
       }).join('');
-      // Phase 7-A.6: リストは毎回作り直されるため selected class を作り直し、click 時の
-      // 参照データも最新化する。選択中の路線が今回の障害路線一覧から消えていたら選択解除する
-      // (障害が解消した路線のハイライトが地図上に残り続けるのを防ぐ)。
-      _latestRailAffected = rail.affected;
-      if (_selectedRailEventId && !rail.affected.some(c => c.id === _selectedRailEventId)) {
-        _clearRailwaySelection();
-      } else {
-        _updateRailListSelectedDom();
-      }
     } else {
       $s('rail-meta').innerHTML = `<span class="quiet" style="color:#7ee0a0">平常運転</span>`;
       $s('rail-side').innerHTML = `<div class="rail-empty" data-testid="live-stream-rail-empty"><i></i><div class="m">影響路線なし</div><div class="s">平常運転</div></div>`;
-      _latestRailAffected = [];
-      if (_selectedRailEventId) _clearRailwaySelection();
     }
+
+    // Phase 7-A.6: リストは毎回作り直されるため selected class の再適用が必要。ここで選択状態
+    // (手動クリック override / 自動巡回追従の同期) をまとめて行う (詳細は _syncRailSelection 参照)。
+    _syncRailSelection(rail.status === 'error' ? [] : (railOn ? rail.affected : []), focusedRailLine);
 
     if (focusedRailLine) _renderRailDetail(focusedRailLine);
     else _clearRailDetail();
