@@ -14,7 +14,7 @@ STREAMER_SERVICE="${STREAMER_SERVICE:-streamer}"
 
 WT_HEIGHT=22
 WT_WIDTH=82
-WT_MENU_HEIGHT=13
+WT_MENU_HEIGHT=14
 
 cd "$APP_DIR" || {
   echo "ERROR: APP_DIR not found: $APP_DIR"
@@ -343,6 +343,100 @@ Next:
 - Check docker stats"
 }
 
+start_stream_unlimited() {
+  if [[ ! -f "$ENV_FILE" ]]; then
+    info_box "ERROR" ".env.stream not found:
+
+$ENV_FILE"
+    return
+  fi
+
+  if is_running; then
+    info_box "Already running" "Streamer is already running:
+
+$CONTAINER_NAME"
+    return
+  fi
+
+  if is_exists; then
+    if yesno "Existing container" "Stopped container exists:
+
+$CONTAINER_NAME
+
+Remove it before starting?"; then
+      docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || {
+        info_box "ERROR" "Failed to remove existing container: $CONTAINER_NAME"
+        return
+      }
+    else
+      return
+    fi
+  fi
+
+  local env_preview
+  env_preview="$(mask_env_preview)"
+
+  if ! yesno "Start YouTube Stream Unlimited" \
+"Start YouTube streaming with no duration limit?
+
+Container:
+$CONTAINER_NAME
+
+Duration:
+Unlimited / manual stop
+
+Stop:
+- Menu: Stop Stream
+- CLI: docker stop $CONTAINER_NAME
+- Emergency: docker rm -f $CONTAINER_NAME
+
+Command:
+$COMPOSE_CMD --profile streamer run -d --rm --name $CONTAINER_NAME -e YOUTUBE_CONFIRM=1 -e STREAM_DURATION_SEC= $STREAMER_SERVICE youtube
+
+Env preview:
+$env_preview
+
+Stream key is masked. Continue?"; then
+    return
+  fi
+
+  local log_file="/tmp/ohg2-streamer-start-unlimited.log"
+  local rc
+
+  $COMPOSE_CMD --profile streamer run -d --rm \
+    --name "$CONTAINER_NAME" \
+    -e YOUTUBE_CONFIRM=1 \
+    -e STREAM_DURATION_SEC= \
+    "$STREAMER_SERVICE" youtube >"$log_file" 2>&1
+  rc=$?
+
+  if [[ $rc -ne 0 ]]; then
+    info_box "Start failed" "Failed to start streamer.
+
+Exit code: $rc
+
+Log:
+$(cat "$log_file")"
+    return
+  fi
+
+  sleep 2
+
+  info_box "Started" "Streamer started.
+
+Container:
+$CONTAINER_NAME
+
+Duration:
+Unlimited / manual stop
+
+Next:
+- Check logs
+- Check YouTube Studio
+- Check docker stats
+- Stop manually when finished"
+}
+
 stop_stream() {
   if ! is_running; then
     info_box "Not running" "Streamer is not running."
@@ -491,7 +585,7 @@ OnHighGround2 /live/stream Stream Controller
 Basic usage:
   1. Validate .env.stream
   2. Start YouTube Stream
-  3. Select duration
+  3. Select duration, or use Unlimited / manual stop
   4. Check logs
   5. Check YouTube Studio / YouTube watch page
   6. Stop Stream if needed
@@ -520,8 +614,10 @@ Notes:
 
 Duration:
   - The menu can override STREAM_DURATION_SEC only for this launch.
+  - Unlimited / manual stop starts with STREAM_DURATION_SEC empty for this launch.
   - .env.stream is not rewritten.
   - 5 hours = 18000 seconds.
+  - Stop unlimited streaming manually from the menu or with docker stop ohg2-streamer.
 
 Checks during streaming:
   - docker logs -f ohg2-streamer
@@ -547,16 +643,17 @@ main_menu() {
     choice=$(whiptail --title "OnHighGround2 Stream Controller [$running_label]" \
       --menu "Choose action" "$WT_HEIGHT" "$WT_WIDTH" "$WT_MENU_HEIGHT" \
       "1" "Status" \
-      "2" "Start YouTube Stream" \
-      "3" "Stop Stream" \
-      "4" "Emergency Stop rm -f" \
-      "5" "Show Logs tail" \
-      "6" "Follow Logs command" \
-      "7" "Docker Stats" \
-      "8" "Record Test" \
-      "9" "Validate .env.stream" \
-      "10" "Manual" \
-      "11" "Exit" \
+      "2" "Start YouTube Stream (duration menu)" \
+      "3" "Start YouTube Stream (unlimited / manual stop)" \
+      "4" "Stop Stream" \
+      "5" "Emergency Stop rm -f" \
+      "6" "Show Logs tail" \
+      "7" "Follow Logs command" \
+      "8" "Docker Stats" \
+      "9" "Record Test" \
+      "10" "Validate .env.stream" \
+      "11" "Manual" \
+      "12" "Exit" \
       3>&1 1>&2 2>&3)
 
     local rc=$?
@@ -565,15 +662,16 @@ main_menu() {
     case "$choice" in
       1) show_status ;;
       2) start_stream ;;
-      3) stop_stream ;;
-      4) kill_stream ;;
-      5) show_logs ;;
-      6) follow_logs_hint ;;
-      7) show_stats ;;
-      8) record_test ;;
-      9) validate_env ;;
-      10) show_manual ;;
-      11) exit 0 ;;
+      3) start_stream_unlimited ;;
+      4) stop_stream ;;
+      5) kill_stream ;;
+      6) show_logs ;;
+      7) follow_logs_hint ;;
+      8) show_stats ;;
+      9) record_test ;;
+      10) validate_env ;;
+      11) show_manual ;;
+      12) exit 0 ;;
     esac
   done
 }
