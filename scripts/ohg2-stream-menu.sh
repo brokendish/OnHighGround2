@@ -406,7 +406,7 @@ Stream key is masked. Continue?"; then
   $COMPOSE_CMD --profile streamer run -d --rm \
     --name "$CONTAINER_NAME" \
     -e YOUTUBE_CONFIRM=1 \
-    -e STREAM_DURATION_SEC= \
+    -e STREAM_DURATION_SEC=0 \
     "$STREAMER_SERVICE" youtube >"$log_file" 2>&1
   rc=$?
 
