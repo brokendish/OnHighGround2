@@ -98,6 +98,11 @@ class LiveStreamMapView {
       if ((this.mode === 'center' || this.mode === 'rail-mini') && typeof LiveStreamRailwayLayer !== 'undefined') {
         LiveStreamRailwayLayer.init(this.map, { key: this.mode });
       }
+      // 市区町村境界線 (Phase 8-B): 地震・キキクル/豪雨の小画面のみ対象 (中央地図・鉄道小画面は対象外)。
+      // moveend で自動再描画されるため、ここでは初期登録のみ行う。
+      if ((this.mode === 'eq-mini' || this.mode === 'rain-mini') && typeof LiveStreamMunicipalityBoundary !== 'undefined') {
+        LiveStreamMunicipalityBoundary.init(this.map, { key: this.mode });
+      }
 
       this._pulseLayer  = L.layerGroup().addTo(this.map);
       this._markerLayer = L.layerGroup().addTo(this.map);

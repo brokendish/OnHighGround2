@@ -45,6 +45,29 @@ let _rainMiniMapActiveId = null; // 直近で flyTo した対象 id (同一対�
   _rainMiniMapView = ok ? view : null;
 })();
 
+// Phase 8-B: キキクル/豪雨小地図の代表点 (rainCur.lat/lon) から、含まれる市区町村を逆引きして
+// ラベル表示する (キキクル/豪雨データ自体には市区町村名が無い — JMA予報区単位のため)。
+// 対象が変わった時だけ呼ぶ (呼び出し側で rainCur.id 変化時のみ起動する)。非同期のため、
+// 問い合わせ中に対象が切り替わったら古い結果は捨てる (トークンで判定)。
+let _rainMuniLookupToken = 0;
+async function _syncRainMunicipalityLabel(lat, lng) {
+  if (typeof LiveStreamMunicipalityBoundary === 'undefined') return;
+  const token = ++_rainMuniLookupToken;
+  let muni = null;
+  try {
+    muni = await LiveStreamMunicipalityBoundary.findMunicipalityAt(lat, lng);
+  } catch (_) {
+    muni = null;
+  }
+  if (token !== _rainMuniLookupToken) return; // 別対象へ切り替わっていたら古い結果は破棄する
+  if (muni) {
+    LiveStreamMunicipalityBoundary.setLabels('rain-mini', [{ lat, lng, name: muni.name, priority: 1 }], { maxCount: 5 });
+  } else {
+    // 東京都・神奈川県以外 (現状のデータ提供範囲外) は該当自治体なし。ラベルなしのままでよい。
+    LiveStreamMunicipalityBoundary.clearLabels('rain-mini');
+  }
+}
+
 // 鉄道子画面 小地図 — Stream Phase 5-A.1 (railway calm map): 平常時 (影響路線0件) でも
 // 首都圏ODPT対応路線が収まる範囲で路線図を表示するため、SVGモック(RAIL_LINES_BASE 4路線のみ)から
 // 本番Leaflet+PMTiles地図 (中央地図と同じ全国路線データ・同じ公式カラー表) へ移行する。
@@ -440,6 +463,16 @@ function _eqMuniMarkerObjsLeaflet(list) {
   }));
 }
 
+// Phase 8-B: 小地図に表示中の震度マーカー (frameGroup) から、境界線ラベルに出す自治体を選ぶ。
+// 優先案「震度表示対象自治体のみ表示」+ 優先度「震度が高い」を、既に表示中のマーカー集合を
+// そのまま使うことで満たす (表示中マーカーと表示中ラベルが必ず一致する)。件数上限は呼び出し側
+// (LiveStreamMunicipalityBoundary.setLabels の maxCount) で制御する。
+function selectEarthquakeMunicipalityLabels(frameGroup) {
+  return (frameGroup || [])
+    .filter(m => m.lat != null && m.lng != null)
+    .map(m => ({ lat: m.lat, lng: m.lng, name: m.city, priority: m.intensityRank || 0 }));
+}
+
 // 小地図に震源 + 市区町村震度マーカーを描く。
 // Stream Phase 5-A bundle: Leaflet本番地図化 (_eqMiniMapView)。Leaflet未初期化/失敗時は
 // Phase 5-A.1 時点のSVGモック小地図へフォールバックする (中央地図と同じフォールバック方針)。
@@ -472,6 +505,7 @@ function _renderEqMiniMapLeaflet(plan, eqCur, frameIndex, animated) {
     el.dataset.eqMiniMapFrameIndex = '0';
     el.dataset.eqMiniMapFrameTotal = '0';
     _eqMiniMapView.clearIntensityMarkers();
+    if (typeof LiveStreamMunicipalityBoundary !== 'undefined') LiveStreamMunicipalityBoundary.clearLabels('eq-mini');
     if (hasEpicenter) _eqMiniMapView.fitTo([[eqCur.lat, eqCur.lon]], { animate: animated, singleZoom: 7 });
     else _eqMiniMapView.fitJapan(animated);
     return;
@@ -481,6 +515,9 @@ function _renderEqMiniMapLeaflet(plan, eqCur, frameIndex, animated) {
   const idx = Math.max(0, Math.min(frameIndex, frames.length - 1));
   const frameGroup = frames[idx] || [];
   _eqMiniMapView.setIntensityMarkers(_eqMuniMarkerObjsLeaflet(frameGroup));
+  if (typeof LiveStreamMunicipalityBoundary !== 'undefined') {
+    LiveStreamMunicipalityBoundary.setLabels('eq-mini', selectEarthquakeMunicipalityLabels(frameGroup), { maxCount: 6 });
+  }
 
   el.dataset.eqMiniMapFrameIndex = String(idx + 1);
   el.dataset.eqMiniMapFrameTotal = String(frames.length);
@@ -1112,6 +1149,7 @@ function render(scene, tick, mapEvents) {
     if (_eqMiniMapView && !_eqMiniMapView.failed) {
       _eqMiniMapView.clearPulses();
       _eqMiniMapView.clearIntensityMarkers();
+      if (typeof LiveStreamMunicipalityBoundary !== 'undefined') LiveStreamMunicipalityBoundary.clearLabels('eq-mini');
       _eqMiniMapView.fitJapan(false);
     } else {
       const eqMapEl = $s('eq-map');
@@ -1149,10 +1187,13 @@ function render(scene, tick, mapEvents) {
         if (rainCur.id !== _rainMiniMapActiveId) {
           _rainMiniMapActiveId = rainCur.id;
           _rainMiniMapView.focusOn(rainCur.lat, rainCur.lon, 8);
+          _syncRainMunicipalityLabel(rainCur.lat, rainCur.lon);
         }
       } else {
         _rainMiniMapView.clearPulses();
         _rainMiniMapActiveId = null;
+        _rainMuniLookupToken += 1; // 進行中の問い合わせを無効化
+        if (typeof LiveStreamMunicipalityBoundary !== 'undefined') LiveStreamMunicipalityBoundary.clearLabels('rain-mini');
       }
     } else {
       zoomToTarget(
@@ -1178,8 +1219,10 @@ function render(scene, tick, mapEvents) {
       </div>`;
   } else {
     _rainMiniMapActiveId = null;
+    _rainMuniLookupToken += 1; // 進行中の問い合わせを無効化
     if (_rainMiniMapView && !_rainMiniMapView.failed) {
       _rainMiniMapView.clearPulses();
+      if (typeof LiveStreamMunicipalityBoundary !== 'undefined') LiveStreamMunicipalityBoundary.clearLabels('rain-mini');
       _rainMiniMapView.fitJapan(false);
     } else {
       const rainMapEl = $s('rain-map');

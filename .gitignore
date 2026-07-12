@@ -107,6 +107,16 @@ frontend/layers/*/*/
 !frontend/layers/roads/
 !frontend/layers/roads/kanto_roads_main.geojson
 !frontend/layers/roads/kanto_roads_tertiary.geojson
+# 行政区域 (市区町村境界) データは gitignore 例外として追跡する。
+# municipality_boundaries/ (全国8地方ブロック, Phase 8-B.1) は
+# scripts/download/download_municipality_boundaries_nationwide.py +
+# scripts/derive/simplify_municipality_boundaries.py で再生成可能だが、
+# 生成に外部ネットワークアクセスが要るため、成果物 GeoJSON 自体もコミットしローカル限定にしない。
+!frontend/layers/administrative/
+!frontend/layers/administrative/tokyo_boundary.geojson
+!frontend/layers/administrative/kanagawa_boundary.geojson
+!frontend/layers/administrative/municipality_boundaries/
+!frontend/layers/administrative/municipality_boundaries/*.geojson
 OnHighGround2_presentation.pptx
 
 # ---- Node / Playwright ----

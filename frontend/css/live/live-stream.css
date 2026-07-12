@@ -238,6 +238,18 @@ html, body {
 .stream-eq-intensity-marker--6-upper { background: #b71c1c; color: #fff; }
 .stream-eq-intensity-marker--7       { background: #4a148c; color: #fff; }
 
+/* Phase 8-B: 小地図 (地震/キキクル・豪雨) の市区町村境界ラベル。
+   面情報・マーカーの上に浮かせる想定のため、YouTube縮小表示でも潰れないコントラストを優先する。 */
+.live-muni-label-icon { background: none; border: none; }
+.live-muni-label {
+  font: 700 10px var(--mono);
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px rgba(0,0,0,.8);
+  transform: translate(-50%, -140%); /* 対応地点マーカーの少し上に表示し、マーカー自体は隠さない */
+  pointer-events: none;
+}
+
 /* リスト行 */
 .row { display: flex; align-items: center; gap: 7px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
 .row .tm  { font: 12px var(--mono); color: var(--ink-3); width: 34px; flex: none; }
