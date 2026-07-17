@@ -2204,6 +2204,16 @@
             color: #1565c0;
             box-shadow: 0 4px 16px rgba(21, 101, 192, 0.18);
         }
+        /* 全国災害LIVE（落ち着いた赤で識別。津波・重大警報の真紅とは区別）
+           a.map-overlay-btn.-- で詳細度を確保し、Leaflet既定の a { color } を上書きする */
+        a.map-overlay-btn.map-overlay-btn--live {
+            color: #9f2f2f;
+        }
+        a.map-overlay-btn.map-overlay-btn--live:hover,
+        a.map-overlay-btn.map-overlay-btn--live:focus-visible {
+            background: rgba(255, 231, 228, 0.97);
+            color: #c0392b;
+        }
 
         /* ── 雨量レーダー凡例（凡例パネル内） ──────────────── */
         #rain-legend {
@@ -4509,6 +4519,16 @@
                             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
                         </svg>
                         <span>全国</span>
+                    </a>
+
+                    <!-- 全国災害LIVE -->
+                    <a href="/live/stream" id="live-broadcast-btn" class="map-overlay-btn map-overlay-btn--live" aria-label="全国災害LIVEを開く" title="全国の災害状況を確認">
+                        <svg class="mou-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="5" cy="19" r="1.4" fill="currentColor" stroke="none"/>
+                            <path d="M4 11a9 9 0 0 1 9 9"/>
+                            <path d="M4 4a16 16 0 0 1 16 16"/>
+                        </svg>
+                        <span>LIVE</span>
                     </a>
 
                 </div><!-- /#map-top-right-controls -->
