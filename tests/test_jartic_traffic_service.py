@@ -142,6 +142,75 @@ def test_normalize_feature_both_missing_up_down_null():
     assert result["total"] is None
 
 
+# ── status 分類（/live の classify_volume を流用） ───────────────────────────────
+
+def test_normalize_feature_status_matches_live_classify_volume():
+    """jartic_traffic_service の status は /live の classify_volume と同一結果になる。"""
+    from app.services.jartic_traffic_service import normalize_feature
+    from app.services.live_road_traffic_service import classify_volume
+
+    feature = {
+        "geometry": {"type": "MultiPoint", "coordinates": [[139.7, 35.6]]},
+        "properties": {
+            "常時観測点コード": "X010",
+            "観測年月日": 20260629,
+            "時間帯": 1000,
+            "上り・小型交通量": 140,
+            "上り・大型交通量": 20,
+            "上り・車種判別不能交通量": 0,
+            "下り・小型交通量": 5,
+            "下り・大型交通量": 0,
+            "下り・車種判別不能交通量": 0,
+        },
+    }
+    result = normalize_feature(feature)
+    assert result is not None
+    # 上り = 160台 → very_high、下り = 5台 → low（/live と同一の閾値関数を使用）
+    assert result["status_up"]   == classify_volume(160, None)
+    assert result["status_down"] == classify_volume(5, None)
+    assert result["status_up"]   == "very_high"
+    assert result["status_down"] == "low"
+    # マーカー色に使う status は severity の高い方（very_high）
+    assert result["status"] == "very_high"
+    assert result["status_label"] == "交通量非常に多い"
+
+
+def test_normalize_feature_status_unknown_when_missing():
+    """上り・下りとも欠測なら status は unknown（'状態不明'）になる。"""
+    from app.services.jartic_traffic_service import normalize_feature
+    feature = {
+        "geometry": {"type": "MultiPoint", "coordinates": [[139.7, 35.6]]},
+        "properties": {
+            "常時観測点コード": "X011",
+            "観測年月日": 20260629,
+            "時間帯": 1000,
+            "上り・欠測": "1",
+            "下り・欠測": "1",
+        },
+    }
+    result = normalize_feature(feature)
+    assert result is not None
+    assert result["status"] == "unknown"
+    assert result["status_label"] == "状態不明"
+
+
+def test_mock_items_include_status_fields():
+    """モックモードでも status/status_label が付与される。"""
+    import app.services.jartic_traffic_service as svc
+    svc._cache = None; svc._cache_at = 0.0
+
+    with patch.dict(os.environ, {"JARTIC_TRAFFIC_USE_MOCK": "true"}):
+        result = _run(svc.get_traffic_observations())
+
+    assert result["status"] == "ok"
+    for item in result["items"]:
+        assert "status" in item
+        assert "status_label" in item
+
+    statuses = {it["status"] for it in result["items"]}
+    assert len(statuses) >= 2, "モックデータは複数カテゴリを含むこと"
+
+
 # ── _filter_bbox ──────────────────────────────────────────────────────────────
 
 def test_filter_bbox_inside():

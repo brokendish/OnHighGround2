@@ -14,6 +14,10 @@ GET /api/jartic/traffic
   TTL 300秒（5分）。メモリキャッシュ + ファイルスナップショット。
   ファイル: data_runtime/backend/jartic/latest_traffic.json
   マニフェスト: data_runtime/backend/jartic/manifest.json
+
+交通量カテゴリ判定:
+  /live 側 (app.services.live_road_traffic_service.classify_volume) をそのまま
+  流用する。通常画面独自の閾値は新設しない（Phase 7-B.3）。
 """
 from __future__ import annotations
 
@@ -26,6 +30,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+
+from app.models.live_road_traffic import SEVERITY, STATUS_LABEL
+from app.services.live_road_traffic_service import classify_volume
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +61,7 @@ def _use_mock() -> bool:
 
 def _mock_items() -> List[Dict[str, Any]]:
     now = datetime.now(_JST).isoformat()
-    return [
+    items = [
         {
             "code": "M001", "lat": 35.6812, "lon": 139.7671,
             "up": 320, "down": 280, "total": 600,
@@ -73,7 +80,24 @@ def _mock_items() -> List[Dict[str, Any]]:
             "small": None, "large": None,
             "observed_at": now, "unit": None, "type": None,
         },
+        {
+            "code": "M004", "lat": 35.6997, "lon": 139.7738,
+            "up": 40, "down": 12, "total": 52,
+            "small": 45, "large": 7,
+            "observed_at": now, "unit": "5min", "type": "常設",
+        },
     ]
+    for item in items:
+        status_up   = classify_volume(item["up"], None)
+        status_down = classify_volume(item["down"], None)
+        status = status_up if SEVERITY[status_up] >= SEVERITY[status_down] else status_down
+        item["status"]            = status
+        item["status_label"]      = STATUS_LABEL[status]
+        item["status_up"]         = status_up
+        item["status_up_label"]   = STATUS_LABEL[status_up]
+        item["status_down"]       = status_down
+        item["status_down_label"] = STATUS_LABEL[status_down]
+    return items
 
 
 # ── WFS URL 構築 ──────────────────────────────────────────────────────────────
@@ -188,18 +212,30 @@ def normalize_feature(feature: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     elif road_type == "3":
         obs_type = "一般国道"
 
+    # 交通量カテゴリ（/live と同一の classify_volume を使用。上り・下りそれぞれ判定し、
+    # マーカー色は severity が高い方（悪化側）を採用する。同点時は上りを優先）
+    status_up   = classify_volume(up, None)
+    status_down = classify_volume(down, None)
+    status = status_up if SEVERITY[status_up] >= SEVERITY[status_down] else status_down
+
     return {
-        "code":        str(code),
-        "lat":         lat,
-        "lon":         lng,
-        "up":          up,
-        "down":        down,
-        "total":       total,
-        "small":       small,
-        "large":       large,
-        "observed_at": observed_at,
-        "unit":        unit,
-        "type":        obs_type,
+        "code":             str(code),
+        "lat":              lat,
+        "lon":              lng,
+        "up":               up,
+        "down":             down,
+        "total":            total,
+        "small":            small,
+        "large":            large,
+        "observed_at":      observed_at,
+        "unit":             unit,
+        "type":             obs_type,
+        "status":           status,
+        "status_label":     STATUS_LABEL[status],
+        "status_up":        status_up,
+        "status_up_label":  STATUS_LABEL[status_up],
+        "status_down":      status_down,
+        "status_down_label": STATUS_LABEL[status_down],
     }
 
 

@@ -772,7 +772,7 @@ function buildLayerPanel() {
 
     const jtDot = document.createElement('span');
     jtDot.className = 'shelter-panel-dot';
-    jtDot.style.cssText = 'background:#42a5f5; border:1.5px solid #1565c0;';
+    jtDot.style.cssText = 'background:#9ca3af; border:1.5px solid #ffffff;';
 
     jtToggle.addEventListener('change', () => {
         if (jtToggle.checked) {
@@ -788,13 +788,19 @@ function buildLayerPanel() {
 
     jtToggleLbl.appendChild(jtToggle);
     jtToggleLbl.appendChild(jtDot);
-    jtToggleLbl.appendChild(document.createTextNode(' 交通量観測点'));
+    // ラベル文言は仕様書の指定どおり「道路交通量」を使用する（省略・改称しない）
+    jtToggleLbl.appendChild(document.createTextNode(' 道路交通量'));
     container.appendChild(jtToggleLbl);
 
     const jtNote = document.createElement('div');
     jtNote.style.cssText = 'font-size:10px; color:#888; padding:2px 0 4px 18px;';
-    jtNote.textContent = '表示範囲内の観測点のみ表示 / 出典: JARTIC';
+    jtNote.textContent = '表示範囲内の観測点のみ表示 / /live と同じ色分け・凡例 / 出典: JARTIC';
     container.appendChild(jtNote);
+
+    const jtStatus = document.createElement('div');
+    jtStatus.id = 'jartic-traffic-status';
+    jtStatus.style.cssText = 'font-size:10px; color:#b45309; padding:0 0 4px 18px; min-height:12px;';
+    container.appendChild(jtStatus);
 
     panel.appendChild(container);
     syncHazardLayerPanelState();
@@ -857,6 +863,16 @@ function buildLegendPanel() {
     kkkLegendEl.id = 'kkk-legend';
     kkkLegendEl.style.display = 'none';
     panel.appendChild(kkkLegendEl);
+
+    // 道路交通量凡例スロット（jartic-traffic-layer.js が内容を管理。/live と共通の分類）
+    const jtSep = document.createElement('hr');
+    jtSep.className = 'legend-section-sep';
+    panel.appendChild(jtSep);
+
+    const jtLegendEl = document.createElement('div');
+    jtLegendEl.id = 'jartic-traffic-legend';
+    jtLegendEl.style.display = 'none';
+    panel.appendChild(jtLegendEl);
 }
 
 // ── レイヤーパネル トグル ─────────────────────────────────────────────────
