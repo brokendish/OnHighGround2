@@ -61,3 +61,6 @@ class TrainInfoItem(TypedDict):
     matched_geojson: bool
     lat:             NotRequired[float]
     lng:             NotRequired[float]
+    license:              NotRequired[str]
+    license_terms_url:    NotRequired[str]
+    license_confirmed_at: NotRequired[str]

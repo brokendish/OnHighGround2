@@ -16,14 +16,15 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.admin_dataset import JobAccepted, JobType
 from app.services.admin_hazard_service import AdminHazardService
 from app.services.admin_log_service import get_admin_log_service, write_navigation_log
 from app.services.job_manager import get_job_manager
+from app.services.operator_auth import OperatorPrincipal, require_operator_role
 from app.services import pipeline_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -37,6 +38,9 @@ _OSRM_PROFILE_DATASET_ID = "__osrm_walking_profile"
 
 
 class NavigationLogRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     level: str = Field(default="INFO")
     message: str
     context: Optional[dict] = None
@@ -105,7 +109,10 @@ async def post_navigation_log(payload: NavigationLogRequest):
 
 
 @router.post("/osrm/rebuild", response_model=JobAccepted)
-async def rebuild_osrm_walking():
+async def rebuild_osrm_walking(
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     """
     foot.lua を Config 値で更新し、OSRM ウォーキングエンジンを再ビルドする。
     即座に job_id を返す。進捗は GET /api/admin/jobs/{job_id} で確認する。
@@ -119,7 +126,10 @@ async def rebuild_osrm_walking():
             detail="OSRMプロファイルの再ビルドが既に実行中です。完了をお待ちください。",
         )
 
-    job = jm.create(_OSRM_PROFILE_DATASET_ID, JobType.osrm_rebuild, requested_by="ui")
+    job = jm.create(
+        _OSRM_PROFILE_DATASET_ID, JobType.osrm_rebuild, requested_by="ui",
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     jm.submit(job, pipeline_service.run_osrm_profile_rebuild(job, jm))
 
     try:

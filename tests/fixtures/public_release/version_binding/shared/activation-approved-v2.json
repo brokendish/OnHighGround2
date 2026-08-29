@@ -1,0 +1,14 @@
+{
+  "registry_name": "p2a-at18-20-assertion-registry",
+  "registry_version": "p2a-at18-20-v2",
+  "schema_version": "1.0",
+  "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+  "previous_state": "CANDIDATE_PENDING_INDEPENDENT_REVIEW",
+  "new_state": "APPROVED_ACTIVE",
+  "reviewer": "CODEX",
+  "review_timestamp_with_timezone": "2026-08-02T14:01:53+09:00",
+  "review_verdict": "PASS — READY FOR PHASE 2-B IMPLEMENTATION",
+  "review_evidence_path": "tasks/public-release/github_public_audit_phase2a_codex_verification.md",
+  "baseline_branch": "main",
+  "baseline_commit": "d3eeb99fd5f214487939d7a0df599e1d56835128"
+}

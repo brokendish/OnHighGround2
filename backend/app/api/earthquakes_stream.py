@@ -19,7 +19,9 @@ router = APIRouter(prefix="/api/earthquakes", tags=["earthquakes"])
 dev_router = APIRouter(prefix="/api/dev", tags=["dev"])
 logger = logging.getLogger(__name__)
 
-_DEV_PUBLISH_ENABLED = os.getenv("DEV_EARTHQUAKE_PUBLISH", "true").lower() not in ("false", "0", "no")
+# 開発用routerを明示的に利用する場合でも、未設定はfail-closedとする。
+# public entrypointは dev_router 自体を登録しない（P2E-R51-SEC-001）。
+_DEV_PUBLISH_ENABLED = os.getenv("DEV_EARTHQUAKE_PUBLISH", "false").lower() not in ("false", "0", "no")
 _KEEPALIVE_INTERVAL = 30  # seconds
 
 # SSEペイロードから除去するメタフィールド（内部用、クライアントへ送らない）
@@ -97,7 +99,7 @@ class DevEarthquakePublishRequest(BaseModel):
 
 @dev_router.post("/earthquakes/publish")
 async def dev_publish_earthquake(body: DevEarthquakePublishRequest) -> Dict[str, Any]:
-    """開発用: ダミー地震イベントをSSEに配信する。DEV_EARTHQUAKE_PUBLISH=false で無効化。"""
+    """開発用: ダミー地震イベントをSSEに配信する。明示true以外は無効化。"""
     if not _DEV_PUBLISH_ENABLED:
         raise HTTPException(status_code=403, detail="dev publish is disabled")
     event = body.model_dump()

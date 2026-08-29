@@ -1,0 +1,1 @@
+{"assertion_id": "AT20-A02", "executor": "Claude", "exit_code": 0, "registry_name": "p2a-at18-20-assertion-registry", "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799", "registry_version": "p2a-at18-20-v2", "run_id": "6ed0d4ab60fd46d380ea512562a25c2a", "schema_version": "1.0", "verdict": "PASS"}

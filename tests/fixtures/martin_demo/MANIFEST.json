@@ -1,0 +1,21 @@
+{
+  "purpose": "Phase 2-D AT-17A demo profile — Martin実機起動検証用の最小fixture",
+  "phase": "Phase 2-D (Martin AT-17A Docker実機finding対応、CODEX report 2026-08-21)",
+  "data_classification": "SYNTHETIC — NOT real hazard/geographic data",
+  "note_ja": "本ディレクトリのMBTilesは、Martinが実際に起動・source読込み・tile応答できることだけを検証するための合成データである。実際の災害・地理情報を一切含まない。地図上に表示しても意味を持つコンテンツではなく、1x1ピクセルの完全透明PNG（zoom=0のみ）である。",
+  "files": [
+    {
+      "path": "ohg2_demo_tile.mbtiles",
+      "generated_by": "generate_minimal_mbtiles.py（同ディレクトリ、Python標準ライブラリのみ、外部ツール不要）",
+      "generation_command": "python3 tests/fixtures/martin_demo/generate_minimal_mbtiles.py --output tests/fixtures/martin_demo/ohg2_demo_tile.mbtiles",
+      "deterministic": true,
+      "determinism_verified": "同一Python/SQLiteバージョンで2回生成し、bit-identical（diffなし）であることを確認済み（2026-08-21）",
+      "sha256": "84804c109afc621e81e3643523eb491147be581cf5122b4c4f4b8a94482f8d8a",
+      "size_bytes": 16384,
+      "schema": "MBTiles 1.3 (metadata + tiles table, raster PNG)",
+      "content_summary": "zoom=0/x=0/y=0の1タイルのみ。1x1ピクセル完全透明PNG（68 bytes）。",
+      "source": "none — synthetic, generated programmatically, not derived from any external dataset",
+      "license": "このrepository自身のLICENSEに準ずる（外部データソースのlicense条項は一切関与しない、合成データのため）"
+    }
+  ]
+}

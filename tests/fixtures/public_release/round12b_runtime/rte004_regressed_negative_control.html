@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!--
+  NEW-RTE-004 negative control ONLY. This is a deliberately regressed
+  SYNTHETIC fixture, never the approved application bytes (operator-auth.js
+  is untouched). It exists solely to prove the Round 12B storage-scan
+  harness is not vacuously true: a build that stores the operator token in
+  localStorage MUST be detected as FAILING the storage-scan assertion.
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>Regressed synthetic fixture (negative control only)</title></head>
+<body>
+<div id="operator-auth-bar">
+  <input type="password" id="tok" autocomplete="off">
+  <button id="connect" type="button">connect</button>
+</div>
+<script>
+document.getElementById('connect').addEventListener('click', () => {
+  const v = document.getElementById('tok').value;
+  // Deliberately regressed behavior under test: persists the raw token to
+  // localStorage, which the real operator-auth.js never does.
+  localStorage.setItem('operator_token_REGRESSED', v);
+});
+</script>
+</body>
+</html>

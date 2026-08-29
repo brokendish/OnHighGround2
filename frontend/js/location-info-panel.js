@@ -217,8 +217,12 @@ function _lipFormatDuration(durationSeconds) {
 
 function _lipDescribeDestinationHazard(dest) {
     if (!dest) return '';
-    if (dest.hazard_safe === true) return '✅ 危険区域外';
-    if (dest.hazard_safe === false) return '⚠️ 危険区域内の可能性';
+    if (dest.hazard_coverage_status && typeof computeAggregateStatus === 'function') {
+        const aggStatus = computeAggregateStatus(dest.hazard_coverage_status);
+        if (aggStatus === HAZARD_DETECTED) return `⚠️ ${HAZARD_DETECTED_TEXT}`;
+        if (aggStatus === NO_HAZARD_RECORD) return `✔ ${NO_HAZARD_RECORD_TEXT}`;
+        if (aggStatus === SOURCE_UNAVAILABLE) return `❓ ${SOURCE_UNAVAILABLE_TEXT}`;
+    }
     if (Array.isArray(dest.hazard_types) && dest.hazard_types.length > 0) {
         return `対応ハザード: ${dest.hazard_types.map(getHazardDisplayName).join(' / ')}`;
     }

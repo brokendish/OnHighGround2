@@ -28,25 +28,16 @@ const OSRM_SERVICE_URLS = {
 // true にすると apiFetch の試行ログをコンソールに出力する
 const DEBUG_API_FETCH = true;
 
+// Phase 2-B.4（ガードレール例外、ユーザー承認済み。
+// tasks/public-release/phase2b4_navigation_guardrail_exception.md 参照）:
+// 運用設定の管理APIはoperator専用経路（/admin/ 配下）へ物理分離された。
+// public UIは管理APIへ到達できず到達すべきでもないため、リモート取得は
+// 行わず各呼び出し側が指定する組み込みデフォルト値
+// （getRuntimeConfigValue の fallback 引数）だけを常に使用する。
 async function loadRuntimeConfig() {
-    try {
-        const response = await apiFetch('/api/admin/config');
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const items = await response.json();
-        appRuntimeConfig = Object.fromEntries(
-            items.map(item => [item.key, item.current_value])
-        );
-        appRuntimeConfigLoaded = true;
-        appRuntimeConfigError = null;
-        console.info('[config] runtime config loaded', appRuntimeConfig);
-    } catch (error) {
-        appRuntimeConfig = {};
-        appRuntimeConfigLoaded = false;
-        appRuntimeConfigError = error;
-        console.warn('[config] runtime config load failed; using built-in defaults', error);
-    }
+    appRuntimeConfig = {};
+    appRuntimeConfigLoaded = false;
+    appRuntimeConfigError = null;
 }
 
 function getRuntimeConfigValue(key, fallback) {
@@ -56,56 +47,12 @@ function getRuntimeConfigValue(key, fallback) {
 }
 
 // ── Config変更SSE ────────────────────────────────────────────────
-// バックエンドのPUT /api/admin/config/{key} 成功後に config_updated イベントが届く。
-// 受信したら loadRuntimeConfig() で全件再取得し appRuntimeConfig を更新する。
-// navigation.js 等は次回判定から自動的に新値を参照する。
-
-let _configChangeEventSource = null;
-
+// Phase 2-B.4（ガードレール例外、ユーザー承認済み）: 運用設定の変更通知は
+// operator専用経路の管轄となり、public UIからは購読しない（購読先は
+// public側に存在しない）。app.js からの既存呼び出しを壊さないよう
+// 関数自体は残すが、no-opとする。
 function initConfigChangeSSE() {
-    if (_configChangeEventSource) return;
-    const url = '/api/admin/config/stream';
-    try {
-        const es = new EventSource(url);
-        _configChangeEventSource = es;
-
-        es.addEventListener('config_updated', async (event) => {
-            let updatedKey = null;
-            try {
-                const { key } = JSON.parse(event.data);
-                updatedKey = key;
-                console.info('[config] SSE config_updated key=' + key + '; reloading runtime config');
-            } catch (_) { /* parse失敗は無視 */ }
-            try {
-                await loadRuntimeConfig();
-                if (updatedKey) {
-                    window.dispatchEvent(new CustomEvent('ohg:runtime-config-updated', {
-                        detail: { key: updatedKey }
-                    }));
-                }
-            } catch (err) {
-                console.warn('[config] runtime config reload failed; keeping existing values', err);
-            }
-        });
-
-        es.addEventListener('heartbeat', () => {
-            // 接続維持確認のみ。ログには出さない。
-        });
-
-        es.onerror = () => {
-            // readyState が CLOSED の場合はブラウザが自動再接続を諦めた状態。
-            // 参照をリセットして 5 秒後に再接続を試みる。
-            if (es.readyState === EventSource.CLOSED) {
-                _configChangeEventSource = null;
-                setTimeout(() => initConfigChangeSSE(), 5000);
-            }
-            // CONNECTING/OPEN の場合はブラウザが自動再接続するため何もしない。
-        };
-
-        console.info('[config] config change SSE connected:', url);
-    } catch (err) {
-        console.warn('[config] failed to connect config change SSE:', err);
-    }
+    // 意図的なno-op。public UIはリモート運用設定を購読しない。
 }
 
 // ── 避難場所リージョン定義 ──────────────────────────────────────────

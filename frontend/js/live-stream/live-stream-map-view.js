@@ -79,12 +79,18 @@ class LiveStreamMapView {
       });
 
       const baseTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>) &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
         subdomains:  'abcd',
         maxZoom:     19,
       }).addTo(this.map);
       // 初回タイル読み込み完了直後に popup スタッキング修正を適用する (詳細は _applyPopupStackingFix 参照)。
       baseTileLayer.once('load', _applyPopupStackingFix);
+
+      // Phase 2-D Round 2 (P2D-UI-ATTRIBUTION): 中央メイン地図のみ基本attribution
+      // （国土数値情報ハザード・GSI DEM・気象庁）を追加する（小画面widgetでの過密表示を避ける）。
+      if (this.mode === 'center' && typeof OHG2Attribution !== 'undefined') {
+        OHG2Attribution.installBaseAttribution(this.map);
+      }
 
       // 雨雲(降水ナウキャスト)レイヤーは中央メイン地図・キキクル/豪雨子画面小地図 (rain-mini) の
       // 両方に載せる (Stream Phase 5-A.1: 「場所の特定が困難」なモック地図から本番地図へ移行)。

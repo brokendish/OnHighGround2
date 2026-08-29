@@ -39,6 +39,7 @@ from app.models.admin_dataset import (
 from app.services.config_definition_service import get_config_definition_service
 from app.services.config_state_service import get_config_state_service
 from app.services.dataset_state_service import DatasetStateService
+from app.services.docker_operation_gateway import DockerOperationError, execute_operation
 from app.services.job_manager import JobManager
 
 logger = logging.getLogger(__name__)
@@ -53,10 +54,8 @@ _OSRM_REQUIRED_SUFFIXES = (
     ".osrm.fileIndex",
     ".osrm.ramIndex",
 )
-_OSRM_CONTAINER_NAMES = {
-    "driving": "evacuation-navi-osrm-driving",
-    "walking": "evacuation-navi-osrm-walking",
-}
+# Phase 2-B.3: 対象container名の固定catalogはdocker_operation_gateway.pyへ
+# 一元化した（allowlistの単一の真実源）。_MARTIN_CONTAINER_NAMEはログ表示専用。
 _MARTIN_CONTAINER_NAME = "evacuation-navi-martin"
 
 
@@ -226,6 +225,54 @@ def _fail(
         action_message=action_message,
         exit_code=exit_code,
     )
+
+
+def _job_actor_id(job: Job) -> str:
+    """Phase 2-B.3: job.actor_idはauthenticated operator requestから伝播した
+    値（sha256(token)先頭12hex）。system起因・Phase 2-B.3以前のjobではNoneの
+    ため"system"を明示fallbackとする（"unknown"への黙示置換はしない）。"""
+    return job.actor_id or "system"
+
+
+def _job_request_id(job: Job) -> str:
+    return job.request_id or job.job_id
+
+
+async def _run_docker_operation(
+    operation_id: str, job: Job, jm: JobManager,
+) -> int:
+    """docker_operation_gateway.execute_operation()を呼び出し、既存の
+    `_run_subprocess`と互換な戻り値（returncode相当のint）を返す。
+
+    DockerOperationErrorはこの関数からは送出しない（呼出元の`_fail()`呼出し
+    パターンをそのまま使えるよう、固定returncode相当の値へ変換する）。
+    ただし`AUDIT_SINK_FAILURE_POST_EXEC`（Docker操作は完了したが完了監査の
+    記録に失敗した場合）は、Docker操作自体の成否を偽装しないよう
+    returncode=1を返しつつ専用のWARNログを残す（7.2節）。
+    """
+    try:
+        result = await execute_operation(
+            operation_id,
+            actor_id=_job_actor_id(job),
+            request_id=_job_request_id(job),
+            log_line=lambda msg: jm.log(job, msg),
+        )
+        return result.returncode
+    except DockerOperationError as exc:
+        # Phase 2-B.3限定修正（CODEX P2B3-CX-002対応）: job logへは
+        # exc.error_code（固定code集合、operator_audit_log.pyと同じ語彙）
+        # のみを書く。DockerOperationErrorのmessage（例外textそのもの）は
+        # 一切参照しない（将来gateway側の実装が変わってもここで生text化
+        # しない設計とする）。
+        if exc.error_code == "AUDIT_SINK_FAILURE_POST_EXEC":
+            jm.log(
+                job,
+                f"WARN: {operation_id} はDocker側で完了した可能性がありますが、"
+                "完了監査ログの記録に失敗したため成功として扱いません。",
+            )
+        else:
+            jm.log(job, f"ERROR: {operation_id} 実行エラー error_code={exc.error_code}")
+        return 1
 
 
 def _append_history(
@@ -1140,10 +1187,7 @@ async def _do_tile_build(
 
     # 新 MBTiles を Martin に認識させるためコンテナを再起動する
     jm.log(job, f"--- Martin コンテナを再起動中: {_MARTIN_CONTAINER_NAME} ---")
-    ret_martin = await _run_subprocess(
-        ["docker", "restart", _MARTIN_CONTAINER_NAME],
-        job, jm,
-    )
+    ret_martin = await _run_docker_operation("restart:martin", job, jm)
     if ret_martin != 0:
         jm.log(job, f"WARN: Martin コンテナの再起動に失敗しました (exit={ret_martin})。"
                     "タイルが即時反映されない場合は手動で再起動してください。")
@@ -1323,19 +1367,20 @@ async def run_osrm_rebuild(
     jm.update(job, step=JobStep.osrm_extract,
                progress_message="ルートエンジンを再起動中（この処理は数分かかります）...")
 
-    ret = await _run_subprocess(
-        ["docker", "restart"] + [_OSRM_CONTAINER_NAMES[mode] for mode in target_modes],
-        job, jm, cwd=_PROJECT_ROOT,
-    )
-
-    if ret != 0:
-        _fail(job, jm, "OSRM_REBUILD_FAILED",
-              "OSRM コンテナの再起動に失敗しました。",
-              "backend コンテナから Docker を実行できる設定か確認してください。",
-              exit_code=ret)
-        state.osrm_rebuild_status = OsrmRebuildStatus.failed
-        ss.save(state)
-        return
+    # Phase 2-B.3: allowlist operation_idは"restart:osrm:walking"/"restart:osrm:driving"の
+    # 2種のみで、複数containerを1回のdocker restartへまとめる呼出しはallowlist外
+    # となるため、modeごとにgatewayを個別呼出しする（第5.3節allowlist#2）。
+    for mode in target_modes:
+        operation_id = f"restart:osrm:{mode}"
+        ret = await _run_docker_operation(operation_id, job, jm)
+        if ret != 0:
+            _fail(job, jm, "OSRM_REBUILD_FAILED",
+                  "OSRM コンテナの再起動に失敗しました。",
+                  "backend コンテナから Docker を実行できる設定か確認してください。",
+                  exit_code=ret)
+            state.osrm_rebuild_status = OsrmRebuildStatus.failed
+            ss.save(state)
+            return
 
     for mode in target_modes:
         stem = defn.osrm_stem if mode == routing_profile and defn.osrm_stem else (
@@ -1367,10 +1412,9 @@ async def run_osrm_rebuild(
 
 # ── osrm_profile_rebuild ──────────────────────────────────────────────────────
 
-_PROFILE_CONTAINER = "evacuation-navi-osrm-walking"
-_PROFILE_PBF       = "/data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf"
-_PROFILE_OSRM      = _PROFILE_PBF.replace(".osm.pbf", ".osrm")
-_PROFILE_STEM      = "tokyo-kanagawa-260214"
+# Phase 2-B.3: _PROFILE_CONTAINER/_PROFILE_PBF/_PROFILE_OSRMは
+# docker_operation_gateway.py（allowlistの単一の真実源）へ移設した。
+_PROFILE_STEM = "tokyo-kanagawa-260214"
 
 
 def _read_osrm_profile_config() -> dict:
@@ -1447,11 +1491,7 @@ async def run_osrm_profile_rebuild(job: Job, jm: JobManager) -> None:
     # ── osrm-extract ──────────────────────────────────────────────────────────
     jm.update(job, step=JobStep.osrm_extract,
                progress_message="osrm-extract を実行中（数分かかります）...")
-    ret = await _run_subprocess(
-        ["docker", "exec", _PROFILE_CONTAINER,
-         "osrm-extract", "--threads", "2", "-p", "/opt/foot.lua", _PROFILE_PBF],
-        job, jm,
-    )
+    ret = await _run_docker_operation("exec:profile_rebuild:extract", job, jm)
     if ret != 0:
         restore_lua()
         _fail(job, jm, "OSRM_REBUILD_FAILED",
@@ -1463,11 +1503,7 @@ async def run_osrm_profile_rebuild(job: Job, jm: JobManager) -> None:
     # ── osrm-partition ────────────────────────────────────────────────────────
     jm.update(job, step=JobStep.osrm_partition,
                progress_message="osrm-partition を実行中...")
-    ret = await _run_subprocess(
-        ["docker", "exec", _PROFILE_CONTAINER,
-         "osrm-partition", "--threads", "2", _PROFILE_OSRM],
-        job, jm,
-    )
+    ret = await _run_docker_operation("exec:profile_rebuild:partition", job, jm)
     if ret != 0:
         restore_lua()
         _fail(job, jm, "OSRM_REBUILD_FAILED",
@@ -1479,11 +1515,7 @@ async def run_osrm_profile_rebuild(job: Job, jm: JobManager) -> None:
     # ── osrm-customize ────────────────────────────────────────────────────────
     jm.update(job, step=JobStep.osrm_customize,
                progress_message="osrm-customize を実行中...")
-    ret = await _run_subprocess(
-        ["docker", "exec", _PROFILE_CONTAINER,
-         "osrm-customize", "--threads", "2", _PROFILE_OSRM],
-        job, jm,
-    )
+    ret = await _run_docker_operation("exec:profile_rebuild:customize", job, jm)
     if ret != 0:
         restore_lua()
         _fail(job, jm, "OSRM_REBUILD_FAILED",
@@ -1495,10 +1527,7 @@ async def run_osrm_profile_rebuild(job: Job, jm: JobManager) -> None:
     # ── docker restart（新 .osrm をリロード）──────────────────────────────────
     jm.update(job, step=JobStep.osrm_customize,
                progress_message="OSRMコンテナを再起動中...")
-    ret = await _run_subprocess(
-        ["docker", "restart", _PROFILE_CONTAINER],
-        job, jm,
-    )
+    ret = await _run_docker_operation("restart:profile", job, jm)
     if ret != 0:
         _fail(job, jm, "OSRM_REBUILD_FAILED",
               "OSRMコンテナの再起動に失敗しました。.osrm ファイルは更新済みです。",

@@ -1,0 +1,1 @@
+{"argv": ["<PYTHON>", "<REPO_ROOT>/tools/public_release/phase2b6_scoped_assertions.py", "--assertion-id", "AT18-A02"], "run_id": "ca8b8832f2334df6902010b31e38fb50"}

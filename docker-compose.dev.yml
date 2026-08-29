@@ -1,0 +1,48 @@
+# docker-compose.dev.yml — OSRM/Martin direct-access opt-in override
+# (Round 12D-B NEW-ADV-007、Round 12D-B1 Martin追加)
+#
+# 目的: base docker-compose.ymlはosrm-driving/osrm-walking/martinのいずれも
+# host publishを行わない（Round 12D-B/B1、OWNER決定）。ローカル開発で
+# 直接OSRM/Martin APIへアクセスしたい場合だけ、本fileを明示的に -f で
+# 重ねてhost publishを有効化する。単独では起動できず、production/VPSの
+# default Compose起動には一切影響しない（明示指定した場合だけ有効）。
+#
+# 使い方:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+#     --profile driving up -d osrm-driving osrm-walking
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+#     up -d martin
+#
+# 契約（Round 12D-A契約 NEW-ADV-007 remediation、Round 12D-B1で拡張）:
+#   - 明示指定時だけ有効（productionのdefault Compose起動には自動継承されない）
+#   - long-form port mapping syntaxのみを使用（host_ipを明示できない
+#     短縮形 "HOST:CONTAINER" は使わない）
+#   - host_ip は 127.0.0.1 固定（0.0.0.0や未指定は不可）
+#   - production/VPS向けのいかなるdefault起動手順からも参照されない
+services:
+  osrm-driving:
+    ports:
+      - name: osrm-driving-dev
+        target: 5000
+        published: "5500"
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
+
+  osrm-walking:
+    ports:
+      - name: osrm-walking-dev
+        target: 5001
+        published: "5501"
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
+
+  martin:
+    ports:
+      - name: martin-dev
+        target: 3000
+        published: "3000"
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host

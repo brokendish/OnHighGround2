@@ -2,7 +2,7 @@
 #
 # OnHighGround2 本体 (frontend/backend/martin/osrm-walking) から隔離された、
 # /live/stream の配信・録画専用コンテナ。重ければこのコンテナだけ止めればよい。
-FROM debian:bookworm-slim
+FROM debian:12.12-slim@sha256:d5d3f9c23164ea16f31852f95bd5959aad1c5e854332fe00f7b3a20fcc9f635c
 
 ENV DEBIAN_FRONTEND=noninteractive
 

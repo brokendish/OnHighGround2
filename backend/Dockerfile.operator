@@ -1,0 +1,70 @@
+FROM python:3.11.14-slim@sha256:c8271b1f627d0068857dce5b53e14a9558603b527e46f1f901722f935b786a39
+
+# operator専用image（Phase 2-B.1）。
+# 既存運用（OSRM/Martin再起動、プロファイル再構築等）に必要なDocker CLIと
+# データパイプラインツール（osmium-tool, tippecanoe）を保持する。
+# public imageはこれらを一切含まない（backend/Dockerfile 参照）。
+WORKDIR /app
+
+# libgeos-dev: shapely のソースビルドに必要 (--no-build-isolation 使用時)
+# libproj-dev: pyproj のソースビルドに必要 (RSA 計算で使用)
+# docker.io: pipeline_service.py の docker exec/restart 呼び出しに必要（operatorのみ）
+# osmium-tool / tippecanoe: normalize/tile_build パイプライン（operatorのみ）
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    docker.io \
+    gdal-bin \
+    libgdal-dev \
+    libgeos-dev \
+    libproj-dev \
+    osmium-tool \
+    tippecanoe \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pythonパッケージの依存関係をコピー
+COPY requirements.txt .
+
+# ビルド補助ツールを先に更新（pkg_resources を必要とする依存のビルド対策）
+RUN pip install --no-cache-dir --upgrade pip "setuptools<81" wheel
+RUN pip install --no-cache-dir "Cython<3.1" "numpy>=1.26,<2"
+
+# 依存関係をインストール
+RUN pip install --no-cache-dir --no-build-isolation -r requirements.txt
+
+# アプリケーションコードをコピー
+# operator imageはpublic/operator双方のソースを含んでよい（backend/.dockerignore の
+# 共通baselineのみが適用される。admin/simulationモジュールの除外はpublic専用の
+# backend/Dockerfile.dockerignore でのみ行う）。
+COPY . .
+
+# Phase 2-B.5: 固定数値UID/GID（第4.2節）。operator processをrootで実行しない。
+# UID/primary GID = 10002、supplemental GID 20001（lease coordination volume用）。
+# 注意: Docker socket（/var/run/docker.sock）アクセスは、host側socketのGIDに
+# operator UIDが所属している場合のみ機能する。socketのGIDはhost環境依存のため、
+# 実行時にentrypoint相当のcheckでeuid/egid/supplemental groupsを検証し、
+# 不一致ならfail-closedで起動しない（backend/app_operator.py起動時検証、
+# 実装報告書 第5節で実測を報告する）。
+RUN groupadd -g 10002 ohg2operator \
+    && groupadd -g 20001 ohg2leases \
+    && useradd -u 10002 -g 10002 -G 20001 -M -s /usr/sbin/nologin ohg2operator
+
+# ポートを公開（container内部のみ。host publishはPhase 2-B.2でbind三層として定義）
+EXPOSE 8100
+
+USER 10002:10002
+
+# OPERATOR_AUTH_SECRET が未設定・空・空白のみの場合、app_operator の import時点で
+# 非0 exitする（fail-closed）。値そのものはimage/ログのいずれにも含まれない。
+#
+# Phase 2-B.3限定修正（CODEX P2B3-CX-002対応）: uvicornの既定access logは
+# request line（rawのpath・query stringを含む）をそのまま標準出力へ書く。
+# state-changing routeへquery string経由でtoken等を誤送信された場合や、
+# canary付きのURLを踏んだ場合にこの生ログへ残ってしまうため、operator側では
+# access logを無効化する（--no-access-log）。requestの受付結果自体は
+# operator_audit_logのoperator_request eventが構造化・sanitize済みで
+# 別途記録するため、access logの代替情報源として機能する。
+# Phase 2-B.5: umaskはcontainer起動時に既定（Debianの022等）が使われるため、
+# 固定数値identity検証（第4.2節、runtime_atomic.verify_process_identity）が
+# 期待する0007をexec前に明示設定する。
+CMD ["sh", "-c", "umask 0007 && exec uvicorn app_operator:app --host 0.0.0.0 --port 8100 --no-access-log"]

@@ -88,8 +88,19 @@ class AdminLogService:
         }
         self._heartbeat_interval_sec = heartbeat_interval_sec
         self._poll_interval_sec = poll_interval_sec
+        # 本serviceはimport chain経由でプロセス起動時に即時instantiateされる
+        # （`app/api/admin.py`のmodule level `get_admin_log_service()`）。
+        # 実運用では`data_runtime`は常にbind mountされ配下directoryの作成は
+        # 問題なく成功するが、`data_runtime`自体が存在しない・書込不可な
+        # 環境（volumeを持たない隔離image smoke test等）ではmkdir失敗が
+        # import chain全体をcrashさせてしまう。ログ格納先が用意できない場合は
+        # 警告を出して起動を継続し、実際の読み書きは各methodが個別に失敗を
+        # 処理する（既存のstatus()のpath.exists()チェック等で安全に動作する）。
         for path in self._source_paths.values():
-            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning("Failed to create log directory %s: %s", path.parent, exc)
 
     def list_sources(self) -> List[dict]:
         return [

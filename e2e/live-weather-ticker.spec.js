@@ -77,7 +77,12 @@ test.describe('/live — 全国気象ミニテロップ (Phase 8-A.1)', () => {
 
         await expect(page.locator('#live-weather-card')).toBeAttached();
         await expect(page.locator('#live-weather-card')).toContainText('全国気象');
-        await expect(page.locator('[data-testid="live-weather-source-badge"]')).toHaveText('Open-Meteo Forecast');
+        // Phase 2-D Round 2 (P2D-UI-ATTRIBUTION): Open-Meteo出典はplain textから
+        // clickable link + CC BY 4.0表記へ変更した（第6.3節）。厳密一致ではなく
+        // 出典名を含むことだけを確認する。
+        await expect(page.locator('[data-testid="live-weather-source-badge"]')).toContainText('Open-Meteo Forecast');
+        await expect(page.locator('[data-testid="live-weather-source-badge"]')).toContainText('CC BY 4.0');
+        await expect(page.locator('[data-testid="live-weather-source-badge"] a')).toHaveAttribute('href', 'https://open-meteo.com/');
     });
 
     test('ヘッダーに forecast_time / fetched_at がJST HH:mm形式で表示される', async ({ page }) => {

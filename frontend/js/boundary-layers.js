@@ -137,6 +137,11 @@ function showBoundaryLayer(layerKey) {
     }
     boundary.visible = true;
     syncBoundaryLayerUI(layerKey);
+    // Phase 2-D Round 2 (P2D-UI-ATTRIBUTION): 国土数値情報（行政区域データ）の
+    // 出典表示。実際に表示されたときだけ追加する（誤表示防止）。
+    if (typeof OHG2Attribution !== 'undefined') {
+        OHG2Attribution.installBoundaryAttribution(map);
+    }
 }
 
 function hideBoundaryLayer(layerKey) {

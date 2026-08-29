@@ -1,0 +1,24 @@
+# NEW-RTE-002B negative control: same shape as rte002b-noop.compose.yml but
+# osrm-walking/martin actually listen (on their real ports, 5001/3000, to
+# match nginx.conf's literal proxy_pass targets) and respond 200 to any
+# path. MUST make both dependent-endpoint probes return 200, proving
+# ENDPOINT_NON_SUCCESS in the primary fixture was upstream-listening-state-
+# dependent and not a harness defect.
+services:
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:18902:80"
+    volumes:
+      - ../../../../nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./empty_html:/usr/share/nginx/html:ro
+  backend:
+    image: nginx:alpine
+  osrm-walking:
+    image: nginx:alpine
+    volumes:
+      - ./mock_responder_5001.conf:/etc/nginx/conf.d/default.conf:ro
+  martin:
+    image: nginx:alpine
+    volumes:
+      - ./mock_responder_3000.conf:/etc/nginx/conf.d/default.conf:ro

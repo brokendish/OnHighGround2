@@ -1,0 +1,85 @@
+# backend/Dockerfile.dockerignore — public entrypoint (backend/Dockerfile) 専用
+# BuildKit dockerignore（Phase 2-B.1、第5.6節）
+#
+# Docker/BuildKitは `<Dockerfile名>.dockerignore` が存在する場合、そのDockerfileの
+# buildには backend/.dockerignore ではなく必ずこのファイルだけを使う（マージしない）。
+# そのため、このファイルは backend/.dockerignore の内容を含んだスーパーセットとして
+# 維持すること。2つのファイルの内容がずれた場合、baseline側の変更をここへも反映する。
+
+# ============================================================
+# baseline（backend/.dockerignore と同期を保つこと）
+# ============================================================
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.gitattributes
+
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+test-results/
+.coverage
+.coverage.*
+htmlcov/
+tests/
+test_api.py
+
+data/
+data_lake/
+data_runtime/
+shelter_data/
+elevation.tif
+
+*.key
+*.pem
+*.crt
+*.p12
+*.log
+*.bak
+*.backup
+
+.DS_Store
+**/.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ============================================================
+# public/operator境界（このDockerfile専用の追加除外、第5.1・5.7節）
+# public imageからadmin/simulation/layer_types router、Docker操作を行う
+# service、operator entrypointを物理的に除外する。
+#
+# P2B1-CX-001（CODEX独立検証、2026-08-10）: app/models/simulation.py と
+# app/services/simulation_service.py が当初この denylist から漏れており、
+# public final filesystem/保存layer双方に混入していた。両moduleは
+# app/api/simulation.py（既にoperator専用として除外済み）からのみ参照され、
+# public import graphには一切含まれないことを再確認した上で追加する。
+# ============================================================
+app_operator.py
+Dockerfile.operator
+Dockerfile.operator.dockerignore
+
+app/api/admin.py
+app/api/admin_config.py
+app/api/admin_datasets.py
+app/api/admin_upload.py
+app/api/layer_types_api.py
+app/api/simulation.py
+
+app/models/simulation.py
+app/services/simulation_service.py
+
+app/services/pipeline_service.py
+app/services/job_manager.py
+app/services/admin_hazard_service.py
+app/services/config_change_notifier.py

@@ -1,0 +1,59 @@
+# backend/.dockerignore — 共通baseline（Phase 2-B.1、第5.6節）
+#
+# backend/Dockerfile のbuild context（./backend）に対応する場所に配置している。
+# backend/Dockerfile.operator はこのファイルを自動的に使用する。
+# backend/Dockerfile（public）は BuildKit の規約により、同名の
+# backend/Dockerfile.dockerignore が存在する場合はそちらのみが使われ、この
+# ファイルとはマージされない。そのため Dockerfile.dockerignore は本ファイルの
+# 内容を含んだスーパーセットとして維持すること（3.3節参照）。
+
+# --- secrets（*.example は除く） ---
+.env
+.env.*
+!.env.example
+
+# --- Git metadata ---
+.git
+.gitignore
+.gitattributes
+
+# --- Python cache / test cache ---
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- coverage / test result / test code（実行時に不要、image最小化） ---
+test-results/
+.coverage
+.coverage.*
+htmlcov/
+tests/
+test_api.py
+
+# --- local runtime data（compose volume mountで供給されるため image へ焼き込まない） ---
+data/
+data_lake/
+data_runtime/
+shelter_data/
+elevation.tif
+
+# --- 秘密・鍵・証明書・log・backup ---
+*.key
+*.pem
+*.crt
+*.p12
+*.log
+*.bak
+*.backup
+
+# --- editor / OS 一時ファイル ---
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo

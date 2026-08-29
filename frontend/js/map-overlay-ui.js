@@ -699,57 +699,6 @@ function buildLayerPanel() {
     browseStatus.className = 'shelter-browse-status';
     container.appendChild(browseStatus);
 
-    const navDebugSep = document.createElement('hr');
-    navDebugSep.style.cssText = 'margin:6px 0; border:none; border-top:1px solid rgba(0,0,0,0.12);';
-    container.appendChild(navDebugSep);
-
-    const navDebugLabel = document.createElement('div');
-    navDebugLabel.className = 'mou-panel-section-label';
-    navDebugLabel.textContent = 'ナビイベント';
-    container.appendChild(navDebugLabel);
-
-    const navDebugToggleLabel = document.createElement('label');
-    navDebugToggleLabel.className = 'shelter-panel-item';
-    const navDebugToggle = document.createElement('input');
-    navDebugToggle.type = 'checkbox';
-    navDebugToggle.id = 'nav-debug-layer-toggle';
-    navDebugToggle.checked = typeof window.isNavigationDebugLayerVisible === 'function'
-        ? !!window.isNavigationDebugLayerVisible()
-        : false;
-    navDebugToggle.addEventListener('change', () => {
-        try {
-            window.setNavigationDebugLayerVisible?.(navDebugToggle.checked);
-        } catch (_) {
-            // debug layer toggle must remain best-effort
-        }
-    });
-    navDebugToggleLabel.appendChild(navDebugToggle);
-    navDebugToggleLabel.appendChild(document.createTextNode(' ナビイベント表示'));
-    container.appendChild(navDebugToggleLabel);
-
-    const navDebugActions = document.createElement('div');
-    navDebugActions.className = 'nav-debug-layer-actions';
-    const navDebugClearBtn = document.createElement('button');
-    navDebugClearBtn.type = 'button';
-    navDebugClearBtn.id = 'nav-debug-layer-clear-btn';
-    navDebugClearBtn.className = 'nav-debug-layer-btn';
-    navDebugClearBtn.textContent = 'クリア';
-    navDebugClearBtn.addEventListener('click', () => {
-        try {
-            window.clearNavigationDebugEvents?.();
-        } catch (_) {
-            // best-effort
-        }
-    });
-    navDebugActions.appendChild(navDebugClearBtn);
-    container.appendChild(navDebugActions);
-
-    const navDebugStatus = document.createElement('div');
-    navDebugStatus.id = 'nav-debug-layer-status';
-    navDebugStatus.className = 'nav-debug-layer-status';
-    navDebugStatus.textContent = '0 / 100 events';
-    container.appendChild(navDebugStatus);
-
     // ── 交通量観測点セクション ──────────────────────────────────────────
     const jtSep = document.createElement('hr');
     jtSep.style.cssText = 'margin:6px 0; border:none; border-top:1px solid rgba(0,0,0,0.12);';
@@ -804,9 +753,6 @@ function buildLayerPanel() {
 
     panel.appendChild(container);
     syncHazardLayerPanelState();
-    if (typeof window.syncNavigationDebugLayerControls === 'function') {
-        window.syncNavigationDebugLayerControls();
-    }
 }
 
 // ── 凡例パネル構築 ────────────────────────────────────────────────────────

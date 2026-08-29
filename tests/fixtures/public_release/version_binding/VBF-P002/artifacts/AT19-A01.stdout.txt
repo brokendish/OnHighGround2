@@ -1,0 +1,2 @@
+[PASS] AT19-A01 verified via python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT19-A01
+SCOPED_ASSERTION_RESULT_JSON={"assertion_id": "AT19-A01", "executor": "Claude", "exit_code": 0, "registry_name": "p2a-at18-20-assertion-registry", "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799", "registry_version": "p2a-at18-20-v2", "run_id": "d7bd2c87c8944fc6abf1d2e091116f80", "schema_version": "1.0", "verdict": "PASS"}

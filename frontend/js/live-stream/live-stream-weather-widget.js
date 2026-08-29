@@ -79,7 +79,16 @@
   function _renderSource() {
     const srcEl = _el('weather-source');
     if (!srcEl || !_data || !_data.source) return;
-    srcEl.textContent = _data.source;
+    // Phase 2-D Round 2 (P2D-UI-ATTRIBUTION): Open-Meteo由来はplain textでなく
+    // link + CC BY 4.0表記にする（第6.3節）。配信レイアウト自体は変更しない。
+    if (String(_data.source).indexOf('Open-Meteo') !== -1) {
+      const safe = String(_data.source).replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+      ));
+      srcEl.innerHTML = '<a href="https://open-meteo.com/" target="_blank" rel="noopener">' + safe + '</a> (CC BY 4.0)';
+    } else {
+      srcEl.textContent = _data.source;
+    }
   }
 
   // ── ヘッダー (更新時刻) ─────────────────────────────────────────────────────

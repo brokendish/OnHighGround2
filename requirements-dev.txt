@@ -1,2 +1,7 @@
 pytest>=8.0
 numpy>=1.26,<2
+httpx>=0.27,<0.28
+# httpx: Phase 2-B.3のoperator security test（fastapi.testclient.TestClient）専用。
+# backend/requirements.txt（production image）へは追加しない。
+# 0.28系はstarlette.testclient（fastapi==0.104.1が依存するstarlette ~0.27）の
+# `httpx.Client(app=...)`呼出しと非互換（0.28でapp引数が廃止された）ため<0.28に固定する。

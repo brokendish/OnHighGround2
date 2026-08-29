@@ -5,8 +5,8 @@
   "region_code": "tokyo",
   "region_name": "東京都",
   "title": "土砂災害（東京都）",
-  "source_name": "既存サンプルデータ",
-  "source_url": "",
+  "source_name": "土砂災害警戒区域データ（国土数値情報A33）",
+  "source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A33-2019.html",
   "acquired_at": "2026-03-21T09:00:00+09:00",
   "published_at": "",
   "registered_at": "2026-03-21T09:30:00+09:00",
@@ -20,5 +20,5 @@
     "raw": "raw/source.geojson",
     "normalized": "normalized/data.geojson"
   },
-  "notes": "既存の土砂災害サンプル GeoJSON を dataset registry 構造へ移行。"
+  "notes": "Phase 2-D Round 2でsource_name/source_urlを訂正（訂正前は「既存サンプルデータ」という空虚な自己参照だった）。backend/app.properties記載の「データ: 国土数値情報 A33（土砂災害警戒区域）」およびscripts/normalize/normalize_landslide.pyのA33 GML対応実装を根拠とする。"
 }

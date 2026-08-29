@@ -13,6 +13,14 @@ build/
 
 # データファイル
 *.tif
+# Phase 2-D Round 9（P2D-AT17-DEM-BOOTSTRAP対応）: 上の`*.tif`包括ruleは
+# 本番DEM/ハザードraster（実データ、git管理外にすべきもの）を対象とした
+# ものだが、tests/fixtures/dem_demo/のsynthetic demo DEM fixture（実際の
+# 標高データではない、AT-17A検証専用の決定的生成物）も無差別に対象に
+# してしまい、tracked化できずrelease candidateへ一切含められないという
+# 構造的な見落としがあった。このexact 1 fileだけを明示的に例外化する
+# （tests/fixtures/dem_demo/配下の他fileや他の`.tif`には一切影響しない）。
+!tests/fixtures/dem_demo/elevation_demo.tif
 *.xml
 *.zip
 /data/
@@ -52,6 +60,8 @@ Thumbs.db
 .env.local
 # streamer (Stream Phase 6-B): YouTube Stream Key 等の実値を含むため必ず除外する
 .env.stream
+# operator (Phase 2-B.2): OPERATOR_AUTH_SECRET 等の実値を含むため必ず除外する
+.env.operator
 # ---- Generated tile files (large, reproducible via build_tiles.py) ----
 tiles/*.mbtiles
 data_lake/tiles_*/
@@ -80,8 +90,37 @@ data_lake/admin/history/*.jsonl
 data_lake/admin/jobs/*.json
 data_lake/admin/logs/*.log
 
+# ---- tests/fixtures/osm_demo/: OSRM demo fixtureのruntime成果物隔離 ----
+# Phase 2-D Round 8（P2D-OSRM-FIXTURE-CONTAMINATION対応）: このfixtureは
+# `.osm.pbf`source入力とMANIFEST.jsonだけを保持するread-only fixtureであるべき。
+# Round 6のdemo Composeがこのdirectoryを直接rwでmountしていたため、
+# osrm-extract/partition/customizeの出力（.osrm*、54 file）がここへ書き込まれ、
+# candidate policyへ混入した（CODEX round 7実測）。Round 8でosrm-driving/
+# osrm-walkingの出力先を専用named volumeへ分離したため通常はもう発生しない
+# はずだが、手元検証等で誤って書き込まれた場合に備えた保険としてここでもignore
+# する。ignoreはcandidate混入の見た目上の対症療法にすぎず、
+# `tools/public_release/phase2d_release_delta_manifest.py`の
+# `scan_osrm_runtime_contamination()`がgit状態と無関係にfilesystemを直接scanし、
+# 1件でも実在すればcandidate生成自体をfail-closedで停止する（本ignoreの有無に
+# 依存しない、常時有効なgate）。repository全体の`*.osrm*`は包括ignoreしない
+# （このexact subtreeだけに限定する）。
+tests/fixtures/osm_demo/**/*.osrm*
+
+# ---- .demo_runtime: docker-compose.demo.yml専用のdata_runtime分離領域 ----
+# AT-17A demo profileが使う、production data_runtime/とは完全に独立した実行時
+# 領域（Martin AT-17A finding対応）。runtime-initが初回起動時にゼロから
+# 所有権を確定する。中身は常にsynthetic/実行時生成物のみ。
+.demo_runtime/
+
 # ---- data_runtime: 配備済みデータ（deploy_to_runtime.sh で生成、git 管理外）----
 # ディレクトリ構造（.gitkeep）と README は管理対象、データファイルは除外
+# Phase 2-B.5: atomic publish用の実行時artifact（staging/versions/writer lock）。
+# operator専用initializerが生成し、内容は常にsecretを含まないが、
+# datasetそのもの・version世代は既存data_runtime方針と同様にgit管理外とする。
+data_runtime/.staging/
+data_runtime/versions/
+data_runtime/.publish.lock
+data_runtime/current
 data_runtime/backend/
 data_runtime/cache/
 data_runtime/frontend/layers/
@@ -143,3 +182,10 @@ backend/data_runtime/backend/jartic/latest_traffic.json
 
 # ---- VPS側でのストリーム設定と起動、停止 ----
 VPS側でのストリーム設定と起動、停止.txt
+
+# ---- Phase 2-C（AT-15）: Claude Code worktree（tracked gitlinkの再発防止）----
+# .claude/worktrees/practical-villani-c3d420 が誤ってmode 160000のgitlinkとして
+# trackedになっていた（tasks/public-release/phase2c_claude_implementation_instruction.md
+# 第7節）。indexからは`git rm --cached`で除去済み。このディレクトリ配下の
+# 新規file/directoryを再度trackedにしないためのignoreルール。
+.claude/worktrees/

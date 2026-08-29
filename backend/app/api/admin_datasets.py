@@ -25,10 +25,11 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
+from app.services.operator_auth import OperatorPrincipal, require_operator_role
 from app.models.admin_dataset import (
     DatasetDetail,
     DatasetHistory,
@@ -232,7 +233,12 @@ async def get_dataset(dataset_id: str):
 # ── POST /datasets/{dataset_id}/upload ────────────────────────────────────────
 
 @router.post("/{dataset_id}/upload", response_model=JobAccepted)
-async def upload_dataset(dataset_id: str, files: List[UploadFile] = File(...)):
+async def upload_dataset(
+    dataset_id: str,
+    request: Request,
+    files: List[UploadFile] = File(...),
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     """
     ファイルアップロード。単一ファイルでも複数ファイルでも受け付ける。
 
@@ -309,7 +315,10 @@ async def upload_dataset(dataset_id: str, files: List[UploadFile] = File(...)):
         )
 
     state = ss.init_from_definition(defn)
-    job = jm.create(dataset_id, JobType.ingest_upload)
+    job = jm.create(
+        dataset_id, JobType.ingest_upload,
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.last_job_id = job.job_id
     ss.save(state)
 
@@ -326,11 +335,19 @@ async def upload_dataset(dataset_id: str, files: List[UploadFile] = File(...)):
 # ── POST /datasets/{dataset_id}/fetch-url ────────────────────────────────────
 
 class FetchUrlRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     url: str
 
 
 @router.post("/{dataset_id}/fetch-url", response_model=JobAccepted)
-async def fetch_url_dataset(dataset_id: str, body: FetchUrlRequest):
+async def fetch_url_dataset(
+    dataset_id: str,
+    body: FetchUrlRequest,
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     ds_svc = get_definition_service()
     ss = get_state_service()
     jm = get_job_manager()
@@ -346,7 +363,10 @@ async def fetch_url_dataset(dataset_id: str, body: FetchUrlRequest):
         return guard
 
     state = ss.init_from_definition(defn)
-    job = jm.create(dataset_id, JobType.ingest_fetch_url, fetch_url=body.url)
+    job = jm.create(
+        dataset_id, JobType.ingest_fetch_url, fetch_url=body.url,
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.last_job_id = job.job_id
     ss.save(state)
 
@@ -361,7 +381,11 @@ async def fetch_url_dataset(dataset_id: str, body: FetchUrlRequest):
 # ── POST /datasets/{dataset_id}/fetch-official ────────────────────────────────
 
 @router.post("/{dataset_id}/fetch-official", response_model=JobAccepted)
-async def fetch_official_dataset(dataset_id: str):
+async def fetch_official_dataset(
+    dataset_id: str,
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     ds_svc = get_definition_service()
     ss = get_state_service()
     jm = get_job_manager()
@@ -382,8 +406,11 @@ async def fetch_official_dataset(dataset_id: str):
         return guard
 
     state = ss.init_from_definition(defn)
-    job = jm.create(dataset_id, JobType.ingest_fetch_official,
-                     fetch_url=defn.official_source_url or "")
+    job = jm.create(
+        dataset_id, JobType.ingest_fetch_official,
+        fetch_url=defn.official_source_url or "",
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.last_job_id = job.job_id
     ss.save(state)
 
@@ -398,7 +425,11 @@ async def fetch_official_dataset(dataset_id: str):
 # ── POST /datasets/{dataset_id}/generate ─────────────────────────────────────
 
 @router.post("/{dataset_id}/generate", response_model=JobAccepted)
-async def generate_dataset(dataset_id: str):
+async def generate_dataset(
+    dataset_id: str,
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     """
     自動生成データセット（source_type="generated"）の生成を実行する。
     ファイル入力は不要。scripts/derive/{transformer_name}.py を実行する。
@@ -419,7 +450,10 @@ async def generate_dataset(dataset_id: str):
         return guard
 
     state = ss.init_from_definition(defn)
-    job = jm.create(dataset_id, JobType.generate)
+    job = jm.create(
+        dataset_id, JobType.generate,
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.last_job_id = job.job_id
     ss.save(state)
 
@@ -434,7 +468,11 @@ async def generate_dataset(dataset_id: str):
 # ── POST /datasets/{dataset_id}/railway-pmtiles-update ───────────────────────
 
 @router.post("/{dataset_id}/railway-pmtiles-update", response_model=JobAccepted)
-async def railway_pmtiles_update(dataset_id: str):
+async def railway_pmtiles_update(
+    dataset_id: str,
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     """
     鉄道路線 PMTiles 更新。source_type="railway_pmtiles" のデータセット専用。
     OSM PBF ダウンロード → PMTiles 生成 → 検証 → atomic rename を一括実行する。
@@ -455,7 +493,10 @@ async def railway_pmtiles_update(dataset_id: str):
         return guard
 
     state = ss.init_from_definition(defn)
-    job = jm.create(dataset_id, JobType.railway_pmtiles_update)
+    job = jm.create(
+        dataset_id, JobType.railway_pmtiles_update,
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.last_job_id = job.job_id
     ss.save(state)
 
@@ -471,7 +512,11 @@ async def railway_pmtiles_update(dataset_id: str):
 # ── POST /datasets/{dataset_id}/deploy ───────────────────────────────────────
 
 @router.post("/{dataset_id}/deploy", response_model=JobAccepted)
-async def deploy_dataset(dataset_id: str):
+async def deploy_dataset(
+    dataset_id: str,
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     ds_svc = get_definition_service()
     ss = get_state_service()
     jm = get_job_manager()
@@ -494,7 +539,10 @@ async def deploy_dataset(dataset_id: str):
         return _error_response("DEPLOY_BLOCKED_VALIDATION_FAILED",
                                 detail="deploy conditions not met")
 
-    job = jm.create(dataset_id, JobType.deploy)
+    job = jm.create(
+        dataset_id, JobType.deploy,
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.deploy_status = DeployStatus.deploying
     state.last_job_id = job.job_id
     ss.save(state)
@@ -510,7 +558,11 @@ async def deploy_dataset(dataset_id: str):
 # ── POST /datasets/{dataset_id}/rollback ─────────────────────────────────────
 
 @router.post("/{dataset_id}/rollback", response_model=JobAccepted)
-async def rollback_dataset(dataset_id: str):
+async def rollback_dataset(
+    dataset_id: str,
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     ds_svc = get_definition_service()
     ss = get_state_service()
     jm = get_job_manager()
@@ -527,7 +579,10 @@ async def rollback_dataset(dataset_id: str):
     if not state.backup_path:
         return _error_response("ROLLBACK_NOT_AVAILABLE")
 
-    job = jm.create(dataset_id, JobType.rollback)
+    job = jm.create(
+        dataset_id, JobType.rollback,
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.last_job_id = job.job_id
     ss.save(state)
 
@@ -542,7 +597,11 @@ async def rollback_dataset(dataset_id: str):
 # ── POST /datasets/{dataset_id}/rebuild-osrm ─────────────────────────────────
 
 @router.post("/{dataset_id}/rebuild-osrm", response_model=JobAccepted)
-async def rebuild_osrm(dataset_id: str):
+async def rebuild_osrm(
+    dataset_id: str,
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     ds_svc = get_definition_service()
     ss = get_state_service()
     jm = get_job_manager()
@@ -559,7 +618,10 @@ async def rebuild_osrm(dataset_id: str):
         return _error_response("JOB_ALREADY_RUNNING")
 
     state = ss.init_from_definition(defn)
-    job = jm.create(dataset_id, JobType.osrm_rebuild)
+    job = jm.create(
+        dataset_id, JobType.osrm_rebuild,
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.osrm_rebuild_status = OsrmRebuildStatus.running
     state.last_job_id = job.job_id
     ss.save(state)

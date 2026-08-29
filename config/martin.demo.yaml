@@ -1,0 +1,23 @@
+# martin.demo.yaml — AT-17A demo/smoke profile専用のMartin設定
+#
+# Phase 2-D（Martin AT-17A Docker実機finding対応、CODEX report 2026-08-21）。
+#
+# production用 config/martin.yaml とは完全に独立したfileであり、production
+# config自体は一切変更していない（10個のhazard tile source pathをそのまま
+# 維持、fail-closedの挙動も不変）。
+#
+# 本fileはdocker-compose.demo.ymlのmartin serviceからのみmountされ、demo
+# fixture（tests/fixtures/martin_demo/、合成データ・実際の災害データではない）
+# だけを参照する。production hazard tile（10 path）は一切参照しない。
+#
+# Martin 1.3.1の実機検証で確認した事実: mbtiles.paths に列挙したpathが
+# 存在しない場合、Martinはfatal error（exit code 1）で終了する
+# （「警告のみで動作継続」というdocker-compose.demo.yml旧コメントの想定は
+# 誤りだった）。そのため本demo configは、実際にfixtureとして存在する
+# pathだけを列挙する。
+
+listen_addresses: '0.0.0.0:3000'
+
+mbtiles:
+  paths:
+    - /tiles

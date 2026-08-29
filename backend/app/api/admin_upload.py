@@ -16,15 +16,16 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.models.admin_dataset import JobAccepted, JobType
 from app.services.admin_log_service import write_app_log
 from app.services.dataset_definition_service import get_definition_service
 from app.services.dataset_state_service import get_state_service
 from app.services.job_manager import get_job_manager
+from app.services.operator_auth import OperatorPrincipal, require_operator_role
 from app.services import pipeline_service
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,9 @@ def _write_app_log_safe(message: str, level: str = "INFO") -> None:
 # ── POST /start ───────────────────────────────────────────────────────────────
 
 class StartRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     filename: str
     size: int
     dataset_id: str
@@ -150,6 +154,9 @@ async def upload_chunk(
 # ── POST /finish ──────────────────────────────────────────────────────────────
 
 class FinishRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     upload_id: str
     dataset_id: str
     total_size: int
@@ -157,7 +164,11 @@ class FinishRequest(BaseModel):
 
 
 @router.post("/finish", response_model=JobAccepted)
-async def upload_finish(body: FinishRequest):
+async def upload_finish(
+    body: FinishRequest,
+    request: Request,
+    principal: OperatorPrincipal = Depends(require_operator_role),
+):
     session = _sessions.get(body.upload_id)
     if session is None:
         raise HTTPException(status_code=404, detail="upload session not found")
@@ -199,7 +210,10 @@ async def upload_finish(body: FinishRequest):
     tmp_path.rename(final_tmp)
 
     state = ss.init_from_definition(defn)
-    job = jm.create(body.dataset_id, JobType.ingest_upload)
+    job = jm.create(
+        body.dataset_id, JobType.ingest_upload,
+        actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
+    )
     state.last_job_id = job.job_id
     ss.save(state)
 
@@ -218,6 +232,9 @@ async def upload_finish(body: FinishRequest):
 # ── DELETE /cancel ────────────────────────────────────────────────────────────
 
 class CancelRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     upload_id: str
 
 

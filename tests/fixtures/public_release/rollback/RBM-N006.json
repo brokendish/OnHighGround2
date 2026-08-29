@@ -1,0 +1,72 @@
+{
+  "compatibility_contract": {
+    "notes": "no breaking schema change between versions",
+    "schema_compatible": true
+  },
+  "configuration": [
+    {
+      "after_path": "docker-compose.yml",
+      "after_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "before_path": "docker-compose.yml",
+      "before_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "docker-compose.yml"
+    },
+    {
+      "after_path": "nginx.conf",
+      "after_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "before_path": "nginx.conf",
+      "before_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "nginx.conf"
+    }
+  ],
+  "data": {
+    "after_runtime_version_id": "20260815t130000z-0000000000000000",
+    "before_runtime_version_id": "20260814t090000z-1111111111111111",
+    "dataset_name": "tampered-after-checksum",
+    "file_set_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "executor": "Claude",
+  "generated_at": "2026-08-15T13:00:00+09:00",
+  "image": [
+    {
+      "after_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "before_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "service": "backend-public"
+    },
+    {
+      "after_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "before_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "service": "backend-operator"
+    }
+  ],
+  "manifest_checksum": "c8a4881e123f5de1617ff5725041eb614b8031e815d9e05e6aa2e799f90d55b0",
+  "manifest_id": "rbm-20260815t130000z",
+  "operator_job_state": {
+    "pending_jobs": [],
+    "restore_policy": "reject rollback while any job is running or pending",
+    "running_jobs": []
+  },
+  "previous_version_id": "20260814t090000z-1111111111111111",
+  "publish_result": {
+    "exit_code": 0,
+    "status": "PASS",
+    "timestamp": "2026-08-15T13:00:00+09:00"
+  },
+  "reviewer": "CODEX",
+  "rollback_result": {
+    "exit_code": null,
+    "status": "NOT_EXECUTED",
+    "timestamp": null
+  },
+  "schema_version": "1.0",
+  "secret": [
+    {
+      "location": ".env.operator (git-ignored, not present in this manifest)",
+      "name": "OPERATOR_AUTH_SECRET",
+      "recovery_procedure": "OWNER regenerates and redistributes via out-of-band channel; never stored in this manifest"
+    }
+  ],
+  "verified_at": "2026-08-15T13:05:00+09:00",
+  "version_id": "20260815t130000z-0000000000000000"
+}

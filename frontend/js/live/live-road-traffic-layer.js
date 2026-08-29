@@ -102,8 +102,14 @@
         if (visible) {
             _layerGroup.addTo(liveMap);
             _render();
+            if (typeof OHG2Attribution !== 'undefined') {
+                OHG2Attribution.installJarticAttribution(liveMap);
+            }
         } else {
             liveMap.removeLayer(_layerGroup);
+            if (typeof OHG2Attribution !== 'undefined') {
+                OHG2Attribution.removeJarticAttribution(liveMap);
+            }
         }
     }
 

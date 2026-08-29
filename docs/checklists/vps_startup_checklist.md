@@ -133,10 +133,12 @@ docker compose ps
 # バックエンド API
 curl -s http://localhost:8000/health
 
-# OSRM 徒歩
-curl -s "http://localhost:5501/route/v1/walking/139.69,35.68;139.70,35.69" | head -c 50
+# OSRM 徒歩（Round 12D-B以降、host publishなし。osrm/osrm-backend image に
+# curl/wget/python等のHTTPクライアントが一切無いため、コンテナ内部からの
+# 直接確認はできない。frontend経由のproxy確認（下記）で代替する）
+docker compose ps osrm-walking  # State が running であることのみ確認
 
-# nginx プロキシ経由（エンドツーエンド）
+# nginx プロキシ経由（エンドツーエンド、OSRM 徒歩の実質的な健全性確認はここで行う）
 curl -s "http://localhost:8080/api/health"
 curl -s "http://localhost:8080/osrm/walking/route/v1/walking/139.69,35.68;139.70,35.69" | head -c 50
 ```

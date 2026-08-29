@@ -73,7 +73,12 @@ test.describe('/live/stream — Phase 8-A 全国気象ミニテロップ', () =>
     const panel = page.locator('[data-testid="live-stream-panel-weather"]');
     await expect(panel).toBeVisible();
     await expect(panel).toContainText('全国気象');
-    await expect(page.locator('[data-testid="live-stream-source-badge-weather"]')).toHaveText('Open-Meteo Forecast');
+    // Phase 2-D Round 2 (P2D-UI-ATTRIBUTION): Open-Meteo出典はplain textから
+    // clickable link + CC BY 4.0表記へ変更した（第6.3節）。厳密一致ではなく
+    // 出典名を含むことだけを確認する。
+    await expect(page.locator('[data-testid="live-stream-source-badge-weather"]')).toContainText('Open-Meteo Forecast');
+    await expect(page.locator('[data-testid="live-stream-source-badge-weather"]')).toContainText('CC BY 4.0');
+    await expect(page.locator('[data-testid="live-stream-source-badge-weather"] a')).toHaveAttribute('href', 'https://open-meteo.com/');
 
     const order = await page.evaluate(() => {
       const cols = document.querySelectorAll('.ls-col');
@@ -147,22 +152,59 @@ test.describe('/live/stream — Phase 8-A 全国気象ミニテロップ', () =>
     await mockAllLiveApis(page, { weather: weatherResponse({ items }) });
     await gotoAndCapturePageErrors(page, streamUrl());
 
-    await expect(page.locator('[data-testid="live-stream-weather-point"]')).toHaveCount(6);
-    const firstPageIds = await page.locator('[data-testid="live-stream-weather-point"]').evaluateAll(
-      els => els.map(el => el.dataset.pointId)
-    );
-    expect(firstPageIds).not.toContain('hokkaido_wakkanai');
+    // ticker race対策（Phase 2-D Round 10、P2D-UI-TICKER-RACE）:
+    // 旧実装は「waitForFunctionで稚内pageの出現を検知」→「別のevaluateAllで
+    // DOMを再取得」という2段階assertionだった。ページ送りは実時間の
+    // setInterval(weatherSpeed=test時300ms、frontend/js/live-stream/
+    // live-stream-weather-widget.jsのPAGE_INTERVAL_MS)で自走するため、
+    // 検知した瞬間と再取得の瞬間の間にintervalがもう1回進みwrapして
+    // p0〜p5へ戻ってしまうことがあり、CODEX Round 9実行で1/79 flaky FAIL
+    // として実測された（毎回再現するわけではない真の競合状態）。
+    //
+    // 第一候補としてPlaywright clock API（page.clock.install/runFor）による
+    // 明示的な時間制御を検証したが、live-stream-weather-widget.jsの
+    // _fetchJson()がfetch abort用に`setTimeout(() => ctrl.abort(), ...)`を
+    // 内部で使っており、clock installでpage全体のtimerを凍結すると
+    // このfetchのtiming（実ネットワーク往復）とfake clockの経路が絡み合い、
+    // 実測で約半数の実行がむしろ新たなflaky failを起こした（interval
+    // callbackが期待どおり1回で発火しないケースを確認）。ページ全体で
+    // 多数のpanel（地震・雨雲・鉄道・潮位等）が同一pageでtimerを使っており、
+    // 影響範囲を局所化できないため、clock方式は採用しない。
+    //
+    // 代わりに指示書第7.2節が定めるfallback方式（「wait condition成立」と
+    // 「同一evaluationでのsnapshot取得」を1回のbrowser evaluationへ統合する）
+    // を採用する。waitForFunctionのpredicateがcondition判定とDOM
+    // snapshotの取得を同一tick内でatomicに行うため、判定とDOM再取得の間に
+    // interval callbackが割り込む余地がない。productionのPAGE_INTERVAL_MS
+    // 自体は変更しない。
+    const SELECTOR = '[data-testid="live-stream-weather-point"]';
 
-    // weatherSpeed=test によりページ送り間隔は300ms
-    await page.waitForFunction(() => {
-      const els = document.querySelectorAll('[data-testid="live-stream-weather-point"]');
-      return Array.from(els).some(el => el.dataset.pointId === 'hokkaido_wakkanai');
-    }, null, { timeout: 5000 });
+    // 初期page（page0: p0〜p5、6件、稚内を含まない）を同一evaluationで確定する。
+    const initialHandle = await page.waitForFunction((selector) => {
+      const ids = Array.from(document.querySelectorAll(selector)).map((el) => el.dataset.pointId);
+      return ids.length === 6 ? ids : null;
+    }, SELECTOR, { timeout: 5000 });
+    const initialPageIds = await initialHandle.jsonValue();
+    expect(initialPageIds).not.toContain('hokkaido_wakkanai');
+    expect(new Set(initialPageIds)).toEqual(new Set(['p0', 'p1', 'p2', 'p3', 'p4', 'p5']));
 
-    const secondPageIds = await page.locator('[data-testid="live-stream-weather-point"]').evaluateAll(
-      els => els.map(el => el.dataset.pointId)
-    );
-    expect(secondPageIds).toContain('hokkaido_wakkanai');
+    // target page（page1: 稚内のみ、1件）の出現とDOM snapshotを同一evaluationで確定する。
+    const targetHandle = await page.waitForFunction((selector) => {
+      const ids = Array.from(document.querySelectorAll(selector)).map((el) => el.dataset.pointId);
+      return ids.includes('hokkaido_wakkanai') ? ids : null;
+    }, SELECTOR, { timeout: 5000 });
+    const targetPageIds = await targetHandle.jsonValue();
+    expect(targetPageIds).toEqual(['hokkaido_wakkanai']);
+
+    // wrapして先頭page（page0）へ戻ったことを同一evaluationで確定する
+    // （重複・欠落なし = 初期pageの集合と完全一致）。
+    const wrappedHandle = await page.waitForFunction((selector) => {
+      const ids = Array.from(document.querySelectorAll(selector)).map((el) => el.dataset.pointId);
+      return (ids.length === 6 && !ids.includes('hokkaido_wakkanai')) ? ids : null;
+    }, SELECTOR, { timeout: 5000 });
+    const wrappedPageIds = await wrappedHandle.jsonValue();
+    expect(wrappedPageIds).not.toContain('hokkaido_wakkanai');
+    expect(new Set(wrappedPageIds)).toEqual(new Set(initialPageIds));
   });
 
   test('7: stale時に「更新遅延」が表示され、データは誤って消えない', async ({ page }) => {

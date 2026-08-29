@@ -38,7 +38,7 @@ _JMA_URL_PATTERN = (
 )
 _REQUEST_INTERVAL_SECONDS = 0.5
 _TIMEOUT_SECONDS = 30
-_USER_AGENT = "OnHighGround2/1.0 (disaster-escape-navigation; contact brokendish@gmail.com)"
+_USER_AGENT = "OnHighGround2/1.0 (disaster-escape-navigation)"
 
 
 def _load_stations() -> list:

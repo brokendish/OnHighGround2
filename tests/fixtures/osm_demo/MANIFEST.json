@@ -1,0 +1,26 @@
+{
+  "fixture_set": "osm_demo",
+  "purpose": "AT-17A demo/smoke Compose profile (docker-compose.demo.yml) — small deterministic OSM routing fixture",
+  "generation_method": "osmium extract -b 139.760,35.676,139.774,35.686 data/kanto-260214.osm.pbf",
+  "source_region": "Tokyo Station vicinity, approx. 1km x 1km bounding box",
+  "source_upstream": "Geofabrik kanto-260214.osm.pbf (© OpenStreetMap contributors, ODbL 1.0)",
+  "generated_at_utc": "2026-08-21T08:57:38Z",
+  "files": [
+    {
+      "path": "validated/tokyo/osm/driving/kanto-260214.osm.pbf",
+      "sha256": "bf3072b9642b03b3838b4870375df700b8cc3559522a9612d860b3fac652e942",
+      "bytes": 526291,
+      "highway_way_count": 2416,
+      "used_by": "osrm-driving (docker-compose.demo.yml override)"
+    },
+    {
+      "path": "validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf",
+      "sha256": "bf3072b9642b03b3838b4870375df700b8cc3559522a9612d860b3fac652e942",
+      "bytes": 526291,
+      "note": "identical content to driving fixture (same small extract, both profiles route the same tiny area)",
+      "used_by": "osrm-walking (docker-compose.demo.yml override)"
+    }
+  ],
+  "attribution": "© OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright)",
+  "reproducibility": "Regenerate with: osmium extract -b 139.760,35.676,139.774,35.686 <source kanto pbf> -o tests/fixtures/osm_demo/validated/tokyo/osm/driving/kanto-260214.osm.pbf --overwrite"
+}

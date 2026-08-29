@@ -14,10 +14,49 @@
 // 表示順: flood → tsunami → storm_surge → inland_flood → landslide → その他
 const HAZARD_DISPLAY_ORDER = ['flood', 'tsunami', 'storm_surge', 'inland_flood', 'landslide', 'urban_flood'];
 
-// safe 表示の文言（一元管理）
-const SAFE_HAZARD_TEXT    = '✔ 安全（全ハザード外）';
-// unknown 表示の文言（一元管理）— inside 無しでも unknown が1件でもあれば使う
-const UNKNOWN_HAZARD_TEXT = '❓ 未判定（安全確認不可）';
+// hazard_coverage_status / aggregate_status の3値語彙（Round 12D-B、バックエンドと同一の値）
+const HAZARD_DETECTED     = 'HAZARD_DETECTED';
+const NO_HAZARD_RECORD    = 'NO_HAZARD_RECORD';
+const SOURCE_UNAVAILABLE  = 'SOURCE_UNAVAILABLE';
+
+// 表示文言（一元管理、frontend_consumer_display_contract の exact 文字列）
+const HAZARD_DETECTED_TEXT    = 'ハザード検出';
+const NO_HAZARD_RECORD_TEXT   = '該当ハザード記録なし（危険がないことを示すものではありません）';
+const SOURCE_UNAVAILABLE_TEXT = 'ハザード情報を確認できません';
+
+/**
+ * dest/rec の hazard_coverage_status（6ハザードタイプ→3値）から
+ * aggregate_status を算出する。優先順位はバックエンドの
+ * compute_aggregate_status と同一（HAZARD_DETECTED > SOURCE_UNAVAILABLE > NO_HAZARD_RECORD）。
+ * coverage_status が無い/空の場合は安全側に倒して SOURCE_UNAVAILABLE 扱いとする。
+ *
+ * @param {Object} coverageStatus
+ * @returns {string}
+ */
+function computeAggregateStatus(coverageStatus) {
+    if (!coverageStatus || typeof coverageStatus !== 'object') return SOURCE_UNAVAILABLE;
+    const values = Object.values(coverageStatus);
+    if (values.length === 0) return SOURCE_UNAVAILABLE;
+    if (values.includes(HAZARD_DETECTED)) return HAZARD_DETECTED;
+    if (values.includes(SOURCE_UNAVAILABLE)) return SOURCE_UNAVAILABLE;
+    return NO_HAZARD_RECORD;
+}
+
+/**
+ * aggregate_status からハザード状態バッジ（destination/recommended カード共通）を生成する。
+ *
+ * @param {string} aggStatus
+ * @returns {string} HTML文字列
+ */
+function buildHazardStatusBadge(aggStatus) {
+    if (aggStatus === NO_HAZARD_RECORD) {
+        return `<span class="hazard-safe-badge safe">✔ ${NO_HAZARD_RECORD_TEXT}</span>`;
+    }
+    if (aggStatus === HAZARD_DETECTED) {
+        return `<span class="hazard-safe-badge unsafe">⚠️ ${HAZARD_DETECTED_TEXT}</span>`;
+    }
+    return `<span class="hazard-safe-badge unknown">❓ ${SOURCE_UNAVAILABLE_TEXT}</span>`;
+}
 
 /**
  * severity レベルを数値ランクに変換する（ソート用）。
@@ -214,15 +253,17 @@ function displayDestinations(dests, recommended) {
             && Math.abs(dest.lat - recommended.lat) < 1e-8
             && Math.abs(dest.lon - recommended.lon) < 1e-8;
 
+        const destAggStatus = computeAggregateStatus(dest.hazard_coverage_status);
+
         let color, fillColor, radius;
         if (isRecommended) {
             color = '#e65100'; fillColor = '#ffd600'; radius = 18;
-        } else if (dest.hazard_safe === true) {
+        } else if (destAggStatus === NO_HAZARD_RECORD) {
             color = '#2e7d32'; fillColor = '#4caf50'; radius = 13;
-        } else if (dest.hazard_safe === false) {
+        } else if (destAggStatus === HAZARD_DETECTED) {
             color = '#e65100'; fillColor = '#ff9800'; radius = 13;
         } else {
-            color = '#546e7a'; fillColor = '#78909c'; radius = 14; // 後方互換: hazard_safe 不明
+            color = '#546e7a'; fillColor = '#78909c'; radius = 14; // SOURCE_UNAVAILABLE
         }
 
         const baseStyle = {
@@ -237,11 +278,11 @@ function displayDestinations(dests, recommended) {
             bubblingMouseEvents: false
         }).addTo(map);
 
-        const hazardLabel = dest.hazard_safe === true ? '✅ 危険区域外'
-            : dest.hazard_safe === false ? '⚠️ 危険区域内'
-            : '❓ 安全性未判定';
-        const hazardNote = (dest.hazard_safe == null)
-            ? '<br><span style="font-size:11px;color:#546e7a;">ハザードデータが利用できないため安全性は未判定です</span>'
+        const hazardLabel = destAggStatus === NO_HAZARD_RECORD ? `✔ ${NO_HAZARD_RECORD_TEXT}`
+            : destAggStatus === HAZARD_DETECTED ? `⚠️ ${HAZARD_DETECTED_TEXT}`
+            : `❓ ${SOURCE_UNAVAILABLE_TEXT}`;
+        const hazardNote = (destAggStatus === SOURCE_UNAVAILABLE)
+            ? `<br><span style="font-size:11px;color:#546e7a;">${SOURCE_UNAVAILABLE_TEXT}</span>`
             : '';
         const nameLabel = dest.name ? `<strong>${dest.name}</strong>` : `<strong>避難先候補 #${index + 1}</strong>`;
         const recLabel = isRecommended ? '<br><span style="color:#e65100;font-weight:700;">⭐ 推奨避難先</span>' : '';
@@ -284,21 +325,19 @@ function displayDestinationsList(dests, recommended) {
             && Math.abs(dest.lat - recommended.lat) < 1e-8
             && Math.abs(dest.lon - recommended.lon) < 1e-8;
 
+        const cardAggStatus = computeAggregateStatus(dest.hazard_coverage_status);
+
         const card = document.createElement('div');
         let cardClass = 'destination-card';
         if (isRecommended) cardClass += ' is-recommended';
-        else if (dest.hazard_safe === false) cardClass += ' hazard-unsafe';
+        else if (cardAggStatus === HAZARD_DETECTED) cardClass += ' hazard-unsafe';
         card.className = cardClass;
         card.dataset.index = index;
 
-        const hazardBadge = dest.hazard_safe === true
-            ? '<span class="hazard-safe-badge safe">危険区域外</span>'
-            : dest.hazard_safe === false
-                ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
-                : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
+        const hazardBadge = buildHazardStatusBadge(cardAggStatus);
         const hazardReasonBlock = buildHazardReasonBlock(dest.hazard_assessment);
-        const unknownNote = (dest.hazard_safe == null)
-            ? '<p style="font-size:11px;color:#546e7a;margin:2px 0 0;">ハザードデータが利用できないため安全性は未判定です</p>'
+        const unknownNote = (cardAggStatus === SOURCE_UNAVAILABLE)
+            ? `<p style="font-size:11px;color:#546e7a;margin:2px 0 0;">${SOURCE_UNAVAILABLE_TEXT}</p>`
             : '';
         const nameText = dest.name || `候補 #${index + 1}`;
         const typeBadge = dest.type === 'emergency_shelter'
@@ -309,10 +348,10 @@ function displayDestinationsList(dests, recommended) {
         const rankClass = isRecommended ? 'destination-rank is-recommended-rank' : 'destination-rank';
         const rankLabel = isRecommended ? '⭐' : String(index + 1);
 
-        const guideBtnClass = dest.hazard_safe === false
+        const guideBtnClass = cardAggStatus === HAZARD_DETECTED
             ? 'dest-guide-btn unsafe-dest'
             : 'dest-guide-btn';
-        const guideBtnText = dest.hazard_safe === false ? '⚠️ 案内' : '案内';
+        const guideBtnText = cardAggStatus === HAZARD_DETECTED ? '⚠️ 案内' : '案内';
 
         card.innerHTML = `
             <span class="${rankClass}">${rankLabel}</span>
@@ -428,7 +467,7 @@ function hideDangerStatus() {
 function buildHazardReasonBlock(assessment) {
     if (!assessment || typeof assessment !== 'object') {
         // assessment が null/undefined = データなし → 安全確定しない
-        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-unknown">${UNKNOWN_HAZARD_TEXT}</span></div>`;
+        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-unknown">❓ ${SOURCE_UNAVAILABLE_TEXT}</span></div>`;
     }
 
     const ranked = [];
@@ -474,19 +513,20 @@ function buildHazardReasonBlock(assessment) {
     }
     if (hasUnknown) {
         // inside は無いが unknown が1件以上 → 安全確定しない
-        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-unknown">${UNKNOWN_HAZARD_TEXT}</span></div>`;
+        return `<div class="hazard-reason-block"><span class="hazard-reason-item is-unknown">❓ ${SOURCE_UNAVAILABLE_TEXT}</span></div>`;
     }
-    // 全件 outside のみ → 安全
-    return `<div class="hazard-reason-block"><span class="hazard-reason-item is-safe">${SAFE_HAZARD_TEXT}</span></div>`;
+    // 全件 outside のみ → 該当ハザード記録なし（危険がないことを示すものではない）
+    return `<div class="hazard-reason-block"><span class="hazard-reason-item is-safe">✔ ${NO_HAZARD_RECORD_TEXT}</span></div>`;
 }
 
 // ── 推奨理由セクション ────────────────────────────────────────────────────
 
 function _buildRecommendSection(dest, rank) {
     const rows = [];
+    const aggStatus = computeAggregateStatus(dest.hazard_coverage_status);
 
-    // 🛡 ハザード安全判定
-    if (dest.hazard_safe === true) {
+    // 🛡 ハザード状態
+    if (aggStatus === NO_HAZARD_RECORD) {
         // hazard_assessment から「どのハザードが外か」を列挙
         const assessment = dest.hazard_assessment;
         let outsideLabels = [];
@@ -497,17 +537,17 @@ function _buildRecommendSection(dest, rank) {
             }
         }
         const desc = outsideLabels.length > 0
-            ? outsideLabels.join('・') + 'のリスクエリア外です'
-            : '全ハザードエリア外です';
+            ? outsideLabels.join('・') + 'について該当記録がありません'
+            : NO_HAZARD_RECORD_TEXT;
         rows.push(`
             <div class="recommend-row">
                 <span class="recommend-icon">🛡</span>
                 <div>
-                    <div class="recommend-title">全ハザードエリア外</div>
+                    <div class="recommend-title">${NO_HAZARD_RECORD_TEXT}</div>
                     <div class="recommend-desc">${dest.__escapeLabel ? dest.__escapeLabel + 'を含む全ハザードで' : ''}${desc}</div>
                 </div>
             </div>`);
-    } else if (dest.hazard_safe === false) {
+    } else if (aggStatus === HAZARD_DETECTED) {
         const assessment = dest.hazard_assessment;
         let insideLabels = [];
         if (assessment && typeof assessment === 'object') {
@@ -518,13 +558,22 @@ function _buildRecommendSection(dest, rank) {
         }
         const desc = insideLabels.length > 0
             ? insideLabels.join('・') + 'のリスクあり'
-            : 'ハザードエリア内の可能性あり';
+            : 'ハザードエリアを含む可能性あり';
         rows.push(`
             <div class="recommend-row">
                 <span class="recommend-icon">⚠️</span>
                 <div>
-                    <div class="recommend-title is-warning">ハザードエリアを含む可能性あり</div>
+                    <div class="recommend-title is-warning">${HAZARD_DETECTED_TEXT}</div>
                     <div class="recommend-desc">${desc}</div>
+                </div>
+            </div>`);
+    } else {
+        rows.push(`
+            <div class="recommend-row">
+                <span class="recommend-icon">❓</span>
+                <div>
+                    <div class="recommend-title">${SOURCE_UNAVAILABLE_TEXT}</div>
+                    <div class="recommend-desc">利用可能なハザードデータでは判定できません</div>
                 </div>
             </div>`);
     }
@@ -547,13 +596,13 @@ function _buildRecommendSection(dest, rank) {
             </div>`);
     }
 
-    // 🚶 最寄りの安全な場所（rank === 0 のみ）
+    // 🚶 最寄りの候補（rank === 0 のみ）
     if (rank === 0) {
         rows.push(`
             <div class="recommend-row">
                 <span class="recommend-icon">🚶</span>
                 <div>
-                    <div class="recommend-title">最寄りの安全な場所</div>
+                    <div class="recommend-title">最寄りの候補</div>
                     <div class="recommend-desc">検索範囲内で最も近い</div>
                 </div>
             </div>`);
@@ -573,13 +622,10 @@ function displayRecommended(rec, meta) {
     const card = document.getElementById('recommendedCard');
     if (!panel || !card || !rec) return;
 
-    const hazardBadge = rec.hazard_safe === true
-        ? '<span class="hazard-safe-badge safe">✅ 危険区域外</span>'
-        : rec.hazard_safe === false
-            ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
-            : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
-    const unknownWarning = (rec.hazard_safe == null)
-        ? `<div class="recommended-unknown-warning">⚠️ ハザードデータが利用できないため、この候補の安全性は未判定です。避難前に現地の状況を確認してください。</div>`
+    const recAggStatus = computeAggregateStatus(rec.hazard_coverage_status);
+    const hazardBadge = buildHazardStatusBadge(recAggStatus);
+    const unknownWarning = (recAggStatus === SOURCE_UNAVAILABLE)
+        ? `<div class="recommended-unknown-warning">⚠️ ${SOURCE_UNAVAILABLE_TEXT}。避難前に現地の状況を確認してください。</div>`
         : '';
 
     const typeLabel = rec.type === 'emergency_shelter' ? '指定緊急避難場所'
@@ -588,18 +634,22 @@ function displayRecommended(rec, meta) {
 
     let metaNote = '';
     if (meta) {
-        const tierLabels = { safe: '安全候補から選定', unknown: '未判定候補から選定', unsafe: '危険区域内（fallback）' };
+        const tierLabels = {
+            [NO_HAZARD_RECORD]: `${NO_HAZARD_RECORD_TEXT}の候補から選定`,
+            [SOURCE_UNAVAILABLE]: `${SOURCE_UNAVAILABLE_TEXT}候補から選定`,
+            [HAZARD_DETECTED]: `${HAZARD_DETECTED_TEXT}区域を含む候補から選定（fallback）`,
+        };
         const tierLabel = tierLabels[meta.selected_tier] || meta.selected_tier || '-';
         metaNote = `<div class="recommendation-meta-note">
-            安全候補数: ${meta.safe_candidates_found} / ${meta.total_candidates_found} 件 ｜
+            該当ハザード記録なし候補数: ${meta.safe_candidates_found} / ${meta.total_candidates_found} 件 ｜
             選定: ${tierLabel}
         </div>`;
     }
 
-    const cardStateClass = rec.hazard_safe === true ? 'safe'
-        : rec.hazard_safe === false ? 'unsafe'
+    const cardStateClass = recAggStatus === NO_HAZARD_RECORD ? 'safe'
+        : recAggStatus === HAZARD_DETECTED ? 'unsafe'
         : 'unknown';
-    const provisionalLabel = (rec.hazard_safe == null)
+    const provisionalLabel = (recAggStatus === SOURCE_UNAVAILABLE)
         ? '<span class="recommended-provisional-label">暫定推奨</span>'
         : '';
 
@@ -676,7 +726,7 @@ function updateNavigatingState(index) {
             btn.classList.add('navigating');
             _injectNavStopBtn(btn);
         } else {
-            btn.textContent = (dest && dest.hazard_safe === false) ? '⚠️ 案内' : '案内';
+            btn.textContent = (dest && computeAggregateStatus(dest.hazard_coverage_status) === HAZARD_DETECTED) ? '⚠️ 案内' : '案内';
             btn.classList.remove('navigating');
         }
     });
@@ -692,12 +742,12 @@ function updateNavigatingState(index) {
             recBtn.classList.add('navigating');
             _injectNavStopBtn(recBtn);
         } else {
-            const recSafe = evacuationRecommended.hazard_safe;
+            const recAggStatus2 = computeAggregateStatus(evacuationRecommended.hazard_coverage_status);
             recBtn.classList.remove('navigating', 'safe', 'unsafe', 'unknown');
-            if (recSafe === true) {
+            if (recAggStatus2 === NO_HAZARD_RECORD) {
                 recBtn.classList.add('safe');
                 recBtn.textContent = '🚶 今すぐ案内';
-            } else if (recSafe === false) {
+            } else if (recAggStatus2 === HAZARD_DETECTED) {
                 recBtn.classList.add('unsafe');
                 recBtn.textContent = '⚠️ 注意して案内';
             } else {
@@ -1009,12 +1059,8 @@ function showDestInFloatCard(dest, rank = null) {
 
         document.getElementById('shelter-card-name').textContent = dest.name || '避難先候補';
 
-        // designation 欄：安全バッジ＋スコア
-        const hazardBadge = dest.hazard_safe === true
-            ? '<span class="hazard-safe-badge safe">✅ 危険区域外</span>'
-            : dest.hazard_safe === false
-                ? '<span class="hazard-safe-badge unsafe">⚠️ 危険区域内</span>'
-                : '<span class="hazard-safe-badge unknown">❓ 安全性未判定</span>';
+        // designation 欄：ハザード状態バッジ＋スコア
+        const hazardBadge = buildHazardStatusBadge(computeAggregateStatus(dest.hazard_coverage_status));
         const score = dest.safety_score != null ? Number(dest.safety_score).toFixed(1) : '—';
         document.getElementById('shelter-card-designation').innerHTML =
             `${hazardBadge}&nbsp;<span class="safety-score">スコア ${score}</span>`;

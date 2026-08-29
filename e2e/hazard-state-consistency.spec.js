@@ -1,13 +1,14 @@
 /**
- * hazard-state-consistency.spec.js — safe / unknown / unsafe 3 状態一貫性テスト
+ * hazard-state-consistency.spec.js — HAZARD_DETECTED / NO_HAZARD_RECORD / SOURCE_UNAVAILABLE 3 状態一貫性テスト
  *
  * 推奨カード（#recommendedCard）と候補カード（#destinationsPanel）で
- * hazard_safe の 3 状態が一貫して表示されることを保証する。
+ * hazard_coverage_status から算出される aggregate_status の 3 状態が
+ * 一貫して表示されることを保証する（Round 12D-B: NEW-ADV-003）。
  *
  * 検証観点:
- *   - safe    : 危険区域外バッジ が両カードに表示、false safe（unknown/unsafe が混在しない）
- *   - unknown : 安全性未判定バッジが両カードに表示、safe バッジが表示されない
- *   - unsafe  : 危険区域内バッジ が両カードに表示、推奨カードのボタン文言が「⚠️ 注意して案内」
+ *   - NO_HAZARD_RECORD   : safe バッジ が両カードに表示、unknown/unsafe が混在しない
+ *   - SOURCE_UNAVAILABLE : unknown バッジが両カードに表示、safe バッジが表示されない
+ *   - HAZARD_DETECTED    : unsafe バッジ が両カードに表示、推奨カードのボタン文言が「⚠️ 注意して案内」
  */
 
 'use strict';
@@ -16,7 +17,30 @@ const { test, expect } = require('@playwright/test');
 
 // ── モックレスポンス生成 ─────────────────────────────────────────────────────
 
-function makeEvacuationBody(hazardSafe, tsunamiStatus) {
+const STATUS_MAP = { outside: 'NO_HAZARD_RECORD', unknown: 'SOURCE_UNAVAILABLE', inside: 'HAZARD_DETECTED' };
+
+function makeCoverageStatus(tsunamiStatus, floodStatus = 'outside') {
+  return {
+    flood: STATUS_MAP[floodStatus] || 'NO_HAZARD_RECORD',
+    storm_surge: 'NO_HAZARD_RECORD',
+    tsunami: STATUS_MAP[tsunamiStatus] || 'NO_HAZARD_RECORD',
+    inland_flood: 'NO_HAZARD_RECORD',
+    landslide: 'NO_HAZARD_RECORD',
+    lowland_poor_drainage: 'NO_HAZARD_RECORD',
+  };
+}
+
+function computeAggregate(coverage) {
+  const values = Object.values(coverage);
+  if (values.includes('HAZARD_DETECTED')) return 'HAZARD_DETECTED';
+  if (values.includes('SOURCE_UNAVAILABLE')) return 'SOURCE_UNAVAILABLE';
+  return 'NO_HAZARD_RECORD';
+}
+
+function makeEvacuationBody(tsunamiStatus, floodStatus = 'outside') {
+  const coverage = makeCoverageStatus(tsunamiStatus, floodStatus);
+  const aggregate = computeAggregate(coverage);
+  const hazardSafe = aggregate === 'HAZARD_DETECTED' ? false : null;
   const dest = {
     name: '東雲小学校',
     type: 'emergency_shelter',
@@ -28,19 +52,26 @@ function makeEvacuationBody(hazardSafe, tsunamiStatus) {
     estimated_time_minutes: 12,
     safety_score: 45.0,
     hazard_safe: hazardSafe,
-    hazard_assessment: { tsunami: tsunamiStatus, flood: 'outside' },
+    hazard_coverage_status: coverage,
+    hazard_assessment: { tsunami: tsunamiStatus, flood: floodStatus },
   };
   return {
     current_location: { lat: 35.6415, lon: 139.7905, elevation: 3.5 },
     hazard_status: { is_danger: false, hazards: [] },
     time_to_impact: { supported: false },
     recommended: { ...dest, reason: 'テスト用' },
+    recommendation_meta: {
+      selected_tier: aggregate,
+      safe_candidates_found: aggregate === 'NO_HAZARD_RECORD' ? 1 : 0,
+      total_candidates_found: 1,
+      exclude_unsafe_candidates: false,
+    },
     destinations: [dest],
     search_parameters: { transport_mode: 'walking', max_distance: 2000, min_elevation_gain: 10 },
   };
 }
 
-async function setupMocks(page, hazardSafe, tsunamiStatus) {
+async function setupMocks(page, tsunamiStatus, floodStatus = 'outside') {
   await page.route('/api/elevation**', route => route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ elevation: 3.5, lat: 35.6415, lon: 139.7905 }),
@@ -51,7 +82,7 @@ async function setupMocks(page, hazardSafe, tsunamiStatus) {
   }));
   await page.route('/api/evacuation', route => route.fulfill({
     status: 200, contentType: 'application/json',
-    body: JSON.stringify(makeEvacuationBody(hazardSafe, tsunamiStatus)),
+    body: JSON.stringify(makeEvacuationBody(tsunamiStatus, floodStatus)),
   }));
   await page.route('/emergency-shelters**', route => route.fulfill({
     status: 200, contentType: 'application/json',
@@ -82,12 +113,12 @@ async function triggerSearch(page) {
 
 test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
 
-  // ── safe 状態 ──────────────────────────────────────────────────────────────
+  // ── NO_HAZARD_RECORD 状態 ─────────────────────────────────────────────────
 
-  test.describe('safe (hazard_safe=true, all outside)', () => {
+  test.describe('NO_HAZARD_RECORD (全ハザード該当記録なし)', () => {
 
-    test('推奨カードに「危険区域外」バッジが表示される', async ({ page }) => {
-      await setupMocks(page, true, 'outside');
+    test('推奨カードに safe バッジが表示される', async ({ page }) => {
+      await setupMocks(page, 'outside');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -95,8 +126,8 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(badge).toBeVisible({ timeout: 5000 });
     });
 
-    test('候補カードに「危険区域外」バッジが表示される', async ({ page }) => {
-      await setupMocks(page, true, 'outside');
+    test('候補カードに safe バッジが表示される', async ({ page }) => {
+      await setupMocks(page, 'outside');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -104,8 +135,8 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(badge).toBeVisible({ timeout: 5000 });
     });
 
-    test('safe 状態のとき unknown / unsafe バッジが表示されない', async ({ page }) => {
-      await setupMocks(page, true, 'outside');
+    test('NO_HAZARD_RECORD 状態のとき unknown / unsafe バッジが表示されない', async ({ page }) => {
+      await setupMocks(page, 'outside');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -114,23 +145,37 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(page.locator('.hazard-safe-badge.unsafe')).toHaveCount(0);
     });
 
-    test('safe 状態のとき hazard-reason-block に「安全（全ハザード外）」が表示される', async ({ page }) => {
-      await setupMocks(page, true, 'outside');
+    test('NO_HAZARD_RECORD 状態のとき hazard-reason-block に該当ハザード記録なしの文言が表示される', async ({ page }) => {
+      await setupMocks(page, 'outside');
       await page.goto('/');
       await triggerSearch(page);
 
       const safePill = page.locator('.hazard-reason-item.is-safe').first();
       await expect(safePill).toBeVisible({ timeout: 5000 });
+      await expect(safePill).toContainText('該当ハザード記録なし');
+      await expect(safePill).toContainText('危険がないことを示すものではありません');
+    });
+
+    test('NO_HAZARD_RECORD 状態のとき recommendation_meta.selected_tier のtierLabelが正しく表示される', async ({ page }) => {
+      await setupMocks(page, 'outside');
+      await page.goto('/');
+      await triggerSearch(page);
+
+      const metaNote = page.locator('.recommendation-meta-note').first();
+      await expect(metaNote).toBeVisible({ timeout: 5000 });
+      await expect(metaNote).toContainText('該当ハザード記録なし');
+      const text = await metaNote.textContent();
+      expect(text).not.toContain('安全');
     });
 
   });
 
-  // ── unknown 状態 ───────────────────────────────────────────────────────────
+  // ── SOURCE_UNAVAILABLE 状態 ──────────────────────────────────────────────
 
-  test.describe('unknown (hazard_safe=null, tsunami=unknown)', () => {
+  test.describe('SOURCE_UNAVAILABLE (tsunami=unknown)', () => {
 
-    test('推奨カードに「安全性未判定」バッジが表示される', async ({ page }) => {
-      await setupMocks(page, null, 'unknown');
+    test('推奨カードに unknown バッジが表示される', async ({ page }) => {
+      await setupMocks(page, 'unknown');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -138,8 +183,8 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(badge).toBeVisible({ timeout: 5000 });
     });
 
-    test('候補カードに「安全性未判定」バッジが表示される', async ({ page }) => {
-      await setupMocks(page, null, 'unknown');
+    test('候補カードに unknown バッジが表示される', async ({ page }) => {
+      await setupMocks(page, 'unknown');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -147,8 +192,8 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(badge).toBeVisible({ timeout: 5000 });
     });
 
-    test('unknown 状態のとき safe バッジが表示されない（false safe 防止）', async ({ page }) => {
-      await setupMocks(page, null, 'unknown');
+    test('SOURCE_UNAVAILABLE 状態のとき safe バッジが表示されない（false safe 防止）', async ({ page }) => {
+      await setupMocks(page, 'unknown');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -157,8 +202,8 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(page.locator('.hazard-safe-badge.safe')).toHaveCount(0);
     });
 
-    test('unknown 状態のとき「安全（全ハザード外）」文言がページに存在しない', async ({ page }) => {
-      await setupMocks(page, null, 'unknown');
+    test('SOURCE_UNAVAILABLE 状態のとき禁止文言（安全（全ハザード外））がページに存在しない', async ({ page }) => {
+      await setupMocks(page, 'unknown');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -166,24 +211,51 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(page.locator('text=安全（全ハザード外）')).toHaveCount(0);
     });
 
-    test('unknown 状態のとき hazard-reason-block に「未判定（安全確認不可）」が表示される', async ({ page }) => {
-      await setupMocks(page, null, 'unknown');
+    test('SOURCE_UNAVAILABLE 状態のとき候補自体の安全性claim（バッジ／reasonピル）に該当ハザード記録なし文言が付かない', async ({ page }) => {
+      await setupMocks(page, 'unknown');
+      await page.goto('/');
+      await triggerSearch(page);
+
+      await expect(page.locator('#destinationsPanel')).toBeVisible({ timeout: 10000 });
+      // recommendation-meta-note の「該当ハザード記録なし候補数: 0件」のような統計表示は
+      // 選定候補自体の安全性claimではないため対象外とし、候補バッジ・reasonピルのみを検査する。
+      const badgeTexts = await page.locator('.hazard-safe-badge').allTextContents();
+      for (const t of badgeTexts) expect(t).not.toContain('該当ハザード記録なし');
+      const reasonTexts = await page.locator('.hazard-reason-item').allTextContents();
+      for (const t of reasonTexts) expect(t).not.toContain('該当ハザード記録なし');
+      await expect(page.locator('.hazard-reason-item.is-safe')).toHaveCount(0);
+    });
+
+    test('SOURCE_UNAVAILABLE 状態のとき hazard-reason-block に「ハザード情報を確認できません」が表示される', async ({ page }) => {
+      await setupMocks(page, 'unknown');
       await page.goto('/');
       await triggerSearch(page);
 
       const pill = page.locator('.hazard-reason-item.is-unknown').first();
       await expect(pill).toBeVisible({ timeout: 5000 });
-      await expect(pill).toContainText('未判定（安全確認不可）');
+      await expect(pill).toContainText('ハザード情報を確認できません');
+    });
+
+    test('SOURCE_UNAVAILABLE 状態のとき recommendation_meta.selected_tier のtierLabelが正しく表示される', async ({ page }) => {
+      await setupMocks(page, 'unknown');
+      await page.goto('/');
+      await triggerSearch(page);
+
+      const metaNote = page.locator('.recommendation-meta-note').first();
+      await expect(metaNote).toBeVisible({ timeout: 5000 });
+      await expect(metaNote).toContainText('ハザード情報を確認できません候補から選定');
+      const text = await metaNote.textContent();
+      expect(text).not.toContain('安全');
     });
 
   });
 
-  // ── unsafe 状態 ────────────────────────────────────────────────────────────
+  // ── HAZARD_DETECTED 状態 ─────────────────────────────────────────────────
 
-  test.describe('unsafe (hazard_safe=false, tsunami=inside)', () => {
+  test.describe('HAZARD_DETECTED (tsunami=inside)', () => {
 
-    test('推奨カードに「危険区域内」バッジが表示される', async ({ page }) => {
-      await setupMocks(page, false, 'inside');
+    test('推奨カードに unsafe バッジが表示される', async ({ page }) => {
+      await setupMocks(page, 'inside');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -191,8 +263,8 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(badge).toBeVisible({ timeout: 5000 });
     });
 
-    test('候補カードに「危険区域内」バッジが表示される', async ({ page }) => {
-      await setupMocks(page, false, 'inside');
+    test('候補カードに unsafe バッジが表示される', async ({ page }) => {
+      await setupMocks(page, 'inside');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -200,8 +272,8 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(badge).toBeVisible({ timeout: 5000 });
     });
 
-    test('unsafe 状態のとき推奨カードのボタン文言が「⚠️ 注意して案内」になる', async ({ page }) => {
-      await setupMocks(page, false, 'inside');
+    test('HAZARD_DETECTED 状態のとき推奨カードのボタン文言が「⚠️ 注意して案内」になる', async ({ page }) => {
+      await setupMocks(page, 'inside');
       await page.goto('/');
       await triggerSearch(page);
 
@@ -210,14 +282,26 @@ test.describe('Hazard State Consistency: 3 状態一貫性テスト', () => {
       await expect(btn).toContainText('注意して案内');
     });
 
-    test('unsafe 状態のとき safe / unknown バッジが表示されない', async ({ page }) => {
-      await setupMocks(page, false, 'inside');
+    test('HAZARD_DETECTED 状態のとき safe / unknown バッジが表示されない', async ({ page }) => {
+      await setupMocks(page, 'inside');
       await page.goto('/');
       await triggerSearch(page);
 
       await expect(page.locator('#destinationsPanel')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('.hazard-safe-badge.safe')).toHaveCount(0);
       await expect(page.locator('.hazard-safe-badge.unknown')).toHaveCount(0);
+    });
+
+    test('HAZARD_DETECTED 状態のとき recommendation_meta.selected_tier のtierLabelが正しく表示される', async ({ page }) => {
+      await setupMocks(page, 'inside');
+      await page.goto('/');
+      await triggerSearch(page);
+
+      const metaNote = page.locator('.recommendation-meta-note').first();
+      await expect(metaNote).toBeVisible({ timeout: 5000 });
+      await expect(metaNote).toContainText('ハザード検出区域を含む候補から選定');
+      const text = await metaNote.textContent();
+      expect(text).not.toContain('安全');
     });
 
   });

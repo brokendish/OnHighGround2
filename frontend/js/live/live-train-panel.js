@@ -89,10 +89,14 @@
             html += `<div class="ltc-unavailable">鉄道運行情報を取得できません</div>`;
         }
 
-        html += `<div class="ltc-source-note">※ ODPT加盟事業者の路線のみ対応</div>`;
+        html += `<div class="ltc-source-note">※ <a href="https://developer.odpt.org/terms" target="_blank" rel="noopener">ODPT</a>加盟事業者のうちlicense確認済みの事業者（東京メトロ・都営）の路線のみ対応</div>`;
 
         // 地図レイヤーにデータを渡す
         window.liveTrainLayer?.setData?.(items);
+
+        if (typeof OHG2Attribution !== 'undefined' && typeof liveMap !== 'undefined') {
+            OHG2Attribution.installOdptAttribution(liveMap);
+        }
 
         card.innerHTML = html;
         _bindPrefChange();
@@ -176,6 +180,15 @@
                     <div class="ltc-detail-row">
                         <span class="ltc-detail-label">出典</span>
                         <span class="ltc-detail-value">${_esc(item.source || 'ODPT')}</span>
+                    </div>
+                    ${item.license ? `
+                    <div class="ltc-detail-row">
+                        <span class="ltc-detail-label">ライセンス</span>
+                        <span class="ltc-detail-value">${_esc(item.license)}${item.license_terms_url ? ` (<a href="${_esc(item.license_terms_url)}" target="_blank" rel="noopener">terms</a>)` : ''}</span>
+                    </div>` : ''}
+                    <div class="ltc-detail-row">
+                        <span class="ltc-detail-label">注意</span>
+                        <span class="ltc-detail-value ltc-detail-desc">本情報の内容は各事業者・ODPTによって保証されたものではありません。最新・正式な情報は各鉄道事業者の公式発表をご確認ください。</span>
                     </div>
                 </div>
                 <div class="ltc-detail-footer">

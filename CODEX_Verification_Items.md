@@ -131,7 +131,7 @@
 ## CODEX 検証実施結果（2026-05-06）
 
 ### 実施環境
-- 作業ディレクトリ: `/Users/hideki/Documents/GitHub/OnHighGround2`
+- 作業ディレクトリ: repository root
 - Backend: `evacuation-navi-backend` (`127.0.0.1:8000`)
 - Frontend: `evacuation-navi-frontend` (`127.0.0.1:8080`)
 - 備考: 検証開始時点では起動中 FastAPI プロセスの OpenAPI に `/api/admin/upload/*` が未反映で `404 Not Found` だったため、`docker compose restart backend` 後に API 検証を実施した。

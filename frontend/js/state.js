@@ -52,7 +52,7 @@ const shelterRegionVisible = Object.fromEntries(
 let isShelterBrowseLayerVisible = true;
 let shelterRefreshTimer = null;
 let suppressNextManualLocationClick = false;
-let appRuntimeConfig = {};        // /api/admin/config から読み込む運用設定 current_value
+let appRuntimeConfig = {};        // 運用設定 current_value（読み込み元は config.js 参照）
 let appRuntimeConfigLoaded = false;
 let appRuntimeConfigError = null;
 

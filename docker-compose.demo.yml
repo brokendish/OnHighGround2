@@ -1,0 +1,253 @@
+# docker-compose.demo.yml — AT-17A demo/smoke profile
+# （Phase 2-D Round 2、P2D-AT17-BOOTSTRAP対応、指示書Round 2第10節。
+#   Martin AT-17A Docker実機finding対応、CODEX report 2026-08-21で全面改訂）
+#
+# 目的: clean cloneから大容量・実運用dataを要求せず、public構成の全service role
+# （osrm-driving / osrm-walking / martin / backend-public / frontend）と
+# security boundaryを検証する。productionのCompose契約を弱めず、本override
+# ファイルを明示的に追加指定した場合のみ有効になる。
+#
+# 使い方（productionのdocker-compose.ymlへ明示的に重ねる。単独では起動できない。
+# `-p`でproject名を明示指定し、production stackと名前空間を完全に分離する）:
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml \
+#     -p onhighground2-demo up -d osrm-driving osrm-walking martin backend-public frontend
+#
+#   確認後の停止・削除:
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml -p onhighground2-demo down -v
+#
+# 設計上の制約:
+#   - operator関連service（backend-operator, operator-gateway）は本ファイルで
+#     一切上書き・有効化しない（既定のprofile gate="operator"のまま、
+#     --profile operatorを明示しない限り起動しない）。
+#   - host publishはすべて127.0.0.1限定、production（8080/18100等）とは別port
+#     を使う（同一ホストでproduction stackと共存できるようにするため）。
+#   - production network/volume/container名とは完全に独立した名前空間とする。
+#     `-p`（COMPOSE_PROJECT_NAME）だけには依存しない——base docker-compose.yml
+#     はcontainer_name・networks.default.name・volumes.lease-coordination.name
+#     をいずれも固定文字列（evacuation-navi-*）でhardcodeしており、Compose
+#     の仕様上、明示的な`name:`/`container_name:`はproject prefixより優先
+#     されるため、`-p`だけでは分離が成立しない（CODEX実機検証で確認された
+#     finding）。本fileはcontainer_name・networks.default.name・
+#     volumes.lease-coordination.nameの全てを明示的に`${COMPOSE_PROJECT_NAME}`
+#     ベースの一意名称でoverrideし、production名が一切残らないようにする。
+#   - fixtureは tests/fixtures/osm_demo/ 配下の小規模・決定的データと
+#     tests/fixtures/martin_demo/ 配下の合成MBTiles（実際の災害データではない、
+#     Martinの起動・tile応答検証専用）のみを使う。
+#   - Martinはproduction用config/martin.yaml（10個のhazard tile source path、
+#     一部demoでは存在しない）を一切参照しない。専用のconfig/martin.demo.yaml
+#     （tests/fixtures/martin_demo/のみを参照）を使う。production
+#     config/martin.yamlはfail-closedのまま変更していない。
+#   - OSRM入出力分離（Phase 2-D Round 8、P2D-OSRM-FIXTURE-CONTAMINATION対応）:
+#     tests/fixtures/osm_demo/ は`.osm.pbf`source入力とMANIFEST.jsonだけを保持する
+#     read-only fixtureである。Round 6まではこのdirectoryをosrm-driving/
+#     osrm-walking containerへ直接rwでmountしていたため、osrm-extract/partition/
+#     customizeの出力（.osrm*、54 file・約4MB）がsource fixture配下へ書き込まれ、
+#     release candidate policyへ混入した（CODEX round 7実測）。本fileは
+#     source fixtureを`:ro`でmountし、変換出力は各serviceごとに独立した
+#     専用named volume（初回`up`時は必ず空、production・source fixtureとは
+#     独立、`down -v`で確実に破棄される）へ書き込む。起動commandは
+#     「出力先が空であることを確認→source PBFをcopy→copy hashをfixture
+#     MANIFEST.jsonの記録値と比較→osrm-extract/partition/customize→
+#     必須artifact一式の存在確認→osrm-routed起動」という順で実行し、
+#     出力先に既存の`.osrm*`が1件でもあれば変換をskipせずFAILする
+#     （production commandの「既存なら再利用」という差分最適化を、demoでは
+#     意図的に採用しない——AT-17Aはこの変換過程自体を検証するため）。
+#   - DEM・ハザード・避難所の実データは同梱しない。backend-publicは
+#     data_runtime/未配備時の既存のgraceful degradation
+#     （elevation/hazard判定がdegraded状態で起動する、既存のfallback設計）を
+#     そのまま利用する。fail-hardにはしない。
+
+# 重要: Compose(v2)の既定merge規則では`ports:`はlistとして「追加」される
+# （target/host_ipが違えば両方残る）ため、単純にlistを書き直すだけでは
+# productionのhost publishが残ったまま新しいportが追加されてしまう
+# （8080を掴んだままでdemo側が18080にも公開される等）。`!override`タグで
+# 明示的に全置換することを確認済み（`docker compose config`で検証）。
+# `volumes:`はtarget pathで自動的にmerge（同一target pathなら後勝ち）される
+# ため、変更したいmountだけを記載すればよい（!override不要）。ただしmartinは
+# production volumesを一切引き継がずdemo fixtureだけにしたいため!overrideする。
+
+services:
+  osrm-driving:
+    container_name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-osrm-driving
+    ports: !override
+      - "127.0.0.1:15500:5000"
+    volumes: !override
+      # source fixtureはread-only。変換出力は専用named volume
+      # （osrm-driving-work、下部volumes:で宣言、初回upで必ず空、
+      # `down -v`で破棄される）へ分離する。fixtureへは一切書き込まない。
+      - ./tests/fixtures/osm_demo/validated:/fixture_input:ro
+      - osrm-driving-work:/data_lake/validated:rw
+    command: >
+      sh -c "
+      set -e &&
+      IN=/fixture_input/tokyo/osm/driving/kanto-260214.osm.pbf &&
+      OUTDIR=/data_lake/validated/tokyo/osm/driving &&
+      OUT=$$OUTDIR/kanto-260214.osrm &&
+      if [ -n \"$$(ls -A /data_lake/validated 2>/dev/null)\" ]; then
+        echo 'FATAL: osrm-driving-work output volume is not empty at startup — refusing to skip conversion' >&2 &&
+        exit 1;
+      fi &&
+      test -f \"$$IN\" &&
+      mkdir -p \"$$OUTDIR\" &&
+      cp \"$$IN\" \"$$OUTDIR/kanto-260214.osm.pbf\" &&
+      ACTUAL_SHA=$$(sha256sum \"$$OUTDIR/kanto-260214.osm.pbf\" | cut -d ' ' -f1) &&
+      EXPECTED_SHA=bf3072b9642b03b3838b4870375df700b8cc3559522a9612d860b3fac652e942 &&
+      if [ \"$$ACTUAL_SHA\" != \"$$EXPECTED_SHA\" ]; then
+        echo \"FATAL: copied PBF sha256 mismatch against tests/fixtures/osm_demo/MANIFEST.json (expected=$$EXPECTED_SHA actual=$$ACTUAL_SHA)\" >&2 &&
+        exit 1;
+      fi &&
+      osrm-extract -p /opt/car.lua \"$$OUTDIR/kanto-260214.osm.pbf\" &&
+      osrm-partition \"$$OUT\" &&
+      osrm-customize \"$$OUT\" &&
+      for ext in .osrm .osrm.partition .osrm.mldgr .osrm.cells .osrm.fileIndex .osrm.ramIndex; do
+        test -f \"$$OUTDIR/kanto-260214$$ext\" || (echo \"FATAL: missing required OSRM artifact $$ext\" >&2 && exit 1);
+      done &&
+      osrm-routed --algorithm mld --port 5000 \"$$OUT\"
+      "
+
+  osrm-walking:
+    container_name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-osrm-walking
+    ports: !override
+      - "127.0.0.1:15501:5001"
+    volumes: !override
+      - ./tests/fixtures/osm_demo/validated:/fixture_input:ro
+      - osrm-walking-work:/data_lake/validated:rw
+      - ./osrm/foot.lua:/opt/foot.lua:ro
+    command: >
+      sh -c "
+      set -e &&
+      IN=/fixture_input/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
+      OUTDIR=/data_lake/validated/tokyo/osm/walking/tokyo-kanagawa &&
+      OUT=$$OUTDIR/tokyo-kanagawa-260214.osrm &&
+      if [ -n \"$$(ls -A /data_lake/validated 2>/dev/null)\" ]; then
+        echo 'FATAL: osrm-walking-work output volume is not empty at startup — refusing to skip conversion' >&2 &&
+        exit 1;
+      fi &&
+      test -f \"$$IN\" &&
+      mkdir -p \"$$OUTDIR\" &&
+      cp \"$$IN\" \"$$OUTDIR/tokyo-kanagawa-260214.osm.pbf\" &&
+      ACTUAL_SHA=$$(sha256sum \"$$OUTDIR/tokyo-kanagawa-260214.osm.pbf\" | cut -d ' ' -f1) &&
+      EXPECTED_SHA=bf3072b9642b03b3838b4870375df700b8cc3559522a9612d860b3fac652e942 &&
+      if [ \"$$ACTUAL_SHA\" != \"$$EXPECTED_SHA\" ]; then
+        echo \"FATAL: copied PBF sha256 mismatch against tests/fixtures/osm_demo/MANIFEST.json (expected=$$EXPECTED_SHA actual=$$ACTUAL_SHA)\" >&2 &&
+        exit 1;
+      fi &&
+      osrm-extract --threads 2 -p /opt/foot.lua \"$$OUTDIR/tokyo-kanagawa-260214.osm.pbf\" &&
+      osrm-partition --threads 2 \"$$OUT\" &&
+      osrm-customize --threads 2 \"$$OUT\" &&
+      for ext in .osrm .osrm.partition .osrm.mldgr .osrm.cells .osrm.fileIndex .osrm.ramIndex; do
+        test -f \"$$OUTDIR/tokyo-kanagawa-260214$$ext\" || (echo \"FATAL: missing required OSRM artifact $$ext\" >&2 && exit 1);
+      done &&
+      osrm-routed --algorithm mld --threads 2 --port 5001 \"$$OUT\"
+      "
+
+  runtime-init:
+    # backend-publicのdepends_onから自動起動される one-shot service。
+    # container_nameのみproject名前空間へ揃える（挙動自体は変更しない）。
+    container_name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-runtime-init
+    volumes: !override
+      - lease-coordination:/run/onhighground2/leases:rw
+      # 実機検証で判明したfinding: `./data_runtime`をproductionと共有bind
+      # mountすると、runtime-initがproduction側で既に確定した
+      # `.publish.lock`等のowner（productionのpublish/GC operatorが設定した
+      # UID/GID）とdemo側の期待値（10002:10002）の不一致を検出し、
+      # fail-closedで停止する（`init_lease_volume.py`は「既存artifactの
+      # owner/mode不一致をchown -R等で自動修復しない」という明示的な設計の
+      # ため）。production資源を一切使わないという制約に従い、demoは
+      # project名で隔離されたnamed volumeを使う。Docker Desktopのbind mountは
+      # container UID/GIDをhost側へ正規化し、再実行時のfail-closed検証を
+      # 偽陽性にするため使用しない。初回起動時にruntime-initが所有権を確定する。
+      - demo-runtime:/data_runtime:rw
+      - ./scripts/publish/init_lease_volume.py:/init_lease_volume.py:ro
+    # DEM fixture mountpoint事前作成（Phase 2-D Round 9、
+    # P2D-AT17-DEM-BOOTSTRAP対応）: backend-publicは`/data_runtime:ro`
+    # （読み取り専用）配下へさらに`/data_runtime/backend/elevation/
+    # elevation.tif`という個別fileをnested bind mountする。Dockerは
+    # 既にread-onlyでmount済みのparentの下に新規directory・fileの
+    # どちらも作成できない（実機で`mkdirat ... read-only file system`、
+    # 続けて`make mountpoint .../elevation.tif: read-only file system`の
+    # 両方を確認済み）ため、directoryだけでなくmount target file自体
+    # （0 byte placeholder）もruntime-init（`/data_runtime`をrwで
+    # mountする唯一のservice）が事前に作成しておく必要がある。
+    # `scripts/publish/init_lease_volume.py`本体（production共用、
+    # 無変更）の前にmkdir -p + touchを1段挟むだけのdemo専用entrypoint
+    # override（bind mount適用後、placeholderの中身は完全に
+    # elevation_demo.tifへ置き換わるため0 byteのままで問題ない）。
+    entrypoint: !override
+      - sh
+      - -c
+      - >
+        mkdir -p /data_runtime/backend/elevation /data_runtime/logs /data_runtime/cache &&
+        chown 10001:10001 /data_runtime/logs /data_runtime/cache &&
+        chmod 0750 /data_runtime/logs /data_runtime/cache &&
+        touch /data_runtime/backend/elevation/elevation.tif &&
+        exec python3 /init_lease_volume.py /run/onhighground2/leases
+        --data-runtime-root /data_runtime
+        --public-uid 10001 --public-gid 10001
+        --operator-uid 10002 --operator-gid 10002
+        --leases-gid 20001
+
+  backend-public:
+    container_name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-backend-public
+    # host publishなし（production同様、frontend/nginx経由でのみ到達可能、
+    # 既にhost publishを持たないためports overrideは不要）。
+    # data_runtime関連の3 mountだけをdemo専用volumeへ差し替える（target pathが
+    # 同一のためvolumes merge規則により自動的に後勝ちで上書きされる、
+    # !override不要）。data_lake/data/shelter_data等の他mountは
+    # productionと同じ値のまま維持する（read-onlyのため共有しても安全）。
+    #
+    # DEM fixture（Phase 2-D Round 9、P2D-AT17-DEM-BOOTSTRAP対応）:
+    # backend/elevation_service.pyのDEM loaderは`backend/app.properties`の
+    # `dem.path`（既定値 `../data_runtime/backend/elevation/elevation.tif`、
+    # backend/app_public.pyのresolve_existing_path()経由）をcontainer内で
+    # `/data_runtime/backend/elevation/elevation.tif`へ解決する。この
+    # 既存default pathへ直接、tests/fixtures/dem_demo/の合成DEMを
+    # read-onlyでmountするだけで、DEM_FILE_PATH相当の環境変数追加も
+    # app.propertiesの変更も一切不要（application/production設定は無変更）。
+    # 上の`/data_runtime:ro`より後に、より具体的なtarget pathとして
+    # volumes mergeされる。
+    volumes:
+      - demo-runtime:/data_runtime:ro
+      - demo-runtime:/data_runtime/logs:rw
+      - demo-runtime:/data_runtime/cache:rw
+      - ./tests/fixtures/dem_demo/elevation_demo.tif:/data_runtime/backend/elevation/elevation.tif:ro
+    environment:
+      - OHG2_DEMO_MODE=1
+
+  frontend:
+    container_name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-frontend
+    ports: !override
+      - "127.0.0.1:18080:80"
+
+  martin:
+    container_name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-martin
+    # production同様host publishなし（frontendのnginx `/tiles/` proxy経由で
+    # 到達確認するのが基本経路）。Martin単体での直接readiness確認用にのみ
+    # 127.0.0.1限定でhost publishする（focused testが利用する）。
+    ports:
+      - "127.0.0.1:18081:3000"
+    volumes: !override
+      # production（./data_runtime/frontend/tiles、./data_lake/tiles fallback）
+      # は一切引き継がない。demo fixture（合成data、tests/fixtures/martin_demo/
+      # MANIFEST.json参照）だけをmountする。
+      - ./tests/fixtures/martin_demo:/tiles:ro
+      - ./config/martin.demo.yaml:/config/martin.yaml:ro
+    command: --config /config/martin.yaml
+
+networks:
+  default:
+    name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-network
+
+volumes:
+  lease-coordination:
+    name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-lease-coordination
+  demo-runtime:
+    name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-runtime
+  # OSRM変換出力の専用named volume（Phase 2-D Round 8、
+  # P2D-OSRM-FIXTURE-CONTAMINATION対応）。source fixture
+  # （tests/fixtures/osm_demo/）とは独立し、初回`up`時は必ず空、
+  # `down -v`で確実に破棄される。source repositoryへは一切書き戻さない。
+  osrm-driving-work:
+    name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-osrm-driving-work
+  osrm-walking-work:
+    name: ${COMPOSE_PROJECT_NAME:-onhighground2-demo}-osrm-walking-work

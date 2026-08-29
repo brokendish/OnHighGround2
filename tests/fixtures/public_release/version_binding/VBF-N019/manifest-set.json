@@ -1,0 +1,418 @@
+{
+  "children": [
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT18-A01.input.txt",
+          "role": "input",
+          "sha256": "867208ab03bb97330ba518eb9526c6efcfa5d8e96379729597c6b7548e1f1987"
+        },
+        {
+          "path": "artifacts/AT18-A01.stdout.txt",
+          "role": "stdout",
+          "sha256": "c770d193054e16ab88771d5ab17b9c98f9e672cc83de5bb5de80e6b25d538596"
+        },
+        {
+          "path": "artifacts/AT18-A01.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT18-A01.result.txt",
+          "role": "result",
+          "sha256": "99c68334337d143aae71586be7b4ae335cc65d7ab355d294bd6c7e0c51e76d1c"
+        }
+      ],
+      "assertion_id": "AT18-A01",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT18-A01",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "cffc4c57607146ce9718c560153c38ef",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT18-A02-v1.input.txt",
+          "role": "input",
+          "sha256": "3c1a671485b67d34be99dbb81f9d4389cb49da316ccbc85e2fe17358ebc75168"
+        },
+        {
+          "path": "artifacts/AT18-A02-v1.stdout.txt",
+          "role": "stdout",
+          "sha256": "dee6c5bcd3596934712c6ac0e631e1e9b027542cb734a2e2b8ebce1d75aba31a"
+        },
+        {
+          "path": "artifacts/AT18-A02-v1.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT18-A02-v1.result.txt",
+          "role": "result",
+          "sha256": "4dfb26f9597f7703ebe896035b80bc007fa5b2b6beb07443436e83a56bd8871c"
+        }
+      ],
+      "assertion_id": "AT18-A02",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT18-A02",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "b66eda7e6b9e851a72623db195807dea2a37fe3d9d6c96b38f7b7cc1bf21b71c",
+      "registry_version": "p2a-at18-20-v1",
+      "run_id": "7c931b840d27451d872bb13337a9961a",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT18-A03.input.txt",
+          "role": "input",
+          "sha256": "1473faf3c6ccaa221b2a8436ad352aa564b95128538ec9ba3a29d1568dbde757"
+        },
+        {
+          "path": "artifacts/AT18-A03.stdout.txt",
+          "role": "stdout",
+          "sha256": "266415e89f86ac660bdd634c3f823565eb0faf6f66480d2f1ca575f9963df48e"
+        },
+        {
+          "path": "artifacts/AT18-A03.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT18-A03.result.txt",
+          "role": "result",
+          "sha256": "179ccb5e377a44a4593b5c2501bf8212354cf2a1350988d0ff57e7c63298973a"
+        }
+      ],
+      "assertion_id": "AT18-A03",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT18-A03",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "10195bea94df444cba5a7e42605546e2",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT18-A04.input.txt",
+          "role": "input",
+          "sha256": "3b6b8db6993fdded0705d84a1816a1e7fc14858aa3d64c2d947df6eac2b9dfa3"
+        },
+        {
+          "path": "artifacts/AT18-A04.stdout.txt",
+          "role": "stdout",
+          "sha256": "8b9823dc3817a251561e9f7f008e99f77187e4b68cdc109e543ce3831e59a6ef"
+        },
+        {
+          "path": "artifacts/AT18-A04.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT18-A04.result.txt",
+          "role": "result",
+          "sha256": "9ad8af8e26de031f0ecab6b23ef35fc22033096e914db4d9c57db7c8136ad801"
+        }
+      ],
+      "assertion_id": "AT18-A04",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT18-A04",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "711d0ff592bc4c9fbf8db7f56d1b27e6",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT19-A01.input.txt",
+          "role": "input",
+          "sha256": "701256f176d2f54d243ef12ad5a5dbd1cd69be7c5f9e8eb622fb5f7389cc3634"
+        },
+        {
+          "path": "artifacts/AT19-A01.stdout.txt",
+          "role": "stdout",
+          "sha256": "34621b936684140e2da3637c9186d0777aa8fc22b238da42f8c5c3d96d36a3b0"
+        },
+        {
+          "path": "artifacts/AT19-A01.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT19-A01.result.txt",
+          "role": "result",
+          "sha256": "7a1aecd878dfe36bf502366e068f5904ff59bf77ef760ef5706c38f944136fdf"
+        }
+      ],
+      "assertion_id": "AT19-A01",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT19-A01",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "9219789ca65c42ba873b2ccf8c53de6f",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT19-A02.input.txt",
+          "role": "input",
+          "sha256": "b27b84f9e3eec5f3b51bc9aece99dca613227da6dfa6c0dc9552045c858248fc"
+        },
+        {
+          "path": "artifacts/AT19-A02.stdout.txt",
+          "role": "stdout",
+          "sha256": "e1093b551284d31e0f03eea46cd89c54ca7f4651e9e9df7c2801c7bfc5d3eda0"
+        },
+        {
+          "path": "artifacts/AT19-A02.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT19-A02.result.txt",
+          "role": "result",
+          "sha256": "46bdd060a6600a54da32b0c98520c5d45c4a13c7db36215020891e78f885710a"
+        }
+      ],
+      "assertion_id": "AT19-A02",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT19-A02",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "a4ba257d91e44b568a0986b5417adcee",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT19-A03.input.txt",
+          "role": "input",
+          "sha256": "4936e4d7f20630f05c3578f9bf9cf88559c8c41d0157fe212a58b045367a8ca1"
+        },
+        {
+          "path": "artifacts/AT19-A03.stdout.txt",
+          "role": "stdout",
+          "sha256": "3f960f56659ccafc4300b48e08f39798408c5f69924e9541690c8dc8507a79f5"
+        },
+        {
+          "path": "artifacts/AT19-A03.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT19-A03.result.txt",
+          "role": "result",
+          "sha256": "efe98a4389573be7842d42250c0ed95de6e3924430fbce77b580caea4feb87b0"
+        }
+      ],
+      "assertion_id": "AT19-A03",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT19-A03",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "75a792c145734aae84ca7cb6331b41ee",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT19-A04.input.txt",
+          "role": "input",
+          "sha256": "63261be5c7f972c722e5f3f5df9d7826023e4f9aeaeeb0089f8874f4b14c86fd"
+        },
+        {
+          "path": "artifacts/AT19-A04.stdout.txt",
+          "role": "stdout",
+          "sha256": "1d3d2370cb6959aaeefd977b5d70a82f9b2dedd571eeac30cbf26ce4737fb104"
+        },
+        {
+          "path": "artifacts/AT19-A04.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT19-A04.result.txt",
+          "role": "result",
+          "sha256": "c03e100b26d70b9c2480a43d12d0b5be5f59da98b239a5d53221a2d7ca8f590e"
+        }
+      ],
+      "assertion_id": "AT19-A04",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT19-A04",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "2f49bad1b8a1428fb5a38ad37600afaf",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT20-A01.input.txt",
+          "role": "input",
+          "sha256": "b7a74daa39fe8621013ceee8dae0f489b6ecd1fee55667c912374c19df74b73f"
+        },
+        {
+          "path": "artifacts/AT20-A01.stdout.txt",
+          "role": "stdout",
+          "sha256": "06c874dd107e7494750cd66bba866391c6454ea96d30af0d88c80407b0dd5377"
+        },
+        {
+          "path": "artifacts/AT20-A01.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT20-A01.result.txt",
+          "role": "result",
+          "sha256": "0f4eec07a5ba573c4fb27f42079da0f17ce5fea863ae26dc4bef7d226404218f"
+        }
+      ],
+      "assertion_id": "AT20-A01",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT20-A01",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "fa46b46317c94560bc75fbc4175bc903",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT20-A02.input.txt",
+          "role": "input",
+          "sha256": "b3e1aefa35a8a79c7c4d2cbef1b67ce6ab136aeb079b34729f19006ec16cfdca"
+        },
+        {
+          "path": "artifacts/AT20-A02.stdout.txt",
+          "role": "stdout",
+          "sha256": "c2dcdc56117874ff6f6514b648f88998721d3bb47a325dc0b550688c9b796d07"
+        },
+        {
+          "path": "artifacts/AT20-A02.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT20-A02.result.txt",
+          "role": "result",
+          "sha256": "aa97ba890dff2c6e18bd6754413029ecbad0c3f448363597368597e4b965f78e"
+        }
+      ],
+      "assertion_id": "AT20-A02",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT20-A02",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "a0b36470b8784da2b416522c09a51bfd",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT20-A03.input.txt",
+          "role": "input",
+          "sha256": "d791b533df211dc1f7382b096e60ae83ee444c4c2e931769ed44cd78765f56b8"
+        },
+        {
+          "path": "artifacts/AT20-A03.stdout.txt",
+          "role": "stdout",
+          "sha256": "73a9a37dd1cd0aef26f1a79370fbae286e90435d22abdc3b87235c587023b89c"
+        },
+        {
+          "path": "artifacts/AT20-A03.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT20-A03.result.txt",
+          "role": "result",
+          "sha256": "659ac24e278fd13f2d40d1ebbcc007c5d9792162e3b05f9f97aa342586a48625"
+        }
+      ],
+      "assertion_id": "AT20-A03",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT20-A03",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "733c7a04dd6b460083a8c946a45f1488",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "artifacts/AT20-A04.input.txt",
+          "role": "input",
+          "sha256": "ab2d3b2de02e979f5c472fe51c6ad2cca9125702bdaa3299d97dc4bb4a63dc08"
+        },
+        {
+          "path": "artifacts/AT20-A04.stdout.txt",
+          "role": "stdout",
+          "sha256": "7d7c4043457277005780e4e4bb26a9efeeb7de3ba2330c372f8539f58d6941bf"
+        },
+        {
+          "path": "artifacts/AT20-A04.stderr.txt",
+          "role": "stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "artifacts/AT20-A04.result.txt",
+          "role": "result",
+          "sha256": "15e05edb73083fb03229f629816c72a906d93bc873eb84170c2b30fd2ea884be"
+        }
+      ],
+      "assertion_id": "AT20-A04",
+      "command": "python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT20-A04",
+      "executor": "Claude",
+      "exit_code": 0,
+      "registry_name": "p2a-at18-20-assertion-registry",
+      "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+      "registry_version": "p2a-at18-20-v2",
+      "run_id": "354a0ba0daf34870bbbac58cd61efc46",
+      "schema_version": "1.0",
+      "verdict": "PASS"
+    }
+  ],
+  "manifest": {
+    "registry_name": "p2a-at18-20-assertion-registry",
+    "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+    "registry_version": "p2a-at18-20-v2",
+    "schema_version": "1.0"
+  }
+}

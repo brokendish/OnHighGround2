@@ -76,7 +76,23 @@
   function _renderSource() {
     const srcEl = _el('weather-source');
     if (!srcEl || !_data || !_data.source) return;
-    srcEl.textContent = _data.source;
+    // Phase 2-D Round 2 (P2D-UI-ATTRIBUTION): Open-Meteo由来の場合はplain textでなく
+    // clickable link + CC BY 4.0表記にする（第6.3節）。
+    if (String(_data.source).indexOf('Open-Meteo') !== -1) {
+      srcEl.innerHTML = '<a href="https://open-meteo.com/" target="_blank" rel="noopener">'
+        + _esc(_data.source) + '</a> (CC BY 4.0)';
+      if (typeof OHG2Attribution !== 'undefined' && typeof liveMap !== 'undefined') {
+        OHG2Attribution.installOpenMeteoAttribution(liveMap);
+      }
+    } else {
+      srcEl.textContent = _data.source;
+    }
+  }
+
+  function _esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
   }
 
   // ── ヘッダー (更新時刻) ─────────────────────────────────────────────────────

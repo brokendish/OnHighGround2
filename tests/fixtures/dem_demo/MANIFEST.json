@@ -1,0 +1,62 @@
+{
+  "fixture_id": "dem_demo_elevation_v1",
+  "fixture_set": "dem_demo",
+  "purpose": "AT-17A demo/smoke Compose profile (docker-compose.demo.yml) — minimal deterministic DEM fixture so backend-public's DEM loader (backend/elevation_service.py) can load successfully and /api/stats returns 200 in the demo profile.",
+  "synthetic_test_only": true,
+  "prohibited_scope": "real disaster / evacuation decision — this fixture MUST NOT be used to inform real elevation lookups, hazard judgement, or evacuation routing. Values are not real elevation measurements.",
+  "intended_scope": "AT-17A demo profile only",
+  "generator": "tests/fixtures/dem_demo/generate_synthetic_dem.py",
+  "generator_command": "python3 tests/fixtures/dem_demo/generate_synthetic_dem.py --output tests/fixtures/dem_demo/elevation_demo.tif",
+  "generator_sha256": "c60d3aff5b2f35de31e9e17ffc7ee9c2c72016958ab24c47b9a6d69398f06398",
+  "file": {
+    "path": "elevation_demo.tif",
+    "sha256": "0641f39ce81d62fb53029596a9d750f9f770089f31567e40d74cd073a4e3d5db",
+    "format": "GTiff (single-band float32 GeoTIFF, read via rasterio — same library/contract as backend/elevation_service.py and backend/requirements.txt rasterio==1.4.3)"
+  },
+  "crs": "EPSG:6668",
+  "crs_note": "JGD2011 geographic 2D — same CRS as the real production DEM (data_runtime/backend/elevation/elevation.tif, inspected read-only for this fixture's design, values not copied). Chosen for structural fidelity to backend/elevation_service.py's axis-swap handling, not to represent real geodesy.",
+  "axis_convention": "Matches the real production DEM's swapped-axis layout: column axis (x) = latitude (origin at the south edge, increasing northward); row axis (y) = longitude (origin at the east edge, decreasing westward as row increases). This exercises the same ElevationService._to_dataset_xy() axis-swap-detection branch (`candidates = [(x, y), (y, x)]`) that the real DEM requires.",
+  "demo_osm_bbox_source": {
+    "west": 139.760,
+    "south": 35.676,
+    "east": 139.774,
+    "north": 35.686,
+    "reference": "tests/fixtures/osm_demo/MANIFEST.json (source_region: Tokyo Station vicinity)"
+  },
+  "fixture_bbox": {
+    "margin_deg": 0.02,
+    "west": 139.740,
+    "south": 35.656,
+    "east": 139.794,
+    "north": 35.706,
+    "note": "demo OSM bbox fully covered with a 0.02 deg margin on every side, so interpolation always has valid neighbor cells and no corner of the demo OSM bbox sits on the fixture's edge."
+  },
+  "grid": {
+    "cell_size_deg": 0.001,
+    "width": 50,
+    "height": 54,
+    "point_count": 2700,
+    "nodata_cell_count": 9,
+    "valid_cell_count": 2691
+  },
+  "elevation_formula": "elevation(row, col) = 8.0 + 6.0*sin(col*0.35) + 4.0*cos(row*0.28) + 0.05*(row+col), where row indexes the longitude axis and col indexes the latitude axis. Deterministic, no RNG, fixed coefficients embedded directly in generate_synthetic_dem.py.",
+  "nodata": {
+    "sentinel": -9999.0,
+    "location": "rows 0-2, cols 0-2 (grid corner nearest the fixture's east/south edge), 9 cells total — deliberately placed far from the demo OSM bbox interior (which occupies roughly rows 20-34, cols 20-30) so /api/stats and interpolation over the demo bbox are unaffected.",
+    "contract": "backend/elevation_service.py::ElevationService._is_nodata() treats any value <= -9999.0 as NoData unconditionally, in addition to the GeoTIFF's own declared nodata tag (also set to -9999.0 here)."
+  },
+  "expected_statistics": {
+    "min_elevation": -0.7134782671928406,
+    "max_elevation": 22.191383361816406,
+    "mean_elevation_valid_cells_only": 11.077916145324707,
+    "note": "min/max/mean computed over the 2691 valid (non-nodata) cells of the generated array; used by tests/fixtures/dem_demo validation tests and by the AT-17A focused Docker verification to confirm the loaded dataset matches this fixture exactly."
+  },
+  "api_stats_expected_response": {
+    "coverage_area": {"west": 35.656, "south": 139.74, "east": 35.705999999999996, "north": 139.794},
+    "note": "GET /api/stats returns elevation_service.dataset.bounds/.width/.height/.crs directly (backend/app_public.py get_statistics()), which — because of the axis-swap layout above — reports bounds.left/right as the latitude range and bounds.bottom/top as the longitude range, exactly as production does for the real DEM.",
+    "resolution": {"width": 50, "height": 54},
+    "crs": "EPSG:6668"
+  },
+  "license": "N/A — fully synthetic, no third-party data. Not derived from any real elevation dataset. No attribution required.",
+  "reproducibility": "Regenerate with: python3 tests/fixtures/dem_demo/generate_synthetic_dem.py --output tests/fixtures/dem_demo/elevation_demo.tif (deterministic: two runs on the same rasterio/GDAL version produce a byte-identical file, verified in tools/public_release/test_phase2d_dem_fixture_selfcheck.py)."
+}

@@ -60,9 +60,6 @@ const NAV_STATUS_BAR_THROTTLE  = 1000; // ステータスバー精度表示の�
 
 // ── ステータスバー更新スロットル ──────────────────────────────────────────
 let _statusBarLastUpdateAt = 0;
-let _navLogLastSentAt = 0;
-let _navLogLastSignature = '';
-let _navLogInFlight = false;
 let _lastSafeCrossingConfigSignature = null;
 let _lastSafeCrossingLogSignature = null;
 
@@ -202,53 +199,14 @@ function _perfNowMs() {
     return Date.now();
 }
 
-function _getFrontendLogLevel() {
-    const level = String(getRuntimeConfigValue('logging.level', 'INFO') || 'INFO').toUpperCase();
-    return ['DEBUG', 'INFO', 'WARNING', 'ERROR'].includes(level) ? level : 'INFO';
-}
-
-function _shouldSendNavigationLog(level = 'INFO') {
-    const normalized = String(level || 'INFO').toUpperCase();
-    const rank = { DEBUG: 10, INFO: 20, WARNING: 30, ERROR: 40 };
-    const current = _getFrontendLogLevel();
-    return (rank[normalized] || rank.INFO) >= (rank[current] || rank.INFO);
-}
-
-function _sendNavigationLog(level, message, context = null) {
-    if (!_shouldSendNavigationLog(level)) return;
-    const now = Date.now();
-    const safeContext = context && typeof context === 'object' ? context : null;
-    const signature = JSON.stringify({
-        level: String(level || 'INFO').toUpperCase(),
-        message,
-        context: safeContext
-    });
-    if (signature === _navLogLastSignature) return;
-    if (now - _navLogLastSentAt < 1000) return;
-    if (_navLogInFlight) return;
-
-    _navLogLastSentAt = now;
-    _navLogLastSignature = signature;
-    _navLogInFlight = true;
-
-    fetch('/api/admin/logs/navigation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            level: String(level || 'INFO').toUpperCase(),
-            message,
-            context: safeContext
-        })
-    }).catch(() => {
-        // best-effort: logging failure must not affect navigation flow
-    }).finally(() => {
-        _navLogInFlight = false;
-    });
-}
-
+// Phase 2-B.4（ガードレール例外、ユーザー承認済み。
+// tasks/public-release/phase2b4_navigation_guardrail_exception.md 参照）:
+// フロントエンドnavigationログのリモート送信先はoperator専用経路へ移り、
+// public UIからは到達できない。ローカルconsole出力のみ行う。
 function _navDebugLog(message, context = null, level = 'INFO') {
+    void context;
+    void level;
     console.log(`[navigation] ${message}`);
-    _sendNavigationLog(level, message, context);
 }
 
 function _addNavigationDebugEvent(type, message, context = null, options = {}) {

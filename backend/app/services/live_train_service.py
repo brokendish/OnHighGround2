@@ -38,6 +38,7 @@ from app.models.live_train import (
     STATUS_UNKNOWN,
     TrainInfoItem,
 )
+from app.services.odpt_allowlist import get_operator_license_info, is_operator_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -433,6 +434,15 @@ def normalize_odpt_item(raw: Dict[str, Any]) -> Optional[TrainInfoItem]:
     point = _operator_representative_latlng(operator_id)
     if point is not None:
         item["lat"], item["lng"] = point
+
+    # Phase 2-D Round 2 (P2D-ODPT-TERMS): allowlist登録operatorのみここへ到達する
+    # （呼び出し元の_fetch_all_disruptionsがunknown operatorを事前に除外するため）。
+    # UI表示用にlicense/terms情報を付与する（第6.5節「applicable license/terms link」）。
+    license_info = get_operator_license_info(_operator_key(operator_id))
+    if license_info is not None:
+        item["license"] = license_info["license"]
+        item["license_terms_url"] = license_info["terms_url"]
+        item["license_confirmed_at"] = license_info["confirmed_date"]
     return item
 
 
@@ -524,9 +534,17 @@ async def _fetch_all_disruptions() -> List[TrainInfoItem]:
 
     items: List[TrainInfoItem] = []
     excluded_count = 0
+    denied_unknown_operator_count = 0
     for raw in raw_list:
         if _is_excluded_source(raw):
             excluded_count += 1
+            continue
+        # Phase 2-D Round 2 (P2D-ODPT-TERMS): source-controlled allowlist（第7節）。
+        # allowlist未登録operatorはcache/UI到達前にここで拒否する（fail-closed、
+        # 「従来どおり表示」へのfallbackはしない）。tokenやresponse全量はlogへ出さない。
+        operator_id = str(raw.get("odpt:operator") or "")
+        if not is_operator_allowed(_operator_key(operator_id)):
+            denied_unknown_operator_count += 1
             continue
         item = normalize_odpt_item(raw)
         if item is not None:
@@ -537,6 +555,11 @@ async def _fetch_all_disruptions() -> List[TrainInfoItem]:
 
     if excluded_count:
         logger.info("live train summary: excluded=%d (challenge/experimental等)", excluded_count)
+    if denied_unknown_operator_count:
+        logger.info(
+            "live train summary: denied_unknown_operator=%d (ODPT allowlist未登録、非表示・非cache)",
+            denied_unknown_operator_count,
+        )
     logger.info("live train summary: items=%d", len(items))
     return items
 

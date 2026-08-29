@@ -2,10 +2,13 @@
 simulation.py — Simulation / Inspection Mode v1.5 Pydantic models
 """
 from typing import Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class WeatherScenario(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     alert_severity: str = "none"        # none | advisory | warning | emergency
     current_intensity: str = "none"     # none | weak | moderate | strong | severe
     forecast_max_intensity: str = "none"
@@ -14,6 +17,9 @@ class WeatherScenario(BaseModel):
 
 
 class HazardScenario(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     lowland: bool = False
     flood: bool = False
     inland_flood: bool = False
@@ -24,6 +30,9 @@ class HazardScenario(BaseModel):
 
 
 class SimulationRunRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     scenario_id: str = "manual"
     origin: list[float]       # [lon, lat]
     destination: list[float]  # [lon, lat]
@@ -117,6 +126,9 @@ class AutoRunResult(BaseModel):
 # ── v1.5 追加モデル ────────────────────────────────────────────────────────────
 
 class PointInspectRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     lat: float
     lon: float
     weather: WeatherScenario = WeatherScenario()
@@ -137,6 +149,9 @@ class PointInspectResult(BaseModel):
 
 
 class ScenarioSaveRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     scenario_id: str
     title: str
     origin: list[float]

@@ -30,7 +30,21 @@ class ActiveMappingService:
 
     def __init__(self, mappings_path: Optional[Path] = None) -> None:
         self._path = (mappings_path or _MAPPINGS_PATH).resolve()
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        # 実運用では`data_lake`は常にbind mountされ、配下directoryの作成は
+        # 問題なく成功する。しかし本serviceはimport chain経由でapp起動時に
+        # 即時instantiateされるため、`data_lake`自体が存在しない・書込不可な
+        # 環境（volumeを持たない隔離image smoke test等）では、ここで
+        # 起動そのものをcrashさせない。読み取り専用の初期load（`_load()`）は
+        # directory不在でも安全に動作するため、書込directoryの用意は
+        # 実際に`_save()`が必要になった時点まで遅延する。
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "active_mappings.jsonの格納directoryを作成できない（%s）。"
+                "読み取りは空mappingとして継続し、書込directoryの作成は_save()実行時に再試行する。",
+                exc,
+            )
         self._lock = threading.Lock()
         self._data: Dict[str, str] = self._load()
 
@@ -55,6 +69,10 @@ class ActiveMappingService:
             return {}
 
     def _save(self) -> None:
+        # __init__時点でdirectory作成が失敗している可能性があるため、実際に
+        # 書込む直前に再試行する。ここで失敗する場合は実際の書込操作の
+        # 失敗として、従来どおり呼び出し元へ例外を伝播する（fail-closed）。
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
         with tmp.open("w", encoding="utf-8") as f:
             json.dump(self._data, f, ensure_ascii=False, indent=2)

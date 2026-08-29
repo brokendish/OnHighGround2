@@ -173,9 +173,13 @@ map.getPane('shelterPane').style.pointerEvents = 'auto';
 })();
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>)',
     maxZoom: 19
 }).addTo(map);
+
+if (typeof OHG2Attribution !== 'undefined') {
+    OHG2Attribution.installBaseAttribution(map);
+}
 
 // ── 現在地マーカー（矢印アイコン共通） ───────────────────────────────────
 

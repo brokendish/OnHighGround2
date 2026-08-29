@@ -36,8 +36,21 @@ done
 
 # --- ディレクトリ定義 ---
 DATA_LAKE="${PROJECT_ROOT}/data_lake"
-DATA_RUNTIME="${PROJECT_ROOT}/data_runtime"
-MANIFESTS_DIR="${DATA_RUNTIME}/manifests"
+
+# Phase 2-B.5限定修正（CODEX P2B5-CX-002対応）: 「直接cp/in-place更新が
+# runtime publish成功経路として残っている」ことが実装FAILとして指摘された。
+# OHG2_STAGING_ROOT未設定での実書込（--dry-run以外）は、稼働中currentへの
+# 直接cp／stale file deleteという非atomicな成功経路になるため、明示的に
+# fail-closedとする。実運用は必ず scripts/publish/deploy_to_runtime_atomic.sh
+# （OHG2_STAGING_ROOTを設定してこのscriptを呼ぶwrapper）を経由すること。
+if [[ -z "${OHG2_STAGING_ROOT:-}" ]] && ! "${DRY_RUN}"; then
+    log_error "OHG2_STAGING_ROOT が未設定です。data_runtimeへの直接書込（非atomic）は禁止されています。"
+    log_error "scripts/publish/deploy_to_runtime_atomic.sh 経由で実行するか、--dry-run を指定してください。"
+    exit 1
+fi
+DATA_RUNTIME="${OHG2_STAGING_ROOT:-${PROJECT_ROOT}/data_runtime}"
+# manifestsは常にdata_runtime直下（非versioned運用領域）に書く。
+MANIFESTS_DIR="${PROJECT_ROOT}/data_runtime/manifests"
 
 VALIDATED="${DATA_LAKE}/validated/${REGION}"
 NORMALIZED="${DATA_LAKE}/normalized/${REGION}"
@@ -157,8 +170,44 @@ deploy_file \
 # 標準名 tsunami_{target}.geojson を優先検索。
 # 見つからない場合は {target}-tsunami-*.geojson など別名ファイルを探して同名でデプロイ。
 # これにより kanagawa-tsunami-001.geojson → tsunami_kanagawa.geojson のリネームに対応。
+#
+# CODEX P2B5-CX-003（第18ラウンド）対応: target集合の正本を
+# backend/app.properties の hazard.tsunami.targets 1本に一本化する
+# （backend/app_config_properties.py / backend/app_public.py が読む
+# 設定fileと同一fileを直接読む）。従来は`for target in tokyo kanagawa
+# chiba`とhardcodeしており、region指定に関わらず常に3 targetを配備して
+# いた。chibaはtsunami_chiba.geojsonが139MB/約175K featureでメモリ約1GB
+# を消費するため、consumer設定（hazard.tsunami.targets=tokyo,kanagawa）
+# からは意図的に除外されている——「deploy可能なtarget」と「consumerが
+# 実際に読み込むtarget」を混同すると、consumerが読まないtargetの無駄な
+# 配備（かつては見過ごされたが、runtime_dataset_validate.pyのtsunami
+# 参照整合性検証がstaging側target集合とconsumer設定のexact-matchを
+# 要求するようになったため、放置すると publish 自体が拒否される）。
+APP_PROPERTIES_FILE_PATH="${PROJECT_ROOT}/backend/app.properties"
+_tsunami_targets_raw=""
+if [[ -f "${APP_PROPERTIES_FILE_PATH}" ]]; then
+    # 同一keyが複数出現した場合は最後の行を採用する（Java .properties の
+    # 一般的な後勝ち規約。backend/app_config_properties.pyのload_properties()
+    # も同じ規約——同一辞書keyへの代入で自然に後勝ちになる）。
+    _tsunami_targets_raw="$(grep -E '^[[:space:]]*hazard\.tsunami\.targets[[:space:]]*=' "${APP_PROPERTIES_FILE_PATH}" 2>/dev/null | tail -1 | sed -E 's/^[^=]*=//; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+fi
+TSUNAMI_TARGETS=()
+if [[ -n "${_tsunami_targets_raw}" ]]; then
+    IFS=',' read -ra _tsunami_target_parts <<< "${_tsunami_targets_raw}"
+    for _part in "${_tsunami_target_parts[@]}"; do
+        _trimmed="$(echo "${_part}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+        [[ -n "${_trimmed}" ]] && TSUNAMI_TARGETS+=("${_trimmed}")
+    done
+fi
+if [[ ${#TSUNAMI_TARGETS[@]} -eq 0 ]]; then
+    # backend/app_public.pyの既定値（APP_CONFIG.get("hazard.tsunami.targets",
+    # "tokyo") → parse_csv(..., ["tokyo"])）と同一のfallback。
+    TSUNAMI_TARGETS=("tokyo")
+fi
+log_info "tsunami targets (${APP_PROPERTIES_FILE_PATH} の hazard.tsunami.targets より解決): ${TSUNAMI_TARGETS[*]}"
+
 log_info "--- tsunami ---"
-for target in tokyo kanagawa chiba; do
+for target in "${TSUNAMI_TARGETS[@]}"; do
     filename="tsunami_${target}.geojson"
     # 1. validated 標準名
     if [[ -f "${VALIDATED}/tsunami/${filename}" ]]; then
@@ -234,6 +283,34 @@ else
         "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
         "${RUNTIME_BACKEND}/hazard/landslide/${REGION}/landslide_sample.geojson" \
         "backend"
+fi
+
+# ─── backend: hazard / lowland_poor_drainage ─────────────────────────────────
+# region サブディレクトリ（hazard/lowland_poor_drainage/{region}/）にデプロイする。
+# 正規化: python scripts/normalize/normalize_lowland_poor_drainage.py
+# データ: 国土数値情報 G08（低位地帯）→ data_lake/raw/{region}/lowland_poor_drainage/
+#
+# Phase 2-B.5 CODEX P2B5-CX-004（第8ラウンド）対応: 従来この補助hazard
+# typeはfrontend tile（frontend/tiles配下）としてのみ配備され、backend
+# 側（app_public.pyのHazardService）はatomic publish対象外のdata_lake
+# validatedを直接読んでいた。atomic lease機構が有効な環境では
+# app_public.py側の対称的なsnapshot混在防止（第22.2節）により、この
+# 型が常にskipされる状態になっていた。他のhazard typeと同じく
+# backend/hazard配下へも配備し、atomic publish/lease経由でloadできる
+# ようにする。
+log_info "--- lowland_poor_drainage ---"
+if [[ -d "${NORMALIZED}/lowland_poor_drainage" ]] && compgen -G "${NORMALIZED}/lowland_poor_drainage/*.geojson" > /dev/null 2>&1; then
+    if ! "${DRY_RUN}" && [[ -d "${RUNTIME_BACKEND}/hazard/lowland_poor_drainage/${REGION}" ]]; then
+        find "${RUNTIME_BACKEND}/hazard/lowland_poor_drainage/${REGION}" -maxdepth 1 -name "*.geojson" -delete
+        log_info "Cleared stale GeoJSON from ${RUNTIME_BACKEND}/hazard/lowland_poor_drainage/${REGION}"
+    fi
+    deploy_dir \
+        "${NORMALIZED}/lowland_poor_drainage" \
+        "${RUNTIME_BACKEND}/hazard/lowland_poor_drainage/${REGION}" \
+        "*.geojson" \
+        "backend"
+else
+    log_warn "lowland_poor_drainage normalized data not found (skip backend deploy)"
 fi
 
 # ─── backend: shelters ────────────────────────────────────────────────────────
@@ -321,8 +398,14 @@ else
 
     # ── frontend/layers へ同期 ─────────────────────────────────────────────────
     # data_runtime/frontend/layers/ → frontend/layers/ (nginx が /layers/ として配信)
-    log_info "--- sync frontend/layers ---"
-    if [[ -d "${RUNTIME_FRONTEND_LAYERS}" ]]; then
+    # Phase 2-B.5: staging mode（OHG2_STAGING_ROOT設定時）では、まだvalidate/
+    # atomic publishを経ていない内容をnginx配信先へ同期してはならないため、
+    # ここではskipし、scripts/publish/deploy_to_runtime_atomic.sh が
+    # activate_version.py成功後に data_runtime/current/frontend/layers/ から
+    # 同期する。
+    if [[ -n "${OHG2_STAGING_ROOT:-}" ]]; then
+        log_info "--- sync frontend/layers: staging modeのためskip（publish成功後に別途実施） ---"
+    elif [[ -d "${RUNTIME_FRONTEND_LAYERS}" ]]; then
         mkdir -p "${FRONTEND_LAYERS_DIR}"
         if "${DRY_RUN}"; then
             log_info "[dry-run] rsync ${RUNTIME_FRONTEND_LAYERS}/ -> ${FRONTEND_LAYERS_DIR}/"

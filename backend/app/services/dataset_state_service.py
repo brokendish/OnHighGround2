@@ -55,8 +55,17 @@ class DatasetStateService:
     ) -> None:
         self._state_dir = (state_dir or _ADMIN_STATE_DIR).resolve()
         self._history_dir = (history_dir or _ADMIN_HISTORY_DIR).resolve()
-        self._state_dir.mkdir(parents=True, exist_ok=True)
-        self._history_dir.mkdir(parents=True, exist_ok=True)
+        # 本serviceはimport chain経由でプロセス起動時に即時instantiateされる
+        # （shelter_service.py._resolve_paths() -> get_state_service()）。
+        # 実運用では`data_lake`は常にbind mountされ配下directoryの作成は
+        # 問題なく成功するが、`data_lake`自体が存在しない・書込不可な環境
+        # （volumeを持たない隔離image smoke test等）ではmkdir失敗がimport
+        # chain全体をcrashさせてしまうため、失敗時は警告のみで起動を継続する。
+        for d in (self._state_dir, self._history_dir):
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning("Failed to create dataset state directory %s: %s", d, exc)
 
     # ── state CRUD ────────────────────────────────────────────────────────────
 
@@ -73,7 +82,14 @@ class DatasetStateService:
         state = DatasetState(**data)
         if self._has_stale_paths(state):
             logger.info("Stale absolute paths detected in state for %s, will re-infer.", dataset_id)
-            path.unlink()
+            try:
+                path.unlink()
+            except OSError as exc:
+                # data_lakeがread-only mountの環境（隔離test container等）では
+                # 自己修復のための削除自体が失敗しうる。stateはどのみち
+                # _default_state()で再推定するため、削除失敗はここで
+                # crashさせず警告のみとする。
+                logger.warning("Failed to remove stale state file %s: %s", path, exc)
             return self._default_state(dataset_id)
         return state
 
@@ -130,7 +146,18 @@ class DatasetStateService:
         state_path = self._state_path(defn.dataset_id)
         if not state_path.exists():
             state = self._infer_state_from_filesystem(defn)
-            self.save(state)
+            # このsaveはfilesystem scan結果を次回起動のためにcache する
+            # best-effort最適化であり、成功はrequirementではない
+            # （呼び出し元はいずれにせよ推定済みのstateをそのまま使う）。
+            # import chain経由でプロセス起動時に即時実行されるため、
+            # data_lakeがread-only mountの環境（隔離test container等）で
+            # crashさせない。明示的なユーザー操作によるsave()（他の
+            # 呼び出し元）はこのtry/exceptの対象外で、従来どおり例外を
+            # 呼び出し元へ伝播する。
+            try:
+                self.save(state)
+            except OSError as exc:
+                logger.warning("Failed to cache inferred state for %s: %s", defn.dataset_id, exc)
         else:
             state = self.load(defn.dataset_id)
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.services.active_mapping_service import get_active_mapping_service
 from app.services.dataset_definition_service import get_definition_service
@@ -64,6 +64,9 @@ class ActiveMappingOut(BaseModel):
 
 
 class SetActiveMappingRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     dataset_id: str
 
 

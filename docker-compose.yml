@@ -1,11 +1,13 @@
 services:
   osrm-driving:
     profiles: ["driving"]
-    image: osrm/osrm-backend:latest
+    image: osrm/osrm-backend:v5.25.0@sha256:bdfa60e64ae1376bff6ff5605991be50600132a27469a4a9e77c23afd3a6d555
     platform: linux/amd64
     container_name: evacuation-navi-osrm-driving
-    ports:
-      - "5500:5000"
+    # Round 12D-B（NEW-ADV-007 OWNER決定）: base/default/production Composeでは
+    # host publishを行わない（内部networkのみで到達可能）。ローカル開発で
+    # 直接host portへアクセスしたい場合はdocker-compose.dev.ymlをoptで
+    # 明示的に重ねること（127.0.0.1限定long-form port syntax）。
     volumes:
       - ./data_lake:/data_lake
     command: >
@@ -23,11 +25,15 @@ services:
     restart: unless-stopped
 
   osrm-walking:
-    image: osrm/osrm-backend:latest
+    image: osrm/osrm-backend:v5.25.0@sha256:bdfa60e64ae1376bff6ff5605991be50600132a27469a4a9e77c23afd3a6d555
     platform: linux/amd64
     container_name: evacuation-navi-osrm-walking
-    ports:
-      - "5501:5001"
+    # Round 12D-B（NEW-ADV-007 OWNER決定）: base/default/production Composeでは
+    # host publishを行わない。frontend/nginx.confの/osrm/walking/proxy
+    # （内部Compose DNS経由）が既存の到達経路であり、host publish除去後も
+    # 機能は維持される。ローカル開発で直接host portへアクセスしたい場合は
+    # docker-compose.dev.ymlをoptで明示的に重ねること
+    # （127.0.0.1限定long-form port syntax）。
     volumes:
       - ./data_lake:/data_lake
       - ./osrm/foot.lua:/opt/foot.lua
@@ -44,17 +50,78 @@ services:
       "
     restart: unless-stopped
 
-  backend:
+  # Phase 2-B.5: lease coordination volumeとdata_runtimeのatomic publish用
+  # 骨格（.staging/versions/.publish.lock）を初期化するone-shot service
+  # （第4.3節）。root（uid 0）で1回だけ実行し、成功したら終了する。
+  # - networkなし（network_mode: none）
+  # - Docker socketなし
+  # - operator profileなしでもpublic起動前に完了できる（profiles指定なし）
+  # - 既存artifactのowner/mode不一致をchmod -R/chown -Rで自動修復しない
+  #   （scripts/publish/init_lease_volume.pyが検証のみ行いfail-closedする）
+  runtime-init:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.operator
+    container_name: evacuation-navi-runtime-init
+    user: "0:0"
+    network_mode: "none"
+    volumes:
+      - lease-coordination:/run/onhighground2/leases:rw
+      - ./data_runtime:/data_runtime:rw
+      - ./scripts/publish/init_lease_volume.py:/init_lease_volume.py:ro
+    entrypoint:
+      - python3
+      - /init_lease_volume.py
+      - /run/onhighground2/leases
+      - --data-runtime-root
+      - /data_runtime
+      - --public-uid
+      - "10001"
+      - --public-gid
+      - "10001"
+      - --operator-uid
+      - "10002"
+      - --operator-gid
+      - "10002"
+      - --leases-gid
+      - "20001"
+    restart: "no"
+
+  # Phase 2-B.2: public trust boundary専用service。
+  # public entrypoint（backend/app_public.py、backend/Dockerfile）のみを使用する。
+  # host publishなし・Docker socketなし。frontend/nginxからは network alias
+  # "backend"（下記networks.default.aliases）経由で従来どおり到達できる。
+  backend-public:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: evacuation-navi-backend
-    ports:
-      - "8000:8000"
+    # Phase 2-B.5: 固定数値UID/GID（第4.2節）。public processをrootで実行しない。
+    # supplemental GID 20001はlease coordination volumeの共有先。
+    user: "10001:10001"
+    group_add:
+      - "20001"
+    # Phase 2-B.2: host port publishをここで宣言しない（AT-05）。
+    # public backendはpublic networkの内部からのみ到達可能。
+    depends_on:
+      runtime-init:
+        condition: service_completed_successfully
     volumes:
-      # [Phase 1] data_runtime を runtime 参照先としてマウント
-      # 管理画面からのデプロイが書き込むため writable にする。
-      - ./data_runtime:/data_runtime
+      # Phase 2-B.5（第4.1節）: data_runtime親directoryはpublicへread-only
+      # bind mountする。currentの末端は直接mountしない（symlink切替後、
+      # 稼働中containerの/data_runtime/currentが新targetを解決できる）。
+      - ./data_runtime:/data_runtime:ro
+      # Phase 2-B.5: data_runtime配下でもpublicが自ら書き込む運用状態
+      # （atomic-publish対象のversioned datasetではない）だけを、より
+      # 具体的なpathへの個別mountでread-onlyの親mountより優先させ、
+      # 明示的にread-writeへ戻す。対象はbackend/app_public.pyが実際に
+      # 書き込むlogs（write_app_log）とcache（reverse_geocode_cache.json）
+      # の2箇所のみ（第8節 data consumer inventory参照）。
+      - ./data_runtime/logs:/data_runtime/logs:rw
+      - ./data_runtime/cache:/data_runtime/cache:rw
+      # Phase 2-B.5: reader lease coordination volume（第4.3節）。
+      # data_runtimeとは別のnamed volumeで、public/operatorだけがrw mountする。
+      - lease-coordination:/run/onhighground2/leases:rw
       # data_lake を正本としてマウント
       # 管理画面からのアップロード・状態管理・ログが書き込むため writable にする。
       - ./data_lake:/data_lake
@@ -70,10 +137,10 @@ services:
       - ./scripts:/scripts:ro
       # 鉄道路線 PMTiles の生成先を nginx が配信する ./frontend と共有する
       - ./frontend/layers/railways:/frontend/layers/railways
-      # 管理画面から OSRM コンテナを再起動するために Docker ソケットを共有
-      - /var/run/docker.sock:/var/run/docker.sock
       # foot.lua をバックエンドから更新可能にする（rebuild_osrm_walking.py が書き込む）
       - ./osrm:/osrm
+      # Phase 2-B.2: Docker socket bind mountはbackend-operatorのみに限定する（AT-05）。
+      # backend-publicへは一切マウントしない。
     env_file:
       - path: .env
         required: false
@@ -81,6 +148,15 @@ services:
       - DEM_FILE_PATH=/data_runtime/backend/elevation/elevation.tif
       - API_HOST=0.0.0.0
       - API_PORT=8000
+      # Phase 2-B.5: lease TTL等の定数は実装報告書 第7.3節に理由・単位・上下限を記載する。
+      - OHG2_LEASE_TTL_SECONDS=${OHG2_LEASE_TTL_SECONDS:-30}
+    networks:
+      default:
+        # frontend/nginx が既存の upstream 名 "backend" を変更せずに参照できるよう
+        # network alias を付与する（service key自体は public/operator境界を明示する
+        # ため backend-public へ変更した）。
+        aliases:
+          - backend
     logging:
       driver: "json-file"
       options:
@@ -93,8 +169,142 @@ services:
       timeout: 10s
       retries: 3
 
+  # Phase 2-B.2: operator trust boundary専用service。既定では起動しない
+  # （`--profile operator` 明示指定時のみ）。operator entrypoint
+  # （backend/app_operator.py、backend/Dockerfile.operator）を使用する。
+  # Docker socketはこのserviceにのみ限定し、専用internal networkだけに参加する。
+  #
+  # Phase 2-B.2 限定修正（CODEX P2B2-CX-001対応）: Docker socketを保持する
+  # このservice本体は、host port publishを一切持たず、`internal: true` の
+  # operator-internal network **のみ** に参加する。host loopback publish
+  # （bind三層の②）は、Docker socketもoperator用host/dataマウントも一切
+  # 持たない最小権限sidecar（下記 operator-gateway）が
+  # operator-internal ⇔ operator-publish network 間を中継する形で実現する。
+  # backend-operator自身が非internal networkへ直接参加することはない。
+  backend-operator:
+    profiles: ["operator"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.operator
+    container_name: evacuation-navi-backend-operator
+    # Phase 2-B.5: 固定数値UID/GID（第4.2節）。operator processをrootで実行しない。
+    # 追加のgroup_add（DOCKER_SOCKET_GID）は固定表の対象外だが、既存のDocker
+    # socket経由operation（Phase 2-B.3で確定済み7種）を維持するために必要な
+    # 実運用上の追加措置であり、実装報告書で理由を開示する。socketのgroup所有は
+    # host環境依存（本Mac実機ではroot:root=GID 0、典型的なLinux VPSでは
+    # root:docker=環境固有GID）のため、build時ではなくrun時にenv var解決する。
+    user: "10002:10002"
+    group_add:
+      - "20001"
+      - "${DOCKER_SOCKET_GID:-0}"
+    depends_on:
+      runtime-init:
+        condition: service_completed_successfully
+    volumes:
+      # Phase 2-B.5: operatorは引き続きdata_runtime親directoryをread-writeで
+      # mountする（publish/rollback/GCの実行主体のため）。
+      - ./data_runtime:/data_runtime
+      - lease-coordination:/run/onhighground2/leases:rw
+      - ./data_lake:/data_lake
+      - ./data:/app/data:ro
+      - ./data:/data:ro
+      - ./国土地理院避難所データ:/app/shelter_data:ro
+      - ./backend:/app
+      - ./scripts:/scripts:ro
+      - ./frontend/layers/railways:/frontend/layers/railways
+      - ./osrm:/osrm
+      # 管理画面から OSRM/Martin コンテナを再起動するために Docker ソケットを共有
+      # （operator専用。backend-publicへは絶対にマウントしない）。
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      # OPERATOR_AUTH_SECRET はこのfile（git管理外）からのみ供給する。
+      # 正式な秘密供給契約（rotation手順等）はPhase 2-B.3で確定する。
+      # fileが存在しない、またはOPERATOR_AUTH_SECRETが空/空白の場合、
+      # backend/app_operator.py の起動時検証がfail-closedで非0終了する
+      # （Phase 2-B.1で確定済み、本phaseでは無効化しない）。
+      - path: .env.operator
+        required: false
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8100
+      - OHG2_LEASE_TTL_SECONDS=${OHG2_LEASE_TTL_SECONDS:-30}
+    networks:
+      # Phase 2-B.2限定修正: operator本体が参加するnetworkは
+      # `internal: true` のoperator-internal network **のみ**とする。
+      # 他serviceは一切参加しない（public networkとは別、
+      # frontend/backend-public/Martin/OSRM/streamerいずれも非参加）。
+      # 非internal networkへは（sidecarを除き）一切参加しない。
+      operator-internal: {}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/operator/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Phase 2-B.4限定修正: Phase 2-B.2で受入済みのoperator host loopback
+  # publish専用sidecar（socat, transport-onlyのTCP forward）を、operator
+  # frontendの静的配信 + 限定API proxyを行う単一gatewayへ発展させた。
+  # service identity（profile／host port／network境界）はPhase 2-B.2から
+  # 不変。Docker socket・operator用host/dataマウント（data_runtime, data_lake,
+  # backend, scripts等）は引き続き一切持たない。route配信は
+  # operator/nginx.conf の明示allowlistのみ（generic `/api/` proxyなし、
+  # 未知pathはすべて404）。公式nginxイメージのみに依存し、専用image build
+  # は行わない（read-only mountでoperator/frontend-admin/を配信する）。
+  operator-gateway:
+    profiles: ["operator"]
+    image: nginx:1.28.0-alpine@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284
+    container_name: evacuation-navi-operator-gateway
+    volumes:
+      - ./operator/frontend-admin:/usr/share/nginx/html/admin:ro
+      - ./operator/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    # root filesystemをread-onlyにし、nginxが書き込みを要する一時領域のみ
+    # tmpfsで許可する（base imageで安全に適用可能なhardening）。
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    depends_on:
+      - backend-operator
+    ports:
+      # bind三層（第5.2節）の②Compose host publish。Phase 2-B.2から不変。
+      # 真の長形式（マッピング記法）のみを用いる。host_ipはリテラル固定とし、
+      # 環境変数展開の対象にしない。可変にしてよいのはpublished（host側port番号）のみ。
+      - name: operator-http
+        target: 8100
+        published: "${OPERATOR_HOST_PORT:-18100}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
+    networks:
+      # backend-operatorへ到達するためoperator-internalに参加する
+      # （gateway自体はDocker socket/data mountを持たないため、このnetwork
+      # 上に存在してもoperator本体と同等の特権は持たない）。
+      operator-internal: {}
+      # host publish専用の技術的network（Docker既知の制約対応、第5.2節参照）。
+      # このnetworkに参加するのはoperator-gatewayのみ。
+      # backend-operator本体は非参加のまま。
+      operator-publish: {}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   frontend:
-    image: nginx:alpine
+    image: nginx:1.28.0-alpine@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284
     container_name: evacuation-navi-frontend
     ports:
       - "8080:80"
@@ -102,12 +312,30 @@ services:
       - ./frontend:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - backend
+      - backend-public
       - osrm-walking
     restart: unless-stopped
 
   martin:
-    image: ghcr.io/maplibre/martin:latest
+    # Phase 2-D Round 9（P2D-MARTIN-IMAGE-PIN対応）: GitHub公開用releaseの
+    # immutable digest pin。`latest`は再現性が無く、公開後に上流が新bytesを
+    # 同じtagへ再pushすれば無警告でcontentが変わり得るため使用しない。
+    # 1.14.0はAT-17A（Phase 2-D Round 9）で実機動作確認済みのversion。
+    # digestは`docker buildx imagetools inspect ghcr.io/maplibre/martin:1.14.0`
+    # で取得した、tag `1.14.0`が指すOCI image index（multi-arch manifest
+    # list）自体のdigestであり、tag文字列からの推測ではない
+    # （amd64/arm64双方のplatform-specific imageを実際にpullし、
+    # `martin --version`が1.14.0を返すことを直接実行して確認済み。
+    # 詳細はtasks/public-release/github_public_audit_phase2d_claude_
+    # implementation.md Round 9節参照）。
+    #
+    # 重要: 現在稼働中のproduction `evacuation-navi-martin`
+    # container（1.3.1、image ID sha256:3ac08c76...）はこの変更によって
+    # 変更・再起動されない（Composeファイルのtext編集は稼働中containerへ
+    # 自動反映されない。production containerへ適用するにはPhase 2-Eで
+    # 別途`docker compose pull && up -d`等の明示的な再作成手順とOWNER
+    # 承認が必要）。
+    image: ghcr.io/maplibre/martin:1.14.0@sha256:fe5e8952312ca8ea0a25c4b1f72ceb13676f2b50dca310843e48b31c8ceb2264
     container_name: evacuation-navi-martin
     volumes:
       # 正規タイル参照先: deploy_to_runtime.sh 実行後に data_runtime/frontend/tiles/ が生成される。
@@ -150,3 +378,44 @@ services:
 networks:
   default:
     name: evacuation-navi-network
+  # Phase 2-B.2: operator専用internal network。backend-operatorと
+  # operator-gateway（sidecar）だけが参加する。
+  # internal: true により、このnetwork上のcontainerはhostへのdefault gateway
+  # （外部到達経路）を持たず、defaultネットワークとも接続されない
+  # （frontend/nginx、backend-public、Martin、OSRM、streamerは非参加）。
+  #
+  # Phase 2-B.2限定修正（CODEX P2B2-CX-001対応）: Docker socketを保持する
+  # backend-operator本体が参加するnetworkはこのoperator-internalのみであり、
+  # 非internal networkへ直接参加することはない。
+  operator-internal:
+    name: evacuation-navi-operator-internal
+    internal: true
+  # Phase 2-B.2: host port publish専用の技術的network。
+  #
+  # 検証中に判明したDocker Composeの制約: `internal: true` を設定した
+  # networkに接続したcontainerは、Docker Engineがそのnetwork向けの
+  # iptables/NAT経路を意図的に構築しないため、同じcontainer上で
+  # `ports:`（host publish）を宣言しても実際には機能しない
+  # （`docker inspect` の `NetworkSettings.Ports` が常に空配列になり、
+  # host `127.0.0.1:HOST_PORT` へ到達できないことを実機で確認した）。
+  # internal networkはpublic機能からの隔離という主目的のために維持しつつ、
+  # host publish（bind三層の②）を成立させるため、host publishだけを担う
+  # 非internal・最小構成のnetworkを別途新設する。
+  #
+  # Phase 2-B.2限定修正（CODEX P2B2-CX-001対応）: Docker socketを保持する
+  # backend-operator本体はこのnetworkに参加しない。参加するのは
+  # operator-gateway（Docker socketもoperator用host/dataマウントも
+  # 一切持たない最小権限sidecar）のみであり、backend-operator ⇔ host間の
+  # 中継役を担う。frontend/nginx、backend-public、Martin、OSRM、streamer、
+  # backend-operator本体はいずれも非参加であり、public networkとは独立した
+  # 別entityである。
+  operator-publish:
+    name: evacuation-navi-operator-publish
+
+volumes:
+  # Phase 2-B.5（第4.3節）: reader lease coordination volume。data_runtime
+  # （host bind mount）とは別のDocker管理named volumeとし、public/operator
+  # だけがread-writeでmountする。data_runtime/.leases等の代替配置や
+  # process内counter、Redis/DB等の代替方式は使用しない。
+  lease-coordination:
+    name: evacuation-navi-lease-coordination

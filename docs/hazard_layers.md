@@ -2,7 +2,8 @@
 
 ハザードレイヤー一覧。詳細は [layer_strategy.md](architecture/layer_strategy.md) と [hazard_capability_matrix.md](architecture/hazard_capability_matrix.md) を参照。
 
-runtime の実態（catalog 状態・fallback 可否）は管理UIで確認できる: `http://localhost:8080/admin/hazards`
+public構成では管理UIは公開しない。catalog状態・fallback可否の確認を含む
+privileged operation は [operator setup](operator-setup.md) の別workflowに従う。
 
 | layer | 表示名 | tileset | 主経路 | fallback | severity | notes |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -268,6 +269,14 @@ def load_emergency_shelters(paths: List[Path]) -> List[Dict[str, Any]]:
 
 # ── ShelterRegistry ────────────────────────────────────────────────────────────
 
+class _AtomicStateCorrupted(Exception):
+    """CODEX P2B5-CX-004（第7ラウンド）対応: is_available()==True（一度は
+    初期化済み）にもかかわらずleased_version_root()が失敗した状態を、
+    「そもそも未導入」と区別して表す内部専用例外。ShelterRegistryの外へは
+    伝播させない（呼び出し元_load()内でキャッシュ維持またはfail-closedへ
+    変換する）。"""
+
+
 class ShelterRegistry:
     """
     active_mappings.json を参照して、有効な避難場所データセットのみを読み込む
@@ -291,11 +300,16 @@ class ShelterRegistry:
         self._cache: Optional[List[Dict[str, Any]]] = None
         self._cache_at: Optional[datetime] = None
         self._lock = threading.Lock()
+        # CODEX P2B5-CX-004（第5ラウンド）対応: atomic publish/lease機構
+        # （Phase 2-B.5）経由で最後にloadしたversion IDを保持し、TTL満了を
+        # 待たずにcurrentのversion変化を検知してcache invalidationできる
+        # ようにする（下記_is_stale()参照）。
+        self._last_loaded_version_id: Optional[str] = None
 
     # ── 公開 API ──────────────────────────────────────────────────────────────
 
     def get_shelters(self) -> List[Dict[str, Any]]:
-        """有効な避難場所リストを返す（TTL キャッシュ）。"""
+        """有効な避難場所リストを返す（TTLキャッシュ＋atomic publish version変化検知）。"""
         with self._lock:
             if self._cache is None or self._is_stale():
                 self._cache = self._load()
@@ -315,12 +329,123 @@ class ShelterRegistry:
         if self._cache_at is None:
             return True
         elapsed = (datetime.utcnow() - self._cache_at).total_seconds()
-        return elapsed > self._ttl_seconds
+        if elapsed > self._ttl_seconds:
+            return True
+        # CODEX P2B5-CX-004（第5ラウンド）対応: TTL満了前でも、atomic
+        # publish機構のcurrentが最後の読み込み時と異なるversionへ切り替わって
+        # いれば即座にstale扱いする（TTLの30秒〜1時間を待たず、新規publishを
+        # 素早く反映するため）。current解決自体が失敗する場合は判定できない
+        # ため、安全側でstale扱いにしない（既存TTLだけに委ねる）。
+        current_vid = self._peek_current_version_id()
+        if current_vid is not None and current_vid != self._last_loaded_version_id:
+            return True
+        return False
+
+    @staticmethod
+    def _peek_current_version_id() -> Optional[str]:
+        """`data_runtime/current`が指すversion IDを軽量に確認するだけの
+        read-only probe（leaseを取得しない、`_load()`の実読み込みとは別）。
+        存在しない/読めない場合はNoneを返す（呼び出し元はTTLのみに委ねる）。"""
+        try:
+            from app.services import runtime_version_access as rva
+
+            if not rva.is_available():
+                return None
+            current_link = rva.DATA_RUNTIME_ROOT / "current"
+            if not current_link.is_symlink():
+                return None
+            target = os.readlink(current_link)
+            return Path(target).name
+        except OSError:
+            return None
 
     def _load(self) -> List[Dict[str, Any]]:
+        # CODEX P2B5-CX-004（第7ラウンド）対応: 旧実装は「atomic publish機構
+        # 未導入（is_available()==False）」と「導入済みだが現在corruptしている
+        # （coordination.lock存在、しかしacquire_current()がLeaseError）」を
+        # 区別せず、両方を同じ`RuntimeAtomicError`捕捉でlegacy pathへ静かに
+        # fallbackしていた。独立検証で「初期化済みcoordination/currentの
+        # 破損でもatomic snapshotを捨ててflat legacy readerへ戻る」と
+        # 指摘された（CORRUPT_ATOMIC_STATE_FELL_BACK=True）。
+        #
+        # 前者（真に未導入）はlegacyへのfallbackが正しい（Phase 2-B.5以前の
+        # 環境や、atomic対象データセットが単に存在しない場合）。
+        # 後者（導入済みだが破損）はlegacyという別の・未検証の情報源へ
+        # サイレントに切り替えるべきではない。直近の既知良好キャッシュが
+        # あればそれを維持し、初回load時点で既に破損している場合は
+        # fail-closedで例外を伝播する。
+        from app.services import runtime_version_access as rva
+
+        if rva.is_available():
+            try:
+                atomic_result = self._try_load_from_atomic_publish()
+            except _AtomicStateCorrupted as exc:
+                if self._cache is not None:
+                    logger.error(
+                        "ShelterRegistry: atomic publish状態が破損（%s）。"
+                        "legacyへfallbackせず、直近の既知良好キャッシュ（version=%s）を維持する",
+                        exc, self._last_loaded_version_id,
+                    )
+                    return self._cache
+                logger.error(
+                    "ShelterRegistry: atomic publish状態が破損しており、"
+                    "既知良好キャッシュも存在しない（fail-closed）: %s", exc,
+                )
+                raise
+            if atomic_result is not None:
+                return atomic_result
+            # is_available()==True だが対象datasetがversion配下に存在しない
+            # （真の「未初期化／未配備」）→ legacyへのfallbackは妥当。
+
+        self._last_loaded_version_id = None
         paths = self._resolve_paths()
         logger.info("ShelterRegistry: loading from %s", [str(p) for p in paths])
         return load_emergency_shelters(paths)
+
+    def _try_load_from_atomic_publish(self) -> Optional[List[Dict[str, Any]]]:
+        from app.services.runtime_atomic import RuntimeAtomicError
+        from app.services import runtime_version_access as rva
+        from app.services.runtime_lease import leased_version_root
+
+        # `coordination.lock`の存在（is_available()）は「leases infra自体は
+        # 一度runtime-initで初期化された」ことしか示さず、「操作者が一度でも
+        # publish()を実行し`current`を作った」こととは別事象である。
+        # `current`が一切存在しない（symlinkはおろかpathすら無い）のは、
+        # runtime-init直後でまだ一度もpublishされていない正常な起動直後
+        # 状態であり、これをcorruptionとして扱ってfail-closedにすると、
+        # 初回デプロイ直後（最初のpublish前）に本processが必ずcrashする。
+        # `current`が「存在するが不正」な場合（symlinkでない・target不正・
+        # target先versionが無い）は、既存のfail-closed方針（直近の既知
+        # 良好キャッシュを維持、無ければ例外伝播）を従来どおり適用する。
+        current_link = rva.DATA_RUNTIME_ROOT / "current"
+        if not current_link.exists() and not current_link.is_symlink():
+            return None
+
+        coordinator = rva.get_coordinator()
+        try:
+            with leased_version_root(coordinator, rva.DATA_RUNTIME_ROOT, "shelter-registry-load") as version_root:
+                paths = []
+                for sub in ("shelters", "emergency_shelters"):
+                    d = version_root / "backend" / sub
+                    if d.is_dir() and d.suffix not in self._SKIP_SUFFIXES:
+                        paths.append(d)
+                if not paths:
+                    return None
+                logger.info(
+                    "ShelterRegistry: loading from atomic publish current (version=%s): %s",
+                    version_root.name, [str(p) for p in paths],
+                )
+                shelters = load_emergency_shelters(paths)
+                self._last_loaded_version_id = version_root.name
+                return shelters
+        except RuntimeAtomicError as exc:
+            # is_available()（coordination.lock存在）は呼び出し元で確認済み
+            # ——つまりleases infrastructure自体は一度は正しく初期化された
+            # 環境である。ここでのRuntimeAtomicError（LeaseErrorはその
+            # subclass）は「導入済みだが現在corruptしている」ことを意味する
+            # ため、legacy fallback対象のNoneではなく、専用例外として
+            # 呼び出し元へ伝播する。
+            raise _AtomicStateCorrupted(str(exc)) from exc
 
     def _resolve_paths(self) -> List[Path]:
         """

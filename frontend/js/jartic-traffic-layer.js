@@ -320,7 +320,10 @@ function _jtLegendBuild() {
 
     const src = document.createElement('div');
     src.className   = 'jt-legend-source';
-    src.textContent = '出典: JARTIC / 国土交通省交通量API（/live と共通の分類）';
+    src.innerHTML =
+        '出典: <a href="https://www.jartic-open-traffic.org/" target="_blank" rel="noopener">' +
+        '交通量API（国土交通省）</a>機能による交通量(参考値)（/live と共通の分類）<br>' +
+        'このサービスは、交通量API機能を使用していますが、サービスの内容は国土交通省によって保証されたものではありません。';
     el.appendChild(src);
 
     el.dataset.built = '1';
@@ -360,6 +363,14 @@ function showJarticTrafficLayer() {
     _jtInjectStyles();
     _jtLegendShow();
 
+    // Phase 2-D Round 2 (P2D-UI-ATTRIBUTION): MLIT交通量API機能利用規約
+    // 第5条1が要求する常時表示の免責文言を、legendタブの開閉状態に関わらず
+    // 地図の恒常的なattribution controlへ追加する（layer OFFで自動的に消える）。
+    if (typeof OHG2Attribution !== 'undefined') {
+        const m = _jtGetMap();
+        if (m) OHG2Attribution.installJarticAttribution(m);
+    }
+
     if (!_jtLayer) {
         _jtLayer = L.layerGroup();
     }
@@ -391,6 +402,11 @@ function hideJarticTrafficLayer() {
     }
     _jtSetStatusText('');
     _jtLegendHide();
+
+    if (typeof OHG2Attribution !== 'undefined') {
+        const m = _jtGetMap();
+        if (m) OHG2Attribution.removeJarticAttribution(m);
+    }
 }
 
 function isJarticTrafficLayerVisible() {

@@ -19,6 +19,7 @@ from typing import Callable, Coroutine, Dict, List, Optional
 from app.models.admin_dataset import Job, JobStatus, JobStep, JobType
 from app.models.admin_dataset import DeployStatus, NormalizeStatus, OsrmRebuildStatus, ValidationStatus
 from app.services.admin_log_service import write_job_log
+from app.services.operator_audit_log import AuditSinkError, log_operator_internal_inspect
 
 logger = logging.getLogger(__name__)
 
@@ -126,11 +127,22 @@ def _fetch_docker_inspect(container_id: str) -> dict:
     取得失敗（CLI 未導入・タイムアウト等）時は空 dict を返す。
     cleanup_stale_running() 実行時のみ呼ぶこと。
 
+    Phase 2-B.3: `container_id`は必ず`_get_container_id_from_cgroup()`が
+    /proc/self/cgroup・/etc/hostname・$HOSTNAMEから検出した自プロセスのID
+    （呼出元は`_enrich_boot_state_with_docker_inspect()`の1箇所のみ、
+    `_BOOT_STATE["container_id"]`経由）であり、HTTP request・job parameter・
+    その他の外部入力からこの引数へ値が渡ることはない（`inspect:self`、
+    allowlist対象外の内部処理として第5.3節で区別されている）。
+    実行結果は`operator_internal_inspect`監査eventとして記録する
+    （actor_idは常に固定値"system"、値そのもの・生stdout/stderrは記録しない）。
+
     返却フィールド（取得できたものだけ含まれる）:
       container_started_at    : コンテナ起動時刻 (ISO 8601)
       container_restart_count : RestartCount (int)
       container_oom_killed    : OOMKilled フラグ (bool)
     """
+    audit_result = "failure"
+    audit_error_code: Optional[str] = "DOCKER_INSPECT_FAILED"
     try:
         proc = subprocess.run(
             ["docker", "inspect", container_id],
@@ -150,9 +162,19 @@ def _fetch_docker_inspect(container_id: str) -> dict:
                     result["container_restart_count"] = item["RestartCount"]
                 if "OOMKilled" in state:
                     result["container_oom_killed"] = state["OOMKilled"]
+                audit_result = "success"
+                audit_error_code = None
                 return result
     except Exception:
         pass
+    finally:
+        try:
+            log_operator_internal_inspect(result=audit_result, error_code=audit_error_code)
+        except AuditSinkError:
+            # inspect:selfは既存どおり「失敗してもwarningのみでcleanup処理を
+            # 継続する」既存挙動（第5.3節）を維持する。監査sink自体の障害で
+            # stale-job cleanupという安全側処理を止めない。
+            logger.warning("operator_internal_inspect audit sink write failed")
     return {}
 
 
@@ -190,7 +212,26 @@ def _load_or_create_boot_state() -> dict:
       container_id : Docker コンテナ短縮 ID（非 Docker 環境では null）
       prev_boot_id : 直前の boot_id（初回は null）
     """
-    _BOOT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # 本functionはmodule import時（プロセス起動時）に無条件で一度だけ実行
+    # される。実運用では`data_lake`は常にbind mountされ配下directoryの
+    # 作成は問題なく成功するが、`data_lake`自体が存在しない・書込不可な
+    # 環境（volumeを持たない隔離image smoke test等）ではmkdir失敗が
+    # import chain全体をcrashさせてしまう。boot state自体は起動診断用の
+    # 補助情報であり必須ではないため、作成失敗時は以降を空のboot stateで
+    # 継続する（既存のwrite失敗時try/exceptと同じ扱い）。
+    try:
+        _BOOT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Failed to create boot_state.json directory: %s", exc)
+        return {
+            "boot_id": str(uuid.uuid4()),
+            "pid": os.getpid(),
+            "started_at": datetime.utcnow().isoformat(),
+            "prev_boot_id": None,
+            "container_id": _get_container_id_from_cgroup(),
+            "hot_reload_enabled": False,
+            "actual_config_path": None,
+        }
 
     prev_boot_id: Optional[str] = None
     if _BOOT_STATE_PATH.exists():
@@ -275,7 +316,22 @@ class JobManager:
         job_type: JobType,
         requested_by: str = "ui",
         fetch_url: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> Job:
+        """ジョブを作成する。
+
+        Phase 2-B.3: `actor_id`/`request_id`は、認証済みoperator requestから
+        submitされたjobについて、実際にDocker操作を行う時点
+        （pipeline_service.py→docker_operation_gateway.execute_operation）まで
+        job contextとして伝播させ、HTTP受付とDocker実行結果を対応付ける
+        （第6節）。system起因（authenticated request以外）で作成されるjobでは
+        Noneのままとなる。既存の永続化job JSON（Phase 2-B.3以前に作成された
+        もの）にはこれらのfieldが存在しないが、Pydantic側でOptional・既定値
+        Noneとしているため読込は失敗しない（黙示的な"unknown"文字列への
+        置換はしない。Noneは「本phase以前のjobであり対応actorを持たない」
+        ことを表す明示的な状態として扱う）。
+        """
         job_id = str(uuid.uuid4())
         log_path = str(self._log_path(job_id))
         job = Job(
@@ -286,6 +342,8 @@ class JobManager:
             requested_by=requested_by,
             fetch_url=fetch_url,
             boot_id=_BOOT_STATE["boot_id"],
+            actor_id=actor_id,
+            request_id=request_id,
         )
         self._save(job)
         return job

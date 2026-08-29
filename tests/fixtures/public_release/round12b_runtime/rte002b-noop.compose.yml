@@ -1,0 +1,22 @@
+# NEW-RTE-002B fixture (primary): osrm-walking/martin SERVICE DEFINITIONS
+# present (DNS resolves) but the containers never bind/listen on any port
+# (busybox sleep, no server process at all), simulating "resolves but
+# unreachable/not-ready". nginx's proxy_pass therefore gets a TCP
+# connection refusal from a real (reachable) IP, distinct from
+# NEW-RTE-002A's DNS-resolution failure.
+services:
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:18902:80"
+    volumes:
+      - ../../../../nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./empty_html:/usr/share/nginx/html:ro
+  backend:
+    image: nginx:alpine
+  osrm-walking:
+    image: busybox:latest
+    command: ["sleep", "infinity"]
+  martin:
+    image: busybox:latest
+    command: ["sleep", "infinity"]

@@ -14,12 +14,16 @@
     });
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> contributors (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>) &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
         subdomains:  'abcd',
         maxZoom:     19,
         opacity:     1.0,
         zIndex:      1,
     }).addTo(map);
+
+    if (typeof OHG2Attribution !== 'undefined') {
+        OHG2Attribution.installBaseAttribution(map);
+    }
 
     window.liveMap = map;
 })();

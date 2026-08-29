@@ -1,0 +1,437 @@
+{
+  "assertions": [
+    {
+      "assertion_id": "AT18-A01",
+      "evidence_types": [
+        "schema extract",
+        "responsibility matrix",
+        "static review"
+      ],
+      "expected": "3役割の確定責任・禁止事項が規範文書として存在し、executorがreviewer分の最終verdictを自己承認する経路が存在しない!",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-038",
+        "REM-039",
+        "REM-040",
+        "REM-041"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "第5.9.1節のevidence schemaにおけるexecutor／independent reviewer／phase transition authorityの責任分離定義",
+      "test_id": "AT-18"
+    },
+    {
+      "assertion_id": "AT18-A02",
+      "evidence_types": [
+        "command records",
+        "stdout/stderr artifacts",
+        "SHA-256"
+      ],
+      "expected": "各コマンドについてref名・object ID・終了コードが個別command recordとして完全に記録される",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-007",
+        "REM-012",
+        "REM-013",
+        "REM-030",
+        "REM-038"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "local main／local origin/main／remote-tracking ref／tag／refs/codex/* に対するread-only Git確認コマンド群",
+      "test_id": "AT-18"
+    },
+    {
+      "assertion_id": "AT18-A03",
+      "evidence_types": [
+        "reachability report",
+        "push command allowlist",
+        "reviewer verdict"
+      ],
+      "expected": "main明示push以外の記載がなく、--all／--tags／--mirrorを許可しない運用手順であることが判定可能である",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-007",
+        "REM-012",
+        "REM-030"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "ref別到達性と許可push方式の点検",
+      "test_id": "AT-18"
+    },
+    {
+      "assertion_id": "AT18-A04",
+      "evidence_types": [
+        "no-action register",
+        "source evidence refs",
+        "reviewer verdict"
+      ],
+      "expected": "Severity・Public impact・現行tree非影響の根拠をindependent reviewerが個別に判定し、空欄または一括承認によるPASSがない",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-011",
+        "REM-016",
+        "REM-030",
+        "REM-038"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "REM-011等のNO-ACTION判断",
+      "test_id": "AT-18"
+    },
+    {
+      "assertion_id": "AT18-A05",
+      "evidence_types": [
+        "remote query records",
+        "external state artifact",
+        "exit codes",
+        "SHA-256"
+      ],
+      "expected": "公開直前にローカル推定ではなく外部証跡（remote query record）で取得・記録される",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-007",
+        "REM-012",
+        "REM-013",
+        "REM-030",
+        "REM-038"
+      ],
+      "required_phase": "2-E",
+      "subject": "実GitHub remoteのbranches／tags／公開対象ref／到達性",
+      "test_id": "AT-18"
+    },
+    {
+      "assertion_id": "AT18-A06",
+      "evidence_types": [
+        "commit comparison",
+        "reachability report",
+        "reviewer verdict"
+      ],
+      "expected": "公開対象commitとremote headが完全一致し、退避refが公開remoteから到達不能であることをindependent reviewerが個別PASSする",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-007",
+        "REM-013",
+        "REM-016",
+        "REM-030",
+        "REM-038",
+        "REM-039"
+      ],
+      "required_phase": "2-E",
+      "subject": "公開対象commitとremote headの一致、および退避refの公開remoteからの到達性",
+      "test_id": "AT-18"
+    },
+    {
+      "assertion_id": "AT19-A01",
+      "evidence_types": [
+        "measurement specification",
+        "threshold table",
+        "schema validation"
+      ],
+      "expected": "測定コマンド・対象値・閾値・単位が規定され、規範値は桁区切り・指数表記なしの10進整数byteまたはcountで保存される",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-014",
+        "REM-015",
+        "REM-038"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "repository working tree／.git／object／pack／blobの測定コマンド仕様と閾値",
+      "test_id": "AT-19"
+    },
+    {
+      "assertion_id": "AT19-A02",
+      "evidence_types": [
+        "procedure",
+        "command plan",
+        "path safety checks"
+      ],
+      "expected": "手順が完全に定義され、対象pathの安全性（既存作業treeとの非混同）が明示的に検証される",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-014",
+        "REM-030",
+        "REM-038"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "対象commitを固定したfresh clean cloneの生成・測定・破棄手順",
+      "test_id": "AT-19"
+    },
+    {
+      "assertion_id": "AT19-A03",
+      "evidence_types": [
+        "evidence manifest sample",
+        "per-command records",
+        "schema validation"
+      ],
+      "expected": "欠落なく生成され、pipeline最終要素だけの成功でcommand-level PASSにしない",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-038",
+        "REM-039",
+        "REM-041"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "測定コマンドおよびpipeline構成要素ごとの終了コード・stdout/stderr byte数・SHA-256",
+      "test_id": "AT-19"
+    },
+    {
+      "assertion_id": "AT19-A04",
+      "evidence_types": [
+        "negative schema cases",
+        "parser output",
+        "reviewer verdict"
+      ],
+      "expected": "そのような判定方法を明示的に拒否し、対象commitとraw integer値のみをmanifestへ固定する",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-014",
+        "REM-015",
+        "REM-038",
+        "REM-039",
+        "REM-040"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "human-readable値・丸め値・Phase 1値転載によるPASS判定の排除",
+      "test_id": "AT-19"
+    },
+    {
+      "assertion_id": "AT19-A05",
+      "evidence_types": [
+        "clean-clone manifest",
+        "raw measurement artifacts",
+        "exit codes",
+        "SHA-256"
+      ],
+      "expected": "working tree／.git／objects／packs／最大blob／上位blobがraw byte／countで最終測定され、証跡が保存される",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-014",
+        "REM-015",
+        "REM-030",
+        "REM-038"
+      ],
+      "required_phase": "2-E",
+      "subject": "実公開対象commitから作成したfresh clean cloneの最終測定",
+      "test_id": "AT-19"
+    },
+    {
+      "assertion_id": "AT19-A06",
+      "evidence_types": [
+        "limits comparison",
+        "blob inventory",
+        "LFS decision",
+        "reviewer verdict"
+      ],
+      "expected": "比較結果・inventory・LFS採否・公開可否をindependent reviewerが個別に判定する",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-015",
+        "REM-030",
+        "REM-038",
+        "REM-039"
+      ],
+      "required_phase": "2-E",
+      "subject": "最終測定値とGitHub制限の比較、未走査25blobのinventoryとLFS要否判定",
+      "test_id": "AT-19"
+    },
+    {
+      "assertion_id": "AT20-A01",
+      "evidence_types": [
+        "subphase checklist",
+        "dependency validation",
+        "rollback plan"
+      ],
+      "expected": "subphase単位に分割され、循環依存が存在しないことが判定可能である",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-017",
+        "REM-024",
+        "REM-025",
+        "REM-026",
+        "REM-030",
+        "REM-039"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "Phase 2-B.1〜2-B.6の変更範囲・依存関係・個別gate・rollback条件",
+      "test_id": "AT-20"
+    },
+    {
+      "assertion_id": "AT20-A02",
+      "evidence_types": [
+        "parser source/command",
+        "raw ID lists",
+        "aggregation artifact"
+      ],
+      "expected": "40 finding／40 remediation／AT-01〜AT-20をraw IDから再集計し、orphan・unknown・duplicate・missingがすべて0と判定する",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-017",
+        "REM-024",
+        "REM-026",
+        "REM-037",
+        "REM-040"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "formal matrix parserによるfinding／remediation／formal AT rowの再集計",
+      "test_id": "AT-20"
+    },
+    {
+      "assertion_id": "AT20-A03",
+      "evidence_types": [
+        "registry JSON",
+        "parser command",
+        "raw ID/phase lists",
+        "aggregation artifact"
+      ],
+      "expected": "raw ID集合から2-B.6=12・2-E=8・total=20を算出し、未割当・複数割当・duplicateが0であることを機械的に確認する",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-039",
+        "REM-040",
+        "REM-041"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "assertion registry parserによる20 assertion IDのphase別集計",
+      "test_id": "AT-20"
+    },
+    {
+      "assertion_id": "AT20-A04",
+      "evidence_types": [
+        "scoped evidence manifest",
+        "assertion verdicts",
+        "reviewer approvals"
+      ],
+      "expected": "各assertionに個別証跡・個別verdict・independent reviewer承認があり、2-Eの8 assertionはDEFERRED_BY_PHASEとして分母外に保持される",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-025",
+        "REM-030",
+        "REM-038",
+        "REM-039",
+        "REM-040",
+        "REM-041"
+      ],
+      "required_phase": "2-B.6",
+      "subject": "Phase 2-B.6 scoped denominator（12 assertion）と各subphase必須checklistの証跡",
+      "test_id": "AT-20"
+    },
+    {
+      "assertion_id": "AT20-A05",
+      "evidence_types": [
+        "rollback run manifest",
+        "command artifacts",
+        "health/regression evidence"
+      ],
+      "expected": "安全な対象範囲で実行され、操作単位の終了コードとartifactが保存され、旧構成・旧datasetへ整合して復元できることを確認する",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-025",
+        "REM-038"
+      ],
+      "required_phase": "2-E",
+      "subject": "rollback手順の実運用実行",
+      "test_id": "AT-20"
+    },
+    {
+      "assertion_id": "AT20-A06",
+      "evidence_types": [
+        "final aggregation manifest",
+        "registry hash",
+        "reviewer verdicts"
+      ],
+      "expected": "全assertionの証跡・hash・対象commit・reviewer verdictが再検証され、final denominatorへ戻される",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-037",
+        "REM-038",
+        "REM-039",
+        "REM-040",
+        "REM-041"
+      ],
+      "required_phase": "2-E",
+      "subject": "2-B.6と2-Eの全20 assertionを含むfinal denominator",
+      "test_id": "AT-20"
+    },
+    {
+      "assertion_id": "AT20-A07",
+      "evidence_types": [
+        "release manifest",
+        "artifact inventory",
+        "hash comparison"
+      ],
+      "expected": "すべて相互に一致することを確認する",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-024",
+        "REM-026",
+        "REM-030",
+        "REM-038"
+      ],
+      "required_phase": "2-E",
+      "subject": "公開対象commit／build artifact／data version／rollback manifest／evidence manifestの識別子とhash",
+      "test_id": "AT-20"
+    },
+    {
+      "assertion_id": "AT20-A08",
+      "evidence_types": [
+        "negative gate cases",
+        "final gate output",
+        "CODEX final review"
+      ],
+      "expected": "FAIL・NOT_TESTED・PENDING・DEFERRED_BY_PHASE・未承認・証跡欠落・hash不一致が1件でもあれば生成しない",
+      "mandatory": true,
+      "remediation_ids": [
+        "REM-017",
+        "REM-024",
+        "REM-025",
+        "REM-026",
+        "REM-030",
+        "REM-037",
+        "REM-038",
+        "REM-039",
+        "REM-040",
+        "REM-041"
+      ],
+      "required_phase": "2-E",
+      "subject": "AT final verdict（FINAL_PASS）と公開許可要求の生成条件",
+      "test_id": "AT-20"
+    }
+  ],
+  "canonicalization": {
+    "array_order": "preserved exactly as declared; arrays are never reordered or sorted",
+    "encoding": "UTF-8",
+    "ensure_ascii": false,
+    "excludes_field": "registry_sha256",
+    "key_order": "lexicographic ascending (Python json.dumps sort_keys=True) on all object keys, applied recursively",
+    "method": "canonical_json_v1",
+    "separators": [
+      ",",
+      ":"
+    ],
+    "whitespace": "none outside of string values (compact form)"
+  },
+  "expected_counts": {
+    "AT-18": {
+      "2-B.6": 4,
+      "2-E": 2,
+      "total": 6
+    },
+    "AT-19": {
+      "2-B.6": 4,
+      "2-E": 2,
+      "total": 6
+    },
+    "AT-20": {
+      "2-B.6": 4,
+      "2-E": 4,
+      "total": 8
+    },
+    "overall": {
+      "2-B.6": 12,
+      "2-E": 8,
+      "total": 20
+    }
+  },
+  "registry_name": "p2a-at18-20-assertion-registry",
+  "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799",
+  "registry_version": "p2a-at18-20-v2",
+  "schema_version": "1.0"
+}

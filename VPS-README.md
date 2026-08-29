@@ -29,8 +29,8 @@
 | `evacuation-navi-frontend` | nginx（静的配信 + API プロキシ） | 8080 |
 | `evacuation-navi-backend` | FastAPI（ハザード判定・避難ルート） | 8000 |
 | `evacuation-navi-martin` | Martin（MBTiles ベクタータイル配信） | 3000（内部のみ） |
-| `evacuation-navi-osrm-driving` | OSRM 車ルーティング | 5500 |
-| `evacuation-navi-osrm-walking` | OSRM 徒歩ルーティング | 5501 |
+| `evacuation-navi-osrm-driving` | OSRM 車ルーティング | 5000（内部のみ、host publishなし） |
+| `evacuation-navi-osrm-walking` | OSRM 徒歩ルーティング | 5001（内部のみ、host publishなし。frontendの`/osrm/walking/`経由で到達） |
 
 ### リクエストの流れ
 
@@ -316,12 +316,17 @@ curl https://ohg.brokendish.org/api/hazards/landslide/tokyo | python3 -c "import
 
 ### ベクタータイル
 
-```bash
-# Martin カタログ確認
-curl http://localhost:3000/catalog | python3 -m json.tool
+Round 12D-B1以降、Martinはhost publishされていない（3000は内部のみ、
+docker-compose.dev.ymlを明示指定したローカル開発時のみ127.0.0.1限定で
+opt-in可能）。VPS上でのカタログ確認はfrontend/nginx経由、または
+コンテナ内部からの確認を使う。
 
-# nginx 経由でも確認
+```bash
+# nginx 経由（VPS上での確認方法。frontendが/tiles/をmartinへproxyする）
 curl https://ohg.brokendish.org/tiles/catalog | python3 -m json.tool
+
+# コンテナ内部からの確認（host publishなしでもmartin自体の疎通を直接確認する場合）
+docker compose exec martin wget -qO- http://localhost:3000/catalog | python3 -m json.tool
 ```
 
 ### 管理 UI

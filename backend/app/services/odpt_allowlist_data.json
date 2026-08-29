@@ -1,0 +1,22 @@
+[
+  {
+    "operator_id": "TokyoMetro",
+    "dataset_type": "odpt:TrainInformation",
+    "license": "公共交通オープンデータ基本ライセンス",
+    "official_catalog_url": "https://ckan.odpt.org/organization/tokyometro",
+    "terms_url": "https://developer.odpt.org/terms",
+    "attribution_text_id": "odpt_basic_license",
+    "allowed_environment": "public",
+    "confirmed_date": "2026-08-21"
+  },
+  {
+    "operator_id": "Toei",
+    "dataset_type": "odpt:TrainInformation",
+    "license": "CC BY 4.0",
+    "official_catalog_url": "https://ckan.odpt.org/organization/toei",
+    "terms_url": "https://developer.odpt.org/terms",
+    "attribution_text_id": "cc_by_4_0",
+    "allowed_environment": "public",
+    "confirmed_date": "2026-08-21"
+  }
+]

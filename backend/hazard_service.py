@@ -144,6 +144,78 @@ def derive_hazard_safe(assessment: Dict) -> Optional[bool]:
     return True
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Round 12D-B（NEW-ADV-003 契約）: hazard_coverage_status / aggregate status /
+# 新hazard_safe。derive_hazard_safe() は既存の他呼び出し元
+# （hazard_engine.py の未使用メソッド等）のため無改変のまま残す。
+# ──────────────────────────────────────────────────────────────────────────────
+HAZARD_DETECTED = "HAZARD_DETECTED"
+NO_HAZARD_RECORD = "NO_HAZARD_RECORD"
+SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
+
+
+def _coverage_status_for_type(assessment: Dict, hazard_type: str) -> str:
+    """assess_candidate() の戻り値（ロード済みtypeのみを含むdict）から、
+    1つのhazard typeに対するhazard_coverage_status値を決定する。
+
+    ロード済みでないtype（assessment に一切キーが無い ＝ silent omission）は
+    SOURCE_UNAVAILABLE として扱う（silent omissionをそのまま露出させない）。
+    """
+    if hazard_type not in assessment:
+        return SOURCE_UNAVAILABLE
+    v = assessment[hazard_type]
+    status = v.get("status", "unknown") if isinstance(v, dict) else v
+    if status == "inside":
+        return HAZARD_DETECTED
+    if status == "outside":
+        return NO_HAZARD_RECORD
+    # "unknown" および想定外値は fail-closed で SOURCE_UNAVAILABLE
+    return SOURCE_UNAVAILABLE
+
+
+def compute_hazard_coverage_status(assessment: Dict, all_hazard_types: List[str]) -> Dict[str, str]:
+    """全hazard type（all_hazard_types、通常は
+    [d.name for d in hazard_definitions.HAZARD_DEFINITIONS] の6件）について、
+    silent omissionなしのhazard_coverage_status dictを返す。
+
+    Returns:
+        {"flood": "HAZARD_DETECTED", "storm_surge": "SOURCE_UNAVAILABLE", ...}
+        -- all_hazard_types の全キーが必ず存在する。
+    """
+    return {ht: _coverage_status_for_type(assessment, ht) for ht in all_hazard_types}
+
+
+def compute_aggregate_status(coverage_status: Dict[str, str]) -> str:
+    """candidateのaggregate statusを、凍結された優先順位で決定する。
+
+    優先順位（変更不可、Round 12D-A2/A3 OWNER決定）:
+      1. 1件以上 HAZARD_DETECTED   → HAZARD_DETECTED
+      2. HAZARD_DETECTED 0件かつ、1件以上 SOURCE_UNAVAILABLE → SOURCE_UNAVAILABLE
+      3. 全件 NO_HAZARD_RECORD     → NO_HAZARD_RECORD
+    """
+    values = coverage_status.values()
+    if HAZARD_DETECTED in values:
+        return HAZARD_DETECTED
+    if SOURCE_UNAVAILABLE in values:
+        return SOURCE_UNAVAILABLE
+    return NO_HAZARD_RECORD
+
+
+def compute_hazard_safe_from_aggregate(aggregate_status: str) -> Optional[bool]:
+    """新hazard_safe値（Round 12D-A2 legacy_hazard_safe_freeze）。
+
+      HAZARD_DETECTED    → False
+      SOURCE_UNAVAILABLE → None
+      NO_HAZARD_RECORD   → None
+
+    True は現在のauthoritative recordでは生成しない
+    （CONFIRMED_SAFEを正当に生成できる将来sourceがOWNER承認された場合のみ再検討）。
+    """
+    if aggregate_status == HAZARD_DETECTED:
+        return False
+    return None
+
+
 class HazardService:
     """
     ハザードデータによるリスク判定サービス。

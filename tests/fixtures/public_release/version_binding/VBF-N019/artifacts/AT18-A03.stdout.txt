@@ -1,0 +1,2 @@
+[PASS] AT18-A03 verified via python3 tools/public_release/phase2b6_scoped_assertions.py --assertion-id AT18-A03
+SCOPED_ASSERTION_RESULT_JSON={"assertion_id": "AT18-A03", "executor": "Claude", "exit_code": 0, "registry_name": "p2a-at18-20-assertion-registry", "registry_sha256": "c3cb704bd6e6f4f7ae0b19e1962ae0f5da4cd95d94bde47bfb67b4d02bbc5799", "registry_version": "p2a-at18-20-v2", "run_id": "10195bea94df444cba5a7e42605546e2", "schema_version": "1.0", "verdict": "PASS"}

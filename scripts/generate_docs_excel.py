@@ -8,6 +8,7 @@ from openpyxl.styles import (
     Font, PatternFill, Alignment, Border, Side, GradientFill
 )
 from openpyxl.utils import get_column_letter
+from pathlib import Path
 
 # ======= スタイル定義 =======
 
@@ -735,7 +736,7 @@ def main():
     sheet_api(wb)
     sheet_md_mapping(wb)
 
-    output_path = "/Users/hideki/Documents/GitHub/OnHighGround2/OnHighGround2_構成ドキュメント.xlsx"
+    output_path = Path(__file__).resolve().parents[1] / "OnHighGround2_構成ドキュメント.xlsx"
     wb.save(output_path)
     print(f"✓ 保存完了: {output_path}")
 

@@ -257,6 +257,12 @@ class Job(BaseModel):
     # ingest_fetch_url 用
     fetch_url: Optional[str] = None
 
+    # Phase 2-B.3: 認証済みoperator requestのactor_id（sha256(token)先頭12hex、
+    # raw tokenは含まない）とrequest_id。system起因のjobやPhase 2-B.3以前に
+    # 作成された既存job JSONではNone（"unknown"への黙示置換はしない、第6節）。
+    actor_id: Optional[str] = None
+    request_id: Optional[str] = None
+
 
 # ── DatasetHistory ────────────────────────────────────────────────────────────
 

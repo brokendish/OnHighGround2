@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConfigValueType(str, Enum):
@@ -56,6 +56,9 @@ class ConfigItem(BaseModel):
 
 
 class ConfigUpdateRequest(BaseModel):
+    # Phase 2-B.3 (5.2節): 未知fieldを拒否する（extra="forbid"）。
+    model_config = ConfigDict(extra="forbid")
+
     value: Any = Field(..., description="更新後の設定値")
 
 

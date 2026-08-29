@@ -198,6 +198,12 @@ async function refreshEmergencyShelters() {
         return;
     }
 
+    // Phase 2-D Round 2 (P2D-UI-ATTRIBUTION): 避難所マーカーを実際に表示する
+    // タイミングで国土地理院の出典を追加する（表示していないデータを誤表示しない）。
+    if (typeof OHG2Attribution !== 'undefined' && typeof OHG2Attribution.installShelterAttribution === 'function') {
+        OHG2Attribution.installShelterAttribution(map);
+    }
+
     const bounds = map.getBounds();
     const params = new URLSearchParams({
         south: bounds.getSouth().toString(),
