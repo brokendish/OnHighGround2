@@ -1,7 +1,8 @@
 # 設定・環境変数の扱い
 
-This document describes configuration files used by the current Compose setup.
-For installation order, start with [Installation](installation.md).
+このドキュメントは、現在の Compose 構成で使う設定ファイルについて説明します。
+インストールの順序については、まず [インストール](installation.md) を参照して
+ください。
 
 ## 1. example env ファイル一覧
 
@@ -54,20 +55,25 @@ CORS設定（`cors.allow_origins`等）は環境変数ではなく`backend/app.p
 - `backend-public`のCORS設定（`cors.allow_origins`）は、値が1件でも構文違反（wildcard・path付き・空白付き等）を含む場合、起動時にfail-closedで停止する（`backend/app_config_properties.py::parse_cors_origins`）。
 - `ODPT_API_KEY`未設定は起動停止を伴わない機能単位のoptional欠如として扱われる（上記2節参照）。
 
-## 5. Local secret handling
+## 5. ローカルでの secret の扱い
 
-Create `.env`, `.env.operator`, and `.env.stream` locally only when their
-respective optional values are required. Keep them out of Git and limit local
-file access according to the host's normal secret-handling policy. The
-repository does not provide real secret values or production-host settings.
+`.env`・`.env.operator`・`.env.stream` は、それぞれの任意の値が必要になった
+ときにのみローカルで作成してください。Git の管理外に置き、ホストの通常の
+secret 取り扱い方針に従ってローカルファイルへのアクセスを制限してください。
+リポジトリは実際の secret 値や production ホストの設定を提供しません。
 
-## 6. Container image pin update policy
+## 6. コンテナイメージの pin 更新方針
 
-release-critical image references are pinned to an explicit version and OCI manifest-list digest in the Compose files and backend Dockerfiles. To update one, choose a reviewed upstream version, obtain its manifest-list digest for the supported architectures, update the version and digest together, then run `docker compose config` and the applicable build/test checks before merge. Do not replace a pin with a floating tag such as `latest` or `alpine`.
+リリースに影響するイメージ参照は、Compose ファイルと backend Dockerfile 内で、
+明示的なバージョンと OCI manifest-list digest に pin されています。更新する
+際は、レビュー済みの upstream バージョンを選び、対応アーキテクチャ向けの
+manifest-list digest を取得し、バージョンと digest を同時に更新し、merge の
+前に `docker compose config` と該当する build/test チェックを実行してください。
+pin を `latest` や `alpine` のような浮動タグに置き換えないでください。
 
-## 7. Related documents
+## 7. 関連ドキュメント
 
-- [docs/installation.md](installation.md) — clean cloneからの起動手順
-- [docs/operator-setup.md](operator-setup.md) — operator構成の信頼境界
-- [SECURITY.md](../SECURITY.md) — security-reporting status and boundary summary
-- [ATTRIBUTIONS.md](../ATTRIBUTIONS.md) — 外部APIキーが関連する第三者サービスの利用条件
+- [docs/installation.md](installation.md) — clean clone からの起動手順
+- [docs/operator-setup.md](operator-setup.md) — operator 構成の信頼境界
+- [SECURITY.md](../SECURITY.md) — セキュリティ報告の状況と境界の要約
+- [ATTRIBUTIONS.md](../ATTRIBUTIONS.md) — 外部 API キーが関連する第三者サービスの利用条件

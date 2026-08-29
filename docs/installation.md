@@ -1,34 +1,37 @@
-# Installation
+# インストール
 
-This is the canonical installation guide for the public OnHighGround2
-configuration. README provides orientation only; do not use older guides as a
-second installation procedure.
+これは公開版 OnHighGround2 構成の正式なインストールガイドです。README は
+方向付けのみを提供します。古いガイドを 2 つ目のインストール手順として
+使わないでください。
 
-## Supported execution model and prerequisites
+## サポートされる実行モデルと前提条件
 
-The documented deployment model is Docker Compose on a Linux Docker host.
-Docker Desktop on macOS is an expected development path, but it has not been
-validated as a clean-install release target. Docker Desktop filesystem and file
-ownership behaviour can differ from Linux.
+ドキュメント化されているデプロイモデルは、Linux Docker ホスト上の
+Docker Compose です。macOS の Docker Desktop は想定される開発パスですが、
+クリーンインストールのリリースターゲットとしては検証されていません。
+Docker Desktop のファイルシステムとファイル所有権の挙動は Linux と
+異なる場合があります。
 
-The Compose configuration includes OSRM services declared for `linux/amd64`.
-Native arm64 operation, Windows-native deployment, non-Docker deployment, and
-Kubernetes deployment are not validated by this guide. No minimum Docker or
-Compose version has been established; install a current Docker Engine or Docker
-Desktop with the Compose v2 plugin and use the `docker compose` command.
+Compose 構成には `linux/amd64` 向けに宣言された OSRM サービスが含まれます。
+ネイティブ arm64 での動作、Windows ネイティブのデプロイ、非 Docker のデプロイ、
+Kubernetes のデプロイは本ガイドでは検証していません。Docker や Compose の
+最小バージョンは定めていません。現行の Docker Engine もしくは Compose v2
+プラグイン付きの Docker Desktop をインストールし、`docker compose` コマンドを
+使ってください。
 
-Install or provide:
+以下をインストールまたは用意してください。
 
-- Git, to obtain the repository
-- Docker Engine or Docker Desktop
-- Docker Compose v2 (`docker compose version`)
-- A supported web browser for the public UI
+- Git（リポジトリの取得用）
+- Docker Engine または Docker Desktop
+- Docker Compose v2（`docker compose version`）
+- 公開 UI 用のサポートされた Web ブラウザ
 
-Full geographic-data preparation and OSRM preprocessing can require substantial
-disk, memory, and CPU. Exact host-resource minimums are not established. The
-data-less public smoke path below does not represent a full-data deployment.
+地理データの完全な準備と OSRM の前処理には、多くのディスク・メモリ・CPU を
+必要とする場合があります。正確なホストリソースの最小要件は定めていません。
+以下のデータ無し公開 smoke パスは、フルデータのデプロイを表すものでは
+ありません。
 
-## 1. Clone and prepare public configuration
+## 1. クローンと公開構成の準備
 
 ```bash
 git clone https://github.com/brokendish/OnHighGround2.git
@@ -36,100 +39,100 @@ cd OnHighGround2
 cp backend/.env.example .env
 ```
 
-`.env` is optional to Compose but is the public configuration file when values
-are needed. It is local-only: do not commit it. See
-[Configuration](configuration.md) before adding API keys or other values.
+`.env` は Compose にとって任意ですが、値が必要な場合の公開構成ファイルです。
+ローカル限定であり、コミットしないでください。API キーなどの値を追加する前に
+[設定](configuration.md) を参照してください。
 
-Do not create `.env.operator` for the public-core path. The operator is an
-optional privileged component with a separate procedure in
-[Operator setup](operator-setup.md).
+public-core のパスでは `.env.operator` を作成しないでください。operator は
+任意かつ privileged なコンポーネントであり、手順は
+[Operator セットアップ](operator-setup.md) に分離されています。
 
-## 2. Prepare the runtime directory
+## 2. runtime ディレクトリの準備
 
-The public service reads deployed runtime data. Prepare the runtime directory
-with the existing publish script:
+公開サービスはデプロイ済みの runtime データを読み込みます。既存の publish
+スクリプトで runtime ディレクトリを準備してください。
 
 ```bash
 scripts/publish/deploy_to_runtime.sh --region tokyo --dry-run
 scripts/publish/deploy_to_runtime.sh --region tokyo
 ```
 
-With no geographic data prepared, the application may start in a degraded state.
-That is useful for smoke verification only; elevation, hazard, routing, and map
-content will not be complete. Follow [Data setup](data-setup.md) for the
-canonical dataset inventory, acquisition, preparation, and atomic publish flow.
+地理データを準備していない場合、アプリケーションは degraded な状態で起動する
+ことがあります。これは smoke 確認にのみ有用で、標高・ハザード・ルーティング・
+地図コンテンツは完全ではありません。正式なデータセット一覧・取得・準備・
+アトミックな publish フローは [データ準備](data-setup.md) に従ってください。
 
-## 3. Start the public-core smoke path
+## 3. public-core の smoke パスの起動
 
 ```bash
 docker compose build backend-public
 docker compose up -d backend-public frontend
 ```
 
-`runtime-init` is started automatically before `backend-public`. The command
-does not start the optional operator or streamer profiles.
+`runtime-init` は `backend-public` の前に自動で起動されます。このコマンドは
+任意の operator profile や streamer profile を起動しません。
 
-Verify the public endpoint:
+公開エンドポイントを確認します。
 
 ```bash
 curl -fsS http://localhost:8080/health
 ```
 
-Open <http://localhost:8080/> in a browser. `ok` or `degraded` is an expected
-health status depending on available data.
+ブラウザで <http://localhost:8080/> を開きます。利用可能なデータに応じて、
+health ステータスが `ok` または `degraded` になるのは想定内です。
 
-## 4. Prepared-data components
+## 4. 準備済みデータを使うコンポーネント
 
-After the required geographic data and generated artifacts are available, start
-the needed components explicitly:
+必要な地理データと生成物が揃ったら、必要なコンポーネントを明示的に
+起動します。
 
 ```bash
 docker compose up -d osrm-walking backend-public frontend martin
 docker compose --profile driving up -d osrm-driving
 ```
 
-OSRM requires the corresponding prepared PBF and derived artifacts. Martin
-requires prepared tile data. These are not optional merely because the service
-container starts; use them only after completing the future full data guide.
+OSRM には対応する準備済み PBF と派生生成物が必要です。Martin には準備済みの
+タイルデータが必要です。サービスコンテナが起動するというだけで、これらが
+任意になるわけではありません。今後提供されるフルデータガイドを完了してから
+使ってください。
 
-For local development that needs direct loopback access to OSRM or Martin, use
-the explicit development override, never the default deployment command:
+OSRM や Martin へ loopback で直接アクセスする必要があるローカル開発では、
+既定のデプロイコマンドではなく、明示的な開発用オーバーライドを使ってください。
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d martin
 ```
 
-## 5. Optional components
+## 5. 任意のコンポーネント
 
-Do not add either of these to the public-core first-start command:
+以下はいずれも public-core の初回起動コマンドに追加しないでください。
 
-- **Operator:** privileged and disabled by default. Read
-  [Operator setup](operator-setup.md).
-- **Streamer:** optional, resource-intensive, requires separate configuration
-  and secrets, and is enabled only with `--profile streamer`.
+- **Operator:** privileged かつ既定で無効です。
+  [Operator セットアップ](operator-setup.md) を参照してください。
+- **Streamer:** 任意でリソースを多く消費し、個別の設定と secret が必要で、
+  `--profile streamer` を指定したときのみ有効になります。
 
-Playwright/npm are development and test dependencies, not public-runtime
-prerequisites.
+Playwright / npm は開発・テスト用の依存であり、公開 runtime の前提条件では
+ありません。
 
-## Stop services
+## サービスの停止
 
 ```bash
 docker compose down
 ```
 
-This removes containers and networks while keeping named volumes. Do not use
-`docker compose down -v` as routine shutdown: it deletes named volumes and can
-remove locally retained state.
+これはコンテナと network を削除しますが、名前付き volume は保持します。
+`docker compose down -v` を通常のシャットダウンとして使わないでください。
+名前付き volume を削除し、ローカルに保持している状態を失う可能性があります。
 
-## Common first checks
+## よくある初期確認
 
-| Symptom | Check |
+| 症状 | 確認 |
 | --- | --- |
-| `frontend` is not reachable | Run `docker compose ps`, then inspect `docker compose logs frontend`. |
-| Health is `degraded` | Confirm that runtime data was deployed; full data preparation is still required. |
-| OSRM exits | Confirm its required prepared PBF/artifacts exist before starting it. |
-| A public `/admin` URL is unavailable | Expected. Operator access follows [Operator setup](operator-setup.md). |
+| `frontend` に到達できない | `docker compose ps` を実行し、`docker compose logs frontend` を確認する。 |
+| health が `degraded` | runtime データがデプロイされたか確認する。フルデータの準備は依然必要。 |
+| OSRM が終了する | 起動前に、必要な準備済み PBF / 生成物が存在するか確認する。 |
+| 公開側の `/admin` URL が使えない | 想定内。operator アクセスは [Operator セットアップ](operator-setup.md) に従う。 |
 
-Next: review [Configuration](configuration.md), then use
-[Operator setup](operator-setup.md) only when privileged administration is
-actually required.
+次に [設定](configuration.md) を確認し、privileged な管理が実際に必要な場合のみ
+[Operator セットアップ](operator-setup.md) を使ってください。

@@ -1,31 +1,32 @@
-# Documentation index
+# ドキュメント索引
 
-## Getting started
+## はじめに
 
-- [Installation](installation.md) — canonical public-core installation guide
-- [Data setup](data-setup.md) — canonical geographic-data preparation guide
-- [Configuration](configuration.md) — environment files, optional settings, and secrets
-- [Operator setup](operator-setup.md) — privileged optional operator workflow
+- [インストール](installation.md) — public-core の正式なインストールガイド
+- [データ準備](data-setup.md) — 地理データ準備の正式なガイド
+- [設定](configuration.md) — 環境ファイル・任意の設定・secret
+- [Operator セットアップ](operator-setup.md) — privileged かつ任意の operator ワークフロー
 
-## Product and operations
+## プロダクトと運用
 
-- [Hazard layers](hazard_layers.md)
-- [Runtime data policy](architecture/runtime_data_policy.md)
-- [Runtime cutover checklist](operations/runtime_cutover_checklist.md)
-- [VPS startup checklist](checklists/vps_startup_checklist.md)
+- [ハザードレイヤー](hazard_layers.md)
+- [runtime データ方針](architecture/runtime_data_policy.md)
+- [runtime cutover チェックリスト](operations/runtime_cutover_checklist.md)
+- [VPS 起動チェックリスト](checklists/vps_startup_checklist.md)
 
-## Architecture and development
+## アーキテクチャと開発
 
-- [Architecture documents](architecture/)
-- [Hazard-layer regression checklist](checklists/hazard-layer-regression.md)
-- [Live-development guardrails](live/DEVELOPMENT_GUARDRAILS.md)
+- [アーキテクチャ関連ドキュメント](architecture/)
+- [ハザードレイヤー回帰チェックリスト](checklists/hazard-layer-regression.md)
+- [Live 開発ガードレール](live/DEVELOPMENT_GUARDRAILS.md)
 
-## Legal and security
+## 法務とセキュリティ
 
-- [Security policy](../SECURITY.md)
-- [License](../LICENSE)
-- [Attributions](../ATTRIBUTIONS.md)
-- [Third-party notices](../THIRD_PARTY_NOTICES.md)
-- [Third-party inventory](third-party-inventory.md)
+- [セキュリティ方針](../SECURITY.md)
+- [ライセンス](../LICENSE)
+- [帰属表記](../ATTRIBUTIONS.md)
+- [第三者表記](../THIRD_PARTY_NOTICES.md)
+- [第三者インベントリ](third-party-inventory.md)
 
-Full geographic-data setup is intentionally not linked as a completed guide yet.
+地理データの準備は、正式なガイドである
+[データ準備](data-setup.md) を参照してください。

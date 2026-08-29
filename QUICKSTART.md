@@ -1,7 +1,7 @@
-# Quick start moved
+# クイックスタートは移動しました
 
-The canonical installation instructions are now in
-[docs/installation.md](docs/installation.md).
+正式なインストール手順は
+[docs/installation.md](docs/installation.md) にまとまっています。
 
-This file intentionally contains no startup commands, data paths, or profile
-instructions, so those instructions have one maintained source of truth.
+このファイルには起動コマンド・データパス・profile の手順を意図的に記載しません。
+これらの手順の正本を一箇所に保つためです。

@@ -53,14 +53,14 @@ docker compose --profile operator up -d
 
 VPS等のリモート環境でoperator UIへアクセスする場合、`operator-gateway`のhost bindがloopback限定であることを踏まえ、SSHローカルポートフォワード（例: `ssh -L 18100:127.0.0.1:18100 user@vps`）等、リモートホストのloopbackへ安全にトンネルする一般的な接続方法を利用することを想定する。本ドキュメントは特定のVPSホスト名・IP・実運用port番号を記載しない。
 
-## 8. Deployment validation boundary
+## 8. デプロイ検証の境界
 
-This guide does not establish a public VPS exposure procedure. Validate the
-host firewall, reverse proxy, IPv4/IPv6 exposure, secret management, and
-operator access policy in the target environment before relying on operator
-services outside local loopback access.
+本ガイドは public な VPS 公開の手順を定めません。ローカル loopback 以外の
+アクセスで operator サービスに依存する前に、対象環境でホストの firewall・
+リバースプロキシ・IPv4/IPv6 の公開範囲・secret 管理・operator アクセス方針を
+検証してください。
 
-## 9. Related documents
+## 9. 関連ドキュメント
 
 - [docs/installation.md](installation.md) — public構成の起動手順（operator profileを含まない）
 - [docs/configuration.md](configuration.md) — 環境変数・example設定の全体像

@@ -1,23 +1,24 @@
-# Security policy
+# セキュリティ方針
 
-## Supported release status
+## サポート対象リリースの状況
 
-This repository is preparing its first public release. A supported-release
-maintenance policy has not yet been established.
+本リポジトリは初回の公開リリースを準備中です。サポート対象リリースの
+保守方針はまだ確立していません。
 
-## Reporting a vulnerability
+## 脆弱性の報告
 
-Use GitHub Private Vulnerability Reporting for security-sensitive reports. Do
-not include credentials, API keys, `.env` files, operator secrets, or other
-sensitive material in a public issue. No personal email address is published as
-a security contact.
+セキュリティに関わる報告には GitHub Private Vulnerability Reporting を
+利用してください。認証情報・API キー・`.env` ファイル・operator の secret
+などの機微な情報を public issue に含めないでください。セキュリティ窓口として
+個人のメールアドレスは公開していません。
 
-If Private Vulnerability Reporting is unavailable, contact the repository owner
-privately and do not disclose the details in a public issue.
+Private Vulnerability Reporting が利用できない場合は、リポジトリ所有者へ
+非公開で連絡し、詳細を public issue で開示しないでください。
 
-## Deployment boundary
+## デプロイ境界
 
-The public application intentionally does not provide `/admin` management
-routes. Privileged operator services are a separate optional workflow; see
-[docs/operator-setup.md](docs/operator-setup.md). Keep public and operator
-configuration files separate and never commit their secrets.
+公開アプリケーションは `/admin` 管理 route を意図的に提供していません。
+privileged な operator サービスは別の任意ワークフローです。
+[docs/operator-setup.md](docs/operator-setup.md) を参照してください。public と
+operator の設定ファイルは分離し、それぞれの secret を決してコミットしないで
+ください。

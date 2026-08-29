@@ -1,68 +1,69 @@
 # OnHighGround2
 
-OnHighGround2 is a map-based evacuation-navigation application for helping
-people identify routes to higher and safer locations during tsunami, storm-surge,
-and flood risks. It uses open geographic data and self-hosted services rather
-than Google map, elevation, or routing services.
+OnHighGround2 は、津波・高潮・洪水のリスク時に、より高く安全な場所への
+避難経路を見つけるための地図ベースの避難ナビゲーションアプリケーションです。
+Google の地図・標高・ルーティングサービスではなく、オープンな地理データと
+セルフホストのサービスを利用します。
 
-## What it provides
+## 提供する機能
 
-- Elevation-aware evacuation destination and route suggestions
-- Hazard-layer and hazard-status display
-- Emergency-shelter information and map overlays
-- Public live-information views, including weather and earthquake information
-- A Docker Compose deployment for the public application
+- 標高を考慮した避難先・避難経路の提案
+- ハザードレイヤーとハザード状況の表示
+- 指定緊急避難場所の情報と地図オーバーレイ
+- 気象・地震情報などを含む公開ライブ情報ビュー
+- 公開アプリケーション向けの Docker Compose デプロイ
 
-## Start here
+## はじめに
 
-The canonical installation guide is [docs/installation.md](docs/installation.md).
-It documents the supported execution model, prerequisites, public-core startup,
-and first verification. `QUICKSTART.md` is only a redirect so that there is one
-installation source of truth.
+正式なインストール手順は [インストール](docs/installation.md) です。
+サポートされる実行モデル、前提条件、public-core の起動、初期確認について
+記載しています。`QUICKSTART.md` はリダイレクトのみであり、インストール手順の
+唯一の正本を一箇所に保つためのものです。
 
-| Need | Document |
+| 目的 | ドキュメント |
 | --- | --- |
-| Install and start the public core | [Installation](docs/installation.md) |
-| Configure public, operator, or streamer environment files | [Configuration](docs/configuration.md) |
-| Prepare the canonical public datasets | [Data setup](docs/data-setup.md) |
-| Run privileged operator services | [Operator setup](docs/operator-setup.md) |
-| Browse the documentation set | [Documentation index](docs/README.md) |
-| Security policy and current reporting-contact status | [SECURITY.md](SECURITY.md) |
-| License and third-party notices | [LICENSE](LICENSE), [ATTRIBUTIONS.md](ATTRIBUTIONS.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [Third-party inventory](docs/third-party-inventory.md) |
+| public core のインストールと起動 | [インストール](docs/installation.md) |
+| public / operator / streamer の環境ファイル設定 | [設定](docs/configuration.md) |
+| 公開用データセットの準備 | [データ準備](docs/data-setup.md) |
+| privileged な operator サービスの実行 | [Operator セットアップ](docs/operator-setup.md) |
+| ドキュメント一覧の閲覧 | [ドキュメント索引](docs/README.md) |
+| セキュリティ方針と現在の報告窓口の状況 | [SECURITY.md](SECURITY.md) |
+| ライセンスと第三者表記 | [LICENSE](LICENSE), [ATTRIBUTIONS.md](ATTRIBUTIONS.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [第三者インベントリ](docs/third-party-inventory.md) |
 
-Follow [Data setup](docs/data-setup.md) for OSM, DEM, hazard, OSRM, and
-Martin/PostGIS preparation. Do not treat a data-less smoke start as a full-data
-deployment.
+OSM・DEM・ハザード・OSRM・Martin/PostGIS の準備は
+[データ準備](docs/data-setup.md) に従ってください。データ無しの smoke 起動を
+フルデータのデプロイとして扱わないでください。
 
-## Deployment roles
+## デプロイの役割
 
-- **Public core:** `backend-public` and `frontend` are the minimal public
-  startup path. `runtime-init` runs automatically as their prerequisite.
-- **Routing and tiles:** OSRM and Martin require prepared geographic data; they
-  are not part of the data-less smoke path.
-- **Operator:** optional and privileged. It is disabled by default and has a
-  separate entrypoint, network, secret, and setup guide. Public `/admin` is
-  intentionally unavailable.
-- **Streamer:** optional, resource-intensive, and separately configured. It
-  requires its own secrets and the `streamer` Compose profile.
-- **Browser tests:** Playwright and npm tooling are development/test tools, not
-  runtime requirements.
+- **Public core:** `backend-public` と `frontend` が最小限の公開起動パスです。
+  `runtime-init` はその前提として自動的に実行されます。
+- **ルーティングとタイル:** OSRM と Martin は準備済みの地理データが必要であり、
+  データ無しの smoke パスには含まれません。
+- **Operator:** 任意かつ privileged です。既定では無効で、独立した entrypoint・
+  network・secret・セットアップガイドを持ちます。公開側の `/admin` は意図的に
+  提供していません。
+- **Streamer:** 任意でリソースを多く消費し、個別に設定します。専用の secret と
+  `streamer` Compose profile が必要です。
+- **ブラウザテスト:** Playwright と npm ツールは開発・テスト用ツールであり、
+  runtime の要件ではありません。
 
-## Public/operator boundary
+## Public / Operator の境界
 
-The default public Compose path does not start the operator profile. Operator
-services must be explicitly enabled with `--profile operator` and are exposed
-through a loopback-only gateway. Follow [docs/operator-setup.md](docs/operator-setup.md)
-instead of attempting to use public `/admin` paths.
+既定の公開 Compose パスは operator profile を起動しません。operator サービスは
+`--profile operator` で明示的に有効化する必要があり、loopback 限定の gateway
+経由でのみ公開されます。公開側の `/admin` パスを使おうとするのではなく、
+[docs/operator-setup.md](docs/operator-setup.md) に従ってください。
 
-## Security and secrets
+## セキュリティと secret
 
-Never commit `.env`, `.env.operator`, `.env.stream`, API keys, or operator and
-streaming secrets. The example files contain placeholders only; see
-[docs/configuration.md](docs/configuration.md) for their roles.
+`.env`・`.env.operator`・`.env.stream`・API キー・operator や streaming の secret を
+コミットしないでください。example ファイルにはプレースホルダーのみが含まれます。
+それぞれの役割は [docs/configuration.md](docs/configuration.md) を参照してください。
 
-## License and attribution
+## ライセンスと帰属
 
-The project is licensed under the [MIT License](LICENSE). Geographic data,
-external APIs, and bundled third-party software have their own terms; consult
-[ATTRIBUTIONS.md](ATTRIBUTIONS.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+本プロジェクトは [MIT License](LICENSE) の下でライセンスされています。地理データ・
+外部 API・同梱の第三者ソフトウェアはそれぞれ独自の条件があります。
+[ATTRIBUTIONS.md](ATTRIBUTIONS.md) と [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+を参照してください。
