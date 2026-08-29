@@ -189,3 +189,6 @@ VPS側でのストリーム設定と起動、停止.txt
 # 第7節）。indexからは`git rm --cached`で除去済み。このディレクトリ配下の
 # 新規file/directoryを再度trackedにしないためのignoreルール。
 .claude/worktrees/
+
+# ---- ローカル生成 Phase 2-D（AT-17A）: 東京防災ハザードマップの避難所データ（GeoJSON）----
+/data_runtime/backend/shelters/tokyo_emergency_evacuation_sites.geojson

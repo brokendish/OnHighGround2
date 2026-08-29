@@ -31,6 +31,35 @@ dry-run でない直接の publish スクリプトは、staging 環境が無い�
 | Flood hazard | 設定済み洪水判定のコア | KSJ A31 ZIP を手動取得し、`scripts/download/download_river_flood.sh` と正規化/フィルタを実行する | `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl`; publish 後の backend | 定期的に更新 |
 | Shelters | 避難所結果のコア | `scripts/download/download_emergency_shelter.sh` または `download_shelter.sh` で 国土地理院 GeoJSON を取得し、正規化/検証する | `data_lake/validated/tokyo/shelter/*.geojson` または `.csv`; publish 後の backend | 定期的に更新 |
 
+### 東京の指定緊急避難場所 GeoJSON
+
+`data_runtime/backend/shelters/tokyo_emergency_evacuation_sites.geojson` は、
+国土地理院の指定緊急避難場所データから再生成できる runtime 生成物です。Git
+では管理しません。東京都の都道府県コードは `13000`、指定緊急避難場所の
+カテゴリは `2`、取得するソースファイルは `13000_2.geojson` です。取得 URL は
+`scripts/download/download_shelter_gsi_prefecture.sh` が国土地理院の公開配布先から
+決定的に組み立てます。
+
+前提条件は `bash`、`curl`、`python3`、`shasum`、および network access です。
+必要な環境変数はありません。既存の GeoJSON を入力として使わず、空の作業場所で
+次の2段階を実行します。
+
+1. 国土地理院ソースを取得する。
+2. OnHighGround2 の runtime 形式へ normalize する。
+
+```bash
+mkdir -p /tmp/ohg2-shelter/raw
+scripts/download/download_shelter_gsi_prefecture.sh 13000 2 /tmp/ohg2-shelter/raw
+python3 scripts/normalize/normalize_shelter_gsi_prefecture.py \
+  --input /tmp/ohg2-shelter/raw/13000_2.geojson \
+  --output data_runtime/backend/shelters/tokyo_emergency_evacuation_sites.geojson
+```
+
+生成後は、出力が `FeatureCollection` であり空でないこと、先頭featureの
+propertiesに `NO`、`施設・場所名`、`住所`、`洪水`、`高潮`、`地震`、`津波` が
+すべて存在することを確認してください。国土地理院データの利用条件と帰属は
+[ATTRIBUTIONS.md](../ATTRIBUTIONS.md) を参照してください。
+
 OSM ダウンローダは `kanto` と `japan` のソース region に対応しています
 （`--list-regions` で URL を表示）。指定した出力パスへ PBF と manifest を
 書き出します。Compose ファイルは上記の固定バージョン名を使います。OSRM を
