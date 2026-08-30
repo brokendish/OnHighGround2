@@ -14,7 +14,7 @@ PASS
 
 - ブランチ: `main`
 - コミット: `ffe3bda`
-- 作業ディレクトリ: `/Users/hideki/Documents/GitHub/OnHighGround2`
+- 作業ディレクトリ: repository root
 - Python: `venv/bin/python`
 - E2E: Playwright Chromium
 
@@ -145,7 +145,7 @@ python3 -m json.tool data_runtime/backend/jartic/manifest.json
 
 実画面確認:
 
-- `/Users/hideki/Library/Mobile Documents/com~apple~CloudDocs/スクリーンショット/スクリーンショット 2026-06-30 0.08.28.png`
+- ローカルの検証スクリーンショット（公開treeには含めない）
 
 失敗時の Playwright artifacts は `test-results/` に一時生成。
 

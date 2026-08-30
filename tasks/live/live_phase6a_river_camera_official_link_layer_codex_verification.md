@@ -10,8 +10,8 @@ Claude修正後の再検証。
 
 読み込み順:
 
-- [frontend/live.html](/Users/hideki/Documents/GitHub/OnHighGround2/frontend/live.html:100): `live-river-camera-layer.js`
-- [frontend/live.html](/Users/hideki/Documents/GitHub/OnHighGround2/frontend/live.html:101): `live-main.js`
+- `frontend/live.html`（repository-relative）: `live-river-camera-layer.js`
+- `frontend/live.html`（repository-relative）: `live-main.js`
 
 `liveRiverCameraLayer` は `live-main.js` 実行前に `window` へ登録される順序になっている。
 

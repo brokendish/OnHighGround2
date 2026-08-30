@@ -8,7 +8,7 @@
 
 確認スクリーンショット:
 
-- `/Users/hideki/Library/Mobile Documents/com~apple~CloudDocs/スクリーンショット/スクリーンショット 2026-06-30 0.08.28.png`
+- ローカルの検証スクリーンショット（公開treeには含めない）
 
 画面上で確認できた内容:
 

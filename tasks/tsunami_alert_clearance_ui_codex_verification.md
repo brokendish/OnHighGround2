@@ -13,7 +13,7 @@ Claude修正後、`status: "active"` のときのみ津波警告バナーが表�
 
 ## 確認環境
 
-- リポジトリ: `/Users/hideki/Documents/GitHub/OnHighGround2`
+- リポジトリ: repository root
 - backend: `http://127.0.0.1:8000`
 - frontend: `http://127.0.0.1:8080`
 - Playwright 静的テストサーバー: `http://127.0.0.1:8787`

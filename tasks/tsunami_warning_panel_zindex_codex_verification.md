@@ -12,7 +12,7 @@ PASS
 
 ## 確認環境
 
-- リポジトリ: `/Users/hideki/Documents/GitHub/OnHighGround2`
+- リポジトリ: repository root
 - backend: `http://127.0.0.1:8000`
 - frontend/e2e static server: `http://127.0.0.1:8787`
 - viewport: 390 x 844

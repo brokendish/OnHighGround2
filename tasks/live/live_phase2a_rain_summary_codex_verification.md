@@ -100,7 +100,7 @@
 
 ## 集計ロジック確認
 
-[live_rain_summary_service.py](/Users/hideki/Documents/GitHub/OnHighGround2/backend/app/services/live_rain_summary_service.py:1) を確認した。
+[live_rain_summary_service.py](../../backend/app/services/live_rain_summary_service.py) を確認した。
 
 - 全国 11 地点: 札幌、仙台、東京、新潟、名古屋、大阪、広島、高知、福岡、鹿児島、那覇。
 - キャッシュ TTL: `120.0` 秒。

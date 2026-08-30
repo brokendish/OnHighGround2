@@ -48,7 +48,7 @@ Phase 4-B 専用 E2E と既存回帰 E2E はすべて PASS したが、追加の
 ## Environment
 
 - Date: 2026-07-04
-- Repository: `/Users/hideki/Documents/GitHub/OnHighGround2`
+- Repository: repository root
 - Frontend URL: `http://127.0.0.1:8080/live/stream`
 - Docker services confirmed running:
   - `evacuation-navi-frontend`

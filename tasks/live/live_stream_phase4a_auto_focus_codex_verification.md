@@ -47,7 +47,7 @@ PASS with notes.
 ## Environment
 
 - Date: 2026-07-04
-- Repository: `/Users/hideki/Documents/GitHub/OnHighGround2`
+- Repository: repository root
 - Frontend URL: `http://127.0.0.1:8080/live/stream`
 - Docker services confirmed running:
   - `evacuation-navi-frontend`
