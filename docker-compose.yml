@@ -1,7 +1,9 @@
+x-osrm-image: &osrm_image osrm/osrm-backend:v5.25.0@sha256:bdfa60e64ae1376bff6ff5605991be50600132a27469a4a9e77c23afd3a6d555
+
 services:
   osrm-driving:
     profiles: ["driving"]
-    image: osrm/osrm-backend:v5.25.0@sha256:bdfa60e64ae1376bff6ff5605991be50600132a27469a4a9e77c23afd3a6d555
+    image: *osrm_image
     platform: linux/amd64
     container_name: evacuation-navi-osrm-driving
     # Round 12D-B（NEW-ADV-007 OWNER決定）: base/default/production Composeでは
@@ -10,22 +12,31 @@ services:
     # 明示的に重ねること（127.0.0.1限定long-form port syntax）。
     volumes:
       - ./data_lake:/data_lake
+      - ./scripts/osrm_provenance.sh:/usr/local/bin/osrm-provenance:ro
+    environment:
+      OSRM_IMAGE_REF: *osrm_image
     command: >
       sh -c "
       mkdir -p /data_lake/validated/tokyo/osm/driving &&
       test -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf &&
-      if [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.partition ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.mldgr ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.cells ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.fileIndex ] || [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm.ramIndex ]; then
+      if [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm ] && ! ls /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm* >/dev/null 2>&1; then
         rm -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm* &&
         osrm-extract -p /opt/car.lua /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf &&
         osrm-partition /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm &&
-        osrm-customize /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm;
+        osrm-customize /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm &&
+        /usr/local/bin/osrm-provenance write /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm car kanto-260214.osm.pbf /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf;
+      elif [ ! -f /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm ]; then
+        echo 'FATAL: partial OSRM artifact set detected; explicit regeneration is required' >&2 &&
+        exit 1;
+      else
+        /usr/local/bin/osrm-provenance verify /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm car kanto-260214.osm.pbf /data_lake/validated/tokyo/osm/driving/kanto-260214.osm.pbf;
       fi &&
       osrm-routed --algorithm mld --port 5000 /data_lake/validated/tokyo/osm/driving/kanto-260214.osrm
       "
     restart: unless-stopped
 
   osrm-walking:
-    image: osrm/osrm-backend:v5.25.0@sha256:bdfa60e64ae1376bff6ff5605991be50600132a27469a4a9e77c23afd3a6d555
+    image: *osrm_image
     platform: linux/amd64
     container_name: evacuation-navi-osrm-walking
     # Round 12D-B（NEW-ADV-007 OWNER決定）: base/default/production Composeでは
@@ -37,14 +48,23 @@ services:
     volumes:
       - ./data_lake:/data_lake
       - ./osrm/foot.lua:/opt/foot.lua
+      - ./scripts/osrm_provenance.sh:/usr/local/bin/osrm-provenance:ro
+    environment:
+      OSRM_IMAGE_REF: *osrm_image
     command: >
       sh -c "
       test -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
-      if [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm ]; then
+      if [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm ] && ! ls /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm* >/dev/null 2>&1; then
         echo 'OSRM index not found — building from PBF...' &&
         osrm-extract --threads 2 -p /opt/foot.lua /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf &&
         osrm-partition --threads 2 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm &&
-        osrm-customize --threads 2 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm;
+        osrm-customize --threads 2 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm &&
+        /usr/local/bin/osrm-provenance write /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm foot tokyo-kanagawa-260214.osm.pbf /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf;
+      elif [ ! -f /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm ]; then
+        echo 'FATAL: partial OSRM artifact set detected; explicit regeneration is required' >&2 &&
+        exit 1;
+      else
+        /usr/local/bin/osrm-provenance verify /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm foot tokyo-kanagawa-260214.osm.pbf /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf;
       fi &&
       osrm-routed --algorithm mld --threads 2 --port 5001 /data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osrm
       "

@@ -203,3 +203,8 @@ VPS側でのストリーム設定と起動、停止.txt
 tasks/public-release/
 # ---- Phase 2-D（AT-17A）: 公開リリース用の tasks/finalize-release/ 配下の成果物は git 管理外とする----
 tasks/finalize-release/
+
+# ---- Phase 2-D（AT-17A）: 公開リリース用の tests/fixtures/public_release/ 配下の
+#      検証実行結果（results/）のみ git 管理外とする。fixture source / expected data /
+#      input files / test scripts は追跡対象のまま。----
+tests/fixtures/public_release/*/results/
