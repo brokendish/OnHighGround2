@@ -78,11 +78,23 @@ class LiveStreamMapView {
         preferCanvas:        true,
       });
 
-      const baseTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>) &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
-        subdomains:  'abcd',
-        maxZoom:     19,
-      }).addTo(this.map);
+      // 背景地図: CARTO Basemaps は API キー必須（2026-08〜）。キー未設定時は
+      // キー不要の OpenStreetMap ラスタタイルへフォールバックする（frontend/js/shared/basemap.js）。
+      const OSM_ATTRIBUTION_STREAM =
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>)';
+      const CARTO_ATTRIBUTION_STREAM = OSM_ATTRIBUTION_STREAM +
+        ' &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+      const baseTileLayer = (typeof OHG2Basemap !== 'undefined')
+        ? OHG2Basemap.createBaseLayer(L, {
+            maxZoom:          19,
+            cartoAttribution: CARTO_ATTRIBUTION_STREAM,
+            osmAttribution:   OSM_ATTRIBUTION_STREAM,
+          }).layer
+        : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: OSM_ATTRIBUTION_STREAM,
+            maxZoom:     19,
+          });
+      baseTileLayer.addTo(this.map);
       // 初回タイル読み込み完了直後に popup スタッキング修正を適用する (詳細は _applyPopupStackingFix 参照)。
       baseTileLayer.once('load', _applyPopupStackingFix);
 

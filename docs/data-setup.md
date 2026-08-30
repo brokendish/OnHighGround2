@@ -21,6 +21,13 @@ data_runtime/current/          アトミックに publish された runtime バ�
 dry-run でない直接の publish スクリプトは、staging 環境が無いと fail-closed で
 停止します。
 
+このガイドで扱う実データの準備・配備は、`docker compose up` でスタックを
+起動できる状態にすることとは別工程です。データ未配備でも backend は degraded
+起動します（fresh-start degraded ≠ full-data environment）。macOS Docker Desktop
+向けの local runtime profile（`/data_runtime` を named volume 化）を使う場合、
+named volume は初回は空で、本ガイドの配備手順を別途実施する必要があります
+（[設定](configuration.md) の「local runtime profile」節）。
+
 ## コアデータセット
 
 | データセット | 分類 | 取得・準備 | 必要な出力 / 利用先 | 更新頻度 |
@@ -75,12 +82,38 @@ PBF → osrm-extract → osrm-partition → osrm-customize → .osrm* artifacts
 
 `osrm-driving` は `/opt/car.lua` と `kanto-260214` プレフィックスを使います。
 `osrm-walking` は `osrm/foot.lua` と `tokyo-kanagawa-260214` プレフィックスを
-使います。各サービスのコマンドは、対応する検証済みディレクトリに生成物が
-無ければそれを生成します。前処理は CPU・メモリ・ディスク・時間を多く使う
-場合があり、正確なホスト最小要件は定めていません。ルーティングサービスに
-依存する前に、PBF が存在し、想定される `.osrm`・`.osrm.partition`・
-`.osrm.mldgr`・`.osrm.cells`・`.osrm.fileIndex`・`.osrm.ramIndex` の各ファイルが
-空でないことを確認してください。
+使います。OSRM の生成物にはformat互換性があります。`osrm-extract`、
+`osrm-partition`、`osrm-customize` と `osrm-routed` は、Composeで固定された同一の
+canonical OSRM versionを使用してください。OSRM image versionを変更した場合、旧版で
+生成された `.osrm*` 一式を再利用せず、PBFから再生成します。
+
+各生成物prefixには、成功した前処理の後に
+`<prefix>.osrm.provenance.json` が生成されます。ここにはOSRM version、profile、入力
+PBF名だけを記録します。起動時はこのmetadataと実行中のOSRM binary versionを照合し、
+metadataの欠落・破損・不一致時はroutingを開始せず、明示的な再生成を要求します。
+既存の大容量成果物を起動時に削除して自動再生成することはありません。
+
+owner/local環境の既存成果物を安全に再生成するには、まずPBFが次の正確な入力pathに
+存在することを確認し、repository rootで実行します。スクリプトは両profileの
+`*.osrm*` を完全inventoryして一時backupへ退避してから、現行Composeのdigest固定
+imageで `extract → partition → customize` を実行します。PBFは変更しません。
+
+```bash
+scripts/rebuild_osrm_artifacts.sh
+```
+
+backup先を明示する場合は次を使います。新成果物のroute検証が完了するまで、backupは
+削除しないでください。
+
+```bash
+scripts/rebuild_osrm_artifacts.sh --backup-root /tmp/ohg2-osrm-backup
+```
+
+前処理はCPU・メモリ・ディスク・時間を多く使う場合があり、正確なホスト最小要件は
+定めていません。ルーティングサービスに依存する前に、PBF、provenance metadata、
+および `.osrm`・`.osrm.partition`・`.osrm.mldgr`・`.osrm.cells`・
+`.osrm.fileIndex`・`.osrm.ramIndex` が空でないことを確認してください。これらの
+generated artifactsとprovenance metadataはGit管理対象ではありません。
 
 ### DEM
 

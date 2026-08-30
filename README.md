@@ -55,11 +55,18 @@ OSM・DEM・ハザード・OSRM・Martin/PostGIS の準備は
 経由でのみ公開されます。公開側の `/admin` パスを使おうとするのではなく、
 [docs/operator-setup.md](docs/operator-setup.md) に従ってください。
 
-## セキュリティと secret
+## 設定と secret
 
-`.env`・`.env.operator`・`.env.stream`・API キー・operator や streaming の secret を
-コミットしないでください。example ファイルにはプレースホルダーのみが含まれます。
-それぞれの役割は [docs/configuration.md](docs/configuration.md) を参照してください。
+設定は 2 系統に分かれます。
+
+- **ブラウザから参照可能なランタイム公開設定**（背景地図の
+  `CARTO_BASEMAP_API_KEY` など）: `config/runtime-config.example.js` を
+  `config/runtime-config.local.js` へコピーして設定します。
+- **server-side secret**（backend / operator / stream）: `.env`・`.env.operator`・
+  `.env.stream` を使います。
+
+いずれの実値もコミットしないでください（example にはプレースホルダーのみ）。
+詳細は [docs/configuration.md](docs/configuration.md) を参照してください。
 
 ## ライセンスと帰属
 

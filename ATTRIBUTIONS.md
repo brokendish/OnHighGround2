@@ -17,6 +17,7 @@ OnHighGround2自身のソースコード・ドキュメントは`LICENSE`記載�
 - **国土数値情報（行政区域データ、国土交通省）** — 出典：国土交通省国土数値情報ダウンロードサイト。`frontend/layers/administrative/`の市区町村・都道府県境界データは、国土数値情報（N03）をもとに加工して作成しています。
 - **Geolonia 住所データ**（`japanese-addresses`） — CC BY 4.0。原データは国土交通省・日本郵便・デジタル庁アドレス・ベース・レジストリに由来します。市区町村代表座標（`frontend/data/municipality_coords.json`）の算出に使用しています。
 - **国土地理院（数値標高モデル DEM）** — 出典：国土地理院ウェブサイト。標高データは地図表示には同梱されず、避難経路の標高判定に実行時利用しています。
+- **CARTO Basemaps**（`/live`・`/live/stream` の背景地図） — © CARTO。ベースタイルは CARTO Basemaps の `dark_all` スタイルを実行時にブラウザが直接取得します（リポジトリ・Docker イメージへは非同梱）。ベースマップのデータは © OpenStreetMap contributors（ODbL 1.0）に由来します。CARTO Basemaps は API キーが必要です（`CARTO_BASEMAP_API_KEY`、各利用者が取得。`docs/configuration.md` 参照）。キー未設定時は OpenStreetMap のラスタタイルへフォールバックします。表示箇所には `© OpenStreetMap contributors (ODbL)` と `© CARTO`（https://carto.com/attributions へのリンク付き）の表示が必要です。
 
 ## 4. 防災・ハザードデータ
 

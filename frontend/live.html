@@ -132,6 +132,9 @@
 
     <!-- /live 専用 JS（依存順）-->
     <script src="/js/attribution-notices.js"></script>
+    <!-- 背景地図 API キー設定 → 背景地図ヘルパー → 地図初期化 の順で読み込む -->
+    <script src="/js/shared/runtime-config.js"></script>
+    <script src="/js/shared/basemap.js"></script>
     <script src="/js/live/live-map.js"></script>
     <script src="/js/live/live-layers.js"></script>
     <script src="/js/live/live-earthquake-layer.js"></script>

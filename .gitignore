@@ -62,6 +62,12 @@ Thumbs.db
 .env.stream
 # operator (Phase 2-B.2): OPERATOR_AUTH_SECRET 等の実値を含むため必ず除外する
 .env.operator
+# フロントエンド ランタイム設定のローカル override（CARTO_BASEMAP_API_KEY 等の
+# 実値を含むため必ず除外する。詳細は docs/configuration.md）
+docker-compose.override.yml
+/config/runtime-config.local.js
+# 旧パス（config/ へ移行済み。誤って作成された場合の保険として残す）
+frontend/js/shared/runtime-config.local.js
 # ---- Generated tile files (large, reproducible via build_tiles.py) ----
 tiles/*.mbtiles
 data_lake/tiles_*/
@@ -192,3 +198,8 @@ VPS側でのストリーム設定と起動、停止.txt
 
 # ---- ローカル生成 Phase 2-D（AT-17A）: 東京防災ハザードマップの避難所データ（GeoJSON）----
 /data_runtime/backend/shelters/tokyo_emergency_evacuation_sites.geojson
+
+# ---- Phase 2-D（AT-17A）: 公開リリース用の tasks/public-release/ 配下の成果物は git 管理外とする----
+tasks/public-release/
+# ---- Phase 2-D（AT-17A）: 公開リリース用の tasks/finalize-release/ 配下の成果物は git 管理外とする----
+tasks/finalize-release/

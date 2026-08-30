@@ -151,6 +151,9 @@ async function mockLiveTraffic(page) {
     await page.route('**/basemaps.cartocdn.com/**', route =>
         route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
     );
+    await page.route('**/tile.openstreetmap.org/**', route =>
+        route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
+    );
 }
 
 test.describe('/live — 基本動作確認', () => {
@@ -317,6 +320,9 @@ async function mockLiveTrafficWith(page, { eqResponse = EQ_RESPONSE, tsunamiResp
     await page.route('**/basemaps.cartocdn.com/**', route =>
         route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
     );
+    await page.route('**/tile.openstreetmap.org/**', route =>
+        route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
+    );
 }
 
 test.describe('/live Phase 1-B — 危険地域カード強化', () => {
@@ -392,6 +398,9 @@ test.describe('/live Phase 1-B — 危険地域カード強化', () => {
             route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
         );
         await page.route('**/basemaps.cartocdn.com/**', route =>
+            route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
+        );
+        await page.route('**/tile.openstreetmap.org/**', route =>
             route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
         );
         await page.goto('/live.html');
@@ -556,6 +565,9 @@ test.describe('/live Phase 1-C — summary API と evaluated 契約', () => {
             route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
         );
         await page.route('**/basemaps.cartocdn.com/**', route =>
+            route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
+        );
+        await page.route('**/tile.openstreetmap.org/**', route =>
             route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
         );
         await page.goto('/live.html');
@@ -1148,6 +1160,9 @@ test.describe('/live — API 失敗耐性', () => {
             status: 200, contentType: 'application/json', body: '[]',
         }));
         await page.route('**/basemaps.cartocdn.com/**', route =>
+            route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
+        );
+        await page.route('**/tile.openstreetmap.org/**', route =>
             route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }),
         );
     }

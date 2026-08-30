@@ -1,0 +1,40 @@
+# martin-local.yaml — macOS Docker Desktop 向け local runtime profile 専用の Martin 設定
+#
+# 参照: docs/configuration.md（local runtime profile）, docs/installation.md
+#
+# production 用 config/martin.yaml との差分は「タイル参照ルートの付け替え」のみ:
+#
+#   config/martin.yaml       : /tiles/<region>/<hazard>       （host bind: ./data_runtime/frontend/tiles → /tiles）
+#   config/martin-local.yaml  : /data_runtime/frontend/tiles/<region>/<hazard>
+#                              （named volume: <project>-data-runtime → /data_runtime:ro を Martin が直接読む）
+#
+# listen_addresses・スキャン方式・その他の datasource semantics は一切変更しない。
+# mbtiles.paths の各エントリ（stem）は config/martin.yaml と 1:1 で一致させること
+# （tools/public_release/test_local_runtime_profile_selfcheck.py が drift を検出する）。
+#
+# ─ 空タイル時の挙動 ───────────────────────────────────────────────────────────
+#
+#   Martin 1.14.0 は mbtiles.paths に列挙した path が「ディスク上に存在しない」場合に
+#   fatal 終了する（TileResolutionWarningsIssued）。存在するディレクトリは空でも
+#   non-fatal（起動継続・当該レイヤーは catalog に出ないだけ）。
+#   したがって local profile では、タイル未配備でも Martin が起動できるよう、
+#   scripts/local/bootstrap_runtime_volumes.sh が下記 path をすべて空ディレクトリとして
+#   共有 runtime volume 内に事前作成する。Martin は非再帰スキャンのため、
+#   region/hazard ディレクトリは個別に列挙する（production config と同じ方針）。
+
+listen_addresses: '0.0.0.0:3000'
+
+mbtiles:
+  paths:
+    # ── 東京 ────────────────────────────────────────────────────────────────
+    - /data_runtime/frontend/tiles/tokyo/flood
+    - /data_runtime/frontend/tiles/tokyo/tsunami
+    - /data_runtime/frontend/tiles/tokyo/storm_surge
+    - /data_runtime/frontend/tiles/tokyo/inland_flood
+    - /data_runtime/frontend/tiles/tokyo/pseudo_inland_flood
+    - /data_runtime/frontend/tiles/tokyo/lowland_poor_drainage
+    # ── 神奈川 ──────────────────────────────────────────────────────────────
+    - /data_runtime/frontend/tiles/kanagawa/flood
+    - /data_runtime/frontend/tiles/kanagawa/storm_surge
+    - /data_runtime/frontend/tiles/kanagawa/inland_flood
+    - /data_runtime/frontend/tiles/kanagawa/lowland_poor_drainage

@@ -1,0 +1,75 @@
+# docker-compose.override.example.yml
+#
+# ローカル環境向けの opt-in override テンプレート。`docker-compose.override.yml`
+# として **コピーして** 使う（`docker compose` が自動でマージする。実ファイルは
+# .gitignore 済み）。
+#
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#
+# このファイルは 2 つの独立した用途をまとめている。どちらか一方だけ使う場合は、
+# 不要な側の service / volumes ブロックをコピー後に削除してよい。
+#
+#   A. ブラウザから参照可能なランタイム公開設定（CARTO_BASEMAP_API_KEY 等）
+#   B. macOS Docker Desktop 向け local runtime profile
+#      （/data_runtime を host bind mount から named volume へ切り替える）
+#
+# 詳細は docs/configuration.md / docs/installation.md を参照。
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A. ランタイム公開設定（config/runtime-config.local.js を frontend へ差し込む）
+# ─────────────────────────────────────────────────────────────────────────────
+#   cp config/runtime-config.example.js config/runtime-config.local.js   # 実値を設定
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# B. local runtime profile（named volume 化。macOS Docker Desktop 向け）
+# ─────────────────────────────────────────────────────────────────────────────
+# 背景: Docker Desktop の host bind mount は ownership 正規化や I/O 性能の面で
+# 難があるため、/data_runtime を Docker 管理の named volume へ切り替える。
+# named volume の root は root:root で作られ backend-public（UID 10001）が
+# /data_runtime/logs・/data_runtime/cache へ書けないため、**up の前に** 一度だけ
+# helper を実行して ownership と nested mountpoint を用意する:
+#
+#   scripts/local/bootstrap_runtime_volumes.sh
+#   docker compose up -d
+#
+# named volume 名は ${COMPOSE_PROJECT_NAME} を前置し、`-p` で名前空間を分離できる
+# （CODEX の disposable qualification 用）。plain な `docker compose` では
+# プロジェクトディレクトリ名（onhighground2）が既定値になる。
+#
+# 注意: named volume は初回は空。DEM・ハザード・タイル等の実データ配備は
+# 別手順（docs/data-setup.md）。データ無しでも backend は degraded 起動する。
+
+services:
+  # ── A: ランタイム公開設定 ──────────────────────────────────────────────────
+  frontend:
+    volumes:
+      - ./config/runtime-config.local.js:/usr/share/nginx/html/js/shared/runtime-config.js:ro
+
+  # ── B: local runtime profile ─────────────────────────────────────────────
+  # /data_runtime を named volume へ差し替える 3 service。target path が base と
+  # 同一なので volumes マージ規則（後勝ち）で自動的に上書きされる（martin のみ
+  # 旧 ./data_runtime/frontend/tiles bind を残さないため !override）。
+  runtime-init:
+    volumes:
+      - data-runtime:/data_runtime:rw
+
+  backend-public:
+    volumes:
+      - data-runtime:/data_runtime:ro
+      - data-runtime-logs:/data_runtime/logs:rw
+      - data-runtime-cache:/data_runtime/cache:rw
+
+  martin:
+    volumes: !override
+      - data-runtime:/data_runtime:ro
+      - ./config:/config:ro
+    command: --config /config/martin-local.yaml
+
+volumes:
+  # B: local runtime profile 用 named volume（${COMPOSE_PROJECT_NAME} で分離可能）
+  data-runtime:
+    name: ${COMPOSE_PROJECT_NAME:-onhighground2}-data-runtime
+  data-runtime-logs:
+    name: ${COMPOSE_PROJECT_NAME:-onhighground2}-data-runtime-logs
+  data-runtime-cache:
+    name: ${COMPOSE_PROJECT_NAME:-onhighground2}-data-runtime-cache

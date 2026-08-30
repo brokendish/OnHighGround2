@@ -81,6 +81,8 @@ async function mockBaseLiveApis(page, trainResponse) {
   await page.route('**/jmatile/**', r => r.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }));
   await page.route('**/jma.go.jp/**', r => r.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }));
   await page.route('**/basemaps.cartocdn.com/**', r => r.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }));
+  // CARTO_BASEMAP_API_KEY 未設定時の背景地図フォールバック（OpenStreetMap ラスタタイル）。
+  await page.route('**/tile.openstreetmap.org/**', r => r.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG }));
   await page.route('/layers/railways/kanto_railways.geojson', r => r.fulfill({ status: 200, contentType: 'application/geo+json', body: JSON.stringify({ type: 'FeatureCollection', features: [] }) }));
 }
 
@@ -157,7 +159,7 @@ test.describe('/live — 鉄道運行情報パネル ODPT出典表示（provider
     // navigateしない = クリックしない）。
     await page.locator('.ltc-detail-row', { hasText: 'ライセンス' }).locator('a').getAttribute('href');
     await page.waitForTimeout(300);
-    const unexpected = externalRequests.filter((u) => !u.startsWith('https://www.jma.go.jp') && !u.startsWith('https://basemaps.cartocdn.com'));
+    const unexpected = externalRequests.filter((u) => !u.startsWith('https://www.jma.go.jp') && !u.startsWith('https://basemaps.cartocdn.com') && !u.includes('tile.openstreetmap.org'));
     expect(unexpected).toEqual([]);
   });
 });
