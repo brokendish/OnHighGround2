@@ -174,7 +174,7 @@ log_info "publish succeeded: current -> versions/${VERSION_ID}"
 
 if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
     LAYERS_SRC="${DATA_RUNTIME}/current/frontend/layers"
-    LAYERS_DST="${PROJECT_ROOT}/frontend/layers"
+    LAYERS_DST="${DATA_RUNTIME}/frontend/layers"
     # currentは既にswap済みのため、以降の同期stepが失敗してもpublish自体を
     # 失敗として扱わない（`|| log_warn`でset -eの即時終了を防ぐ）。
     # operator containerのmountがhost実運用と完全一致しない環境（例:
