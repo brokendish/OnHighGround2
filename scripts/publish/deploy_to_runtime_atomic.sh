@@ -173,30 +173,15 @@ fi
 log_info "publish succeeded: current -> versions/${VERSION_ID}"
 
 if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
-    LAYERS_SRC="${DATA_RUNTIME}/current/frontend/layers"
-    LAYERS_DST="${DATA_RUNTIME}/frontend/layers"
-    # currentは既にswap済みのため、以降の同期stepが失敗してもpublish自体を
-    # 失敗として扱わない（`|| log_warn`でset -eの即時終了を防ぐ）。
-    # operator containerのmountがhost実運用と完全一致しない環境（例:
-    # frontend/layers/railwaysのみbind mountするbackend-operator）では
-    # このsyncが書込み不能になり得るが、それは「atomic data_runtime
-    # publishが失敗した」こととは別問題であるため区別する。
-    if [[ -d "${LAYERS_SRC}" ]]; then
-        mkdir -p "${LAYERS_DST}" 2>/dev/null || true
-        if command -v rsync &>/dev/null; then
-            if rsync -a "${LAYERS_SRC}/" "${LAYERS_DST}/"; then
-                log_info "synced current/frontend/layers -> frontend/layers"
-            else
-                log_warn "current/frontend/layers -> frontend/layers 同期に失敗（publish自体は成功済み。書込み先mount未整備の可能性）"
-            fi
-        else
-            if cp -a "${LAYERS_SRC}/." "${LAYERS_DST}/"; then
-                log_info "synced current/frontend/layers -> frontend/layers"
-            else
-                log_warn "current/frontend/layers -> frontend/layers 同期に失敗（publish自体は成功済み。書込み先mount未整備の可能性）"
-            fi
-        fi
-    fi
+    # Finding 9（VPS in-place再構築 2026-09-06）: LAYERS post-publish flat mirror
+    # syncは今回いったん無効化する。GeoJSON fallbackの実readerはnginxが配信する
+    # git管理下の ./frontend/layers であり、backend-operatorにはrailways以外の
+    # ./frontend/layers への書込みmountが存在しないため、このsync自体が実際の
+    # 配信先へ到達しない（publish destination / serving path architecture gap
+    # として別途追跡する）。atomic version内のcurrent/frontend/layers生成自体
+    # （deploy_to_runtime.sh側）は維持し、post-publishのflat mirror syncのみを
+    # 停止する。
+    log_warn "frontend layers static fallback sync skipped: serving destination is not writable/reachable from backend-operator; tracked as Finding 9"
 
     # local runtime publish基盤修復で追加: Martin（config/martin-local.yaml、
     # production側はconfig/martin.yaml）は/data_runtime/frontend/tiles/
@@ -218,7 +203,7 @@ if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
                 log_warn "current/frontend/tiles -> data_runtime/frontend/tiles 同期に失敗（publish自体は成功済み。Martin向けmirror未整備の可能性、frontend/tiles配下のoperator write権限を確認すること）"
             fi
         else
-            if cp -a "${TILES_SRC}/." "${TILES_DST}/"; then
+            if cp -r --remove-destination "${TILES_SRC}/." "${TILES_DST}/"; then
                 log_info "synced current/frontend/tiles -> data_runtime/frontend/tiles (Martin向けflat mirror)"
             else
                 log_warn "current/frontend/tiles -> data_runtime/frontend/tiles 同期に失敗（publish自体は成功済み。Martin向けmirror未整備の可能性、frontend/tiles配下のoperator write権限を確認すること）"
