@@ -46,7 +46,7 @@ services:
       - ./config/runtime-config.local.js:/usr/share/nginx/html/js/shared/runtime-config.js:ro
 
   # ── B: local runtime profile ─────────────────────────────────────────────
-  # /data_runtime を named volume へ差し替える 3 service。target path が base と
+  # /data_runtime を named volume へ差し替える 4 service。target path が base と
   # 同一なので volumes マージ規則（後勝ち）で自動的に上書きされる（martin のみ
   # 旧 ./data_runtime/frontend/tiles bind を残さないため !override）。
   runtime-init:
@@ -58,6 +58,15 @@ services:
       - data-runtime:/data_runtime:ro
       - data-runtime-logs:/data_runtime/logs:rw
       - data-runtime-cache:/data_runtime/cache:rw
+
+  # operator（`--profile operator`時のみ起動、publish/rollback/GCの唯一の
+  # 書き込み主体）もnamed volumeへ揃える。ここを欠かすと
+  # `scripts/publish/deploy_to_runtime_atomic.sh` がhost bind mount
+  # （./data_runtime）へ書き込む一方、backend-public/martinはnamed volumeを
+  # 読むため、publish結果が読み手へ一切反映されない（writer/reader分断）。
+  backend-operator:
+    volumes:
+      - data-runtime:/data_runtime:rw
 
   martin:
     volumes: !override

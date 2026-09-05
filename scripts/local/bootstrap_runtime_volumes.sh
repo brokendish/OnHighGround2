@@ -40,6 +40,18 @@ set -euo pipefail
 
 PUBLIC_UID="${OHG2_PUBLIC_UID:-10001}"
 PUBLIC_GID="${OHG2_PUBLIC_GID:-10001}"
+# local runtime publish基盤修復で追加: frontend/tiles配下のplaceholder
+# directoryはoperator（publish/rollbackの唯一の書き込み主体）が
+# atomic publish後にMartin向けflat mirror（後述）へ同期するために書き込む
+# 必要がある。この helper が mkdir する時点では root:root のままのため、
+# 明示的にoperator ownershipへ変更する。groupはoperator自身のprimary gid
+# ではなくleases gid（public/operator共有のsupplemental group）にする点に注意:
+# backend-public（HazardDatasetService）はこのflat mirror配下のGeoJSON
+# （例: frontend/tiles/tokyo/pseudo_inland_flood/pseudo_inland_flood.geojson）
+# を直接readするため、public供のsupplemental group経由でtraverse/readできる
+# 必要がある（`versions/`のgroupをleases gidにした理由と同一）。
+OPERATOR_UID="${OHG2_OPERATOR_UID:-10002}"
+LEASES_GID="${OHG2_LEASES_GID:-20001}"
 CHILD_VOLUME_MODE="0750"
 # Compose の frontend / martin と同一の pin 済み image を既定にする（追加の image 依存を作らない）。
 BOOTSTRAP_IMAGE="${OHG2_BOOTSTRAP_IMAGE:-nginx:1.28.0-alpine@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284}"
@@ -130,12 +142,42 @@ log "nested mountpoints (${#NESTED_DIRS[@]}): ${NESTED_DIRS[*]}"
 MKDIR_LIST=""
 for d in "${NESTED_DIRS[@]}"; do MKDIR_LIST="$MKDIR_LIST /data_runtime/$d"; done
 
+# frontend/tiles とその region/hazard 子directory（Martinがscanするflat
+# mirror。atomic publish後にoperatorがcurrent/frontend/tiles配下から
+# 同期し直す先）だけをoperator ownershipにする。mkdirはroot既定のため、
+# 個別に列挙してchownする（chown -Rによる無関係pathへの巻き込みを避ける）。
+# leaf（frontend/tiles/<region>/<hazard>）だけでなく、`mkdir -p`が暗黙に
+# 作るregion階層の中間directory（frontend/tiles/<region>）も明示的に含める
+# ——未chownのままだと、publish後のmirror同期（`cp -a`）がtimestamp保持で
+# 中間directoryへのutime()をEPERMで失敗させる（実害はないが警告が出る）。
+FRONTEND_DIR_SET=""
+add_frontend_dir() {
+  case " $FRONTEND_DIR_SET " in
+    *" $1 "*) ;;
+    *) FRONTEND_DIR_SET="$FRONTEND_DIR_SET $1" ;;
+  esac
+}
+for d in "${NESTED_DIRS[@]}"; do
+  case "$d" in
+    frontend|frontend/*)
+      add_frontend_dir "$d"
+      # frontend/tiles/<region>/<hazard> → frontend/tiles/<region> も追加
+      parent="$(dirname "$d")"
+      [ "$parent" = "." ] || add_frontend_dir "$parent"
+      ;;
+  esac
+done
+FRONTEND_MKDIR_LIST=""
+for d in $FRONTEND_DIR_SET; do FRONTEND_MKDIR_LIST="$FRONTEND_MKDIR_LIST /data_runtime/$d"; done
+
 # logs/cache child volume の root（コンテナ内 /vol_logs, /vol_cache）と、
 # 共有 volume 内の logs/cache mountpoint stub の両方を 10001:10001 / 0750 にする。
 CONTAINER_SCRIPT="set -eu
 mkdir -p${MKDIR_LIST}
 chown ${PUBLIC_UID}:${PUBLIC_GID} /vol_logs /vol_cache /data_runtime/logs /data_runtime/cache
 chmod ${CHILD_VOLUME_MODE} /vol_logs /vol_cache /data_runtime/logs /data_runtime/cache
+chown ${OPERATOR_UID}:${LEASES_GID}${FRONTEND_MKDIR_LIST}
+chmod 0750${FRONTEND_MKDIR_LIST}
 echo '--- verify ---'
 for p in /vol_logs /vol_cache; do
   own=\$(stat -c '%u:%g' \"\$p\"); mod=\$(stat -c '%a' \"\$p\")

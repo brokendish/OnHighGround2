@@ -142,10 +142,20 @@ def _init_data_runtime_publish_tree(
 ) -> None:
     """data_runtime/{.staging,versions,.publish.lock} の一回限り初期化（第5.1節）。
     data_runtimeはhost bind mountのため、operator uid/gidでの実行時にのみ
-    正しい数値ownershipが付与される（host filesystemのuid写像に依存する）。"""
+    正しい数値ownershipが付与される（host filesystemのuid写像に依存する）。
+
+    `versions`（`current`が指す公開済みversion directoryの親）はleases_gidを
+    groupとする。deploy_to_runtime_atomic.shが個々の`versions/<id>/`を
+    operator_uid:leases_gidで作る（第5.1節: 公開済みversion directoryは
+    `10002:20001`）のと平仄を合わせないと、publicのsupplemental group
+    （leases_gid）がpath解決の途中にある`versions`自体をtraverseできず、
+    `versions/<id>/`個々の権限が正しくてもpublic readが常にPermissionError
+    になる（親directoryのx権限はrename後も変わらないため、`versions/<id>/`
+    側だけ直しても解決しない）。`.staging`はoperator専用（publicが直接
+    traverseすることはない）ためoperator_gidのままでよい。"""
     _claim_data_runtime_root(data_runtime_root, operator_uid, leases_gid, DATA_RUNTIME_ROOT_MODE)
     _verify_or_create_dir(os.path.join(data_runtime_root, ".staging"), operator_uid, operator_gid, STAGING_DIR_MODE)
-    _verify_or_create_dir(os.path.join(data_runtime_root, "versions"), operator_uid, operator_gid, VERSIONS_DIR_MODE)
+    _verify_or_create_dir(os.path.join(data_runtime_root, "versions"), operator_uid, leases_gid, VERSIONS_DIR_MODE)
     _verify_or_create_file(
         os.path.join(data_runtime_root, ".publish.lock"),
         operator_uid, operator_gid, PUBLISH_LOCK_MODE, b"",

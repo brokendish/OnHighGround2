@@ -17,6 +17,11 @@ class HazardDatasetService:
         "inland_flood",
         "landslide",
         "pseudo_inland_flood",
+        # tileset_id_alignment修復: registry（active_mappings.json）には
+        # lowland_poor_drainage:tokyo / :kanagawa が登録済みだったが、この
+        # 集合に含まれていなかったため /api/hazards/lowland_poor_drainage/*
+        # と /meta が常に KeyError(Unsupported hazard_type) になっていた。
+        "lowland_poor_drainage",
     }
 
     def _load_json(self, path: Path) -> Dict[str, Any]:

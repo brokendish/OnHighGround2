@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +20,53 @@ logger = logging.getLogger(__name__)
 # registry を経由せず data_runtime → data_lake の優先順でファイルを探す。
 # registry が整備されたら HazardDatasetService に移行してよい。
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent  # backend/
+
+# ── Martin tileset ID / source-layer 解決 ────────────────────────────────────
+# tileset_id_alignment修復: 過去、frontendは「registryのdataset_id
+# （例 TOKYO-RIVER-001）をlowercase+"_"変換したもの」または個々にhardcodeした
+# 文字列（例 tokyo_river_001, tokyo_surge_001, *_001）をMartinのtileset IDと
+# 仮定していた。しかしdataset_id（データ管理上の識別子）とtileset_id（配信
+# artifactの実名、deploy_to_runtime.shがdata_lake/tiles/配下のmbtiles
+# filenameをそのまま使う）は本来別概念であり、tile成果物の世代交代
+# （例 tokyo_river_001.mbtiles → tokyo_flood_max.mbtiles）にdataset_id側が
+# 追随しないと即座に不一致を起こす。この関数はMartinが実際にscanするflat
+# mirror（data_runtime/frontend/tiles/<region>/<hazard_type>/）を都度
+# globし、「今Martinが実際に配信できるtileset」を正本として返す。dataset_id
+# 側やfrontend側のhardcode文字列を書き換え続ける代わりに、publishのたびに
+# 自動的に追随させる。
+_TILE_ROOT = _BACKEND_DIR.parent / "data_runtime" / "frontend" / "tiles"
+
+
+def _find_tileset_for_region(hazard_type: str, region: str) -> Optional[dict]:
+    """`data_runtime/frontend/tiles/<region>/<hazard_type>/*.mbtiles` から
+    実際に配信可能な1件を選び、Martin source ID（filename stem）と、
+    mbtiles自身のmetadataテーブルに記録されたvector layer名（tippecanoeの
+    `--layer`指定、Martinのvector_layers.idと同一）を返す。該当なしはNone。
+    複数fileがある場合は最大サイズを選ぶ（hazards.pyの他のfile選択と同じ規約）。
+    """
+    tile_dir = _TILE_ROOT / region / hazard_type
+    if not tile_dir.is_dir():
+        return None
+    candidates = sorted(tile_dir.glob("*.mbtiles"))
+    if not candidates:
+        return None
+    chosen = max(candidates, key=lambda p: p.stat().st_size)
+
+    source_layer: Optional[str] = None
+    try:
+        conn = sqlite3.connect(f"file:{chosen.resolve()}?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT value FROM metadata WHERE name = 'json'").fetchone()
+            if row:
+                layers = json.loads(row[0]).get("vector_layers") or []
+                if layers and isinstance(layers[0], dict):
+                    source_layer = layers[0].get("id")
+        finally:
+            conn.close()
+    except (sqlite3.DatabaseError, OSError, json.JSONDecodeError):
+        source_layer = None
+
+    return {"tileset_id": chosen.stem, "source_layer": source_layer}
 
 
 def _find_hazard_file_for_region(hazard_type: str, region: str) -> Optional[Path]:
@@ -132,11 +180,19 @@ async def list_active_hazard_datasets():
 @router.get("/{hazard_type}/{region_code}/meta")
 async def get_active_hazard_meta(hazard_type: str, region_code: str):
     try:
-        return hazard_dataset_service.get_active_hazard_meta(hazard_type, region_code)
+        meta = hazard_dataset_service.get_active_hazard_meta(hazard_type, region_code)
     except (FileNotFoundError, KeyError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, json.JSONDecodeError, OSError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    # tileset_id_alignment修復: dataset_id（registry識別子）とは独立に、
+    # Martinが今実際に配信できるtileset ID/source-layerを解決して追加する。
+    # 該当tileが存在しない場合は両方null（frontendはこれをapiUrl fallback、
+    # またはfallbackが無いlayerではdisabled判定に使う）。
+    tileset = _find_tileset_for_region(hazard_type, region_code)
+    meta["tileset_id"] = tileset["tileset_id"] if tileset else None
+    meta["tileset_source_layer"] = tileset["source_layer"] if tileset else None
+    return meta
 
 
 @router.get("/{hazard_type}/{region_code}")

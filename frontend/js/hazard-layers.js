@@ -224,6 +224,7 @@ const HAZARD_LAYERS = {
         region: 'tokyo',
         regionLabel: '東京都',
         apiUrl: '/api/hazards/storm_surge/tokyo',
+        metaUrl: '/api/hazards/storm_surge/tokyo/meta',
         path: `${LAYER_BASE_PATH}/tokyo_storm_surge.geojson`,
         checkboxId: "showStormSurgeTokyo",
         layer: null,
@@ -330,6 +331,7 @@ const HAZARD_LAYERS = {
         menuLabel: '東京都',
         region: 'tokyo',
         regionLabel: '東京都',
+        metaUrl: '/api/hazards/pseudo_inland_flood/tokyo/meta',
         checkboxId: "showPseudoInlandFloodTokyo",
         layer: null,
         loaded: false,
@@ -345,6 +347,7 @@ const HAZARD_LAYERS = {
         menuLabel: '東京都',
         region: 'tokyo',
         regionLabel: '東京都',
+        metaUrl: '/api/hazards/lowland_poor_drainage/tokyo/meta',
         checkboxId: "showLowlandPoorDrainageTokyo",
         layer: null,
         loaded: false,
@@ -360,6 +363,7 @@ const HAZARD_LAYERS = {
         menuLabel: '神奈川県',
         region: 'kanagawa',
         regionLabel: '神奈川県',
+        metaUrl: '/api/hazards/lowland_poor_drainage/kanagawa/meta',
         checkboxId: "showLowlandPoorDrainageKanagawa",
         layer: null,
         loaded: false,
@@ -374,7 +378,15 @@ const HAZARD_LAYERS = {
 
 // ── Martin ベクタータイルソース定義 ──────────────────────────────────────
 // キー: HAZARD_LAYERS と同じ
-// source-layer 名は tippecanoe の --layer オプションで指定した名前（= MBTiles ファイル名の stem）
+// source-layer 名は tippecanoe の --layer オプションで指定した名前（多くは
+// MBTiles ファイル名の stem と一致するが、必ずしもそうとは限らない）。
+//
+// tileset_id_alignment修復: 各entryの tilesetId / sourceLayer は、metaUrl
+// を持つlayerでは「backendの /meta 応答（tileset_id / tileset_source_layer、
+// data_runtime/frontend/tiles配下を都度scanして解決）」で実行時に上書き
+// される（_initializeHazardTogglesImpl参照）。ここに書く値は、metaUrl自体が
+// ないlayer（tsunami系、preferApiのためMartinを使わない）向けの本来値と、
+// meta取得に失敗した場合の最終fallback値を兼ねる。
 const VECTOR_TILE_SOURCES = {
     tsunami_tokyo: [
         { tilesetId: 'tokyo_tsunami_A40-23_13', sourceLayer: 'tokyo_tsunami_A40-23_13', opacityFn: () => 0.18 }
@@ -388,13 +400,12 @@ const VECTOR_TILE_SOURCES = {
     ],
     flood_tokyo_max: [
         {
-            tilesetId: 'tokyo_river_001',   // active mapping で上書きされる（_activeTilesetId）
-            sourceLayer: 'flood',
+            tilesetId: 'tokyo_river_001',   // meta.tileset_id で上書きされる（_activeTilesetId）
+            sourceLayer: 'flood',           // meta.tileset_source_layer で上書きされる（_activeSourceLayer）
             colorFn: (props) => getFloodRankColor(props['flood_rank']),
             borderStyle: FLOOD_BORDER,
             opacityFn: () => 0.18,
-            maxNativeZoom: 14,
-            useDatasetIdAsTilesetId: true
+            maxNativeZoom: 14
         }
     ],
     flood_kanagawa_max: [
@@ -404,8 +415,7 @@ const VECTOR_TILE_SOURCES = {
             colorFn: (props) => getFloodRankColor(props['flood_rank']),
             borderStyle: FLOOD_BORDER,
             opacityFn: () => 0.18,
-            maxNativeZoom: 14,
-            useDatasetIdAsTilesetId: true
+            maxNativeZoom: 14
         }
     ],
     inland_flood_tokyo: [
@@ -919,8 +929,16 @@ async function loadHazardLayer(layerKey) {
     }
 
     if (shouldUseVectorTiles(layerKey, hazard)) {
+        // _activeTilesetId / _activeSourceLayer は初期化時（_initializeHazardTogglesImpl）に
+        // /meta のtileset_id/tileset_source_layerで解決済み。単一tilesetのlayer
+        // （flood/storm_surge/pseudo_inland_flood/lowland_poor_drainage）だけが対象で、
+        // 複数tilesetを持つlayer（tsunami系）はpreferApiのためここに来ない。
         const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom, opacityFn }) =>
-            createVectorTileLayer(hazard._activeTilesetId || tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom, opacityFn)
+            createVectorTileLayer(
+                hazard._activeTilesetId || tilesetId,
+                hazard._activeSourceLayer || sourceLayer,
+                colorFn, borderStyle, maxNativeZoom, opacityFn
+            )
         );
         hazard.layer = L.layerGroup(vtLayers);
         hazard._isVectorTile = true;  // opacity で show/hide（タイルキャッシュ保持）
@@ -1128,22 +1146,37 @@ async function _initializeHazardTogglesImpl() {
             if (shouldUseVectorTiles(layerKey, hazard)) {
                 const firstTileset = VECTOR_TILE_SOURCES[layerKey][0];
 
-                // dataset_id と Martin source 名が一致するレイヤーだけ上書きを許可する。
+                // tileset_id_alignment修復: 過去は「dataset_id
+                // （registryの識別子、例 TOKYO-RIVER-001）をlowercase+"_"変換
+                // したもの」または個々にhardcodeした文字列を Martin tileset ID
+                // と仮定していたが、これは配信artifactの実体（publish側の
+                // mbtiles filename）と一致する保証がない別概念だった
+                // （tile artifactの世代交代のたびに乖離した）。
+                // backend側（/meta の tileset_id / tileset_source_layer）が
+                // data_runtime/frontend/tiles配下を都度scanして解決する
+                // 「今Martinが実際に配信できる名前」を正本として使う。
+                // VECTOR_TILE_SOURCES の静的な tilesetId/sourceLayer は、
+                // meta取得に失敗した場合だけの最終fallbackとして残す。
                 let activeTilesetId = firstTileset.tilesetId;
-                if (hazard.metaUrl && firstTileset.useDatasetIdAsTilesetId) {
+                let activeSourceLayer = firstTileset.sourceLayer;
+                if (hazard.metaUrl) {
                     try {
                         const metaResp = await apiFetch(hazard.metaUrl, { cache: 'no-cache' });
                         if (metaResp.ok) {
                             const meta = await metaResp.json();
-                            if (meta?.dataset_id) {
-                                activeTilesetId = meta.dataset_id.toLowerCase().replace(/-/g, '_');
+                            if (meta?.tileset_id) {
+                                activeTilesetId = meta.tileset_id;
+                            }
+                            if (meta?.tileset_source_layer) {
+                                activeSourceLayer = meta.tileset_source_layer;
                             }
                         }
                     } catch (e) {
-                        console.warn(`[hazard:init] ${layerKey}: metaUrl 解決失敗、静的 tilesetId を使用します`, e);
+                        console.warn(`[hazard:init] ${layerKey}: metaUrl 解決失敗、静的 tilesetId/sourceLayer を使用します`, e);
                     }
                 }
                 hazard._activeTilesetId = activeTilesetId;
+                hazard._activeSourceLayer = activeSourceLayer;
 
                 const checkPath = `/tiles/${activeTilesetId}`;
                 const tilesExist = await hazardDataExists({ ...hazard, path: checkPath, metaUrl: null, apiUrl: null });
@@ -1177,7 +1210,17 @@ async function _initializeHazardTogglesImpl() {
                 return { layerKey, enabled: true, reason: hazard.availabilityState };
             }
 
-            const exists = await hazardDataExists(hazard);
+            // commit前レビューで発見: このbranchはMartin不可用かつapiUrl無し
+            // （pseudo_inland_flood_tokyo等、VECTOR_TILE_SOURCESはあるがfallback
+            // apiUrlを持たないlayerがuseMartinTiles=falseの時だけ到達する）の
+            // 「静的path存在確認」用。tileset_id_alignment修復でこれらのlayerへ
+            // metaUrlを追加したため、そのままhazardDataExists(hazard)を呼ぶと
+            // hazard.metaUrl（tileset解決専用、静的pathの代替ではない）が優先され、
+            // 本来の`hazard.path`チェックが行われずtrueを誤って返しかねない
+            // （metaが200を返す＝datasetはactiveだが、tileもAPIも使えない状態で
+            // 「有効」と誤判定されてしまう）。tile存在確認（上のcheckPath呼び出し）
+            // と同じくmetaUrlを明示的に無効化する。
+            const exists = await hazardDataExists({ ...hazard, metaUrl: null });
             if (!exists) {
                 hazard.availabilityState = !useMartinTiles && VECTOR_TILE_SOURCES[layerKey]
                     ? 'martin-unavailable-no-fallback'

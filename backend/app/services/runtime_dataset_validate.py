@@ -602,6 +602,17 @@ def _validate_jsonl_file(
 
 
 def _validate_sqlite_file(path: Path) -> None:
+    # Claude自己検証で発見した実バグ: sqlite3のfile: URIはpath先頭が偶然
+    # 二重slash（`//data_runtime/...`）になっていると、"//"直後の最初の
+    # segment（例: "data_runtime"）をauthority（host）として解釈し、
+    # 空でもlocalhostでもないauthorityとしてfail-closedで拒否する
+    # （`sqlite3.OperationalError: invalid uri authority`）。二重slashは
+    # 通常のfilesystem呼び出し（open/stat）では単一slashと等価に扱われ無害だが、
+    # URI構築だけがこれに敏感なため、"//"を含み得るPathを直接f-stringへ
+    # 渡す前に必ず正規化する（`os.path.normpath`はPOSIX規約によりちょうど2つの
+    # 先頭slashを意図的に保持するため使えない。`Path.resolve()`で単一slashへ
+    # 確実に畳み込む）。
+    path = path.resolve()
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:

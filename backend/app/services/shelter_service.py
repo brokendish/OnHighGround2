@@ -61,6 +61,13 @@ _EVACUATION_SHELTER_INDICATOR_KEYS = frozenset({
     "指定緊急避難場所との住所同一",
 })
 
+# shelter_atomic_publish修復: active_mappings.json の layer_type のうち、
+# 「避難所系」として扱う集合。従来 _resolve_paths() 内のローカル変数だった
+# ものをmodule levelへ昇格し、scripts/publish/resolve_shelter_sources.py
+# （atomic publish時に同じ集合でactive datasetを列挙する）と単一の情報源を
+# 共有する。どちらか一方だけ更新して集合が乖離する事態を構造的に防ぐ。
+SHELTER_LAYER_TYPES = frozenset({"shelter", "evacuation_shelter", "emergency_shelter"})
+
 
 # ── ユーティリティ ──────────────────────────────────────────────────────────────
 
@@ -463,10 +470,9 @@ class ShelterRegistry:
         # layer_type が shelter 系の active mapping を地域×データセットIDで収集
         # 1地域につき複数データセット（指定緊急避難場所＋指定避難所）を同時にロードできるよう
         # Dict[str, List[str]] で保持する
-        _SHELTER_LAYER_TYPES = {"shelter", "evacuation_shelter", "emergency_shelter"}
         active_shelter_map: Dict[str, List[str]] = {}
         for m in ams.list_all():
-            if m["layer_type"] in _SHELTER_LAYER_TYPES:
+            if m["layer_type"] in SHELTER_LAYER_TYPES:
                 active_shelter_map.setdefault(m["region"], []).append(m["dataset_id"])
 
         paths: List[Path] = []

@@ -18,6 +18,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# operator container内ではscripts/が/scriptsへmountされるため、ここで
+# PROJECT_ROOTは"/"に解決される。以降"${PROJECT_ROOT}/xxx"の連結が常に
+# 二重先頭slash"//xxx"になるのを防ぐ（deploy_to_runtime_atomic.shの同名
+# 対処と同じ理由。詳細はそちらのコメント参照）。
+PROJECT_ROOT="${PROJECT_ROOT%/}"
 source "${PROJECT_ROOT}/scripts/common/log.sh"
 
 # --- 引数パース ---
@@ -183,7 +188,32 @@ deploy_file \
 # 配備（かつては見過ごされたが、runtime_dataset_validate.pyのtsunami
 # 参照整合性検証がstaging側target集合とconsumer設定のexact-matchを
 # 要求するようになったため、放置すると publish 自体が拒否される）。
-APP_PROPERTIES_FILE_PATH="${PROJECT_ROOT}/backend/app.properties"
+# CODEX同等指摘（Claude自己検証で発見）: 本scriptがoperator container内
+# （backend/ が /app へmountされ、PROJECT_ROOTが"/"に解決される環境）で実行
+# されると、host実行前提の"${PROJECT_ROOT}/backend/app.properties"は存在せず、
+# 常にTSUNAMI_TARGETS既定値（tokyoのみ）へ静かにfallbackしていた。一方
+# activate_version.py側のvalidator（runtime_dataset_validate.py
+# `_resolve_configured_tsunami_targets()` → app_config_properties.
+# resolve_config_path()）は`backend/`が/appへmountされる同一container内から
+# 正しく`/app/app.properties`を解決し、`hazard.tsunami.targets=tokyo,kanagawa`
+# を得る。producerとconsumer/validatorが異なる設定fileを見てしまい、
+# tsunami参照整合性検証（欠落target拒否）が常にfailする実バグを引き起こして
+# いた。`APP_PROPERTIES_FILE`環境変数とhost/container両レイアウトを
+# consumer側と同じ優先順位で解決する。
+APP_PROPERTIES_FILE_PATH="${APP_PROPERTIES_FILE:-}"
+if [[ -z "${APP_PROPERTIES_FILE_PATH}" ]]; then
+    if [[ -f "${PROJECT_ROOT}/backend/app.properties" ]]; then
+        APP_PROPERTIES_FILE_PATH="${PROJECT_ROOT}/backend/app.properties"
+    elif [[ -f "/app/app.properties" ]]; then
+        # backend-operator/backend-public container慣行: backend/ が /app へmount
+        # される（PROJECT_ROOTは"/scripts"の親として"/"に解決されるため
+        # "${PROJECT_ROOT}/app.properties"は"/app.properties"という別物になり、
+        # 実際の"/app/app.properties"を指さない）。
+        APP_PROPERTIES_FILE_PATH="/app/app.properties"
+    else
+        APP_PROPERTIES_FILE_PATH="${PROJECT_ROOT}/backend/app.properties"
+    fi
+fi
 _tsunami_targets_raw=""
 if [[ -f "${APP_PROPERTIES_FILE_PATH}" ]]; then
     # 同一keyが複数出現した場合は最後の行を採用する（Java .properties の
@@ -314,9 +344,47 @@ else
 fi
 
 # ─── backend: shelters ────────────────────────────────────────────────────────
-log_info "--- shelters ---"
-deploy_dir "${VALIDATED}/shelter" "${RUNTIME_BACKEND}/shelters" "*.geojson" "backend"
-deploy_dir "${VALIDATED}/shelter" "${RUNTIME_BACKEND}/shelters" "*.csv"     "backend"
+# shelter_atomic_publish修復: 従来は`${VALIDATED}/shelter`というハードコードされた
+# 単一directory名だけをcopyしており、active_mappings.json登録済みの避難所系
+# datasetのうち一部（例: TOKYO-EVAC-001, KANAGAWA-EVAC-001、正式pathの
+# TOKYO-SHELTER-001）がdirectory名不一致のため常に欠落していた
+# （tasks/public-release/shelter_count_difference_investigation_claude.md）。
+# registry（active_mappings.json + dataset_definitions.json + DatasetState）を
+# 正本とし、scripts/publish/resolve_shelter_sources.pyが
+# backend/app/services/shelter_service.SHELTER_LAYER_TYPES
+# （読み取り側 ShelterRegistry._resolve_paths() と共有する単一の定数）に
+# 一致するactive datasetを列挙する。dataset_idごとにsubdirectoryへ分離して
+# 配備することでfilename collisionを構造的に排除する
+# （consumer側のload_emergency_shelters()は既にdirectoryをrglobする実装のため、
+# 追加のconsumer変更は不要）。
+log_info "--- shelters (registry-resolved) ---"
+mkdir -p "${RUNTIME_BACKEND}/shelters"
+# 注意: 旧ロジック（${VALIDATED}/shelterをshelters直下へflatに展開）が
+# 過去のpublishで残したtop-level file（registryに紐付かない非公式dataset）は、
+# ここでは意図的に削除しない。incremental publishのvalidator
+# （runtime_dataset_validate.py の件数整合性検証）は「前versionに存在した
+# rel-pathが新staging側から消失」をdata損失の疑いとしてfail-closedで拒否する
+# 設計であり、実際にこの削除を試みたところ拒否された（実機確認済み）。
+# これらのfileを本当に廃止すべきかはtasks/public-release/
+# shelter_atomic_publish_repair_claude.mdで報告し、削除するかどうかはOWNER判断に
+# 委ねる（勝手に削除しない、第4節参照）。dataset_idサブディレクトリ
+# （下記ループ）と共存させ、load_emergency_shelters()のdedupに委ねる。
+_shelter_resolved_count=0
+while IFS=$'\t' read -r _shelter_dataset_id _shelter_src_path; do
+    [[ -z "${_shelter_dataset_id:-}" ]] && continue
+    _shelter_dst_dir="${RUNTIME_BACKEND}/shelters/${_shelter_dataset_id}"
+    if [[ -d "${_shelter_src_path}" ]]; then
+        deploy_dir "${_shelter_src_path}" "${_shelter_dst_dir}" "*.geojson" "backend"
+        deploy_dir "${_shelter_src_path}" "${_shelter_dst_dir}" "*.csv"     "backend"
+    elif [[ -f "${_shelter_src_path}" ]]; then
+        deploy_file "${_shelter_src_path}" "${_shelter_dst_dir}/$(basename "${_shelter_src_path}")" "backend"
+    else
+        log_warn "shelter dataset ${_shelter_dataset_id}: resolved pathが存在しません: ${_shelter_src_path}"
+        continue
+    fi
+    _shelter_resolved_count=$((_shelter_resolved_count + 1))
+done < <(python3 "${SCRIPT_DIR}/resolve_shelter_sources.py" --region "${REGION}")
+log_info "shelters: registryから${_shelter_resolved_count}件のactive datasetをpublish対象として解決（region=${REGION}）"
 
 # ─── frontend 配備 ─────────────────────────────────────────────────────────────
 if "${SKIP_FRONTEND}"; then
