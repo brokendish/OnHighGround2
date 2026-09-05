@@ -12,7 +12,8 @@
 - [ハザードレイヤー](hazard_layers.md)
 - [runtime データ方針](architecture/runtime_data_policy.md)
 - [runtime cutover チェックリスト](operations/runtime_cutover_checklist.md)
-- [VPS 起動チェックリスト](checklists/vps_startup_checklist.md)
+- [VPS 起動/再構築チェックリスト](checklists/vps_startup_checklist.md) — 新規構築・既存VPSの in-place 再構築の両方に対応
+- [データ管理画面 運用ガイド](admin-data-management.md) — `/admin/datasets` の目的・用語・操作手順
 
 ## アーキテクチャと開発
 

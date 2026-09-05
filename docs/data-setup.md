@@ -147,11 +147,40 @@ runtime 入力 `tokyo_flood_check.geojsonl` を作成してください。津波
 
 Martin はコンテナ化された MBTiles サーバーです。現在の Compose 構成には
 PostGIS サービス・外部データベース接続・スキーマ・マイグレーション・seed
-コマンドは宣言されていません。Martin は `data_runtime/current/frontend/tiles` を
-`/tiles` として読み、`config/martin.yaml` がスキャンする MBTiles ディレクトリを
-宣言します。`.mbtiles` を `data_lake/tiles/<region>/<hazard>/` の下に生成または
-配置し、アトミックに publish してください。ディレクトリが無い場合、Martin は
-警告を出して継続し、対応するレイヤーは利用不可になります。
+コマンドは宣言されていません。
+
+**Martin は atomic publish の `current` symlink を直接参照しません。** 実際の
+参照先は `data_runtime/frontend/tiles`（flat、非 versioned）の bind mount
+（`docker-compose.yml` の `martin` サービス、`./data_runtime/frontend/tiles:/tiles:ro`）
+であり、`config/martin.yaml`／`config/martin-local.yaml` がこの配下をスキャンして
+MBTiles ディレクトリを宣言します。理由は、Martin 1.14.0 が `mbtiles.paths` に
+列挙した path の不在時に fatal 終了する仕様であるため、一度も publish していない
+まっさらな環境でも Martin 自体は起動できる必要があるからです。`current` を
+直接参照する構成にすると、初回 publish 前に Martin が起動不能になります。
+
+このため `scripts/publish/deploy_to_runtime_atomic.sh` は、atomic publish
+（`current` の切替）が成功した**直後**に、`current/frontend/tiles/` の内容を
+この flat mirror（`data_runtime/frontend/tiles/`）へ同期し直します。Martin
+自体は起動時に一度スキャンするだけで自動リロードしないため、tile の追加・
+更新を反映するには同期後に `docker compose restart martin` が必要です
+（`docs/checklists/vps_startup_checklist.md` の publish 手順を参照）。
+
+```text
+data_lake/tiles/<region>/<hazard>/*.mbtiles
+        ↓ deploy_to_runtime_atomic.sh
+data_runtime/versions/<version-id>/frontend/tiles/<region>/<hazard>/
+        ↓ current symlink 切替（atomic）
+data_runtime/current/frontend/tiles/
+        ↓ publish成功後にsync（deploy_to_runtime_atomic.sh）
+data_runtime/frontend/tiles/<region>/<hazard>/   ← Martin が実際に参照するpath
+        ↓ docker compose restart martin
+Martin catalog に反映
+```
+
+`.mbtiles` を `data_lake/tiles/<region>/<hazard>/` の下に生成または配置し、
+アトミックに publish してください。ディレクトリが無い場合、Martin は警告を
+出して継続し、対応するレイヤーは利用不可（または frontend 側に fallback 定義が
+あれば GeoJSON API へ自動フォールバック）になります。
 
 ## runtime の API データと任意サービス
 
@@ -164,11 +193,43 @@ Streamer のデータ/設定は任意で、個別に secret を持ちます。
 ## publish と検証
 
 1. マッピングをプレビュー: `scripts/publish/deploy_to_runtime.sh --region tokyo --dry-run`。
-2. 認可された operator ワークフローで、アトミックに publish:
-   `scripts/publish/deploy_to_runtime_atomic.sh --region tokyo`。
+2. 認可された operator ワークフロー（`backend-operator` コンテナ内、
+   `--profile operator`）で、アトミックに publish する。`--region` は複数回
+   指定でき、指定した全 region 分の `deploy_to_runtime.sh` を同一 staging
+   directory へ積み重ねてから一度だけ validate/activate する:
+
+   ```bash
+   scripts/publish/deploy_to_runtime_atomic.sh --region tokyo --region kanagawa
+   ```
+
+   **初回 publish（`current` 未設定）では対象 region をまとめて 1 回で publish
+   すること。** `backend/app.properties` の `hazard.tsunami.targets`（既定
+   `tokyo,kanagawa`）は、staging 側の津波 target 集合が consumer 設定と
+   完全一致することを要求する（`runtime_dataset_validate.py` の参照整合性
+   検証）。`--region tokyo` だけを単独で初回 publish すると、kanagawa 分の
+   津波 target が欠落し publish 自体が拒否される。2 回目以降の publish
+   （`current` が既に存在する場合）は、直前の `current` から staging を
+   seed するため、region を 1 つずつ追加していくインクリメンタルな
+   publish も可能。
 3. `data_runtime/current/` が解決でき、想定される runtime ファイルを含むことを
    確認する。`data_runtime/manifests/` の下に生成される manifest を確認する。
-4. 入力が存在するサービスのみを起動する。walking/driving の PBF が欠けていると
+4. 避難所（shelter）は `${VALIDATED}/shelter` のような固定ディレクトリ名では
+   なく、`data_lake/admin/active_mappings.json` に登録された active dataset
+   （`backend/app/services/shelter_service.SHELTER_LAYER_TYPES` = `shelter` /
+   `evacuation_shelter` / `emergency_shelter` のいずれかの layer_type）を
+   `scripts/publish/resolve_shelter_sources.py` が動的に列挙して publish する。
+   新しい避難所 dataset を追加する場合は、`dataset_definitions.json` への
+   定義追加と `active_mappings.json` への active 化だけで、
+   `deploy_to_runtime.sh` 自体の変更なしに publish 対象へ含まれる。
+5. hazard の vector tile（Martin）と GeoJSON API の tileset ID は、
+   `dataset_id`（registry の識別子）から機械的に導出しない。
+   `GET /api/hazards/<type>/<region>/meta` が `data_runtime/frontend/tiles/`
+   配下を都度 scan して実際に配信可能な tileset ID・source-layer 名を
+   `tileset_id` / `tileset_source_layer` として返し、frontend
+   （`frontend/js/hazard-layers.js`）はこれを実行時に採用する。tile
+   artifact の filename が世代交代しても、次の `/meta` 呼び出しで自動的に
+   追随する。
+6. 入力が存在するサービスのみを起動する。walking/driving の PBF が欠けていると
    対応する OSRM サービスはファイルチェックに失敗する。backend のデータセットが
    無いと degraded/不明な結果になる。
 

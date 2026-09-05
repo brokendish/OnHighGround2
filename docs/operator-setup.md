@@ -64,4 +64,5 @@ VPS等のリモート環境でoperator UIへアクセスする場合、`operator
 
 - [docs/installation.md](installation.md) — public構成の起動手順（operator profileを含まない）
 - [docs/configuration.md](configuration.md) — 環境変数・example設定の全体像
+- [docs/admin-data-management.md](admin-data-management.md) — `/admin/datasets` の運用手順（本ドキュメントは trust boundary の設計、そちらは日常操作）
 - `.env.operator.example` — operator用template（実秘密は含まない）

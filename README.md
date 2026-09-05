@@ -24,11 +24,19 @@ Google の地図・標高・ルーティングサービスではなく、オー�
 | --- | --- |
 | public core のインストールと起動 | [インストール](docs/installation.md) |
 | public / operator / streamer の環境ファイル設定 | [設定](docs/configuration.md) |
-| 公開用データセットの準備 | [データ準備](docs/data-setup.md) |
+| 公開用データセットの準備・atomic publish手順 | [データ準備](docs/data-setup.md) |
 | privileged な operator サービスの実行 | [Operator セットアップ](docs/operator-setup.md) |
+| データ管理画面（`/admin/datasets`）を使う | [データ管理画面 運用ガイド](docs/admin-data-management.md) |
+| VPS への初回構築、または既存 VPS の in-place 再構築 | [VPS 起動/再構築チェックリスト](docs/checklists/vps_startup_checklist.md) |
+| runtime 切替・publish 後の動作確認 | [runtime cutover チェックリスト](docs/operations/runtime_cutover_checklist.md) |
+| メモリ使用量のチューニング | [メモリチューニング](docs/operations/vps_memory_tuning.md) |
 | ドキュメント一覧の閲覧 | [ドキュメント索引](docs/README.md) |
 | セキュリティ方針と現在の報告窓口の状況 | [SECURITY.md](SECURITY.md) |
 | ライセンスと第三者表記 | [LICENSE](LICENSE), [ATTRIBUTIONS.md](ATTRIBUTIONS.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [第三者インベントリ](docs/third-party-inventory.md) |
+
+**問題が発生した場合**: まず [VPS 起動/再構築チェックリスト](docs/checklists/vps_startup_checklist.md)
+の「6. 既知の問題と注意事項」を確認してください。個別のハザードレイヤーの不具合は
+[ハザードレイヤー](docs/hazard_layers.md) を参照してください。
 
 OSM・DEM・ハザード・OSRM・Martin/PostGIS の準備は
 [データ準備](docs/data-setup.md) に従ってください。データ無しの smoke 起動を
