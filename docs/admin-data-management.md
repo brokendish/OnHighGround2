@@ -36,6 +36,60 @@ host publish を `0.0.0.0` へ広げたりしないでください**（[Operator
 認証は `OPERATOR_AUTH_SECRET`（`.env.operator`）で保護されています。未設定・空文字の場合、
 `backend-operator` は起動時検証で fail-closed し起動しません。
 
+### 2.1 管理画面URLとOperator token認証手順
+
+1. VPS 等のリモート環境で、ローカルのブラウザから開く場合はまず SSH ポートフォワードで
+   loopback へトンネルする（実際の SSH ポート番号・ユーザー名・ホスト名は環境に合わせる）:
+
+   ```bash
+   ssh -L 18100:127.0.0.1:18100 <user>@<host>
+   ```
+
+   （VPS 上で直接ブラウザを開ける場合、またはローカル環境で直接
+   `docker compose --profile operator up -d` している場合はこの手順は不要）
+2. ブラウザで `http://127.0.0.1:18100/admin/datasets` を開く。
+3. 画面上部の「Operator token」欄に、`.env.operator` の `OPERATOR_AUTH_SECRET` の値を
+   **そのまま**貼り付ける。`Bearer` プレフィックス（末尾に半角スペース1つ）は付けない（画面側が自動的に付与する
+   ——`operator/frontend-admin/js/operator-auth.js` 参照）。
+4. 「接続」ボタンを押す。この時点で「接続済み（メモリ保持のみ・reload で失効）」と
+   表示されるが、これは token をブラウザの memory へ保持しただけであり、
+   **backend 側での認証成功を意味しない**（実際の成否は次のデータ取得で判明する）。
+5. データセット一覧は 5 秒間隔で自動更新される。すぐに反映させたい場合は
+   「今すぐ更新」ボタンを押す。
+6. 一覧が正常に表示されれば token 認証は成功している。
+
+**token の取り扱いについて**: token はページの JavaScript 変数（closure 内）にのみ
+保持され、Cookie・localStorage・sessionStorage・IndexedDB・Cache Storage・URL の
+いずれにも保存しない。**ページの reload や tab を閉じると token は失われ、
+再入力が必要になる**（意図された設計であり、不具合ではない）。
+
+### 2.2 「データセット一覧の取得に失敗しました: unauthorized」が表示された場合
+
+上から順に確認する。
+
+1. **token 未入力**: 画面読み込み直後は、token を入力する前に自動でデータセット一覧の
+   取得が走るため、必ず一度このエラーが表示される。token 入力前の一時的な表示であれば
+   異常ではない。
+2. **token 誤り**: `.env.operator` の `OPERATOR_AUTH_SECRET` の値と、画面に貼り付けた
+   値が完全に一致しているか確認する（前後の空白・改行が紛れ込んでいないか）。
+3. **`Bearer` を二重に入力していないか**: 画面側が自動的に `Bearer` プレフィックス（末尾スペース込み）を付与するため、
+   入力欄には生の token 値のみを貼り付ける。
+4. **token 取得元の確認**: `.env.operator` ファイル自体が存在し、`OPERATOR_AUTH_SECRET`
+   が設定されているか確認する（空・空白のみの場合、`backend-operator` 自体が起動時検証で
+   fail-closed し起動していない可能性が高い——次の項目で確認）。
+5. **backend-operator の起動状態**: `docker compose --profile operator ps backend-operator`
+   で稼働しているか確認する。起動していない、または再起動を繰り返している場合、
+   `docker compose --profile operator logs backend-operator` で fail-closed のエラー
+   メッセージを確認する。
+6. **operator-gateway の起動状態**: 同様に `docker compose --profile operator ps operator-gateway`
+   で確認する。
+7. **token 失効・不一致**: `.env.operator` をローテーション（値を変更）した直後は、
+   `docker compose --profile operator up -d --force-recreate backend-operator` で
+   再起動しない限り旧 token のまま検証され続ける。ローテーション手順は
+   `.env.operator.example` のコメントを参照。
+8. **page reload で token が消えた**: 2.1 節の通り、token は memory 保持のみのため、
+   page を reload した場合は再入力が必要（自動復元されない）。
+
 ## 3. 用語
 
 | 用語 | 意味 |

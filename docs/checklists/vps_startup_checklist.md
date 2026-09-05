@@ -9,8 +9,8 @@ in-place 再構築**時に使用する。手順は記載の順番で実行する
 
 | シナリオ | 実施範囲 |
 | --- | --- |
-| A. 新規 VPS へのゼロからの構築 | 0 → 1 → 2 → 3 → 4 → 4.5 → 5 → 6 → 7（0.5 は不要） |
-| B. **既存 VPS の in-place 再構築**（正常稼働中の環境をバックアップした上で、アプリケーション・runtime 環境を再構築する。`data_lake` 等の既存データは可能な限り保持・再利用し、問題発生時に旧環境へ戻せることを最優先とする） | 0 → **0.5（必須）** → 1 → 2 → 3 → 4 → 4.5 → 5 → 6 → 7 |
+| A. 新規 VPS へのゼロからの構築 | 0 → 1 → 2 → 3 → 4 → 4.5 → 5 → 6 → 7（0.5・4.6 は不要） |
+| B. **既存 VPS の in-place 再構築**（正常稼働中の環境をバックアップした上で、アプリケーション・runtime 環境を再構築する。`data_lake` 等の既存データは可能な限り保持・再利用し、問題発生時に旧環境へ戻せることを最優先とする） | 0 → **0.5（必須）** → 1 → 2 → 3 → 4 → 4.5 → **4.6（host リバースプロキシがある場合）** → 5 → 6 → 7 |
 | C. コードのみ更新（`data_runtime` 等は変更しない） | 0.5 のうち Git SHA 記録・backup のみ実施し、4.5（atomic publish）以降は状況に応じて判断 |
 
 **B（in-place 再構築）の場合、0.5 のバックアップを飛ばしてはならない。** 本チェックリストの
@@ -61,6 +61,14 @@ in-place 再構築**時に使用する。手順は記載の順番で実行する
       レイアウトが変わった箇所——避難所の dataset_id サブディレクトリ化——があるため、
       **修正前の版と修正後の版を跨いだ rollback は避け、必要なら該当版を再 publish し直す**）
 - [ ] 上記いずれの手段も無い状態で本番へ変更を加えないこと
+- [ ] バックアップ取得先が単一の完全なディレクトリであることを確認する（複数回の取得や
+      手動コピーが重なり、バックアップ先の直下に古い断片（一部ディレクトリのみの残骸）と
+      完全なコピー（ネストしたサブディレクトリ等）が混在していないか）。**復元時に誤って
+      古い断片側を復元元に選んでしまうと、`data_runtime`・`.env`・`frontend` 等が欠落した
+      不完全な状態で復旧したことに気づかないまま作業を進めるリスクがある。** 復元元として
+      使うディレクトリ配下に、2節でバックアップ対象とした全項目（`data_lake`、`data_runtime`、
+      `.env` 系、`docker-compose.yml` 等）が実際に揃っていることを、`git rev-parse HEAD` が
+      稼働中システムと一致することも含めて確認してから復元元として確定する。
 
 ### サービス停止
 
@@ -272,6 +280,57 @@ publish のたびに同期される）を起動時に一度だけ scan する。
 docker compose restart martin
 curl -s http://localhost:8080/tiles/catalog | python3 -m json.tool
 ```
+
+### B（既存 VPS の in-place 再構築）で atomic publish が今回初導入の場合の注意
+
+旧世代の VPS では `data_runtime/frontend/tiles/` に、atomic publish 導入前から
+直接配置された `.mbtiles`（`data_lake/tiles/<region>/<type>/` に対応する
+source が無いもの）が存在する場合がある。`deploy_to_runtime_atomic.sh` の
+flat mirror 同期は `rsync -a`（`--delete` なし）による**追加専用**の同期であり、
+新しい staging 側にその tile の source が無くても、既存ファイルを削除しない
+設計になっている。ただし、これは実装上の期待であり、**初回 publish 直後に
+必ず該当ファイルが消えていないことを確認すること**（`find data_runtime/frontend/tiles
+-name "*.mbtiles"` で publish 前後を比較する）。消失していた場合は publish 結果を
+本番へ適用せず、ロールバックを検討する。具体的な手順例は
+[VPS in-place 再構築 runbook](../../tasks/public-release/vps_inplace_rebuild_runbook_claude.md)
+の Kanagawa flood 保護確認の節を参照。
+
+### 4.6 host 上のリバースプロキシ（Caddy 等）との互換性
+
+`backend-public`・`osrm-walking` は既定で host port を宣言しない
+（[Operator セットアップ](../operator-setup.md) 参照）。VPS 上で Caddy 等の
+**host プロセスとして動く**リバースプロキシから到達させる必要がある場合、
+Docker 内部 DNS 名は host プロセスから解決できないため、host loopback
+（`127.0.0.1:<port>`）への host publish が必要になる。
+
+この場合、ベースの `docker-compose.yml` は変更せず、**そのVPS専用の
+`docker-compose.override.yml`（git 管理外）** に限定して、以下のような
+long-form port 宣言を追加する（`host_ip` は必ず `127.0.0.1` に固定し、
+`0.0.0.0` は使わない）:
+
+```yaml
+services:
+  backend-public:
+    ports:
+      - host_ip: 127.0.0.1
+        target: 8000
+        published: "8000"
+        protocol: tcp
+        mode: host
+```
+
+既存のリバースプロキシ設定（Caddyfile 等）側のターゲット port 番号を
+変える必要が無ければ、プロキシ側の設定は無変更のまま維持できる
+（forward migration・rollback の両方向で変更が不要になり、最も安全）。
+`backend-operator`・`operator-gateway` へは、この種の例外を絶対に適用しない
+（`operator-gateway` は既に `127.0.0.1` 限定の専用 host publish を持っており、
+それ以外の operator 経路を host へ広げる必要はない）。
+
+適用後は `docker compose config` の実効設定を確認し、`0.0.0.0` が一切
+含まれないこと、`backend-operator`/`operator-gateway` の ports 定義に変更が
+無いことを確認する。設計の詳細な比較検討は
+[Caddy / 新 compose networking 移行設計](../../tasks/public-release/vps_caddy_new_compose_network_design_claude.md)
+を参照。
 
 ---
 

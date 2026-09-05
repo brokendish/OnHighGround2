@@ -53,6 +53,19 @@ docker compose --profile operator up -d
 
 VPS等のリモート環境でoperator UIへアクセスする場合、`operator-gateway`のhost bindがloopback限定であることを踏まえ、SSHローカルポートフォワード（例: `ssh -L 18100:127.0.0.1:18100 user@vps`）等、リモートホストのloopbackへ安全にトンネルする一般的な接続方法を利用することを想定する。本ドキュメントは特定のVPSホスト名・IP・実運用port番号を記載しない。
 
+## 7.1 public backend/OSRM を host リバースプロキシから公開する場合
+
+`backend-public`・`osrm-walking` は既定で host port を宣言しない（1節・2節参照）。
+host 上で動くリバースプロキシ（systemd 等で稼働する Caddy/nginx で、Docker
+コンテナではないもの）から到達させる必要がある場合、host プロセスは Docker
+内部 DNS 名を解決できないため、host loopback（`127.0.0.1:<port>`）への限定的な
+host publish が必要になる。この場合もベースの `docker-compose.yml` は変更せず、
+環境固有の `docker-compose.override.yml`（git 管理外）に `host_ip: 127.0.0.1`
+固定の long-form port 宣言を追加する方式を用いる（`0.0.0.0` は使わない）。
+具体的な手順は [VPS 起動/再構築チェックリスト](checklists/vps_startup_checklist.md)
+4.6 節を参照。`backend-operator` 本体・`operator-gateway` の host publish 範囲
+（3節）は、この種の例外の対象に含めない。
+
 ## 8. デプロイ検証の境界
 
 本ガイドは public な VPS 公開の手順を定めません。ローカル loopback 以外の
