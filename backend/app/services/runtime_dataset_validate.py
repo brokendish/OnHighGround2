@@ -519,8 +519,23 @@ def _min_feature_count_for_staging_path(rel: str) -> int:
 # 配線されていないtype名のdirectoryが公開されると、そのdataは
 # どのconsumerからも読まれないまま存在し続ける（サイレントに孤立した
 # publishを許してしまう）ため、参照整合性違反として拒否する。
+#
+# Dual Storage Remediation Phase C1（ATOMIC-PUBLISH-COVERAGE-GAP）:
+# pseudo_inland_flood はHazardDatasetService（backend/app/services/
+# hazard_dataset_service.py）に既にconsumerとして配線済み・registry
+# 登録済み・Tokyo-only support contract確立済みのため、正式対応typeと
+# してallowlistへ追加する。unknown typeを許可する一般化ではなく、
+# 既に配線されている個別typeの追加であることに注意。
 _WIRED_HAZARD_TYPES = frozenset(
-    {"flood", "storm_surge", "tsunami", "inland_flood", "landslide", "lowland_poor_drainage"}
+    {
+        "flood",
+        "storm_surge",
+        "tsunami",
+        "inland_flood",
+        "landslide",
+        "lowland_poor_drainage",
+        "pseudo_inland_flood",
+    }
 )
 
 MANIFEST_BASENAME = "_manifest.json"
