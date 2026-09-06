@@ -19,6 +19,7 @@ from typing import Callable, Coroutine, Dict, List, Optional
 from app.models.admin_dataset import Job, JobStatus, JobStep, JobType
 from app.models.admin_dataset import DeployStatus, NormalizeStatus, OsrmRebuildStatus, ValidationStatus
 from app.services.admin_log_service import write_job_log
+from app.services.admin_metadata_fs import chmod_quiet
 from app.services.operator_audit_log import AuditSinkError, log_operator_internal_inspect
 
 logger = logging.getLogger(__name__)
@@ -197,6 +198,7 @@ def _enrich_boot_state_with_docker_inspect() -> None:
             json.dumps(_BOOT_STATE, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        chmod_quiet(_BOOT_STATE_PATH)
     except Exception as exc:
         logger.warning("Failed to update boot_state.json with docker inspect: %s", exc)
 
@@ -259,6 +261,7 @@ def _load_or_create_boot_state() -> dict:
             json.dumps(current, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        chmod_quiet(_BOOT_STATE_PATH)
     except Exception as exc:
         logger.warning("Failed to write boot_state.json: %s", exc)
 
@@ -300,6 +303,7 @@ class JobManager:
         path = self._job_path(job.job_id)
         with path.open("w", encoding="utf-8") as f:
             json.dump(job.model_dump(mode="json"), f, ensure_ascii=False, indent=2, default=str)
+        chmod_quiet(path)
 
     def _load(self, job_id: str) -> Optional[Job]:
         path = self._job_path(job_id)
@@ -424,6 +428,7 @@ class JobManager:
         line = f"[{ts}] {message}\n"
         with open(job.log_path, "a", encoding="utf-8") as f:
             f.write(line)
+        chmod_quiet(job.log_path)
 
     def log_tail(self, job_id: str) -> List[str]:
         path = self._log_path(job_id)
@@ -545,6 +550,7 @@ class JobManager:
             ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"[{ts}] {message}\n")
+            chmod_quiet(log_path)
         except Exception as exc:
             logger.warning("Failed to append to log %s: %s", log_path, exc)
 
@@ -692,6 +698,7 @@ class JobManager:
                 data["ended_at"] = datetime.utcnow().isoformat()
                 with path.open("w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
+                chmod_quiet(path)
 
                 # ── ジョブログへ診断情報を追記 ────────────────────────────────
                 self._append_log(log_path, (

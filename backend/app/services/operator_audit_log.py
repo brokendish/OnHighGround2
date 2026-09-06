@@ -27,6 +27,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Optional
 
+from app.services.admin_metadata_fs import chmod_quiet
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -77,6 +79,7 @@ def _write(event: str, record: dict) -> None:
         with _write_lock:
             with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
                 f.write(line + "\n")
+            chmod_quiet(AUDIT_LOG_PATH)
     except OSError as exc:
         logger.error("operator audit sink write failed: event=%s error=%s", event, type(exc).__name__)
         raise AuditSinkError(f"audit sink write failed: {type(exc).__name__}") from exc

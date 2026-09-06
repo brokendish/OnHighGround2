@@ -88,23 +88,24 @@ services:
     volumes:
       - lease-coordination:/run/onhighground2/leases:rw
       - ./data_runtime:/data_runtime:rw
+      # Residual Finding Remediation 03（DATA-LAKE-ADMIN-WRITER-CONTRACT）:
+      # data_lake全体ではなくadmin配下（operator runtime metadata）のみ限定rw。
+      # dataset本体（raw/normalized/validated/tiles等）には一切触れない。
+      - ./data_lake/admin:/data_lake/admin:rw
       - ./scripts/publish/init_lease_volume.py:/init_lease_volume.py:ro
+      - ./scripts/publish/init_data_lake_admin.py:/init_data_lake_admin.py:ro
     entrypoint:
-      - python3
-      - /init_lease_volume.py
-      - /run/onhighground2/leases
-      - --data-runtime-root
-      - /data_runtime
-      - --public-uid
-      - "10001"
-      - --public-gid
-      - "10001"
-      - --operator-uid
-      - "10002"
-      - --operator-gid
-      - "10002"
-      - --leases-gid
-      - "20001"
+      - sh
+      - -c
+      - >
+        python3 /init_lease_volume.py /run/onhighground2/leases
+        --data-runtime-root /data_runtime
+        --public-uid 10001 --public-gid 10001
+        --operator-uid 10002 --operator-gid 10002
+        --leases-gid 20001
+        && python3 /init_data_lake_admin.py /data_lake/admin
+        --operator-uid 10002 --operator-gid 10002
+        --leases-gid 20001
     restart: "no"
 
   # Phase 2-B.2: public trust boundary専用service。

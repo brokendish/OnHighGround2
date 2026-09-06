@@ -22,6 +22,7 @@ from app.models.admin_dataset import (
     StorageStatus,
     ValidationStatus,
 )
+from app.services.admin_metadata_fs import chmod_quiet
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,7 @@ class DatasetStateService:
         path = self._state_path(state.dataset_id)
         with path.open("w", encoding="utf-8") as f:
             json.dump(state.model_dump(mode="json"), f, ensure_ascii=False, indent=2, default=str)
+        chmod_quiet(path)
 
     def load_all(self, dataset_ids: List[str]) -> Dict[str, DatasetState]:
         return {did: self.load(did) for did in dataset_ids}
@@ -392,6 +394,7 @@ class DatasetStateService:
         path = self._history_path(history.dataset_id)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(history.model_dump(mode="json"), ensure_ascii=False, default=str) + "\n")
+        chmod_quiet(path)
 
     def load_history(self, dataset_id: str, limit: int = 50) -> List[DatasetHistory]:
         path = self._history_path(dataset_id)
