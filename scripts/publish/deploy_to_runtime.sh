@@ -154,22 +154,55 @@ deploy_file \
     "${RUNTIME_BACKEND}/elevation/elevation.tif" \
     "backend"
 
-# ─── backend: hazard / flood ──────────────────────────────────────────────────
-log_info "--- flood ---"
-# GeoJSONL 判定ファイル（region_flood_check.geojsonl）。
-# ファイル名は region に依存するため、変数で組み立てる。
-deploy_file \
-    "${NORMALIZED}/flood/${REGION}_flood_check.geojsonl" \
-    "${RUNTIME_BACKEND}/hazard/flood/${REGION}_flood_check.geojsonl" \
-    "backend"
-
-# ─── backend: hazard / storm_surge ───────────────────────────────────────────
-log_info "--- storm_surge ---"
-# 高潮ファイル名は region に依存する（例: tokyo_storm_surge.geojson）。
-deploy_file \
-    "${NORMALIZED}/storm_surge/${REGION}_storm_surge.geojson" \
-    "${RUNTIME_BACKEND}/hazard/storm_surge/${REGION}_storm_surge.geojson" \
-    "backend"
+# ─── backend: hazard / flood, storm_surge, pseudo_inland_flood（registry-resolved） ──
+# Dual Storage Remediation Phase C1（ATOMIC-PUBLISH-COVERAGE-GAP）: 従来ここは
+# 旧underscore命名（${REGION}_flood_check.geojsonl、${REGION}_storm_surge.geojson）を
+# ハードコードしてdeploy_fileしていたが、admin dataset pipelineが実際に生成する
+# validated artifactはhyphen/registry命名（例: tokyo-river-001.geojson、
+# tokyo-surge-001.geojson）であるため常にSource not foundでsilent skipしており、
+# atomic publish（data_runtime/current/backend/hazard/）にflood/storm_surgeが
+# 一度も反映されていなかった（実機調査で確認済み）。pseudo_inland_flood に
+# 至ってはbackend deploy対応がこのscriptに一度も追加されていなかった。
+# resolve_hazard_sources.py（resolve_shelter_sources.pyと同じ設計思想）で
+# registry（active_mappings.json + dataset_definitions.json + DatasetState）
+# からsourceを動的に解決する。destinationはbackend/hazard/{type}/{region}/{file}
+# という既存versioned hazard構造（tsunami/inland_flood/landslide/
+# lowland_poor_drainageが既に使っている構造）に合わせる。
+#
+# 「activeなのにsourceが解決できない」場合はresolverがfail-closedで即座に
+# 失敗する（今回のremediation対象そのものである「サイレントスキップ」を
+# 再発させないため）。resolverはprocess substitutionではなく明示的な
+# exit code検査で失敗を検出する（`< <(...)` はサブシェルの終了コードを
+# 呼び出し元へ伝播しないため）。
+log_info "--- flood / storm_surge / pseudo_inland_flood (registry-resolved) ---"
+_hazard_gap_resolve_output="$(mktemp)"
+trap 'rm -f "${_hazard_gap_resolve_output}"' RETURN EXIT
+if ! python3 "${SCRIPT_DIR}/resolve_hazard_sources.py" \
+        --region "${REGION}" \
+        --layer-type flood \
+        --layer-type storm_surge \
+        --layer-type pseudo_inland_flood \
+        > "${_hazard_gap_resolve_output}"; then
+    log_error "hazard source resolver (flood/storm_surge/pseudo_inland_flood) が失敗しました（region=${REGION}）"
+    exit 1
+fi
+_hazard_gap_resolved_count=0
+while IFS=$'\t' read -r _hz_layer_type _hz_dataset_id _hz_src_path; do
+    [[ -z "${_hz_layer_type:-}" ]] && continue
+    _hz_dst_dir="${RUNTIME_BACKEND}/hazard/${_hz_layer_type}/${REGION}"
+    if [[ -f "${_hz_src_path}" ]]; then
+        deploy_file "${_hz_src_path}" "${_hz_dst_dir}/$(basename "${_hz_src_path}")" "backend"
+    elif [[ -d "${_hz_src_path}" ]]; then
+        deploy_dir "${_hz_src_path}" "${_hz_dst_dir}" "*.geojson" "backend"
+    else
+        log_error "hazard dataset ${_hz_dataset_id} (${_hz_layer_type}): resolved pathが存在しません: ${_hz_src_path}"
+        exit 1
+    fi
+    _hazard_gap_resolved_count=$((_hazard_gap_resolved_count + 1))
+done < "${_hazard_gap_resolve_output}"
+rm -f "${_hazard_gap_resolve_output}"
+trap - RETURN EXIT
+log_info "flood/storm_surge/pseudo_inland_flood: registryから${_hazard_gap_resolved_count}件のactive datasetをpublish対象として解決（region=${REGION}）"
 
 # ─── backend: hazard / tsunami ────────────────────────────────────────────────
 # 標準名 tsunami_{target}.geojson を優先検索。
