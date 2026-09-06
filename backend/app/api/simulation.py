@@ -74,14 +74,17 @@ async def simulation_run(body: SimulationRunRequest):
     """
     try:
         return run_simulation(body)
-    except Exception as exc:
-        logger.exception("simulation run error: %s", exc)
+    except Exception:
+        # Residual Finding Remediation 06（OPERATOR-ERROR-DETAIL-LEAK）:
+        # str(exc)は内部filesystem path等を含みうるためresponseへ含めない。
+        # server-side logへはlogger.exception()でtracebackごと残す。
+        logger.exception("simulation run error: scenario_id=%s", body.scenario_id)
         return {
             "status": "unavailable",
             "scenario_id": body.scenario_id,
             "recommended_route_index": 0,
             "routes": [],
-            "summary": {"headline": "シミュレーション実行エラー", "message": str(exc)},
+            "summary": {"headline": "シミュレーション実行エラー", "message": "シミュレーションの実行に失敗しました"},
             "layer_stack": [],
         }
 
@@ -162,9 +165,14 @@ async def simulation_scenario_save(body: ScenarioSaveRequest):
     try:
         path = save_scenario(body)
         return {"status": "ok", "path": path}
-    except Exception as exc:
-        logger.exception("simulation scenario save error: %s", exc)
-        return {"status": "error", "message": str(exc)}
+    except Exception:
+        # Residual Finding Remediation 06（OPERATOR-ERROR-DETAIL-LEAK）:
+        # save_scenario()はdata_runtime/simulation/scenarios/{id}.jsonへ
+        # os.makedirs+open(path,"w")で書込むため、PermissionError/OSError
+        # のstr(exc)には内部filesystem pathが含まれうる。responseへは
+        # 含めず、server-side logへlogger.exception()でtracebackごと残す。
+        logger.exception("simulation scenario save error: scenario_id=%s", body.scenario_id)
+        return {"status": "error", "message": "シナリオの保存に失敗しました"}
 
 
 @router.get("/api/simulation/scenarios/saved")
