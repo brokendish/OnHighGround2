@@ -73,25 +73,35 @@ def _find_hazard_file_for_region(hazard_type: str, region: str) -> Optional[Path
     """region / hazard_type に対応する GeoJSON ファイルを優先順で検索して返す。
 
     探索順序:
-      1. data_runtime/backend/hazard/{type}/           ← flat runtime: {region}_*.geojson / {region}-*.geojson
-         (tokyo のみ: prefix なしの単一ファイルも許容)
+      1. registry-driven一意解決（HazardDatasetService._resolve_active_dataset()
+         と同一ロジック: active_mappings → dataset_definitions →
+         DatasetState.current_runtime_path）
       2. data_runtime/backend/hazard/{type}/{region}/  ← per-region runtime subdir (将来構成・fallback)
       3. data_lake/normalized/{region}/{type}/
       4. data/hazard/                                  ← legacy (tokyo のみ)
-    """
-    root = _BACKEND_DIR.parent
 
-    # 1. flat runtime dir — region-prefixed files を優先
-    #    アンダースコア ({region}_*.geojson) とハイフン ({region}-*.geojson) 両方を探索する
-    flat_runtime = root / "data_runtime" / "backend" / "hazard" / hazard_type
-    if flat_runtime.is_dir():
-        prefixed = sorted(
-            list(flat_runtime.glob(f"{region}_*.geojson"))
-            + list(flat_runtime.glob(f"{region}-*.geojson"))
-        )
-        if prefixed:
-            # 最大サイズ（実データ）を優先して返す
-            return max(prefixed, key=lambda p: p.stat().st_size)
+    HAZARD-FLAT-FALLBACK-LEGACY-SIZE-SELECTION-RISK対応: 従来の1.は
+    flat runtime dir配下を{region}_*.geojson / {region}-*.geojsonでglobし
+    「最大サイズ」を選んでいた。この方式は、旧世代（legacy）artifactが
+    たまたま現行artifactより大きい場合に誤って選択してしまう構造的
+    リスクを持つ（実機確認: landslide/tokyo_landslide_A33.geojson(legacy,
+    30,860,419 bytes) が landslide/tokyo-landslide-001.geojson(現行,
+    28,760,177 bytes)より大きい）。同じactive datasetを別ルールで二重に
+    解決しないよう、HazardDatasetServiceが既に持つ
+    「active_mappings→registry→DatasetState.current_runtime_path」という
+    一意解決ロジックをそのまま再利用する（新規service統合はしない、
+    既存privateメソッドの呼び出しのみ）。これで解決できない場合
+    （registry未整備・active dataset未登録等、真にactiveなdatasetが
+    存在しない場合）のみ、旧来のdirectory scanへ縮退する。
+    """
+    try:
+        _, _, _, active_path = hazard_dataset_service._resolve_active_dataset(hazard_type, region)
+        if active_path.is_file():
+            return active_path
+    except (KeyError, FileNotFoundError):
+        pass
+
+    root = _BACKEND_DIR.parent
 
     # 2. per-region runtime subdir (将来構成・fallback)
     per_region_runtime = root / "data_runtime" / "backend" / "hazard" / hazard_type / region
