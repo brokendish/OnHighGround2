@@ -202,7 +202,28 @@ async def get_active_hazard_meta(hazard_type: str, region_code: str):
     # Martinが今実際に配信できるtileset ID/source-layerを解決して追加する。
     # 該当tileが存在しない場合は両方null（frontendはこれをapiUrl fallback、
     # またはfallbackが無いlayerではdisabled判定に使う）。
-    tileset = _find_tileset_for_region(hazard_type, region_code)
+    #
+    # HAZARD-META-EXCEPTION-HARDENING-GAP修復: _find_tileset_for_region()は
+    # `data_runtime/frontend/tiles/`配下をtraverse/glob/statし、選ばれた
+    # mbtilesをSQLiteでopenするfilesystem+sqlite処理であり、この呼び出しは
+    # 従来ここ（上のtry/exceptの外）にあったため、PermissionError/OSError/
+    # sqlite3.Error等がapplication-levelで一切処理されず、FastAPI/
+    # Starletteのdefault 500 handlerへ素通りしていた
+    # （HAZARD-META-TILESET-READ-PERMISSION-GAPの実障害時、frontend
+    # ディレクトリのgroup driftによりまさにこの経路でPermissionErrorが
+    # 発生していた。debug=falseによりraw leakは実証されなかったが、
+    # 安全性がframework既定動作依存になっていた）。tileset lookup周辺
+    # だけに絞った局所的except Exceptionで明示的に安全化する
+    # （route全体は囲まない。tileset不存在自体は例外ではなくNone戻り値
+    # のため、既存のnullable semanticsはこのtry/exceptの影響を受けない）。
+    try:
+        tileset = _find_tileset_for_region(hazard_type, region_code)
+    except Exception as exc:
+        logger.exception(
+            "hazard tileset lookup error: hazard_type=%s region_code=%s operation=tileset_lookup",
+            hazard_type, region_code,
+        )
+        raise HTTPException(status_code=500, detail=_HAZARD_INTERNAL_ERROR_DETAIL) from exc
     meta["tileset_id"] = tileset["tileset_id"] if tileset else None
     meta["tileset_source_layer"] = tileset["source_layer"] if tileset else None
     return meta
