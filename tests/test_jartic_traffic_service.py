@@ -378,6 +378,38 @@ def test_build_wfs_url_has_time_code():
 
 # ── source フィールド ─────────────────────────────────────────────────────────
 
+# ── data_runtime/cache boundary移行（Residual Finding Remediation 01） ───────────
+
+def test_snapshot_and_manifest_paths_are_absolute():
+    """CWD依存を残さない: _SNAPSHOT_PATH / _MANIFEST_PATH は絶対pathで解決される。"""
+    import app.services.jartic_traffic_service as svc
+
+    assert svc._SNAPSHOT_PATH.is_absolute()
+    assert svc._MANIFEST_PATH.is_absolute()
+
+
+def test_default_cache_dir_is_under_data_runtime_cache_jartic():
+    import app.services.jartic_traffic_service as svc
+
+    assert svc._SNAPSHOT_PATH.parent.parts[-3:] == ("data_runtime", "cache", "jartic")
+    assert svc._MANIFEST_PATH.parent == svc._SNAPSHOT_PATH.parent
+
+
+def test_save_snapshot_write_failure_is_graceful(tmp_path):
+    """permission denied相当のwrite失敗でも例外を外へ漏らさない（graceful handling）。"""
+    import app.services.jartic_traffic_service as svc
+
+    snapshot_path = tmp_path / "jartic" / "latest_traffic.json"
+    manifest_path = tmp_path / "jartic" / "manifest.json"
+
+    with patch.object(svc, "_SNAPSHOT_PATH", snapshot_path), \
+         patch.object(svc, "_MANIFEST_PATH", manifest_path), \
+         patch.object(Path, "write_text", side_effect=PermissionError("[Errno 13] Permission denied")):
+        svc._save_snapshot({"status": "ok", "updated_at": "2026-09-06T00:00:00+09:00", "items": []})
+
+    assert not snapshot_path.exists()
+
+
 def test_source_in_response():
     import app.services.jartic_traffic_service as svc
     svc._cache = None; svc._cache_at = 0.0

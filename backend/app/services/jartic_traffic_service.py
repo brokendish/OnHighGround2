@@ -12,8 +12,8 @@ GET /api/jartic/traffic
 
 キャッシュ:
   TTL 300秒（5分）。メモリキャッシュ + ファイルスナップショット。
-  ファイル: data_runtime/backend/jartic/latest_traffic.json
-  マニフェスト: data_runtime/backend/jartic/manifest.json
+  ファイル: data_runtime/cache/jartic/latest_traffic.json
+  マニフェスト: data_runtime/cache/jartic/manifest.json
 
 交通量カテゴリ判定:
   /live 側 (app.services.live_road_traffic_service.classify_volume) をそのまま
@@ -43,8 +43,10 @@ _SOURCE    = "JARTIC / 国土交通省交通量API"
 _cache:    Optional[Dict[str, Any]] = None
 _cache_at: float = 0.0
 
-_SNAPSHOT_PATH = Path("data_runtime/backend/jartic/latest_traffic.json")
-_MANIFEST_PATH = Path("data_runtime/backend/jartic/manifest.json")
+_PROJECT_ROOT  = Path(__file__).resolve().parents[3]
+_CACHE_DIR     = _PROJECT_ROOT / "data_runtime" / "cache" / "jartic"
+_SNAPSHOT_PATH = _CACHE_DIR / "latest_traffic.json"
+_MANIFEST_PATH = _CACHE_DIR / "manifest.json"
 
 
 # ── 設定 ──────────────────────────────────────────────────────────────────────

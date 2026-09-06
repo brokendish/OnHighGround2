@@ -34,7 +34,7 @@ _PRECIP_TTL = 60.0
 _NOWCAST_DEFAULT_ZOOM = 8   # jma_rain_tile_service と同値（debug レスポンス用）
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_PERSISTENT_CACHE_DIR = _PROJECT_ROOT / "data_runtime" / "backend" / "weather" / "cache"
+_PERSISTENT_CACHE_DIR = _PROJECT_ROOT / "data_runtime" / "cache" / "weather"
 
 # メモリキャッシュ: key = pref_code, value = (items, fetched_at_monotonic)
 _alert_cache: dict[str, tuple[list[WeatherAlertItem], float]] = {}
