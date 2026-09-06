@@ -902,13 +902,57 @@ async def run_deploy(
         else:
             dest_file = runtime_dir / src_file.name
 
+        # Residual Finding Remediation 05 Phase B2（OWNER Section 25
+        # least-privilege correction）: shelter系datasetのdirectory・active
+        # destination GeoJSON・backupそれぞれについて、data_runtime/current
+        # （versioned shelter mirror）と同じdirectory contract（operator_uid:
+        # leases_gid, mode 0750）を維持しつつ、file側は用途別に分離する。
+        # - active destination GeoJSON: operator_uid:leases_gid 0640
+        #   （backend-publicのShelterRegistry fallbackが実際にreadするため）
+        # - backup（*.backup.geojson）: operator_uid:operator_gid 0640
+        #   （pipeline/operatorのrollback専用artifactであり、public reader
+        #   の入力ではないためleases groupへ公開しない）
+        # このtreeはsetgidに依存していないため、mkdir/shutil.copy2直後に
+        # 明示chmod/chownしないと新規file/directoryがoperatorのprimary
+        # group（operator_gid）のままになり、contractが崩れる
+        # （hazard Phase B1と同型の問題）。対象はshelter系datasetのみに
+        # 限定し、OSM/road/tide等の他copy_fileモードdatasetの挙動は
+        # 変更しない（scope外）。
+        _is_shelter_dataset = defn.layer_type in ("shelter", "evacuation_shelter", "emergency_shelter")
+
+        def _apply_shelter_ownership(target: Path, kind: str) -> None:
+            """kind: 'dir' | 'active_file' | 'backup_file'"""
+            if not _is_shelter_dataset:
+                return
+            try:
+                from app.services.runtime_publish import VERSION_DIR_MODE, VERSION_FILE_MODE
+                leases_gid = int(os.environ.get("OHG2_LEASES_GID", "20001"))
+                # backupはleases groupへ公開せず、operator自身のprimary group
+                # （実行中processのgid、通常10002）のままにする。
+                operator_gid = os.getgid()
+                if kind == "dir":
+                    os.chmod(target, VERSION_DIR_MODE)
+                    os.chown(target, -1, leases_gid)
+                elif kind == "active_file":
+                    os.chmod(target, VERSION_FILE_MODE)
+                    os.chown(target, -1, leases_gid)
+                elif kind == "backup_file":
+                    os.chmod(target, VERSION_FILE_MODE)
+                    os.chown(target, -1, operator_gid)
+                else:
+                    raise ValueError(f"unknown kind: {kind}")
+            except OSError as exc:
+                jm.log(job, f"WARN: shelter runtime owner/mode是正失敗: {target}: {exc}")
+
         # ── バックアップ（ファイル単位）──────────────────────────────────
         jm.update(job, step=JobStep.backup, progress_message="現在のファイルをバックアップ中...")
         backup_file = runtime_dir / f"{dest_file.stem}.backup{dest_file.suffix}"
         try:
             runtime_dir.mkdir(parents=True, exist_ok=True)
+            _apply_shelter_ownership(runtime_dir, "dir")
             if dest_file.exists():
                 shutil.copy2(dest_file, backup_file)
+                _apply_shelter_ownership(backup_file, "backup_file")
                 state.backup_path = str(backup_file)
                 state.backup_at = datetime.utcnow()
                 ss.save(state)
@@ -935,6 +979,7 @@ async def run_deploy(
                     shutil.copy2(tmp_output, dest_file)
             else:
                 shutil.copy2(src_file, dest_file)
+            _apply_shelter_ownership(dest_file, "active_file")
             jm.log(job, f"Deployed file: {dest_file}")
         except Exception as exc:
             state.deploy_status = DeployStatus.failed
