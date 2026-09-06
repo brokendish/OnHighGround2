@@ -1035,9 +1035,10 @@ async def run_deploy(
         get_shelter_registry().invalidate()
         jm.log(job, "ShelterRegistry cache invalidated")
 
-    # 低地・排水困難エリアを更新した場合は hazard_service を hot-reload する
-    if defn.layer_type == "lowland_poor_drainage":
-        _reload_lowland_hazard(job, defn, state, jm)
+    # data_runtime/backend/hazard/{layer_type}/ へのbackend hazard mirror反映
+    # （HazardDatasetServiceのcopy_file deploy_mode解決契約を満たすため）
+    if defn.layer_type in _HAZARD_BACKEND_MIRROR_TYPES:
+        _reload_hazard_backend_mirror(job, defn, state, jm)
 
     # 潮位データを更新した場合は tide_service のキャッシュを即時リロードする
     if defn.category == "tide":
@@ -1058,40 +1059,57 @@ async def run_deploy(
     jm.log(job, "=== deploy completed ===")
 
 
-# ── lowland hazard hot-reload ─────────────────────────────────────────────────
+# ── backend hazard mirror反映（copy_file deploy_modeの解決契約を満たす） ──────────
+# Residual Finding Remediation 02: HazardDatasetService._resolve_active_dataset()の
+# copy_file deploy_mode解決は `runtime_path / validated_file.name`（＝validated
+# storage内の代表fileと同名）が存在することを前提とする。旧_reload_lowland_hazard()は
+# 独自命名（{region}_lowland_poor_drainage.geojson）でコピーしており、この契約と
+# 一致しないファイル名を生成していた（validated側の実ファイル名は
+# {region}-lowland-poor-drainage-001.geojson 等、ハイフン区切り＋連番）ため、
+# registry の runtime_path を是正しても resolver が同名ファイルを見つけられず
+# FileNotFoundErrorになる潜在バグがあった。validated_fileと同名でコピーするよう
+# 修正し、pseudo_inland_flood にも同じ backend mirror 契約を適用する。
+_HAZARD_BACKEND_MIRROR_TYPES = {"lowland_poor_drainage", "pseudo_inland_flood"}
 
-def _reload_lowland_hazard(job, defn, state, jm) -> None:
+
+def _reload_hazard_backend_mirror(job, defn, state, jm) -> None:
     """
-    低地・排水困難エリアのデプロイ後に hazard_service を hot-reload する。
+    validated GeoJSON を data_runtime/backend/hazard/{layer_type}/ へコピーする。
 
-    validated GeoJSON を data_runtime/backend/hazard/lowland_poor_drainage/ にコピーし、
-    メモリ上の HazardService に即時反映する。
+    コピー先ファイル名は validated storage 内の代表ファイル名をそのまま使う
+    （HazardDatasetService の copy_file deploy_mode 解決契約と一致させるため）。
+    lowland_poor_drainage についてはメモリ上の HazardService への即時反映も行う
+    （既存挙動を維持）。
     """
     src_path_str = state.current_validated_path or state.current_normalized_path
     if not src_path_str or not Path(src_path_str).is_file():
-        jm.log(job, "WARN: lowland hazard reload スキップ — validated GeoJSON が存在しません")
+        jm.log(job, f"WARN: {defn.layer_type} hazard reload スキップ — validated GeoJSON が存在しません")
         return
 
-    backend_dir = _PROJECT_ROOT / "data_runtime" / "backend" / "hazard" / "lowland_poor_drainage"
+    src_path = Path(src_path_str)
+    backend_dir = _PROJECT_ROOT / "data_runtime" / "backend" / "hazard" / defn.layer_type
     backend_dir.mkdir(parents=True, exist_ok=True)
-    dest = backend_dir / f"{defn.region}_lowland_poor_drainage.geojson"
+    dest = backend_dir / src_path.name
 
     try:
-        shutil.copy2(src_path_str, dest)
+        shutil.copy2(src_path, dest)
     except Exception as exc:
-        jm.log(job, f"WARN: lowland backend ファイルコピー失敗: {exc}")
+        jm.log(job, f"WARN: {defn.layer_type} backend ファイルコピー失敗: {exc}")
         return
 
-    try:
-        from app.services.hazard_runtime_service import get_hazard_service
-        svc = get_hazard_service()
-        if svc is not None:
-            svc.load("lowland_poor_drainage", dest, bbox_only=True)
-            jm.log(job, f"hazard_service reloaded: lowland_poor_drainage/{defn.region} → {dest}")
-        else:
-            jm.log(job, "INFO: hazard_service 未登録 — 次回起動時に自動読み込みされます")
-    except Exception as exc:
-        jm.log(job, f"WARN: hazard_service reload 失敗: {exc}")
+    if defn.layer_type == "lowland_poor_drainage":
+        try:
+            from app.services.hazard_runtime_service import get_hazard_service
+            svc = get_hazard_service()
+            if svc is not None:
+                svc.load("lowland_poor_drainage", dest, bbox_only=True)
+                jm.log(job, f"hazard_service reloaded: lowland_poor_drainage/{defn.region} → {dest}")
+            else:
+                jm.log(job, "INFO: hazard_service 未登録 — 次回起動時に自動読み込みされます")
+        except Exception as exc:
+            jm.log(job, f"WARN: hazard_service reload 失敗: {exc}")
+    else:
+        jm.log(job, f"{defn.layer_type} backend mirror updated: {defn.region} → {dest}")
 
 
 # ── tile_build ────────────────────────────────────────────────────────────────
