@@ -118,27 +118,20 @@ tests/fixtures/osm_demo/**/*.osrm*
 # 所有権を確定する。中身は常にsynthetic/実行時生成物のみ。
 .demo_runtime/
 
-# ---- data_runtime: 配備済みデータ（deploy_to_runtime.sh で生成、git 管理外）----
-# ディレクトリ構造（.gitkeep）と README は管理対象、データファイルは除外
-# Phase 2-B.5: atomic publish用の実行時artifact（staging/versions/writer lock）。
-# operator専用initializerが生成し、内容は常にsecretを含まないが、
-# datasetそのもの・version世代は既存data_runtime方針と同様にgit管理外とする。
-data_runtime/.staging/
-data_runtime/versions/
-data_runtime/.publish.lock
-data_runtime/current
-data_runtime/backend/
-data_runtime/cache/
-data_runtime/frontend/layers/
-data_runtime/frontend/tiles/
-data_runtime/manifests/*.json
-data_runtime/manifests/*.log
-data_runtime/system/config_history.json
-data_runtime/system/config_overrides.json
-data_runtime/simulation/*.json
-data_runtime/simulation/*.md
-data_runtime/simulation/screenshots/*.png
-data_runtime/simulation/scenarios/*.json
+# ---- data_runtime: runtime-owned artifact領域（Git管理境界のcleanup、2026-09-06）----
+# data_runtimeはdeploy_to_runtime(_atomic).sh・runtime-init・各種backend serviceが
+# 実行時に生成・所有するruntime artifact領域であり、Gitはその内容を一切追跡しない。
+# 従来はディレクトリ構造の可視化目的で.gitkeep/READMEの一部を個別にtrackedのまま
+# 残していたが、VPS in-place rebuildでdata_runtime自体がsecurity設計どおり
+# operator UID所有・mode 0750（host一般userからread不可）になったことで、
+# 個別trackedだったplaceholder（logs/.gitkeep, manifests/README.md,
+# simulation/.gitkeep, simulation/scenarios/.gitkeep）がGit操作時にpermission
+# errorを発生させるようになった。各directoryはコード側（admin_log_service.py の
+# logs_dir、deploy_to_runtime.shのMANIFESTS_DIR mkdir、simulation_service.pyの
+# os.makedirs(exist_ok=True)等）が必要時に自動生成する設計であり、Git側の
+# placeholderに依存しないことをコードで確認済みのため、data_runtime全体を
+# 単一ruleで除外し、Git管理境界とruntime ownership境界を一致させる。
+/data_runtime/
 
 # ---- frontend/layers: deploy_to_runtime.sh で同期される GeoJSON (deploy artifact) ----
 frontend/layers/*.geojson
@@ -197,7 +190,7 @@ VPS側でのストリーム設定と起動、停止.txt
 .claude/worktrees/
 
 # ---- ローカル生成 Phase 2-D（AT-17A）: 東京防災ハザードマップの避難所データ（GeoJSON）----
-/data_runtime/backend/shelters/tokyo_emergency_evacuation_sites.geojson
+# 2026-09-06: /data_runtime/ の包括ruleに統合済みのため個別ruleは削除（redundant）。
 
 # ---- Phase 2-D（AT-17A）: 公開リリース用の tasks/public-release/ 配下の成果物は git 管理外とする----
 tasks/public-release/
