@@ -22,6 +22,7 @@ import math
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
+import ijson
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,39 @@ def _point_in_polygon(lat: float, lon: float, ring: List[List[float]]) -> bool:
                 inside = not inside
         j = i
     return inside
+
+
+def _extract_outer_rings(geom: dict) -> List[List]:
+    """Polygon/MultiPolygon geometryから外環（穴は無視）のリング一覧を抽出する。
+
+    load() / load_geojsonl() / load_geojson_streaming() 共通のgeometry展開
+    ロジック（HAZARD-ENGINE-LARGE-DATASET-MEMORY-BLOCKER対応で抽出）。
+    """
+    geom_type = geom.get("type") if geom else None
+    outer_rings: List[List] = []
+    if geom_type == "Polygon":
+        coords = geom.get("coordinates", [])
+        if coords:
+            outer_rings = [coords[0]]
+    elif geom_type == "MultiPolygon":
+        for poly in geom.get("coordinates", []):
+            if poly:
+                outer_rings.append(poly[0])
+    return outer_rings
+
+
+def _ring_bbox(ring: List[List]) -> Optional[Tuple[float, float, float, float]]:
+    """外環リングから (south, west, north, east) の bbox を計算する。
+
+    3点未満の縮退リングは None を返す。座標値は float へ明示変換する
+    （ijson streaming backendはJSON数値をDecimalで返すため、numpy化前に
+    float化しておく必要がある）。
+    """
+    if len(ring) < 3:
+        return None
+    lons = [float(c[0]) for c in ring]
+    lats = [float(c[1]) for c in ring]
+    return (min(lats), min(lons), max(lats), max(lons))
 
 
 def _centroid_of_ring(ring: List[List[float]]) -> Tuple[float, float]:
@@ -536,6 +570,119 @@ class HazardService:
             logger.error(
                 "Failed to load hazard data: type=%s path=%s error=%s",
                 hazard_type, geojsonl_path, e,
+            )
+
+    def load_geojson_streaming(
+        self, hazard_type: str, geojson_path: Path, bbox_only: bool = True
+    ) -> None:
+        """
+        通常の GeoJSON FeatureCollection（1つのJSON構造としてfeatures配列を
+        保持する形式）を、ijson で features 配列を1件ずつ逐次iterateしながら
+        読み込む。
+
+        HAZARD-ENGINE-LARGE-DATASET-MEMORY-BLOCKER対応: load()はjson.load()で
+        ファイル全体をメモリ展開するため、Dual Storage Remediation Phase C1
+        以降のflood/storm_surge versioned artifact（実測524MB/325MB、
+        54MB/82MB）をそのまま読むと、一時的なparseピークがファイルサイズの
+        4〜5倍（実測: 593MBダミーで2.74GBピーク）に達し、2GB VPSの
+        backend-publicコンテナ（メモリ制限1.921GiB）で高確率のOOM/swap
+        thrashを引き起こす。ijson（既にscripts/validate/validate_geometry.py
+        で同じ「500MB GeoJSON OOM対策」として採用済み、requirements.txt/
+        Dockerfileにも導入済み）でfeatureを1件ずつ処理・破棄することで、
+        parseピークをfeature単位のサイズへ抑える。
+
+        最終的に保持するデータ（bbox_only時: numpy bbox配列のみ、実測で
+        flood合計約147万featureでも9.3MB程度）はload()と変わらない
+        ——ijsonで削減できるのはparse peakのみで、retained memoryは
+        元々小さいことを実測確認済み（設計投資時のプロファイリング結果）。
+
+        現状はbbox_onlyのflood/storm_surge向けに限定する。他typeへの
+        適用は将来の検討課題（今回のスコープ外）。
+
+        malformed JSON等でstreaming途中に失敗した場合、それまでに
+        一時リストへ蓄積した値は破棄し、self._flood_bboxes_np等の永続
+        stateへは一切反映しない（load()と同じall-or-nothing保証——
+        「途中まで読めたので部分的に成功扱いする」というpartial load
+        は行わない）。例外はraiseせず、load()/load_geojsonl()と同じ
+        fail-open方針（server-side ERRORログに残し、その型は
+        is_loaded()==Falseのまま、プロセス起動自体は継続させる）。
+        """
+        if not geojson_path.exists():
+            logger.warning(
+                "Hazard data not found: type=%s path=%s", hazard_type, geojson_path
+            )
+            return
+
+        logger.info(
+            "Loading hazard polygons (ijson streaming): type=%s path=%s bbox_only=%s",
+            hazard_type, geojson_path, bbox_only,
+        )
+        new_polygons: List[dict] = []
+        new_flood_rows: List[Tuple] = []
+        new_surge_rows: List[Tuple] = []
+        feature_count = 0
+
+        try:
+            with geojson_path.open("rb") as f:
+                for feature in ijson.items(f, "features.item"):
+                    feature_count += 1
+                    geom = feature.get("geometry") or {}
+                    props = feature.get("properties") or {}
+                    for ring in _extract_outer_rings(geom):
+                        bbox = _ring_bbox(ring)
+                        if bbox is None:
+                            continue
+                        if bbox_only:
+                            if hazard_type == "flood":
+                                new_flood_rows.append(bbox)
+                            elif hazard_type == "storm_surge":
+                                new_surge_rows.append(bbox)
+                            else:
+                                new_polygons.append({"bbox": bbox})
+                        else:
+                            new_polygons.append({
+                                "bbox": bbox,
+                                "coords": [[float(c[0]), float(c[1])] for c in ring],
+                                "properties": props,
+                            })
+
+            def _concat_np(existing: Optional[np.ndarray], rows: List[Tuple]) -> np.ndarray:
+                new_arr = np.array(rows, dtype=np.float32)
+                return new_arr if existing is None else np.concatenate([existing, new_arr], axis=0)
+
+            # numpy配列・_polygons・_sourcesへの反映はfor-loop正常終了後のみ
+            # 実行される（例外発生時はここへ到達せず、永続stateは無変更のまま）。
+            if hazard_type == "flood" and bbox_only and new_flood_rows:
+                self._flood_bboxes_np = _concat_np(self._flood_bboxes_np, new_flood_rows)
+            if hazard_type == "storm_surge" and bbox_only and new_surge_rows:
+                self._storm_surge_bboxes_np = _concat_np(self._storm_surge_bboxes_np, new_surge_rows)
+
+            existing = self._polygons.get(hazard_type, [])
+            existing.extend(new_polygons)
+            self._polygons[hazard_type] = existing
+
+            existing_sources = self._sources.get(hazard_type, [])
+            existing_sources.append(geojson_path.stem)
+            self._sources[hazard_type] = existing_sources
+
+            _numpy_counts = {
+                "flood": len(new_flood_rows),
+                "storm_surge": len(new_surge_rows),
+            }
+            _loaded_count = _numpy_counts.get(hazard_type, len(new_polygons)) if bbox_only else len(new_polygons)
+            logger.info(
+                "Loaded %d polygons from '%s' (streaming, feature_count=%d, total for '%s': %d)",
+                _loaded_count,
+                geojson_path.name,
+                feature_count,
+                hazard_type,
+                self.polygon_count(hazard_type),
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to load hazard data (streaming): type=%s path=%s error=%s",
+                hazard_type, geojson_path, e,
             )
 
     def load_dir(

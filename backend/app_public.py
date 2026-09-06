@@ -474,18 +474,25 @@ except ImportError:
 
 FLOOD_ENABLED = parse_bool(APP_CONFIG.get("hazard.flood.enabled", "false"), False)
 if FLOOD_ENABLED:
-    # [Phase 2] data_runtime/backend/hazard/flood/ 内の全 *.geojsonl を順次ロード。
-    # 複数地域ファイル（tokyo_flood_check.geojsonl / kanagawa_flood_check.geojsonl 等）を
-    # 自動認識する。ファイルが存在しない場合は data_lake/normalized/ へフォールバック。
+    # HAZARD-ENGINE-VERSIONED-LAYOUT-MISMATCH / HAZARD-ENGINE-LARGE-DATASET-
+    # MEMORY-BLOCKER対応: data_runtime/backend/hazard/flood/{region}/ 配下
+    # （Dual Storage Remediation Phase C1で確立した正式current layout）の
+    # 全 *.geojson を ijson streaming loader（load_geojson_streaming、
+    # HazardService内部でfeatureを1件ずつ処理・破棄する）で順次ロードする。
+    # 旧実装は直下（region配下ではない）の *.geojsonl のみをglob対象として
+    # おり、layout不一致・拡張子不一致の両方でflood versioned artifact
+    # （実測524MB/325MB）を発見できず、実ナビゲーション判定からflood自体が
+    # 完全に欠落していた（is_available()時はdata_lakeへもfallbackしない
+    # ため、silent omissionとなっていた）。
     _flood_runtime_dir = _HAZARD_BACKEND_ROOT / "flood"
-    _flood_geojsonl_files: list[Path] = []
+    _flood_geojson_files: list[Path] = []
     if _flood_runtime_dir.is_dir():
-        _flood_geojsonl_files = sorted(_flood_runtime_dir.glob("*.geojsonl"))
+        _flood_geojson_files = sorted(_flood_runtime_dir.rglob("*.geojson"))
 
-    if _flood_geojsonl_files:
-        for _f in _flood_geojsonl_files:
-            logger.info("Flood check loaded from runtime: %s", _f)
-            hazard_service.load_geojsonl("flood", _f, bbox_only=True)
+    if _flood_geojson_files:
+        for _f in _flood_geojson_files:
+            logger.info("Flood loaded from runtime (streaming): %s", _f)
+            hazard_service.load_geojson_streaming("flood", _f, bbox_only=True)
     elif _HAZARD_USING_ATOMIC_LEASE:
         # CX-004（第7ラウンド）対応: leaseされたversionにfloodがないだけで
         # data_lakeへは読みに行かない（snapshot混在防止）。
@@ -508,18 +515,22 @@ else:
     logger.info("洪水ハザード判定は無効（hazard.flood.enabled=false）")
 
 # storm_surge: 高潮浸水想定区域
-# [Phase 2] data_runtime/backend/hazard/storm_surge/ 内の全 *.geojson を順次ロード。
-# 複数地域ファイル（tokyo_storm_surge.geojson / kanagawa_storm_surge.geojson 等）を自動認識。
-# ファイルが存在しない場合は data_lake/normalized/ へフォールバック（東京のみ）。
+# HAZARD-ENGINE-VERSIONED-LAYOUT-MISMATCH / HAZARD-ENGINE-LARGE-DATASET-
+# MEMORY-BLOCKER対応: data_runtime/backend/hazard/storm_surge/{region}/
+# 配下（正式current layout）の全 *.geojson を、region配下も含めて
+# 再帰的に列挙し、ijson streaming loader（load_geojson_streaming）で
+# 順次ロードする。旧実装は直下（非再帰）globのみで、region配下
+# サブディレクトリのartifactを発見できていなかった（実測54MB/82MB、
+# floodと同様にswap thrashリスクがあるためstreaming化する）。
 _storm_surge_runtime_dir = _HAZARD_BACKEND_ROOT / "storm_surge"
 _storm_surge_geojson_files: list[Path] = []
 if _storm_surge_runtime_dir.is_dir():
-    _storm_surge_geojson_files = sorted(_storm_surge_runtime_dir.glob("*.geojson"))
+    _storm_surge_geojson_files = sorted(_storm_surge_runtime_dir.rglob("*.geojson"))
 
 if _storm_surge_geojson_files:
     for _f in _storm_surge_geojson_files:
-        logger.info("StormSurge loaded from runtime: %s", _f)
-        hazard_service.load("storm_surge", _f, bbox_only=True)
+        logger.info("StormSurge loaded from runtime (streaming): %s", _f)
+        hazard_service.load_geojson_streaming("storm_surge", _f, bbox_only=True)
 elif _HAZARD_USING_ATOMIC_LEASE:
     logger.info("StormSurge: 現行versionにdataなし（snapshot混在防止のためskip、data_lakeへはfallbackしない）")
 else:
