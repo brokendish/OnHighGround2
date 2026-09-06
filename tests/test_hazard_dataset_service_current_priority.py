@@ -166,6 +166,36 @@ def test_B_current_dataset_absent_falls_back_to_flat(env, tmp_path, monkeypatch)
     assert result["marker"] == "FLAT"
 
 
+# ── tsunami: region接尾辞命名（`tsunami_{region}.geojson`）の解決 ────────────
+# VPS実機のsource-selection introspection（Phase C2 Section 25）で、
+# 接頭辞globのみだとtsunamiが解決できないバグを発見・修正した回帰テスト。
+
+def test_tsunami_suffix_naming_resolves_from_current(env, tmp_path, monkeypatch):
+    service = HazardDatasetService()
+    current_file = env["version_root"] / "backend" / "hazard" / "tsunami" / "tsunami_tokyo.geojson"
+    _write_geojson(current_file, "CURRENT-TSUNAMI")
+
+    flat_file = tmp_path / "flat" / "tsunami_tokyo.geojson"
+    _write_geojson(flat_file, "FLAT-TSUNAMI")
+    _patch_flat_resolution(monkeypatch, service, flat_file)
+
+    result = service.get_active_hazard_geojson("tsunami", "tokyo")
+    assert result["marker"] == "CURRENT-TSUNAMI"
+
+
+def test_tsunami_missing_region_falls_back_to_flat(env, tmp_path, monkeypatch):
+    service = HazardDatasetService()
+    # tsunami_kanagawa.geojsonは作らない（region無し）
+    _write_geojson(env["version_root"] / "backend" / "hazard" / "tsunami" / "tsunami_tokyo.geojson", "CURRENT")
+
+    flat_file = tmp_path / "flat" / "tsunami_kanagawa.geojson"
+    _write_geojson(flat_file, "FLAT")
+    _patch_flat_resolution(monkeypatch, service, flat_file)
+
+    result = service.get_active_hazard_geojson("tsunami", "kanagawa")
+    assert result["marker"] == "FLAT"
+
+
 def test_B2_current_mechanism_not_initialized_falls_back_to_flat(tmp_path, monkeypatch):
     """coordination.lock自体が存在しない（atomic publish機構未導入）場合も
     flatへfallbackする（真の未導入環境、既存is_available()契約）。"""

@@ -67,12 +67,20 @@ class HazardDatasetService:
 
         Dual Storage Remediation Phase C1で確立されたlayoutは
         `backend/hazard/{type}/{region}/{file}`（region配下directory）だが、
-        tsunamiだけは既存のconsumer契約（`_runtime_stream_or_none`／
+        tsunamiだけは既存のconsumer契約（`runtime_dataset_validate.py`の
+        `_TSUNAMI_FILENAME_RE = tsunami_([a-z0-9_]+).geojson`、
         app_public.pyのtsunami loader）に合わせて`backend/hazard/tsunami/
-        tsunami_{region}.geojson`という region直下フラット命名を使うため、
-        region配下directoryが無い場合はflat側と同じprefix glob
-        （`{region}_*.geojson` / `{region}-*.geojson`）にfallbackする。
+        tsunami_{region}.geojson`という region直下フラット命名——しかも
+        他typeの`{region}_*`/`{region}-*`（region接頭辞）とは逆に
+        `tsunami_{region}`（region接尾辞）——を使うため、region配下
+        directoryが無い場合は接頭辞glob（`{region}_*.geojson` /
+        `{region}-*.geojson`、flat側`_find_hazard_file_for_region`と同じ）
+        に加えて接尾辞glob（`*_{region}.geojson`）も試す。
         いずれの場合もbasenameのhardcodeはしない。
+
+        VPS実機のsource-selection introspection（Phase C2 Section 25）で
+        接頭辞globのみではtsunamiが解決できないことを確認し、この接尾辞
+        globを追加した。
         """
         hazard_type_dir = version_root / "backend" / "hazard" / hazard_type
         region_subdir = hazard_type_dir / region_code
@@ -82,6 +90,7 @@ class HazardDatasetService:
             candidates = sorted(
                 list(hazard_type_dir.glob(f"{region_code}_*.geojson"))
                 + list(hazard_type_dir.glob(f"{region_code}-*.geojson"))
+                + list(hazard_type_dir.glob(f"*_{region_code}.geojson"))
             )
         else:
             candidates = []
