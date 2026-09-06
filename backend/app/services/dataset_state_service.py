@@ -141,7 +141,8 @@ class DatasetStateService:
 
         状態ファイルが存在しない場合はファイルシステムをスキャンして
         既存データを自動検出し、状態を推定して保存する。
-        既存の状態ファイルがあればそれをそのまま使う。
+        既存の状態ファイルは、definitionのruntime_pathと矛盾しない
+        （stale状態でない）限りそのまま使う。
         """
         state_path = self._state_path(defn.dataset_id)
         if not state_path.exists():
@@ -160,6 +161,30 @@ class DatasetStateService:
                 logger.warning("Failed to cache inferred state for %s: %s", defn.dataset_id, exc)
         else:
             state = self.load(defn.dataset_id)
+            # Residual Finding Remediation 02 (DATASET-STATE-INVALIDATION):
+            # dataset_definitions.jsonのruntime_pathを修正しても、永続化された
+            # state.current_runtime_pathが無条件で採用され続け、definition側の
+            # 変更がruntimeへ反映されない欠陥があった。deploy_status=deployedな
+            # stateについてのみ、persisted current_runtime_pathが現在のdefinition
+            # のruntime_path配下の実在artifactかを確認し、そうでなければstale
+            # stateとしてfilesystemから再解決する。既存の正常なstate（definition
+            # と矛盾しない大多数）はこの分岐に入らず従来どおり即座にloadされる
+            # ため、高速load/checkpoint semanticsは維持される。
+            if (
+                state.deploy_status == DeployStatus.deployed
+                and not self._is_current_runtime_path_valid(state, defn)
+            ):
+                logger.warning(
+                    "stale dataset state detected for %s: persisted current_runtime_path=%s "
+                    "does not match definition runtime_path=%s (or artifact missing) — "
+                    "re-inferring from filesystem",
+                    defn.dataset_id, state.current_runtime_path, defn.runtime_path,
+                )
+                state = self._infer_state_from_filesystem(defn)
+                try:
+                    self.save(state)
+                except OSError as exc:
+                    logger.warning("Failed to persist re-inferred state for %s: %s", defn.dataset_id, exc)
 
         # not_required フラグを常に定義から上書き（定義変更に追従）
         if not defn.requires_normalize and state.normalize_status == NormalizeStatus.not_started:
@@ -284,6 +309,27 @@ class DatasetStateService:
             )
 
         return state
+
+    def _is_current_runtime_path_valid(self, state: DatasetState, defn: DatasetDefinition) -> bool:
+        """
+        永続化されたstate.current_runtime_pathが、現在のdefinition.runtime_path
+        契約と矛盾しない実在artifactかを判定する（DATASET-STATE-INVALIDATION対策）。
+
+        判定基準（文字列prefix比較ではなくPathとして正規化して比較する）:
+          1. current_runtime_pathがdefinition.runtime_path配下（またはそれ自身）であること
+          2. 実際にfilesystem上に存在すること
+        いずれかを満たさなければstale stateとして扱う。
+        """
+        if not state.current_runtime_path:
+            return False
+        expected_dir = (_PROJECT_ROOT / defn.runtime_path).resolve()
+        try:
+            actual_path = Path(state.current_runtime_path).resolve()
+        except (OSError, ValueError):
+            return False
+        if actual_path != expected_dir and expected_dir not in actual_path.parents:
+            return False
+        return actual_path.exists()
 
     def _find_representative_file(
         self, storage_path: Optional[str], defn: DatasetDefinition
