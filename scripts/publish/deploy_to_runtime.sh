@@ -62,8 +62,9 @@ NORMALIZED="${DATA_LAKE}/normalized/${REGION}"
 TILES="${DATA_LAKE}/tiles/${REGION}"
 
 RUNTIME_BACKEND="${DATA_RUNTIME}/backend"
-RUNTIME_FRONTEND_LAYERS="${DATA_RUNTIME}/frontend/layers"
-RUNTIME_FRONTEND_TILES="${DATA_RUNTIME}/frontend/tiles/${REGION}"
+RUNTIME_FRONTEND="${DATA_RUNTIME}/frontend"
+RUNTIME_FRONTEND_LAYERS="${RUNTIME_FRONTEND}/layers"
+RUNTIME_FRONTEND_TILES="${RUNTIME_FRONTEND}/tiles/${REGION}"
 FRONTEND_LAYERS_DIR="${PROJECT_ROOT}/frontend/layers"
 
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -77,6 +78,27 @@ log_info "DryRun        : ${DRY_RUN}"
 log_info "SkipFrontend  : ${SKIP_FRONTEND}"
 log_info "Source        : ${DATA_LAKE}"
 log_info "Target        : ${DATA_RUNTIME}"
+
+# HAZARD-META-TILESET-READ-PERMISSION-GAP修復: frontend runtime directory
+# （backend-publicがhazard meta API（GET /api/hazards/{type}/{region}/meta）
+# のtileset解決のためtraverse/list/readする唯一のpublic-readable
+# data_runtime subtree）は、operator主体で作成される際、実行者のprimary
+# group（ohg2operator, GID 10002）のままgroup driftしうる（実機調査で
+# 発見: /data_runtime/frontendのみgroup=ohg2operatorのまま取り残され、
+# backend-publicがtraverse不能→meta APIが500になっていた。兄弟の
+# layers/tilesは既にgroup=ohg2leasesで正しかった）。leases gid（20001、
+# backend-publicのsupplemental groupかつlayers/tiles/versions/logs等の
+# 既存確立contract）へ明示的に揃え、backend-publicのtraverse契約を
+# publishのたびに恒久的に維持する（owner/modeは変更しない——既存の
+# operator uid・0750契約はそのまま、write権限もbackend-publicへは付与
+# しない）。chgrp/chmod失敗は致命的としない（既存contractのままでも
+# 直後の処理は継続できるため、警告のみでpublish自体は止めない）。
+RUNTIME_FRONTEND_LEASES_GID="${OHG2_LEASES_GID:-20001}"
+mkdir -p "${RUNTIME_FRONTEND}"
+chgrp "${RUNTIME_FRONTEND_LEASES_GID}" "${RUNTIME_FRONTEND}" 2>/dev/null || \
+    log_warn "frontend root directoryのgroup正規化に失敗（gid=${RUNTIME_FRONTEND_LEASES_GID}）: ${RUNTIME_FRONTEND}"
+chmod 0750 "${RUNTIME_FRONTEND}" 2>/dev/null || \
+    log_warn "frontend root directoryのmode正規化に失敗: ${RUNTIME_FRONTEND}"
 
 # --- 追跡用配列 ---
 BACKEND_FILES=()
