@@ -94,6 +94,10 @@ services:
       - ./data_lake/admin:/data_lake/admin:rw
       - ./scripts/publish/init_lease_volume.py:/init_lease_volume.py:ro
       - ./scripts/publish/init_data_lake_admin.py:/init_data_lake_admin.py:ro
+      # Residual Finding Remediation 05（DATA-RUNTIME-BACKEND-LEGACY-OWNERSHIP
+      # Phase B1）: data_runtime/backend/hazard（flat mirror、既存
+      # ./data_runtime:/data_runtime:rw mountの範囲内、新規mount不要）のみ対象。
+      - ./scripts/publish/init_data_runtime_backend.py:/init_data_runtime_backend.py:ro
     entrypoint:
       - sh
       - -c
@@ -104,6 +108,9 @@ services:
         --operator-uid 10002 --operator-gid 10002
         --leases-gid 20001
         && python3 /init_data_lake_admin.py /data_lake/admin
+        --operator-uid 10002 --operator-gid 10002
+        --leases-gid 20001
+        && python3 /init_data_runtime_backend.py /data_runtime/backend/hazard
         --operator-uid 10002 --operator-gid 10002
         --leases-gid 20001
     restart: "no"

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
 import tempfile
@@ -1080,19 +1081,38 @@ def _reload_hazard_backend_mirror(job, defn, state, jm) -> None:
     （HazardDatasetService の copy_file deploy_mode 解決契約と一致させるため）。
     lowland_poor_drainage についてはメモリ上の HazardService への即時反映も行う
     （既存挙動を維持）。
+
+    Residual Finding Remediation 05: data_runtime/current（versioned hazard
+    mirror）と同じ owner/group/mode契約（operator_uid:leases_gid, dir 0750 /
+    file 0640）を明示的に適用する。このdirectory tree はsetgidビットに
+    依存していない（VPS実機statで確認済み）ため、新規作成directory・
+    shutil.copy2後のfileともに、書込のたびに明示chown/chmodしないと
+    group/modeがcontractから外れる（新規fileはcreatorのprimary group=
+    operator_gidになり、public read用のleases_gidを継承しない）。
     """
     src_path_str = state.current_validated_path or state.current_normalized_path
     if not src_path_str or not Path(src_path_str).is_file():
         jm.log(job, f"WARN: {defn.layer_type} hazard reload スキップ — validated GeoJSON が存在しません")
         return
 
+    from app.services.runtime_publish import VERSION_DIR_MODE, VERSION_FILE_MODE
+
+    leases_gid = int(os.environ.get("OHG2_LEASES_GID", "20001"))
+
     src_path = Path(src_path_str)
     backend_dir = _PROJECT_ROOT / "data_runtime" / "backend" / "hazard" / defn.layer_type
     backend_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(backend_dir, VERSION_DIR_MODE)
+        os.chown(backend_dir, -1, leases_gid)
+    except OSError as exc:
+        jm.log(job, f"WARN: {defn.layer_type} backend directory owner/mode是正失敗: {exc}")
     dest = backend_dir / src_path.name
 
     try:
         shutil.copy2(src_path, dest)
+        os.chmod(dest, VERSION_FILE_MODE)
+        os.chown(dest, -1, leases_gid)
     except Exception as exc:
         jm.log(job, f"WARN: {defn.layer_type} backend ファイルコピー失敗: {exc}")
         return
