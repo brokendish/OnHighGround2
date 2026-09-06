@@ -167,6 +167,17 @@ async def get_landslide(region: str):
     return FileResponse(path, media_type="application/geo+json")
 
 
+# Residual Finding Remediation 04（PUBLIC-ERROR-DETAIL-LEAK）: OSError/ValueError
+# はfilesystem path・errno文字列を内包する場合があり（例:
+# "[Errno 13] Permission denied: '/data_runtime/...'"）、str(exc)をそのまま
+# public responseへ返すと内部runtime layoutが未認証clientへ露出する。
+# 404（FileNotFoundError/KeyError、"dataset未登録"等のdomain error）は
+# dataset_id/hazard_type/regionという不透明な識別子のみを含み、filesystem
+# pathを含まないため既存のstr(exc)契約を維持する。500側のみ、この定型
+# messageへ差し替え、実例外はlogger.exception()でserver-side診断用に残す。
+_HAZARD_INTERNAL_ERROR_DETAIL = "Hazard data is temporarily unavailable"
+
+
 @router.get("/active")
 async def list_active_hazard_datasets():
     try:
@@ -174,7 +185,8 @@ async def list_active_hazard_datasets():
     except (FileNotFoundError, KeyError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, json.JSONDecodeError, OSError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("active hazard dataset list error")
+        raise HTTPException(status_code=500, detail=_HAZARD_INTERNAL_ERROR_DETAIL) from exc
 
 
 @router.get("/{hazard_type}/{region_code}/meta")
@@ -184,7 +196,8 @@ async def get_active_hazard_meta(hazard_type: str, region_code: str):
     except (FileNotFoundError, KeyError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, json.JSONDecodeError, OSError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("hazard meta error: hazard_type=%s region_code=%s", hazard_type, region_code)
+        raise HTTPException(status_code=500, detail=_HAZARD_INTERNAL_ERROR_DETAIL) from exc
     # tileset_id_alignment修復: dataset_id（registry識別子）とは独立に、
     # Martinが今実際に配信できるtileset ID/source-layerを解決して追加する。
     # 該当tileが存在しない場合は両方null（frontendはこれをapiUrl fallback、
@@ -202,4 +215,5 @@ async def get_active_hazard_geojson(hazard_type: str, region_code: str):
     except (FileNotFoundError, KeyError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, json.JSONDecodeError, OSError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("hazard geojson error: hazard_type=%s region_code=%s", hazard_type, region_code)
+        raise HTTPException(status_code=500, detail=_HAZARD_INTERNAL_ERROR_DETAIL) from exc
