@@ -90,19 +90,18 @@ data_lake/logs/
 
 # ---- Admin runtime state (machine-specific, auto-generated on startup) ----
 # Residual Finding Remediation 03（DATA-LAKE-ADMIN-WRITER-CONTRACT、2026-09-06）:
-# state/jobs/history/logsの各directory配下に.gitkeepがtrackedのまま残っており、
-# これらdirectoryをoperator専用ownership（mode 2750）へ是正すると、Task Bの
-# data_runtime境界是正時と同様にGit操作時にpermission errorが発生する。
-# 各directoryはcode側（DatasetStateService, JobManager, ActiveMappingService,
-# operator_audit_log）が起動/書込時にmkdir(parents=True, exist_ok=True)で
-# 自動生成する設計であることを確認済みのため、.gitkeepに依存せず配下全体を
-# 除外する単一ruleへ統合する。
-data_lake/admin/boot_state.json
-data_lake/admin/active_mappings.json
-data_lake/admin/state/
-data_lake/admin/history/
-data_lake/admin/jobs/
-data_lake/admin/logs/
+# 個別path単位のignore ruleでは data_lake/admin 自体（親directory）のtraverseが
+# 必要になり、admin rootをoperator専用ownership（10002:20001, mode 2750）へ
+# 是正した後、host debianユーザーがgit status実行時にadmin root自体をopendir
+# できず warning: could not open directory 'data_lake/admin/' が発生した
+# （Task Bのdata_runtime境界是正時と同種の問題が1階層上で再発したもの）。
+# data_lake/admin配下にGit tracked fileは1件も存在しないことを確認済み
+# （git ls-files data_lake/adminが空）のため、admin root自体を単一ruleで
+# 除外し、Git管理境界とruntime ownership境界を完全に一致させる。
+# 各directory/fileはcode側（DatasetStateService, JobManager,
+# ActiveMappingService, operator_audit_log）およびscripts/publish/
+# init_data_lake_admin.pyが起動/書込時に自動生成する設計。
+data_lake/admin/
 
 # ---- tests/fixtures/osm_demo/: OSRM demo fixtureのruntime成果物隔離 ----
 # Phase 2-D Round 8（P2D-OSRM-FIXTURE-CONTAMINATION対応）: このfixtureは
