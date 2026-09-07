@@ -187,6 +187,21 @@ async def get_landslide(region: str):
 # messageへ差し替え、実例外はlogger.exception()でserver-side診断用に残す。
 _HAZARD_INTERNAL_ERROR_DETAIL = "Hazard data is temporarily unavailable"
 
+# LARGE-HAZARD-GEOJSON-SWAP-THRASH対応: 一部hazard typeのcurrent active
+# artifactは数百MB規模（例: flood/tokyo ≈500MB）に達し、catch-all route
+# （下記 get_active_hazard_geojson）がjson.load()でfull memory展開した上で
+# FastAPIのJSONResponseが再度シリアライズするため、severeなmemory/swap
+# thrashを引き起こした実績がある（OWNER Phase A investigation）。
+# Phase B1（OWNER承認2026-09-07、スコープ最小: flood typeのみ）として、
+# 対象typeはfileへ一切触れず（json.load()を発生させず）413を返す。
+# 他type（storm_surge/tsunami/pseudo_inland_flood/lowland_poor_drainage）は
+# 今回のスコープ外（KEEP FOR NOW/FOLLOW-UP、別途OWNER判断）。
+_HAZARD_LARGE_RESPONSE_LIMITED_TYPES = frozenset({"flood"})
+_HAZARD_LARGE_RESPONSE_DETAIL = (
+    "Full GeoJSON response for this hazard type is not available due to its size. "
+    "Use /api/hazards/{hazard_type}/{region_code}/meta for tileset information."
+)
+
 
 @router.get("/active")
 async def list_active_hazard_datasets():
@@ -241,6 +256,19 @@ async def get_active_hazard_meta(hazard_type: str, region_code: str):
 
 @router.get("/{hazard_type}/{region_code}")
 async def get_active_hazard_geojson(hazard_type: str, region_code: str):
+    if hazard_type in _HAZARD_LARGE_RESPONSE_LIMITED_TYPES:
+        # サイズ制限対象: active datasetの存在確認のみ行い（404判定のため）、
+        # file内容もPathそのものも一切受け取らない（json.load()を発生させ
+        # ず、lease-protected pathをこのroute層より外へ公開しない）。
+        try:
+            hazard_dataset_service.has_active_hazard_dataset(hazard_type, region_code)
+        except (FileNotFoundError, KeyError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, json.JSONDecodeError, OSError) as exc:
+            logger.exception("hazard geojson error: hazard_type=%s region_code=%s", hazard_type, region_code)
+            raise HTTPException(status_code=500, detail=_HAZARD_INTERNAL_ERROR_DETAIL) from exc
+        raise HTTPException(status_code=413, detail=_HAZARD_LARGE_RESPONSE_DETAIL)
+
     try:
         return hazard_dataset_service.get_active_hazard_geojson(hazard_type, region_code)
     except (FileNotFoundError, KeyError) as exc:

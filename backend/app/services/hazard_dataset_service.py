@@ -98,11 +98,23 @@ class HazardDatasetService:
             return None
         return max(candidates, key=lambda p: p.stat().st_size)
 
-    def _try_load_geojson_from_current(self, hazard_type: str, region_code: str) -> Optional[Dict[str, Any]]:
+    def _try_resolve_from_current(self, hazard_type: str, region_code: str, loader):
         """current/versioned atomic-publish treeから対象datasetの解決を試みる。
 
+        見つかったPathを`loader(path)`へ渡し、その戻り値をそのまま返す。
+        `loader`はlease保護scope（`with leased_version_root(...)`）の内側で
+        呼ばれる——fileを実際に読む場合は必ずこのscope内で完結させること
+        （scopeの外まで読み込みを遅延させると、その間にGCが対象versionを
+        削除しうるTOCTOU競合を生む）。存在確認だけが目的で内容もPathも
+        呼び出し元へ公開したくない場合は、`loader=lambda p: True`のように
+        booleanへ畳み込む関数を渡せばよい（LARGE-HAZARD-GEOJSON-
+        SWAP-THRASH対応: `has_active_hazard_dataset()`がこの用途で使う。
+        Pathをそのまま返すloaderは、lease-protected pathをservice境界の
+        外へ公開してしまうため使わないこと——OWNER Gate指摘）。
+
         戻り値:
-          - dict: currentから正常に読み込めた（呼び出し元はflatを見ない）
+          - loader(path)の戻り値: currentから正常に解決できた（呼び出し元は
+            flatを見ない）
           - None: current側に対象dataset自体が存在しない、または atomic
             publish機構自体が未導入（真の未配備）——呼び出し元はflatへ
             fallbackしてよい。
@@ -134,21 +146,50 @@ class HazardDatasetService:
             chosen = self._resolve_current_hazard_file(version_root, hazard_type, region_code)
             if chosen is None:
                 return None
-            data = self._load_json(chosen)
+            result = loader(chosen)
             logger.debug("hazard dataset source=current hazard_type=%s region=%s", hazard_type, region_code)
-            return data
+            return result
 
     def get_active_hazard_geojson(self, hazard_type: str, region_code: str) -> Dict[str, Any]:
         if hazard_type not in self.HAZARD_LAYER_TYPES:
             raise KeyError(f"Unsupported hazard_type: {hazard_type}")
 
-        current_geojson = self._try_load_geojson_from_current(hazard_type, region_code)
+        current_geojson = self._try_resolve_from_current(hazard_type, region_code, self._load_json)
         if current_geojson is not None:
             return current_geojson
 
         logger.debug("hazard dataset source=flat_fallback hazard_type=%s region=%s", hazard_type, region_code)
         _, _, _, geojson_path = self._resolve_active_dataset(hazard_type, region_code)
         return self._load_json(geojson_path)
+
+    def has_active_hazard_dataset(self, hazard_type: str, region_code: str) -> bool:
+        """LARGE-HAZARD-GEOJSON-SWAP-THRASH対応: `get_active_hazard_geojson()`
+        と同一の解決順序・例外契約（KeyError/FileNotFoundErrorで404相当）を
+        保ちながら、fileの内容はもちろんPathそのものもcallerへ一切公開せず、
+        「active datasetが存在するか」だけをbooleanで返す。
+
+        OWNER Gate指摘対応: 当初案（Pathを返す`resolve_active_hazard_path()`）
+        は、lease-protected path（current/versioned tree配下、GCから保護
+        されている一時的な参照）をservice境界の外（呼び出し元のhazards.py
+        以降）へ公開してしまい、将来「そのPathを別の場所・別のタイミングで
+        再利用する」という誤用の余地を作る。今回必要なのは存在確認のみ
+        （404 vs 413の判定）であるため、Pathを一切外部へ返さない設計へ
+        変更した——lease scope内での解決結果はbooleanへ即座に畳み込み、
+        scope終了後にはbooleanしか残らない。
+
+        サイズ制限対象hazard type（flood等）の404/413判定専用に使う。
+        """
+        if hazard_type not in self.HAZARD_LAYER_TYPES:
+            raise KeyError(f"Unsupported hazard_type: {hazard_type}")
+
+        found_in_current = self._try_resolve_from_current(hazard_type, region_code, lambda _p: True)
+        if found_in_current:
+            return True
+
+        # 戻り値のPathはcallerへ公開せず、存在確認（KeyError/FileNotFoundError
+        # を送出しないこと）の副作用だけを使う。
+        self._resolve_active_dataset(hazard_type, region_code)
+        return True
 
     def get_active_hazard_meta(self, hazard_type: str, region_code: str) -> Dict[str, Any]:
         dataset_id, defn, state, geojson_path = self._resolve_active_dataset(hazard_type, region_code)

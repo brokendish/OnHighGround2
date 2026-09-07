@@ -289,7 +289,7 @@ def test_H_unknown_hazard_type_rejected_without_touching_current(env, monkeypatc
         called["current"] = True
         return None
 
-    monkeypatch.setattr(service, "_try_load_geojson_from_current", _spy)
+    monkeypatch.setattr(service, "_try_resolve_from_current", _spy)
 
     with pytest.raises(KeyError):
         service.get_active_hazard_geojson("totally_unknown_type", "tokyo")
