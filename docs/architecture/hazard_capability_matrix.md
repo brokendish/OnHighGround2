@@ -13,6 +13,25 @@
 | `tsunami` | 津波浸水想定 | polygon | `tokyo_tsunami_A40-23_13` | ✅ | API | — | active |
 | `inland_flood` | 内水氾濫 | polygon | `A51` | — | API | ✅ depth_min_m ランク | active |
 | `landslide` | 土砂災害警戒区域 | polygon | `A33` | — | API | ✅ zone_type / severity_level | active |
+| `lowland_poor_drainage` | 低地・排水困難エリア | polygon | DEM由来 | — | API | ✅ risk_score | active（supplementary、`is_danger`に非影響） |
+| `pseudo_inland_flood` | 低地・内水リスク（推定） | polygon | DEM由来 | — | API | ✅ risk_level | **API/UI表示専用。navigation danger判定には未使用（意図的、後述）** |
+
+---
+
+## runtime publish 対応 hazard と navigation 判定対応 hazard は別集合
+
+**重要（HAZARD-ENGINE-PSEUDO-INLAND-FLOOD-NOT-WIRED、2026-09 確定）**:
+`data_runtime/current` へ atomic publish される hazard type の集合（現在 7 type:
+`flood` / `storm_surge` / `tsunami` / `inland_flood` / `landslide` /
+`lowland_poor_drainage` / `pseudo_inland_flood`）と、`HazardEngine`
+（`backend/hazard_service.py`、避難経路の危険判定・`assess_candidate()`）が
+navigation danger 判定に実際に使う hazard type の集合（現在 6 type:
+`pseudo_inland_flood` を除く上記）は、**意図的に異なる集合**です。
+
+これは bug でも「未対応・将来対応予定」でもありません。runtime へ publish
+され API/UI から参照可能であることと、それを navigation の危険判定へ
+使ってよいことは別の判断であり、後者は精度・provenance・既存 hazard との
+重複を踏まえて個別に評価します（詳細は「pseudo_inland_flood」節参照）。
 
 ---
 
@@ -143,6 +162,51 @@ TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
 - **Severity（危険度）表示**: 実装済み（Phase 4.1/4.2）— zone_type / severity_level による色分け
 - **タイル化**: 未実装（GeoJSON API 配信）
 - **データ取得**: 国土数値情報ダウンロードサービス A33 → `data_lake/raw/tokyo/landslide/` に配置
+
+### pseudo_inland_flood（低地・内水リスク〔推定〕）— navigation danger判定には未使用
+
+**この hazard type は `HazardEngine`（navigation の危険判定エンジン）へ意図的に
+wiring していません。「未対応」「実装漏れ」「将来対応予定」ではなく、確定した
+設計判断です（HAZARD-ENGINE-PSEUDO-INLAND-FLOOD-NOT-WIRED、CLOSED /
+INTENTIONALLY_NOT_WIRED）。**
+
+- **データの性質**: `scripts/derive/generate_pseudo_inland_flood.py` が DEM
+  （標高）から標高・傾斜・凹地の3要素を単純加算スコアリングして生成する
+  **非公式の参考推定データ**。降雨量・排水能力・河川近接性など実際の内水
+  氾濫メカニズムは一切考慮していない。
+- **registry上の明示**: `data_lake/registry/dataset_definitions.json` の
+  `TOKYO-PSEUDO-INLAND-FLOOD-001` に `official: false`,
+  `source_type: "generated"` が明記され、`validate_pseudo_inland_flood.py`
+  が `official is not False` を検証エラーとして強制する。
+- **runtime/API での扱い**: `data_runtime/current`（Tokyo のみ）へ atomic
+  publish され、`HazardDatasetService` 経由で `GET /api/hazards/
+  pseudo_inland_flood/tokyo` から取得可能。UI の参考表示用途は変更しない。
+- **navigation で使わない理由**:
+  1. 実際の浸水挙動に基づかない地形ヒューリスティックであり、
+     navigation safety 判定の根拠として不十分（false positive リスク）。
+  2. `inland_flood`（公式ハザードマップ）と bbox が広範囲に重複しており、
+     `HazardEngine.assess_candidate()` は hazard type ごとに独立した
+     inside/outside 判定を返す設計（`derive_hazard_safe()` は「1件でも
+     inside があれば危険」という OR 判定）のため、severity（risk_level）を
+     反映しない単純追加は、DEM 推定で "low" 判定された区域（実測 66,565
+     feature 中 77.9%）まで一律に危険扱いし、避難可能な候補地点を
+     過剰に排除するリスクが高い。
+- **Tokyo-only**: DEM データが Tokyo 分のみ用意されているための制約
+  （Kanagawa 分の pseudo_inland_flood は存在せず、これは unsupported
+  region であり error ではない）。
+- **将来の再評価候補**: `lowland_poor_drainage`（`is_danger` に影響しない
+  supplementary hazard として既に運用中）と同様の non-blocking signal
+  として、severity（risk_level）を保持したまま将来 wiring する可能性は
+  別途 `PSEUDO-INLAND-FLOOD-SUPPLEMENTARY-NAVIGATION-EVALUATION` として
+  記録する（今回は未実装。実施する場合は OWNER の safety review が必須）。
+
+### lowland_poor_drainage（低地・排水困難エリア）
+
+- **状態**: `SUPPLEMENTARY_HAZARD_TYPES` に属する補助 hazard。
+  `hazard_assessment` には現れるが `is_danger` の判定には影響しない
+  （地形的リスクであり、単独では避難判断のトリガーにならない）。
+- **API**: `GET /api/hazards/lowland_poor_drainage/tokyo` /
+  `.../kanagawa`（`HazardDatasetService` 経由）
 
 ---
 
