@@ -45,7 +45,13 @@ def client():
 # ── A. PermissionError → path/errno非公開、既存500維持 ────────────────────────
 
 def test_permission_error_hides_filesystem_path(client, caplog):
-    leaked_path = "/data_runtime/frontend/tiles/tokyo/pseudo_inland_flood/pseudo_inland_flood.geojson"
+    # LARGE-HAZARD-FULL-BODY-POLICY Phase B1対応: pseudo_inland_floodは
+    # policy-rejected type（422、has_active_hazard_datasetのみ呼ばれる）に
+    # なったため、get_active_hazard_geojson()をmockする本テストの対象からは
+    # 外し、引き続きget_active_hazard_geojson()経由の通常catch-all pathを
+    # 使うstorm_surgeへ切り替える（テストの意図——PermissionError発生時に
+    # 内部pathを漏らさないこと——は完全に同一のまま検証できる）。
+    leaked_path = "/data_runtime/frontend/tiles/tokyo/storm_surge/tokyo-surge-001.geojson"
     exc = PermissionError(13, "Permission denied")
     exc.filename = leaked_path
     # OSErrorのstr()表現は "[Errno 13] Permission denied: '<path>'" になる
@@ -53,7 +59,7 @@ def test_permission_error_hides_filesystem_path(client, caplog):
 
     with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc_with_path), \
          caplog.at_level(logging.ERROR):
-        resp = client.get("/api/hazards/pseudo_inland_flood/tokyo")
+        resp = client.get("/api/hazards/storm_surge/tokyo")
 
     assert resp.status_code == 500
     body_text = resp.text
@@ -107,11 +113,13 @@ def test_generic_oserror_hides_errno_detail(client):
 # ── C. malformed GeoJSON（ValueError、path埋め込み）→ path非公開 ──────────────
 
 def test_value_error_with_embedded_path_hides_path(client):
-    leaked_path = "/data_lake/validated/tokyo/pseudo_inland_flood/pseudo_inland_flood.geojson"
+    # LARGE-HAZARD-FULL-BODY-POLICY Phase B1対応: 上記と同じ理由でstorm_surge
+    # へ切り替える。
+    leaked_path = "/data_lake/validated/tokyo/storm_surge/tokyo-surge-001.geojson"
     exc = ValueError(f"GeoJSON root must be an object: {leaked_path}")
 
     with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
-        resp = client.get("/api/hazards/pseudo_inland_flood/tokyo")
+        resp = client.get("/api/hazards/storm_surge/tokyo")
 
     assert resp.status_code == 500
     assert leaked_path not in resp.text
@@ -120,10 +128,15 @@ def test_value_error_with_embedded_path_hides_path(client):
 # ── D. dataset not registered → 既存404契約維持 ───────────────────────────────
 
 def test_dataset_not_registered_keeps_404_detail(client):
-    exc = KeyError("Active dataset is not registered: pseudo_inland_flood:kanagawa")
+    # LARGE-HAZARD-FULL-BODY-POLICY Phase B1対応: pseudo_inland_floodは
+    # policy-rejected typeになったため、get_active_hazard_geojson()経由の
+    # 通常404契約を検証する本テストはstorm_surgeへ切り替える
+    # （pseudo_inland_flood自身の404契約はhas_active_hazard_datasetベースで
+    # test_hazard_large_response_limit.py側に別途カバーする）。
+    exc = KeyError("Active dataset is not registered: storm_surge:chiba")
 
     with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
-        resp = client.get("/api/hazards/pseudo_inland_flood/kanagawa")
+        resp = client.get("/api/hazards/storm_surge/chiba")
 
     assert resp.status_code == 404
     assert "not registered" in resp.text
@@ -142,10 +155,18 @@ def test_file_not_found_keeps_404_detail(client):
 # ── E. pseudo_inland_flood/kanagawa 実contractも確認（KeyError経由） ──────────
 
 def test_pseudo_kanagawa_404_contract_unchanged(client):
+    # LARGE-HAZARD-FULL-BODY-POLICY Phase B1対応: pseudo_inland_floodは
+    # policy-rejected typeとなり、404判定はhas_active_hazard_dataset()
+    # 経由になった（get_active_hazard_geojson()はこのtypeでは一切呼ばれ
+    # ない）。「pseudo_inland_flood:kanagawaは未登録region」という実contract
+    # 自体（404であること）は変更していないため、mock対象のみ更新して
+    # 同じ契約を検証する。
     exc = KeyError("Active dataset is not registered: pseudo_inland_flood:kanagawa")
-    with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
+    with patch.object(hazards.hazard_dataset_service, "has_active_hazard_dataset", side_effect=exc), \
+         patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson") as load_mock:
         resp = client.get("/api/hazards/pseudo_inland_flood/kanagawa")
     assert resp.status_code == 404
+    load_mock.assert_not_called()
 
 
 # ── F. 正常系 → 200維持 ────────────────────────────────────────────────────────

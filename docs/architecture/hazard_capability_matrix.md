@@ -179,8 +179,11 @@ INTENTIONALLY_NOT_WIRED）。**
   `source_type: "generated"` が明記され、`validate_pseudo_inland_flood.py`
   が `official is not False` を検証エラーとして強制する。
 - **runtime/API での扱い**: `data_runtime/current`（Tokyo のみ）へ atomic
-  publish され、`HazardDatasetService` 経由で `GET /api/hazards/
-  pseudo_inland_flood/tokyo` から取得可能。UI の参考表示用途は変更しない。
+  publish され、meta/tile 経由で UI の参考表示に使われる。**public full-body
+  GeoJSON response（`GET /api/hazards/pseudo_inland_flood/{region}`）は
+  LARGE-HAZARD-FULL-BODY-POLICY Phase B1（2026-09-07）により提供しない
+  （422、詳細は本ドキュメント末尾「Hazard Full-Body Delivery Policy」
+  参照）。UI の参考表示自体（vector tile 経由）は変更しない。
 - **navigation で使わない理由**:
   1. 実際の浸水挙動に基づかない地形ヒューリスティックであり、
      navigation safety 判定の根拠として不十分（false positive リスク）。
@@ -205,8 +208,11 @@ INTENTIONALLY_NOT_WIRED）。**
 - **状態**: `SUPPLEMENTARY_HAZARD_TYPES` に属する補助 hazard。
   `hazard_assessment` には現れるが `is_danger` の判定には影響しない
   （地形的リスクであり、単独では避難判断のトリガーにならない）。
-- **API**: `GET /api/hazards/lowland_poor_drainage/tokyo` /
-  `.../kanagawa`（`HazardDatasetService` 経由）
+- **API**: meta（`GET /api/hazards/lowland_poor_drainage/{region}/meta`）は
+  引き続き利用可能。**public full-body GeoJSON response は
+  LARGE-HAZARD-FULL-BODY-POLICY Phase B1（2026-09-07）により提供しない
+  （422、詳細は本ドキュメント末尾「Hazard Full-Body Delivery Policy」
+  参照）。
 
 ---
 
@@ -265,6 +271,49 @@ RSA disabled: ENABLE_RSA=False
 ```
 
 既存の `time_to_impact_minutes`（destinations 内）は後方互換のため維持。
+
+---
+
+## Hazard Full-Body Delivery Policy
+
+`GET /api/hazards/{hazard_type}/{region_code}` は、hazard type によって
+実装（response の生成方式）と提供可否が異なる。この乖離は type ごとの
+場当たり対応の結果ではなく、LARGE-HAZARD-GEOJSON-SWAP-THRASH /
+LARGE-HAZARD-FULL-BODY-POLICY（いずれも 2026-09-07）調査で確立した
+capability-based（hybrid）policy に基づく意図的な contract である。
+
+判定軸は次の4つ: frontend での必要性（primary / fallback / unused）・
+vector tile 代替の有無・現行 artifact size・response 実装の安全性
+（`json.load()` による全体展開か、`StreamingResponse`/`FileResponse` か）。
+
+| hazard type | policy | HTTP status | 理由 |
+| --- | --- | --- | --- |
+| `flood` | **REJECT_PUBLIC** | 413 | artifact が破滅的に巨大（tokyo≈500MB / kanagawa≈310MB）。frontend は tile primary で fallback 不要 |
+| `pseudo_inland_flood` | **REJECT_PUBLIC** | 422 | frontend が full-body route を一切呼ばない（`apiUrl` 未設定）。tile 完備、サイズは理由ではない |
+| `lowland_poor_drainage` | **REJECT_PUBLIC** | 422 | 同上 |
+| `storm_surge` | **FALLBACK_ONLY**（`ALLOW_JSON` 現状維持） | 200 | frontend は tile primary、tile/Martin 不到達時のみ実際に使われる fallback |
+| `tsunami` | **FALLBACK_ONLY**（`ALLOW_JSON` 現状維持） | 200 | frontend は tile-first（`useStaticVectorTiles`）、fallback は tile 失敗時のみ |
+| `inland_flood` | **ALLOW_STREAM** / frontend primary | 200（streaming） | tile は存在するが frontend が意図的に API を primary として使用（`preferApi: true`）。既に memory-safe |
+| `landslide` | **ALLOW_STREAM** / frontend primary | 200（streaming） | tile infrastructure が存在しない唯一の type。既に memory-safe |
+
+**REJECT_PUBLIC の理由は type によって異なり、HTTP status/detail も区別する**:
+`flood`（413、`_HAZARD_LARGE_RESPONSE_DETAIL`）は artifact size が理由。
+`pseudo_inland_flood`/`lowland_poor_drainage`（422、
+`_HAZARD_POLICY_REJECTED_DETAIL`）は frontend が使わないという
+delivery-policy 上の理由であり、size が理由ではない
+（`lowland_poor_drainage` は約 25MB と比較的小さい）。413 の意味的な
+機械流用はしていない。
+
+いずれの REJECT_PUBLIC でも、`/meta` エンドポイントは引き続き利用可能
+（`dataset_id`/`tileset_id`/`tileset_source_layer` 等を返す）。存在しない
+region（例: `pseudo_inland_flood:kanagawa`）は従来通り 404 のまま
+区別される。
+
+`storm_surge`/`tsunami` の fallback path は現状 `json.load()` +
+`JSONResponse` 実装のまま（LARGE-HAZARD-FULL-BODY-POLICY Phase A で
+memory-unsafe と確認済み）——streaming 化は将来の hardening 候補
+（`LARGE-HAZARD-FULL-BODY-POLICY` finding、OPEN のまま）であり、
+今回のスコープには含まれない。
 
 ---
 

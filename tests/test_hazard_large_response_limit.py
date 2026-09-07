@@ -166,9 +166,13 @@ def test_D_413_response_detail_is_generic_no_internal_leak(client):
     assert "meta" in body["detail"].lower()  # /meta参照への案内を含む
 
 
-# ── E. 他typeは今回のscope外——挙動無変更（200維持） ────────────────────────────
+# ── E. floodのLIMITとは無関係のtypeは無変更（200維持） ─────────────────────────
+# pseudo_inland_flood/lowland_poor_drainageは、本テスト作成後の
+# LARGE-HAZARD-FULL-BODY-POLICY Phase B1でpolicy-rejected type（422）に
+# なったため、対象から除外（そちらの契約は
+# tests/test_hazard_policy_rejected_types.py で検証する）。
 
-@pytest.mark.parametrize("hazard_type", ["storm_surge", "tsunami", "pseudo_inland_flood", "lowland_poor_drainage"])
+@pytest.mark.parametrize("hazard_type", ["storm_surge", "tsunami"])
 def test_E_other_types_unaffected_normal_response(client, hazard_type):
     fake_geojson = {"type": "FeatureCollection", "features": []}
     with patch.object(

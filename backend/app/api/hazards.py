@@ -202,6 +202,34 @@ _HAZARD_LARGE_RESPONSE_DETAIL = (
     "Use /api/hazards/{hazard_type}/{region_code}/meta for tileset information."
 )
 
+# LARGE-HAZARD-FULL-BODY-POLICY Phase B1（OWNER承認2026-09-07、HYBRID_POLICY）:
+# pseudo_inland_flood/lowland_poor_drainageは、上記floodとは**異なる理由**で
+# public full-body responseを提供しない——サイズが理由ではなく（lowlandは
+# 約25MB、floodの~500MBとは無関係）、frontendがこのroute自体を一切呼ばない
+# （apiUrl未設定、tile-onlyで運用）ことと、tile infrastructureが両regionとも
+# 完備していることによるdelivery-policy上の判断（外部公開downloadとしての
+# 用途も未確認）。floodと理由が異なるため、HTTP status・detail文言とも
+# 413/_HAZARD_LARGE_RESPONSE_DETAILを機械的に流用しない。
+#
+# HTTP status選定（422 Unprocessable Entity）:
+#   - 404不採用: 対象datasetは実在する（存在しないdatasetは引き続き404）。
+#   - 413不採用: sizeが理由ではない（機械的な流用はfloodの理由と意味的に
+#     矛盾する）。
+#   - 403不採用: 認証/認可が理由ではない。
+#   - 409不採用: リソースの一時的な状態競合ではなく、恒久的なdelivery
+#     policyである。
+#   422は「requestは理解できる（syntax・対象resourceとも正当）が、この形
+#   （full-body representation）では提供しない」という意味を、標準status
+#   code群の中で最も適切に表す。
+_HAZARD_POLICY_REJECTED_TYPES = frozenset({
+    "pseudo_inland_flood",
+    "lowland_poor_drainage",
+})
+_HAZARD_POLICY_REJECTED_DETAIL = (
+    "Full GeoJSON response is not available for this hazard type. "
+    "Use /api/hazards/{hazard_type}/{region_code}/meta for tileset information."
+)
+
 
 @router.get("/active")
 async def list_active_hazard_datasets():
@@ -256,10 +284,11 @@ async def get_active_hazard_meta(hazard_type: str, region_code: str):
 
 @router.get("/{hazard_type}/{region_code}")
 async def get_active_hazard_geojson(hazard_type: str, region_code: str):
-    if hazard_type in _HAZARD_LARGE_RESPONSE_LIMITED_TYPES:
-        # サイズ制限対象: active datasetの存在確認のみ行い（404判定のため）、
-        # file内容もPathそのものも一切受け取らない（json.load()を発生させ
-        # ず、lease-protected pathをこのroute層より外へ公開しない）。
+    if hazard_type in _HAZARD_LARGE_RESPONSE_LIMITED_TYPES or hazard_type in _HAZARD_POLICY_REJECTED_TYPES:
+        # public full-body拒否対象（理由はtype毎に異なる——上記コメント参照）:
+        # active datasetの存在確認のみ行い（404判定のため）、file内容も
+        # Pathそのものも一切受け取らない（json.load()を発生させず、
+        # lease-protected pathをこのroute層より外へ公開しない）。
         try:
             hazard_dataset_service.has_active_hazard_dataset(hazard_type, region_code)
         except (FileNotFoundError, KeyError) as exc:
@@ -267,7 +296,10 @@ async def get_active_hazard_geojson(hazard_type: str, region_code: str):
         except (ValueError, json.JSONDecodeError, OSError) as exc:
             logger.exception("hazard geojson error: hazard_type=%s region_code=%s", hazard_type, region_code)
             raise HTTPException(status_code=500, detail=_HAZARD_INTERNAL_ERROR_DETAIL) from exc
-        raise HTTPException(status_code=413, detail=_HAZARD_LARGE_RESPONSE_DETAIL)
+
+        if hazard_type in _HAZARD_LARGE_RESPONSE_LIMITED_TYPES:
+            raise HTTPException(status_code=413, detail=_HAZARD_LARGE_RESPONSE_DETAIL)
+        raise HTTPException(status_code=422, detail=_HAZARD_POLICY_REJECTED_DETAIL)
 
     try:
         return hazard_dataset_service.get_active_hazard_geojson(hazard_type, region_code)
