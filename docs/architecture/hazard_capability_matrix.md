@@ -152,8 +152,8 @@ TTI 計算は `TTIService.compute_tti(hazard_name, lat, lon)` に統一。
 - **状態**: `enabled=True` / `backend_enabled=True` / `frontend_enabled=True`（Phase 5）
 - **データ**: 国土数値情報 A33（土砂災害警戒区域）
   - 正規化: `scripts/normalize/normalize_landslide.py`
-  - 参照順位: `data_runtime/backend/hazard/landslide/` → `data_lake/normalized/tokyo/landslide/` → `data/hazard/`（legacy sample）
-  - 設定キー: `hazard.landslide.enabled` / `hazard.landslide.path`
+  - 参照順位: `data_runtime/backend/hazard/landslide/`（atomic runtime lease機構による current/versioned 優先。is_available()==False 時の legacy flat basename fallback は HAZARD-LEGACY-FLAT-FALLBACK-CONTRACT 対応により廃止済み）
+  - 設定キー: `hazard.landslide.enabled`
 - **属性**:
   - `zone_type`: `warning`（警戒区域）/ `special_warning`（特別警戒区域）
   - `landslide_type`: `steep_slope`（急傾斜地の崩壊）/ `debris_flow`（土石流）/ `landslide`（地すべり）

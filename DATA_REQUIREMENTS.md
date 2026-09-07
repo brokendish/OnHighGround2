@@ -205,11 +205,10 @@ python scripts/normalize/filter_flood_hazard.py
 
 ```properties
 hazard.flood.enabled=true
-hazard.flood.check_path=../data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl
 hazard.flood.path=../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
 ```
 
-`hazard.flood.enabled=false` または GeoJSONL ファイルが存在しない場合、バックエンドは起動しますが flood 判定は `unknown` として扱われます（データなし = 安全扱いではなく未判定）。
+判定用 GeoJSONL は `data_runtime/backend/hazard/flood/` ディレクトリを自動スキャンして読み込まれます（単一パス指定用の設定キーは HAZARD-LEGACY-FLAT-FALLBACK-CONTRACT 対応により廃止済み）。`hazard.flood.enabled=false` またはディレクトリが空の場合、バックエンドは起動しますが flood 判定は `unknown` として扱われます（データなし = 安全扱いではなく未判定）。
 
 ---
 
@@ -233,15 +232,14 @@ hazard.flood.path=../data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson
 ### app.properties での設定
 
 ```properties
-# データディレクトリ（validated が空の場合は normalized を参照）
-hazard.tsunami.dir=../data_lake/normalized/tokyo/tsunami
-
 # ロード対象（カンマ区切りで指定。デフォルト: 東京のみ）
 hazard.tsunami.targets=tokyo
 
 # 広域モードにする場合:
 # hazard.tsunami.targets=tokyo,kanagawa,chiba
 ```
+
+データは `data_runtime/backend/hazard/tsunami/`（優先）または `data_lake/validated/tokyo/tsunami/` から読み込まれます（単一ディレクトリ指定用の設定キーは HAZARD-LEGACY-FLAT-FALLBACK-CONTRACT 対応により廃止済み）。
 
 `validated/tokyo/tsunami/` にファイルが配置されれば、設定変更なしで自動的にそちらが優先されます。
 ファイルが存在しない場合、バックエンドは起動しますが tsunami 判定は `unknown` として扱われます。
@@ -362,8 +360,8 @@ ls -lh data_lake/validated/tokyo/shelter/
 - [ ] `backend/app.properties` の `dem.path` が `data_lake/validated/tokyo/dem` を指している
 - [ ] `backend/app.properties` の `evacuation.sites.path` が `data_lake/normalized/tokyo/shelter` を指している
 - [ ] `backend/app.properties` の `hazard.flood.enabled` が `true` になっている
-- [ ] `backend/app.properties` の `hazard.flood.check_path` が `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` を指している
-- [ ] `backend/app.properties` の `hazard.tsunami.dir` が `data_lake/normalized/tokyo/tsunami` を指している
+- [ ] `data_runtime/backend/hazard/flood/` に判定用ファイルが配置されている
+- [ ] `data_runtime/backend/hazard/tsunami/` または `data_lake/validated/tokyo/tsunami/` に対象ファイルが配置されている
 - [ ] `backend/app.properties` の `hazard.tsunami.targets` が目的地域（例: `tokyo`）に設定されている
 
 ### 起動コマンド

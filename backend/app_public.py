@@ -498,19 +498,18 @@ if FLOOD_ENABLED:
         # data_lakeへは読みに行かない（snapshot混在防止）。
         logger.info("Flood: 現行versionにdataなし（snapshot混在防止のためskip、data_lakeへはfallbackしない）")
     else:
-        # フォールバック: 設定ファイル指定の単一パス（backward compat）
-        _flood_check_path_value = APP_CONFIG.get(
-            "hazard.flood.check_path",
-            "../data_runtime/backend/hazard/flood/tokyo_flood_check.geojsonl",
+        # HAZARD-LEGACY-FLAT-FALLBACK-CONTRACT対応: is_available()==False
+        # （runtime-init未実行、atomic lease機構未導入）は、docker-compose.yml
+        # のbackend-public::depends_on（runtime-init: service_completed_
+        # successfully）により、現在の正式deployment modelでは到達しない
+        # 状態である（docs/installation.md参照）。旧hardcoded legacy flat
+        # basenameの読み込みはmigration residueであり、unsupported
+        # deployment modelとして明示的にskip
+        # する（既存のcurrent-missing skip semanticsと同じ思想）。
+        logger.info(
+            "Flood: atomic runtime lease機構が未導入（unsupported deployment "
+            "model）のためskip（legacy flat fallbackは廃止済み）"
         )
-        _flood_check_path = resolve_existing_path(
-            _flood_check_path_value,
-            legacy_candidates=[
-                BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "flood" / "tokyo_flood_check.geojsonl",
-            ],
-            label="Flood",
-        )
-        hazard_service.load_geojsonl("flood", _flood_check_path, bbox_only=True)
 else:
     logger.info("洪水ハザード判定は無効（hazard.flood.enabled=false）")
 
@@ -534,36 +533,33 @@ if _storm_surge_geojson_files:
 elif _HAZARD_USING_ATOMIC_LEASE:
     logger.info("StormSurge: 現行versionにdataなし（snapshot混在防止のためskip、data_lakeへはfallbackしない）")
 else:
-    # フォールバック: 設定ファイル指定の単一パス（backward compat）
-    _storm_surge_path_value = APP_CONFIG.get(
-        "hazard.storm_surge.path",
-        "../data_runtime/backend/hazard/storm_surge/tokyo_storm_surge.geojson",
+    # HAZARD-LEGACY-FLAT-FALLBACK-CONTRACT対応: is_available()==Falseは
+    # 現在の正式deployment modelでは到達しない状態（flood節の注記参照）。
+    # 旧hardcoded legacy flat basename読み込みはunsupported deployment
+    # modelとして明示的にskipする。
+    logger.info(
+        "StormSurge: atomic runtime lease機構が未導入（unsupported "
+        "deployment model）のためskip（legacy flat fallbackは廃止済み）"
     )
-    _storm_surge_path = resolve_existing_path(
-        _storm_surge_path_value,
-        legacy_candidates=[
-            BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "storm_surge" / "tokyo_storm_surge.geojson",
-        ],
-        label="StormSurge",
-    )
-    hazard_service.load("storm_surge", _storm_surge_path, bbox_only=True)
 
 # tsunami: targets 設定に従ってファイルを個別ロード
 # デフォルト: tokyo のみ（東京版 v1 標準モード）
 # 広域モード: hazard.tsunami.targets=tokyo,kanagawa,chiba
 #
-# [Phase 1] 参照優先順位:
+# 参照優先順位:
 #   1. data_runtime/backend/hazard/tsunami/  (runtime 優先)
-#   2. data_lake/validated/tokyo/tsunami/    (validated 正本)
-#   3. data_lake/normalized/tokyo/tsunami/   (normalized フォールバック)
-_tsunami_dir_value = APP_CONFIG.get(
-    "hazard.tsunami.dir",
-    "../data_lake/normalized/tokyo/tsunami",
-)
-_tsunami_dir = Path(_tsunami_dir_value)
-if not _tsunami_dir.is_absolute():
-    _tsunami_dir = (BASE_DIR / _tsunami_dir).resolve()
-
+#   2. data_lake/validated/tokyo/tsunami/    (validated 正本、durable authoritative
+#      source。HAZARD-LEGACY-FLAT-FALLBACK-CONTRACT対応: is_available()==Falseに
+#      限定されたhardcoded flat basename fallbackとは別contractであり本remediation
+#      のscope外——data_lake/validatedはLEGACY-HAZARD-RUNTIME-ARTIFACT-CLEANUP
+#      の削除候補にも含まれない）
+#
+# HAZARD-LEGACY-FLAT-FALLBACK-CONTRACT対応: 旧legacy設定キー
+# （デフォルトはdata_lake/normalizedだが、app.propertiesではflat runtime dir
+# を指すよう上書きされていた＝実質的にhardcoded legacy flat basename
+# fallbackだった）と、それに基づくnormalizedフォールバック階層は撤去。
+# tsunami_{target}.geojson という命名規則自体はcurrent/versioned側でも
+# 使われるため維持する。
 _tsunami_runtime_dir = _HAZARD_BACKEND_ROOT / "tsunami"
 _tsunami_validated_dir = BASE_DIR.parent / "data_lake" / "validated" / "tokyo" / "tsunami"
 _tsunami_targets = parse_csv(APP_CONFIG.get("hazard.tsunami.targets", "tokyo"), ["tokyo"])
@@ -574,7 +570,6 @@ for _target in _tsunami_targets:
     _filename = f"tsunami_{_target}.geojson"
     _runtime_path = _tsunami_runtime_dir / _filename
     _validated_path = _tsunami_validated_dir / _filename
-    _normalized_path = _tsunami_dir / _filename
     if _runtime_path.exists():
         logger.info("Tsunami loaded from runtime: %s", _runtime_path)
         hazard_service.load("tsunami", _runtime_path, bbox_only=True)
@@ -588,13 +583,11 @@ for _target in _tsunami_targets:
     elif _validated_path.exists():
         logger.warning("Tsunami fallback to data_lake: %s", _validated_path)
         hazard_service.load("tsunami", _validated_path, bbox_only=True)
-    elif _normalized_path.exists():
-        logger.warning("Tsunami fallback to data_lake: %s", _normalized_path)
-        hazard_service.load("tsunami", _normalized_path, bbox_only=True)
     else:
         logger.warning(
-            "Tsunami file not found for target '%s': checked runtime=%s, validated=%s, normalized=%s — skipped",
-            _target, _runtime_path, _validated_path, _normalized_path,
+            "Tsunami file not found for target '%s': checked runtime=%s, validated=%s — skipped "
+            "(unsupported deployment modelではlegacy flat fallbackは廃止済み)",
+            _target, _runtime_path, _validated_path,
         )
 
 # 設定上期待する tsunami targets を hazard_service に登録する（degraded 検出用）。
@@ -667,23 +660,14 @@ if LANDSLIDE_ENABLED:
     elif _HAZARD_USING_ATOMIC_LEASE:
         logger.info("Landslide: 現行versionにdataなし（snapshot混在防止のためskip、data_lakeへはfallbackしない）")
     else:
-        # フォールバック: 設定ファイル指定の単一パス（backward compat）
-        _landslide_path_value = APP_CONFIG.get(
-            "hazard.landslide.path",
-            "../data_runtime/backend/hazard/landslide/tokyo_landslide_A33.geojson",
+        # HAZARD-LEGACY-FLAT-FALLBACK-CONTRACT対応: is_available()==Falseは
+        # 現在の正式deployment modelでは到達しない状態（flood節の注記参照）。
+        # 旧hardcoded legacy flat basename読み込みはunsupported deployment
+        # modelとして明示的にskipする。
+        logger.info(
+            "Landslide: atomic runtime lease機構が未導入（unsupported "
+            "deployment model）のためskip（legacy flat fallbackは廃止済み）"
         )
-        _landslide_path = resolve_existing_path(
-            _landslide_path_value,
-            legacy_candidates=[
-                BASE_DIR.parent / "data_lake" / "normalized" / "tokyo" / "landslide" / "tokyo_landslide_A33.geojson",
-                BASE_DIR.parent / "data" / "hazard" / "landslide_sample.geojson",
-            ],
-            label="Landslide",
-        )
-        if _landslide_path.exists():
-            hazard_service.load("landslide", _landslide_path, bbox_only=True)
-        else:
-            logger.info("土砂災害データが見つかりません（スキップ）: %s", _landslide_path)
 else:
     logger.info("土砂災害ハザード判定は無効（hazard.landslide.enabled=false）")
 

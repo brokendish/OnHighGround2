@@ -72,6 +72,10 @@ docker compose up -d backend-public frontend
 `runtime-init` は `backend-public` の前に自動で起動されます。このコマンドは
 任意の operator profile や streamer profile を起動しません。
 
+hazard 判定（HazardEngine）は `runtime-init` が初期化する atomic runtime
+lease機構が前提であり、それが未導入の環境向けの legacy flat fallback は
+サポートされないデプロイモードとして廃止済みです。
+
 公開エンドポイントを確認します。
 
 ```bash
