@@ -142,7 +142,14 @@ const HAZARD_LAYERS = {
         datasetState: 'ready',
         availabilityState: 'uninitialized',
         type: 'tsunami',
-        preferApi: true
+        // TSUNAMI-FRONTEND-API-PREFERENCE-GAP対応（TILE_FIRST採用）:
+        // このhazardは静的VECTOR_TILE_SOURCESをauthoritativeとして扱い、
+        // /meta の tileset_id/tileset_source_layerによる実行時上書きを
+        // 使わない（_initializeHazardTogglesImpl参照）。理由: tsunamiは
+        // 複数prefectureのtileが同一directoryに同居し、backend側の
+        // 「largest file」選択ロジックが誤region tilesetを返すことが
+        // ある（HAZARD-META-TILESET-REGION-SELECTION-GAP、別Phase対応）。
+        useStaticVectorTiles: true
     },
     tsunami_kanagawa: {
         name: "津波浸水想定（神奈川県）",
@@ -161,7 +168,7 @@ const HAZARD_LAYERS = {
         datasetState: 'ready',
         availabilityState: 'uninitialized',
         type: 'tsunami',
-        preferApi: true
+        useStaticVectorTiles: true
     },
     tsunami_chiba: {
         name: "津波浸水想定（千葉県）",
@@ -180,7 +187,7 @@ const HAZARD_LAYERS = {
         datasetState: 'ready',
         availabilityState: 'uninitialized',
         type: 'tsunami',
-        preferApi: true
+        useStaticVectorTiles: true
     },
     flood_tokyo_max: {
         name: "洪水浸水想定（東京都・想定最大規模）",
@@ -384,9 +391,19 @@ const HAZARD_LAYERS = {
 // tileset_id_alignment修復: 各entryの tilesetId / sourceLayer は、metaUrl
 // を持つlayerでは「backendの /meta 応答（tileset_id / tileset_source_layer、
 // data_runtime/frontend/tiles配下を都度scanして解決）」で実行時に上書き
-// される（_initializeHazardTogglesImpl参照）。ここに書く値は、metaUrl自体が
-// ないlayer（tsunami系、preferApiのためMartinを使わない）向けの本来値と、
-// meta取得に失敗した場合の最終fallback値を兼ねる。
+// される（_initializeHazardTogglesImpl参照）。
+//
+// TSUNAMI-FRONTEND-API-PREFERENCE-GAP対応: hazard定義に
+// `useStaticVectorTiles: true` を持つlayer（tsunami系）は、metaUrlを
+// 持っていてもこの上書きを行わない——ここに書く値がauthoritative。
+// 複数prefectureのtileが同一directoryに同居することに起因する
+// backend側のtileset誤選択（largest file選択ロジック、
+// HAZARD-META-TILESET-REGION-SELECTION-GAP）の影響を受けないためと、
+// 複数tileset配列（例: tsunami_kanagawa）を単一の上書き値で潰さない
+// ため。
+//
+// それ以外のlayer（useStaticVectorTilesを持たない）にとって、ここに
+// 書く値はmeta取得に失敗した場合の最終fallback値を兼ねる。
 const VECTOR_TILE_SOURCES = {
     tsunami_tokyo: [
         { tilesetId: 'tokyo_tsunami_A40-23_13', sourceLayer: 'tokyo_tsunami_A40-23_13', opacityFn: () => 0.18 }
@@ -929,10 +946,14 @@ async function loadHazardLayer(layerKey) {
     }
 
     if (shouldUseVectorTiles(layerKey, hazard)) {
-        // _activeTilesetId / _activeSourceLayer は初期化時（_initializeHazardTogglesImpl）に
-        // /meta のtileset_id/tileset_source_layerで解決済み。単一tilesetのlayer
-        // （flood/storm_surge/pseudo_inland_flood/lowland_poor_drainage）だけが対象で、
-        // 複数tilesetを持つlayer（tsunami系）はpreferApiのためここに来ない。
+        // hazard._activeTilesetId / _activeSourceLayer は、
+        // useStaticVectorTilesを持たないlayer（flood/storm_surge/
+        // pseudo_inland_flood/lowland_poor_drainage等、単一tileset）に
+        // ついてのみ初期化時（_initializeHazardTogglesImpl）に/meta の
+        // tileset_id/tileset_source_layerで解決済み。useStaticVectorTiles
+        // を持つlayer（tsunami系、複数tileset対応）では意図的にnullのまま
+        // であり、下記の`|| tilesetId`によって各entry自身の静的
+        // tilesetId/sourceLayerがそのまま使われる。
         const vtLayers = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId, sourceLayer, colorFn, borderStyle, maxNativeZoom, opacityFn }) =>
             createVectorTileLayer(
                 hazard._activeTilesetId || tilesetId,
@@ -1144,53 +1165,82 @@ async function _initializeHazardTogglesImpl() {
             }
 
             if (shouldUseVectorTiles(layerKey, hazard)) {
-                const firstTileset = VECTOR_TILE_SOURCES[layerKey][0];
+                let tilesExist;
+                let checkPathForLog;
 
-                // tileset_id_alignment修復: 過去は「dataset_id
-                // （registryの識別子、例 TOKYO-RIVER-001）をlowercase+"_"変換
-                // したもの」または個々にhardcodeした文字列を Martin tileset ID
-                // と仮定していたが、これは配信artifactの実体（publish側の
-                // mbtiles filename）と一致する保証がない別概念だった
-                // （tile artifactの世代交代のたびに乖離した）。
-                // backend側（/meta の tileset_id / tileset_source_layer）が
-                // data_runtime/frontend/tiles配下を都度scanして解決する
-                // 「今Martinが実際に配信できる名前」を正本として使う。
-                // VECTOR_TILE_SOURCES の静的な tilesetId/sourceLayer は、
-                // meta取得に失敗した場合だけの最終fallbackとして残す。
-                let activeTilesetId = firstTileset.tilesetId;
-                let activeSourceLayer = firstTileset.sourceLayer;
-                if (hazard.metaUrl) {
-                    try {
-                        const metaResp = await apiFetch(hazard.metaUrl, { cache: 'no-cache' });
-                        if (metaResp.ok) {
-                            const meta = await metaResp.json();
-                            if (meta?.tileset_id) {
-                                activeTilesetId = meta.tileset_id;
+                if (hazard.useStaticVectorTiles) {
+                    // TSUNAMI-FRONTEND-API-PREFERENCE-GAP対応（TILE_FIRST採用）:
+                    // このhazardは静的VECTOR_TILE_SOURCESをauthoritativeとして
+                    // 扱い、/meta によるtileset_id/tileset_source_layer上書きを
+                    // 行わない（複数tileset配列を単一の上書き値で潰さないため、
+                    // かつ複数prefectureのtileが同一directoryに同居することに
+                    // 起因するbackend側の誤region tileset選択の影響を受けない
+                    // ため——HAZARD-META-TILESET-REGION-SELECTION-GAP）。
+                    hazard._activeTilesetId = null;
+                    hazard._activeSourceLayer = null;
+
+                    // 全tilesetの存在確認。1件でも欠ければ表示が不完全になる
+                    // ため、揃っている場合のみtile-availableとみなす。metaUrl
+                    // は明示的に無効化し、meta 404（例: Chiba、tsunami:chiba は
+                    // registry未登録のため常に404）がtile存在確認へ影響しない
+                    // ようにする。
+                    const existsFlags = await Promise.all(
+                        VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId }) =>
+                            hazardDataExists({ ...hazard, path: `/tiles/${tilesetId}`, metaUrl: null, apiUrl: null })
+                        )
+                    );
+                    tilesExist = existsFlags.every(Boolean);
+                    checkPathForLog = VECTOR_TILE_SOURCES[layerKey].map(({ tilesetId }) => `/tiles/${tilesetId}`).join(', ');
+                } else {
+                    const firstTileset = VECTOR_TILE_SOURCES[layerKey][0];
+
+                    // tileset_id_alignment修復: 過去は「dataset_id
+                    // （registryの識別子、例 TOKYO-RIVER-001）をlowercase+"_"変換
+                    // したもの」または個々にhardcodeした文字列を Martin tileset ID
+                    // と仮定していたが、これは配信artifactの実体（publish側の
+                    // mbtiles filename）と一致する保証がない別概念だった
+                    // （tile artifactの世代交代のたびに乖離した）。
+                    // backend側（/meta の tileset_id / tileset_source_layer）が
+                    // data_runtime/frontend/tiles配下を都度scanして解決する
+                    // 「今Martinが実際に配信できる名前」を正本として使う。
+                    // VECTOR_TILE_SOURCES の静的な tilesetId/sourceLayer は、
+                    // meta取得に失敗した場合だけの最終fallbackとして残す。
+                    let activeTilesetId = firstTileset.tilesetId;
+                    let activeSourceLayer = firstTileset.sourceLayer;
+                    if (hazard.metaUrl) {
+                        try {
+                            const metaResp = await apiFetch(hazard.metaUrl, { cache: 'no-cache' });
+                            if (metaResp.ok) {
+                                const meta = await metaResp.json();
+                                if (meta?.tileset_id) {
+                                    activeTilesetId = meta.tileset_id;
+                                }
+                                if (meta?.tileset_source_layer) {
+                                    activeSourceLayer = meta.tileset_source_layer;
+                                }
                             }
-                            if (meta?.tileset_source_layer) {
-                                activeSourceLayer = meta.tileset_source_layer;
-                            }
+                        } catch (e) {
+                            console.warn(`[hazard:init] ${layerKey}: metaUrl 解決失敗、静的 tilesetId/sourceLayer を使用します`, e);
                         }
-                    } catch (e) {
-                        console.warn(`[hazard:init] ${layerKey}: metaUrl 解決失敗、静的 tilesetId/sourceLayer を使用します`, e);
                     }
-                }
-                hazard._activeTilesetId = activeTilesetId;
-                hazard._activeSourceLayer = activeSourceLayer;
+                    hazard._activeTilesetId = activeTilesetId;
+                    hazard._activeSourceLayer = activeSourceLayer;
 
-                const checkPath = `/tiles/${activeTilesetId}`;
-                const tilesExist = await hazardDataExists({ ...hazard, path: checkPath, metaUrl: null, apiUrl: null });
+                    checkPathForLog = `/tiles/${activeTilesetId}`;
+                    tilesExist = await hazardDataExists({ ...hazard, path: checkPathForLog, metaUrl: null, apiUrl: null });
+                }
+
                 if (!tilesExist) {
                     if (hazard.apiUrl) {
                         // タイルが未整備 → API フォールバックで有効化
                         hazard._vectorTilesUnavailable = true;
                         hazard.availabilityState = 'vector-tiles-fallback-to-api';
-                        console.warn(`[hazard:init] ${layerKey}: HEAD ${checkPath} が 404/失敗。apiUrl フォールバックで有効化します。`);
+                        console.warn(`[hazard:init] ${layerKey}: ${checkPathForLog} が 404/失敗。apiUrl フォールバックで有効化します。`);
                         updateHazardCheckboxPresentation(layerKey);
                         return { layerKey, enabled: true, reason: 'vector-tiles-fallback-to-api' };
                     }
                     hazard.availabilityState = useMartinTiles ? 'tiles-not-found' : 'martin-unavailable-no-fallback';
-                    hazard.lastError = `${checkPath} が見つかりません`;
+                    hazard.lastError = `${checkPathForLog} が見つかりません`;
                     updateHazardCheckboxPresentation(layerKey);
                     return { layerKey, enabled: false, reason: 'tiles-not-found' };
                 }
