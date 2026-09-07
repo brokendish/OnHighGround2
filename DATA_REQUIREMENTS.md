@@ -10,14 +10,26 @@ OnHighGround2は避難ナビゲーションシステムで、以下の外部デ�
 |-----------|------|---------|------|
 | 標高データ | 標高計算・避難先検索 | `data_lake/validated/tokyo/dem/elevation.tif` | GeoTIFF形式の数値標高モデル |
 | 道路データ | ルート検索（運転・徒歩） | `data/kanto-260214.osm.pbf` | OpenStreetMapの PBF形式 |
-| 避難施設データ | 避難先の表示・検索 | `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` | GeoJSON形式の指定緊急避難場所 |
+| 避難施設データ | 避難先の表示・検索 | admin registry管理（`active_mappings.json`→`dataset_definitions.json`→`data_lake/validated`） | GeoJSON形式の指定避難所・指定緊急避難場所。詳細下記 |
 | 洪水浸水想定 | ハザード判定（現在地・候補地） | `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` | GeoJSON形式（想定最大規模、925,958ポリゴン） |
 | 津波浸水想定 | ハザード判定（現在地・候補地） | `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` | GeoJSON形式（東京都、約33,124ポリゴン） |
-| 　避難施設データは、リポジトリ直下の 国土地理院避難所データ 配下にあります。主なCSVはここです。
-| 　国土地理院避難所データ/東京/13000_2/13000_2.csv
-| 　国土地理院避難所データ/東京/13000_1/13000_1.csv
-| 　国土地理院避難所データ/全国/mergeFromCity_2/mergeFromCity_2.csv
-| 　補足: docker-compose.yml ではこのフォルダをコンテナ内 /app/shelter_data にマウントしています。
+避難施設データは、`ShelterRegistry`（`backend/app/services/shelter_service.py`）が
+以下の正規系譜で解決する（`docs/admin-data-management.md`参照）:
+
+```text
+active_mappings.json（layer_type ∈ {shelter, evacuation_shelter, emergency_shelter}）
+  → dataset_definitions.json（dataset定義）
+  → DatasetState（current_validated_path / current_runtime_path）
+  → data_lake/validated/{region}/...（durable authoritative source）
+  → flat active artifact（data_runtime/backend/{shelters,emergency_shelters}/...、admin deploy intermediate）
+  → atomic publish current/versioned（production primary。backend起動時は通常これのみが使われる）
+```
+
+リポジトリ直下の`国土地理院避難所データ/`（`13000_2.csv`等）、および
+flat配下の`tokyo_shelter.geojson`は、上記の正規系譜に属さないlegacy artifactであり、
+現在のバックエンドは通常時これらを読まない（`国土地理院避難所データ/`は`docker-compose.yml`で
+コンテナ内`/app/shelter_data`へread-onlyマウントされているが、`ShelterRegistry`のいずれの
+解決経路にも含まれない、過去データの保全用途）。
 
 東京版データ基盤 v1 では、上記に加えて `data_lake/` を導入しています。
 これは配信データの保存場所ではなく、元データ・正規化データ・検証済みデータを責務分離して管理するための基盤です。
@@ -317,14 +329,12 @@ backend/shelter_data/
 
 ### 設定ファイルへの登録
 
-変換済みデータを使用する際は、[backend/app.properties](backend/app.properties) を編集：
-
-```properties
-# canonical
-evacuation.sites.path=../data_lake/validated/tokyo/shelter
-# legacy fallback の例
-# evacuation.sites.path=shelter_data/東京/13000_2/13000_2.csv
-```
+変換済みデータは、`app.properties`のパス指定ではなく、admin registry
+（`active_mappings.json`→`dataset_definitions.json`→`DatasetState`）経由で
+`ShelterRegistry`が解決する（本ドキュメント冒頭「避難施設データ」参照）。
+`app.properties`の`evacuation.sites.path`キーは現在いかなるコードからも
+読まれておらず（`parse_shelter_paths()`は未使用のため削除済み）、vestigialな
+設定として残置されている。
 
 ### 東京版データ基盤での扱い
 
@@ -353,12 +363,12 @@ ls -lh data_lake/validated/tokyo/shelter/
 
 - [ ] `data_lake/validated/tokyo/dem/elevation.tif` が存在、または移行期間中は `data/elevation.tif` が存在
 - [ ] `data_lake/raw/tokyo/osm/kanto-260214.osm.pbf` が存在（整合性: 数百MB以上）
-- [ ] `data_lake/normalized/tokyo/shelter/tokyo_shelter.geojson` が存在する
+- [ ] shelter系active dataset（`active_mappings.json`）が`data_lake/validated`配下に実artifactを持つ
 - [ ] `data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson` が存在する（フロント表示用・任意だが推奨）
 - [ ] `data_lake/normalized/tokyo/flood/tokyo_flood_check.geojsonl` が存在する（バックエンド判定用・任意だが推奨）
 - [ ] `data_lake/normalized/tokyo/tsunami/tsunami_tokyo.geojson` が存在する（任意だが推奨）
 - [ ] `backend/app.properties` の `dem.path` が `data_lake/validated/tokyo/dem` を指している
-- [ ] `backend/app.properties` の `evacuation.sites.path` が `data_lake/normalized/tokyo/shelter` を指している
+- [ ] （`evacuation.sites.path`は現在未使用。shelter解決はadmin registry経由——上記「避難施設データ」参照）
 - [ ] `backend/app.properties` の `hazard.flood.enabled` が `true` になっている
 - [ ] `data_runtime/backend/hazard/flood/` に判定用ファイルが配置されている
 - [ ] `data_runtime/backend/hazard/tsunami/` または `data_lake/validated/tokyo/tsunami/` に対象ファイルが配置されている

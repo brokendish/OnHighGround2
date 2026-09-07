@@ -101,7 +101,7 @@ Backend (`backend/`)
 Data (`data_lake/`)
 
 - DEM: `validated/tokyo/dem/elevation.tif`
-- Shelter: `normalized/tokyo/shelter/tokyo_shelter.geojson`
+- Shelter: admin registry管理（`active_mappings.json`→`dataset_definitions.json`→`validated/{region}/...`）。`normalized/tokyo/shelter/tokyo_shelter.geojson`はlegacyで現在は読まれない
 - Flood hazard: `normalized/tokyo/flood/tokyo_flood_max.geojson`（925,958 polygons, A31a + A31b 統合）
 - Tsunami hazard: `normalized/tokyo/tsunami/*.geojson`
 - MBTiles（frontend tile delivery）: `tiles/tokyo/`

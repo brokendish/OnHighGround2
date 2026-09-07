@@ -139,7 +139,7 @@ mkdir -p data_lake/validated/tokyo/osm/walking
 | 津波（千葉） | `data_runtime/backend/hazard/tsunami/tsunami_chiba.geojson` | ~138MB | 任意 |
 | 内水氾濫 | `data_runtime/backend/hazard/inland_flood/tokyo_inland_flood_A51.geojson` | ~184KB | 必須 |
 | 土砂災害 | `data_runtime/backend/hazard/landslide/tokyo_landslide_A33.geojson` | ~29MB | 必須 |
-| 避難所 | `data_runtime/backend/shelters/tokyo_shelter.geojson` | ~2MB | 必須 |
+| 避難所 | admin registry経由（`active_mappings.json`→atomic publish current）で配備。flat直下の`tokyo_shelter.geojson`は正規系譜外のlegacy artifactで現在は読まれない | — | — |
 | 洪水タイル | `data_runtime/frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles` | ~167MB | 必須（Martin 配信） |
 | 高潮タイル | `data_runtime/frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles` | ~19MB | 必須（Martin 配信） |
 | 津波タイル | `data_runtime/frontend/tiles/tokyo/tsunami/*.mbtiles` | ~67MB合計 | 必須（Martin 配信） |
@@ -528,7 +528,8 @@ data_runtime/
 │   │   └── landslide/
 │   │       └── tokyo_landslide_A33.geojson    # 土砂災害（~29MB）
 │   └── shelters/
-│       └── tokyo_shelter.geojson              # 避難所（~2MB）
+│       ├── {DATASET_ID}/{basename}.geojson    # 正規: admin registry管理
+│       └── tokyo_shelter.geojson              # legacy（現在は読まれない）
 ├── frontend/
 │   ├── layers/                                # API fallback 用 GeoJSON
 │   │   ├── tsunami_tokyo.geojson

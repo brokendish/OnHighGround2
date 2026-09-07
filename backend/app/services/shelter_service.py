@@ -302,6 +302,16 @@ class ShelterRegistry:
     # .backup ファイルは意図的にスキップする
     _SKIP_SUFFIXES = {".backup"}
 
+    @staticmethod
+    def _is_backup_artifact(path: Path) -> bool:
+        """`<basename>.backup.<ext>`（例: tokyo-shelter-001.backup.geojson）
+        形式のbackup artifactかどうかを判定する。`Path.suffix`は最後の
+        拡張子（`.geojson`）しか見ないため`_SKIP_SUFFIXES`との単純比較では
+        検出できない（SHELTER-FLAT-FALLBACK-DIRECTORY-AMBIGUITY調査で判明）。
+        `Path.stem`（最後の拡張子だけを除いた名前）が`.backup`で終わるかで
+        判定する。"""
+        return path.stem.endswith(".backup")
+
     def __init__(self, ttl_seconds: int = 30) -> None:
         self._ttl_seconds = ttl_seconds
         self._cache: Optional[List[Dict[str, Any]]] = None
@@ -493,7 +503,7 @@ class ShelterRegistry:
                     # state.current_runtime_path: deploy が完了した際に書き込まれる具体パス
                     if state.current_runtime_path:
                         p = Path(state.current_runtime_path)
-                        if p.exists() and p.suffix not in self._SKIP_SUFFIXES:
+                        if p.exists() and not self._is_backup_artifact(p):
                             logger.info(
                                 "ShelterRegistry: [%s] %s -> %s (active mapping)",
                                 region, dataset_id, p,
@@ -506,19 +516,59 @@ class ShelterRegistry:
                                 dataset_id, p,
                             )
 
-                    # current_runtime_path が未設定 or 消えている場合は defn.runtime_path を試みる
-                    fallback_p = (_PROJECT_ROOT / defn.runtime_path).resolve()
-                    if fallback_p.exists():
+                    # SHELTER-FLAT-FALLBACK-DIRECTORY-AMBIGUITY対応: state.current_
+                    # runtime_pathが未設定/消失している場合、defn.runtime_path
+                    # （複数datasetが共有しうるflat directoryそのもの）を返すと、
+                    # tokyo_shelter.geojson等の正規系譜外artifactやbackupまで
+                    # まとめてload_emergency_shelters()に渡ってしまう
+                    # （directory-driven selector）。
+                    #
+                    # 代わりに、同じdatasetのvalidated artifact（state.
+                    # current_validated_path、_infer_state_from_filesystem()の
+                    # copy_fileモードロジックが既に使っている「validated
+                    # basename→runtime_path直下」の橋渡しと同じ発想）から
+                    # 期待されるactive fileのbasenameを一意に組み立て、その
+                    # 具体fileが実在する場合のみ採用する（active-dataset-
+                    # driven selector）。組み立てたfileが存在しない場合は、
+                    # directory全体へfallbackせずこのdatasetをskipする
+                    # （fail-closed、per-dataset）。
+                    if state.current_validated_path:
+                        expected_name = Path(state.current_validated_path).name
+                        runtime_dir = (_PROJECT_ROOT / defn.runtime_path).resolve()
+                        candidate_p = runtime_dir / expected_name
+                        if candidate_p.exists() and not self._is_backup_artifact(candidate_p):
+                            logger.warning(
+                                "ShelterRegistry: [%s] %s -> %s "
+                                "(resolved via validated artifact basename; current_runtime_path missing)",
+                                region, dataset_id, candidate_p,
+                            )
+                            paths.append(candidate_p)
+                            continue
                         logger.warning(
-                            "ShelterRegistry: [%s] using defn runtime_path as fallback: %s",
-                            region, fallback_p,
+                            "ShelterRegistry: expected active file not found for %s "
+                            "(basename=%s under %s) — skipping dataset (no directory-wide fallback)",
+                            dataset_id, expected_name, runtime_dir,
                         )
-                        paths.append(fallback_p)
+                        continue
 
-        if paths:
+                    logger.warning(
+                        "ShelterRegistry: no validated artifact known for %s — "
+                        "cannot resolve an exact active file, skipping dataset",
+                        dataset_id,
+                    )
+
+        if active_shelter_map:
+            # SHELTER-FLAT-FALLBACK-DIRECTORY-AMBIGUITY対応: active_mappings に
+            # shelter系エントリーが1件以上存在する場合、admin registry
+            # （active_mappings/dataset_definitions/DatasetState）を正規の
+            # source-of-truthとして扱う。個々のdatasetが解決できずpathsが
+            # 空になったとしても、その事実（=登録済みdatasetが未deployまたは
+            # 破損）を尊重し、下記の「全runtime dir glob」「data_lake glob」
+            # 「legacy CSV」という無関係の古い経路へカスケードしない
+            # （正規系譜から外れるartifactを混入させないため）。
             return paths
 
-        # active mapping なし or すべて解決失敗 → 全 runtime dir からロード（後方互換）
+        # active mapping が一切存在しない場合のみ、従来の互換フォールバックを使う
         for runtime_subdir in ("shelters", "emergency_shelters"):
             runtime_dir = _PROJECT_ROOT / "data_runtime" / "backend" / runtime_subdir
             if runtime_dir.exists():
