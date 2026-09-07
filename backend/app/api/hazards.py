@@ -146,6 +146,7 @@ async def _runtime_stream_or_none(hazard_type: str, region: str, request_kind: s
         f"backend/hazard/{hazard_type}",
         [f"{region}_*.geojson", f"{region}-*.geojson"],
         f"http-hazard-{hazard_type}",
+        region=region,
     )
 
 

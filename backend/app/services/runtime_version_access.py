@@ -167,7 +167,7 @@ async def stream_versioned_file(relative_path: str, request_kind: str) -> AsyncI
 
 
 async def stream_versioned_glob(
-    subdir_relative: str, patterns: list, request_kind: str
+    subdir_relative: str, patterns: list, request_kind: str, region: Optional[str] = None
 ) -> Optional[AsyncIterator[bytes]]:
     """`data_runtime/current/<subdir_relative>` 配下でpatternsに一致する
     ファイルをsize降順で1件選び、lease保護下でstreamingするasync generatorを
@@ -192,6 +192,31 @@ async def stream_versioned_glob(
     `acquire_current()`を呼び出して真の異常をLeaseErrorとして伝播させる
     （`except LeaseError: return None`は使わない、第2ラウンドで確立した
     方針をここでも一貫させる）。
+
+    RUNTIME-VERSION-STREAM-REGION-LAYOUT-GAP対応（Phase B0）: Dual Storage
+    Remediation Phase C1で確立された実際のruntime layoutは
+    `<subdir_relative>/<region>/<file>`というregion配下directory構成
+    （例: `backend/hazard/inland_flood/tokyo/tokyo-urban-001.geojson`）だが、
+    本関数は従来`<subdir_relative>`直下をpatternsで非再帰globしていたため
+    一段浅く、region配下directoryへ到達できず常にNoneを返していた
+    （実機のcontent-length/last-modified/etagヘッダーにより、inland_flood/
+    landslideが従来の設計意図に反し、常にFileResponse＝flat fallback経由で
+    配信されていたことを実証済み。current/versioned優先・lease保護
+    streamingという意図が実質的にdead code化していた）。
+
+    `region`が指定された場合、まず`<subdir_relative>/<region>/`を非再帰で
+    `*.geojson`検索する（region directory自体がregion/typeのscopingを
+    担うため、patternsによるprefix/suffixフィルタは不要——このsize最大
+    tie-break選択は`HazardDatasetService._resolve_current_hazard_file()`の
+    region_subdir分岐と同一の既存selector contractを踏襲したもので、新規に
+    導入したものではない）。一致すればそれを正本として使う。一致しない
+    場合（region配下directoryが存在しない、または空）は、従来通り
+    `<subdir_relative>`直下を`patterns`で検索するlegacy direct-child glob
+    へfallbackする。`region`省略時は従来の挙動と完全に同一。
+
+    無制限recursive glob（`**/*.geojson`）は使わない——wrong region /
+    backup / legacy / 無関係datasetを誤って拾う可能性があるため、常に
+    単一のexact directoryをnon-recursiveでglobする。
     """
     coordinator = get_coordinator()
     if not (LEASES_ROOT / "coordination.lock").exists():
@@ -201,11 +226,16 @@ async def stream_versioned_glob(
     version_root = DATA_RUNTIME_ROOT / "versions" / handle.payload.version_id
     try:
         _verify_version_root_ownership(version_root)
-        subdir = version_root / subdir_relative
         matches = []
-        if subdir.is_dir():
-            for pattern in patterns:
-                matches.extend(subdir.glob(pattern))
+        if region is not None:
+            region_dir = version_root / subdir_relative / region
+            if region_dir.is_dir():
+                matches.extend(region_dir.glob("*.geojson"))
+        if not matches:
+            subdir = version_root / subdir_relative
+            if subdir.is_dir():
+                for pattern in patterns:
+                    matches.extend(subdir.glob(pattern))
     except BaseException:
         # 検証failure等でgeneratorへ移行できない場合、ここでleaseを
         # 確実に解放する（以降の正常系はgeneratorのfinallyが解放を担う）。
