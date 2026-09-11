@@ -141,12 +141,16 @@ def test_H_flood_still_413_with_distinct_detail(client):
     assert resp.json()["detail"] != hazards._HAZARD_POLICY_REJECTED_DETAIL
 
 
-# ── I/J. tsunami は現行通り200維持（変更なし） ────────────────────────────────
-# storm_surgeは、本テスト作成後のSTORM-SURGE-FALLBACK-STREAMING Phase B1で
-# catch-all routeを経由しない専用streaming routeへ切り替わったため対象から
-# 除外（その契約は tests/test_storm_surge_fallback_streaming.py で検証する）。
+# ── I/J. policy-rejected typesとは無関係のtypeは無変更（200維持） ─────────────
+# storm_surge/tsunamiは、それぞれSTORM-SURGE-FALLBACK-STREAMING/
+# TSUNAMI-FALLBACK-STREAMING Phase B1でcatch-all routeを経由しない専用
+# streaming routeへ切り替わったため対象から除外（それぞれの契約は専用
+# test fileで検証する）。catch-all自身の「policy-rejected typesとは無関係の
+# typeはhas_active_hazard_dataset()を経由しない」という分岐契約は特定の
+# 実typeに依存しないため、合成type（`some_type`）で検証する
+# （HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH candidate参照）。
 
-@pytest.mark.parametrize("hazard_type", ["tsunami"])
+@pytest.mark.parametrize("hazard_type", ["some_type"])
 def test_IJ_storm_surge_tsunami_unaffected(client, hazard_type):
     fake_geojson = {"type": "FeatureCollection", "features": []}
     with patch.object(

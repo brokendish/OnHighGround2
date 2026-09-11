@@ -47,14 +47,22 @@ def client():
 def test_permission_error_hides_filesystem_path(client, caplog):
     # LARGE-HAZARD-FULL-BODY-POLICY Phase B1対応: pseudo_inland_floodは
     # policy-rejected type（422、has_active_hazard_datasetのみ呼ばれる）に
-    # なったため、get_active_hazard_geojson()をmockする本テストの対象からは
-    # 外し、引き続きget_active_hazard_geojson()経由の通常catch-all pathを
-    # 使うtsunamiへ切り替える（テストの意図——PermissionError発生時に
-    # 内部pathを漏らさないこと——は完全に同一のまま検証できる）。
-    # STORM-SURGE-FALLBACK-STREAMING Phase B1対応: storm_surgeは専用
-    # streaming routeへ切り替わりcatch-allを経由しなくなったため、本テスト
-    # の対象からも外した（同様の理由でtsunamiを採用）。
-    leaked_path = "/data_runtime/frontend/tiles/tokyo/tsunami/tsunami_tokyo.geojson"
+    # なったため対象から外した。STORM-SURGE-FALLBACK-STREAMING/
+    # TSUNAMI-FALLBACK-STREAMING Phase B1で、storm_surge/tsunamiも専用
+    # streaming routeへ移行しcatch-allを経由しなくなったため、これらも
+    # 対象から外れた。inland_flood/landslideも既に専用route。
+    #
+    # この結果、catch-all（get_active_hazard_geojson()経由のjson.load()
+    # full-body path）を実際に経由する現行の実hazard typeは無くなった
+    # （HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH candidate、TSUNAMI-
+    # FALLBACK-STREAMING Phase B1 OWNER Gate参照）。本テストの意図は
+    # 「catch-all route自身の例外→HTTPException変換ロジックがpath/errnoを
+    # 漏らさないこと」の検証であり、特定の実hazard typeの業務的意味には
+    # 依存しない。get_active_hazard_geojson()を完全にmockするため、
+    # HazardDatasetService.HAZARD_LAYER_TYPES非登録の合成type文字列
+    # （`test_file_not_found_keeps_404_detail`と同じ`some_type`パターン）を
+    # 使い、実typeの切り替え保守を続ける代わりにこの依存自体を断つ。
+    leaked_path = "/data_runtime/frontend/tiles/tokyo/some_type/tokyo-some-type-001.geojson"
     exc = PermissionError(13, "Permission denied")
     exc.filename = leaked_path
     # OSErrorのstr()表現は "[Errno 13] Permission denied: '<path>'" になる
@@ -62,7 +70,7 @@ def test_permission_error_hides_filesystem_path(client, caplog):
 
     with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc_with_path), \
          caplog.at_level(logging.ERROR):
-        resp = client.get("/api/hazards/tsunami/tokyo")
+        resp = client.get("/api/hazards/some_type/tokyo")
 
     assert resp.status_code == 500
     body_text = resp.text
@@ -103,12 +111,14 @@ def test_permission_error_on_active_list_endpoint_hides_path(client):
 # ── B. OSError一般（IOError等）→ raw errno非公開 ──────────────────────────────
 
 def test_generic_oserror_hides_errno_detail(client):
-    # STORM-SURGE-FALLBACK-STREAMING Phase B1対応: storm_surgeは専用
-    # streaming routeへ切り替わったため、catch-all経由のtsunamiを使う。
+    # TSUNAMI-FALLBACK-STREAMING Phase B1対応: tsunami/storm_surgeとも専用
+    # streaming routeへ移行したため、catch-all自身のcontractを検証する
+    # 合成type（`some_type`）を使う。上記test_permission_error_hides_
+    # filesystem_pathのコメント参照。
     exc = OSError(28, "No space left on device")  # errno例: ENOSPC
 
     with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
-        resp = client.get("/api/hazards/tsunami/tokyo")
+        resp = client.get("/api/hazards/some_type/tokyo")
 
     assert resp.status_code == 500
     assert "No space left on device" not in resp.text
@@ -118,14 +128,13 @@ def test_generic_oserror_hides_errno_detail(client):
 # ── C. malformed GeoJSON（ValueError、path埋め込み）→ path非公開 ──────────────
 
 def test_value_error_with_embedded_path_hides_path(client):
-    # LARGE-HAZARD-FULL-BODY-POLICY Phase B1対応: 上記と同じ理由でtsunami
-    # へ切り替える（STORM-SURGE-FALLBACK-STREAMING Phase B1でstorm_surgeが
-    # 専用streaming routeへ移行したため）。
-    leaked_path = "/data_lake/validated/tokyo/tsunami/tsunami_tokyo.geojson"
+    # TSUNAMI-FALLBACK-STREAMING Phase B1対応: 上記と同じ理由で合成type
+    # （`some_type`）へ切り替える。
+    leaked_path = "/data_lake/validated/tokyo/some_type/tokyo-some-type-001.geojson"
     exc = ValueError(f"GeoJSON root must be an object: {leaked_path}")
 
     with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
-        resp = client.get("/api/hazards/tsunami/tokyo")
+        resp = client.get("/api/hazards/some_type/tokyo")
 
     assert resp.status_code == 500
     assert leaked_path not in resp.text
@@ -134,17 +143,17 @@ def test_value_error_with_embedded_path_hides_path(client):
 # ── D. dataset not registered → 既存404契約維持 ───────────────────────────────
 
 def test_dataset_not_registered_keeps_404_detail(client):
-    # LARGE-HAZARD-FULL-BODY-POLICY Phase B1対応: pseudo_inland_floodは
-    # policy-rejected typeになったため、get_active_hazard_geojson()経由の
-    # 通常404契約を検証する本テストはtsunamiへ切り替える
+    # LARGE-HAZARD-FULL-BODY-POLICY/STORM-SURGE/TSUNAMI-FALLBACK-STREAMING
+    # 各Phase B1対応: pseudo_inland_flood/storm_surge/tsunamiは、いずれも
+    # get_active_hazard_geojson()経由のcatch-all pathを経由しなくなった
     # （pseudo_inland_flood自身の404契約はhas_active_hazard_datasetベースで
-    # test_hazard_large_response_limit.py側に別途カバーする）。
-    # STORM-SURGE-FALLBACK-STREAMING Phase B1対応: storm_surgeも専用
-    # streaming routeへ移行したため、同じ理由で対象から外した。
-    exc = KeyError("Active dataset is not registered: tsunami:chiba")
+    # test_hazard_large_response_limit.py側に別途カバーする）。本テストは
+    # catch-all route自身の404 mapping契約を検証する合成type（`some_type`）
+    # へ切り替える。
+    exc = KeyError("Active dataset is not registered: some_type:chiba")
 
     with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
-        resp = client.get("/api/hazards/tsunami/chiba")
+        resp = client.get("/api/hazards/some_type/chiba")
 
     assert resp.status_code == 404
     assert "not registered" in resp.text
@@ -180,11 +189,12 @@ def test_pseudo_kanagawa_404_contract_unchanged(client):
 # ── F. 正常系 → 200維持 ────────────────────────────────────────────────────────
 
 def test_normal_response_untouched(client):
-    # STORM-SURGE-FALLBACK-STREAMING Phase B1対応: storm_surgeは専用
-    # streaming routeへ切り替わったため、catch-all経由のtsunamiを使う。
+    # TSUNAMI-FALLBACK-STREAMING Phase B1対応: storm_surge/tsunamiとも専用
+    # streaming routeへ移行したため、catch-all自身の正常応答契約を検証する
+    # 合成type（`some_type`）を使う。
     payload = {"type": "FeatureCollection", "features": []}
     with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", return_value=payload):
-        resp = client.get("/api/hazards/tsunami/tokyo")
+        resp = client.get("/api/hazards/some_type/tokyo")
 
     assert resp.status_code == 200
     assert resp.json() == payload

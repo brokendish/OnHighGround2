@@ -330,18 +330,23 @@ def test_KL_flood_pseudo_lowland_regression_unchanged(client, monkeypatch, hazar
     load_mock.assert_not_called()
 
 
-# ── M. tsunami regression（catch-all側、json.loadパス無変更） ─────────────────
+# ── M. tsunami regression ──────────────────────────────────────────────────────
+# 本テストは当初「tsunamiはstorm_surgeと異なりcatch-all経由のまま」を検証
+# する目的で書かれたが、TSUNAMI-FALLBACK-STREAMING Phase B1でtsunamiも
+# storm_surgeと同じ専用streaming routeへ移行したため、この前提自体が
+# 成立しなくなった（get_active_hazard_geojson()のmockが呼ばれず、実際には
+# route内のcatch-all未到達＝専用routeが先に処理する状態になり、テストは
+# 実filesystem fallback経由のdataを返してassertion失敗していた）。
+# tsunami自身の詳細な契約は tests/test_tsunami_fallback_streaming.py で
+# 検証するため、ここではstorm_surge同様に「catch-allより先に専用route
+# として登録されていること」のみを軽量に確認する（test_N・test_Qと同じ
+# パターン）。
 
-def test_M_tsunami_regression_still_uses_catch_all_json_load(client, monkeypatch):
-    fake_geojson = {"type": "FeatureCollection", "features": []}
-    with patch.object(
-        hazards.hazard_dataset_service, "get_active_hazard_geojson", return_value=fake_geojson,
-    ) as load_mock:
-        resp = client.get("/api/hazards/tsunami/tokyo")
-
-    assert resp.status_code == 200
-    assert resp.json() == fake_geojson
-    load_mock.assert_called_once_with("tsunami", "tokyo")  # storm_surgeとは異なりcatch-all経由のまま
+def test_M_tsunami_route_also_precedes_catch_all(client):
+    paths = [route.path for route in hazards.router.routes]
+    tsunami_index = paths.index("/api/hazards/tsunami/{region}")
+    catch_all_index = paths.index("/api/hazards/{hazard_type}/{region_code}")
+    assert tsunami_index < catch_all_index
 
 
 # ── N. inland_flood/landslide streaming unchanged（storm_surge追加の影響なし） ─

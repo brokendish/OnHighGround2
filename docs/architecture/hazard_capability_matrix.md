@@ -292,7 +292,7 @@ vector tile 代替の有無・現行 artifact size・response 実装の安全性
 | `pseudo_inland_flood` | **REJECT_PUBLIC** | 422 | frontend が full-body route を一切呼ばない（`apiUrl` 未設定）。tile 完備、サイズは理由ではない |
 | `lowland_poor_drainage` | **REJECT_PUBLIC** | 422 | 同上 |
 | `storm_surge` | **FALLBACK_ONLY** / **ALLOW_STREAM** | 200（streaming） | frontend は tile primary、tile/Martin 不到達時のみ実際に使われる fallback。STORM-SURGE-FALLBACK-STREAMING Phase B1（2026-09-07）で専用 route（`StreamingResponse`/`FileResponse`、catch-all を経由しない）へ移行、memory-safe 化済み |
-| `tsunami` | **FALLBACK_ONLY**（`ALLOW_JSON` 現状維持） | 200 | frontend は tile-first（`useStaticVectorTiles`）、fallback は tile 失敗時のみ |
+| `tsunami` | **FALLBACK_ONLY** / **ALLOW_STREAM** | 200（streaming） | frontend は tile-first（`useStaticVectorTiles`）、fallback は tile 失敗時のみ。TSUNAMI-FALLBACK-STREAMING Phase B1（2026-09-12）で専用 route へ移行、memory-safe 化済み。Chiba は backend 側に active dataset 未登録のため引き続き 404（tile 自体は正常） |
 | `inland_flood` | **ALLOW_STREAM** / frontend primary | 200（streaming） | tile は存在するが frontend が意図的に API を primary として使用（`preferApi: true`）。既に memory-safe |
 | `landslide` | **ALLOW_STREAM** / frontend primary | 200（streaming） | tile infrastructure が存在しない唯一の type。既に memory-safe |
 
@@ -318,11 +318,38 @@ REGION-LAYOUT-GAP`（同日 CLOSED）で region subdirectory layout
 helper（`stream_versioned_glob()`）をそのまま再利用しており、新規の
 lease 実装は行っていない。
 
-`tsunami` の fallback path は現状 `json.load()` + `JSONResponse` 実装の
-まま（LARGE-HAZARD-FULL-BODY-POLICY Phase A で memory-unsafe と確認済み）
-——streaming 化は将来の hardening 候補（`LARGE-HAZARD-FULL-BODY-POLICY`
-finding、OPEN のまま。storm_surge と同一パターンの再利用が見込まれる）
-であり、今回のスコープには含まれない。
+`tsunami` の fallback path は TSUNAMI-FALLBACK-STREAMING Phase B1
+（2026-09-12）で、storm_surge と同じ current/versioned 優先・lease 保護
+`StreamingResponse`（flat `FileResponse` fallback 併用）へ切り替え済み。
+`_runtime_stream_or_none()` の再利用のみで、新規の lease 実装は行って
+いない。
+
+**tsunami 固有の layout 差異**: tsunami の current/versioned artifact は
+storm_surge/inland_flood/landslide が使う region-subdirectory layout
+（`{type}/{region}/{file}`）ではなく、`tsunami_{region}.geojson` という
+region **接尾辞**の flat 命名（他 type は region **接頭辞**）。VPS 実機
+`find` で確認済み（`tsunami_tokyo.geojson`/`tsunami_kanagawa.geojson`、
+region subdirectory 無し）。`_runtime_stream_or_none()` の legacy glob
+patterns に接尾辞形（`*_{region}.geojson`）を追加することで対応した
+（`HazardDatasetService._resolve_current_hazard_file()` が既に使っている
+3 パターン構成と一致させた、`stream_versioned_glob()` 自体は無変更）。
+
+**Chiba**: frontend の vector tile は正常に存在するが、backend 側に
+active dataset が未登録のため、versioned/flat どちらの解決も一致せず
+既存の 404 のまま区別される（Chiba 用 artifact を新設していない）。
+
+**catch-all（`get_active_hazard_geojson()`、`json.load()` full-body path）
+の残存 consumer**: 本 Phase 完了時点で、`_HAZARD_LARGE_RESPONSE_LIMITED_
+TYPES`/`_HAZARD_POLICY_REJECTED_TYPES`（flood/pseudo_inland_flood/
+lowland_poor_drainage）と専用 route を持つ type（inland_flood/landslide/
+storm_surge/tsunami）の和集合が `HazardDatasetService.HAZARD_LAYER_TYPES`
+の全量と一致する（`tests/test_tsunami_fallback_streaming.py::
+test_catch_all_has_no_remaining_real_type_consumer` で静的に検証）。
+つまり、catch-all の `json.load()` full-body path を実際に経由する現行の
+実 hazard type は存在しない。将来的な catch-all 自体の縮小・削除は
+`HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH`（新規 candidate）として
+別途 OWNER 判断とする——本 Phase では catch-all route 自体の削除・
+大改修は行っていない。
 
 ---
 

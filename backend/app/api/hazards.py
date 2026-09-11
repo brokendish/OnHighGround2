@@ -139,12 +139,27 @@ async def _runtime_stream_or_none(hazard_type: str, region: str, request_kind: s
     が例外を送出する場合は、それをそのまま呼び出し元（FastAPI）へ伝播させ、
     500として扱う（fail-closed）。「該当region/typeのfileがそもそも存在
     しない」という正常系のNoneはstream_versioned_glob()内部で判定済み。
+
+    TSUNAMI-FALLBACK-STREAMING Phase B1対応: `region`指定によるregion-
+    subdirectory primary解決（inland_flood/landslide/storm_surgeが使う
+    `{type}/{region}/{file}`layout）は、tsunamiには一致しない。tsunamiは
+    `HazardDatasetService._resolve_current_hazard_file()`の既存docstringに
+    明記されている通り、region直下フラット命名かつregion**接尾辞**
+    （`tsunami_{region}.geojson`、他typeのregion**接頭辞**とは逆）を使う
+    （VPS実機`find`で実際に確認済み: `tsunami_tokyo.geojson`/
+    `tsunami_kanagawa.geojson`、region subdirectory無し）。このため
+    `stream_versioned_glob()`のlegacy direct-child glob（region-subdirectory
+    が一致しない場合のfallback）へ渡すpatternsに接尾辞形
+    （`*_{region}.geojson`）を追加し、`_resolve_current_hazard_file()`が
+    既に使っている3パターン構成と一致させる。tsunami以外のtype（接尾辞
+    命名を使わない）にとっては、region-subdirectory側で先に解決が完了する
+    ため、この追加patternが実際にglobされることはない（無害な拡張）。
     """
     if not runtime_version_access.is_available():
         return None
     return await runtime_version_access.stream_versioned_glob(
         f"backend/hazard/{hazard_type}",
-        [f"{region}_*.geojson", f"{region}-*.geojson"],
+        [f"{region}_*.geojson", f"{region}-*.geojson", f"*_{region}.geojson"],
         f"http-hazard-{hazard_type}",
         region=region,
     )
@@ -205,6 +220,43 @@ async def get_storm_surge(region: str):
     path = _find_hazard_file_for_region("storm_surge", region)
     if path is None:
         raise HTTPException(status_code=404, detail=f"storm_surge データが見つかりません: region={region}")
+    return FileResponse(path, media_type="application/json")
+
+
+@router.get("/tsunami/{region}")
+async def get_tsunami(region: str):
+    """津波浸水想定 GeoJSON を返す（lease保護されたdata_runtime current → data_lake の優先順）。
+
+    TSUNAMI-FALLBACK-STREAMING Phase B1（storm_surgeで確立済みのpatternを
+    横展開）: 従来はcatch-all route（get_active_hazard_geojson）経由で
+    `json.load()`によるfull memory展開＋FastAPI JSONResponseの再
+    シリアライズが発生していた。frontendは既にtile-first
+    （`useStaticVectorTiles`）でこのrouteをtile失敗時のfallbackとしてのみ
+    呼ぶため、normal pathには影響しないが、fallback時のmemory安全性は
+    storm_surge同様の懸念があった。inland_flood/landslide/storm_surgeと
+    同一のstreaming pattern（StreamingResponse/FileResponse）を適用する。
+
+    region layoutの違い: tsunamiのcurrent/versioned artifactは
+    region-subdirectoryではなく`tsunami_{region}.geojson`という
+    region接尾辞のflat命名（`_runtime_stream_or_none()`のdocstring・
+    `HazardDatasetService._resolve_current_hazard_file()`のdocstring
+    参照）。`_runtime_stream_or_none()`のlegacy glob patternsに接尾辞形を
+    追加済みのため、`stream_versioned_glob()`の呼び出し自体は他typeと
+    完全に同一で対応できる。
+
+    Chiba: backend側にactive datasetが未登録（frontend tileのみ存在）の
+    ため、versioned/flatとも一致せず既存の404 semanticsをそのまま維持する
+    （Chiba用artifactを新設・代替探索しない）。
+
+    content-type: storm_surgeと同一方針で`application/json`を維持する
+    （既存catch-all contractからの変化を最小化）。
+    """
+    stream = await _runtime_stream_or_none("tsunami", region, "http-hazard-tsunami")
+    if stream is not None:
+        return StreamingResponse(stream, media_type="application/json")
+    path = _find_hazard_file_for_region("tsunami", region)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"tsunami データが見つかりません: region={region}")
     return FileResponse(path, media_type="application/json")
 
 

@@ -171,12 +171,19 @@ def test_D_413_response_detail_is_generic_no_internal_leak(client):
 # LARGE-HAZARD-FULL-BODY-POLICY Phase B1でpolicy-rejected type（422）に
 # なったため、対象から除外（そちらの契約は
 # tests/test_hazard_policy_rejected_types.py で検証する）。
-# storm_surgeは、本テスト作成後のSTORM-SURGE-FALLBACK-STREAMING Phase B1で
-# catch-all routeを経由しない専用streaming routeへ切り替わったため対象から
-# 除外（get_active_hazard_geojson()を呼ばなくなった。その契約は
-# tests/test_storm_surge_fallback_streaming.py で検証する）。
+# storm_surge/tsunamiは、本テスト作成後のSTORM-SURGE-FALLBACK-STREAMING/
+# TSUNAMI-FALLBACK-STREAMING各Phase B1で、catch-all routeを経由しない専用
+# streaming routeへ切り替わったため対象から除外（get_active_hazard_geojson()
+# を呼ばなくなった。その契約はそれぞれ専用test fileで検証する）。
+#
+# この結果、_HAZARD_LARGE_RESPONSE_LIMITED_TYPES/_HAZARD_POLICY_REJECTED_
+# TYPESのいずれにも属さない現行の実hazard typeは無くなった
+# （HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH candidate）。本テストの意図は
+# 「LIMIT対象外typeがprobe-onlyを経由せず通常load pathへ到達すること」という
+# catch-all自身の分岐契約の検証であり、特定の実typeに依存しないため、
+# 合成type（`some_type`）へ切り替える。
 
-@pytest.mark.parametrize("hazard_type", ["tsunami"])
+@pytest.mark.parametrize("hazard_type", ["some_type"])
 def test_E_other_types_unaffected_normal_response(client, hazard_type):
     fake_geojson = {"type": "FeatureCollection", "features": []}
     with patch.object(
