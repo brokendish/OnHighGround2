@@ -291,7 +291,7 @@ vector tile 代替の有無・現行 artifact size・response 実装の安全性
 | `flood` | **REJECT_PUBLIC** | 413 | artifact が破滅的に巨大（tokyo≈500MB / kanagawa≈310MB）。frontend は tile primary で fallback 不要 |
 | `pseudo_inland_flood` | **REJECT_PUBLIC** | 422 | frontend が full-body route を一切呼ばない（`apiUrl` 未設定）。tile 完備、サイズは理由ではない |
 | `lowland_poor_drainage` | **REJECT_PUBLIC** | 422 | 同上 |
-| `storm_surge` | **FALLBACK_ONLY**（`ALLOW_JSON` 現状維持） | 200 | frontend は tile primary、tile/Martin 不到達時のみ実際に使われる fallback |
+| `storm_surge` | **FALLBACK_ONLY** / **ALLOW_STREAM** | 200（streaming） | frontend は tile primary、tile/Martin 不到達時のみ実際に使われる fallback。STORM-SURGE-FALLBACK-STREAMING Phase B1（2026-09-07）で専用 route（`StreamingResponse`/`FileResponse`、catch-all を経由しない）へ移行、memory-safe 化済み |
 | `tsunami` | **FALLBACK_ONLY**（`ALLOW_JSON` 現状維持） | 200 | frontend は tile-first（`useStaticVectorTiles`）、fallback は tile 失敗時のみ |
 | `inland_flood` | **ALLOW_STREAM** / frontend primary | 200（streaming） | tile は存在するが frontend が意図的に API を primary として使用（`preferApi: true`）。既に memory-safe |
 | `landslide` | **ALLOW_STREAM** / frontend primary | 200（streaming） | tile infrastructure が存在しない唯一の type。既に memory-safe |
@@ -309,11 +309,20 @@ delivery-policy 上の理由であり、size が理由ではない
 region（例: `pseudo_inland_flood:kanagawa`）は従来通り 404 のまま
 区別される。
 
-`storm_surge`/`tsunami` の fallback path は現状 `json.load()` +
-`JSONResponse` 実装のまま（LARGE-HAZARD-FULL-BODY-POLICY Phase A で
-memory-unsafe と確認済み）——streaming 化は将来の hardening 候補
-（`LARGE-HAZARD-FULL-BODY-POLICY` finding、OPEN のまま）であり、
-今回のスコープには含まれない。
+`storm_surge` の fallback path は STORM-SURGE-FALLBACK-STREAMING
+Phase B1（2026-09-07）で、`inland_flood`/`landslide` と同じ
+current/versioned 優先・lease 保護 `StreamingResponse`（flat
+`FileResponse` fallback 併用）へ切り替え済み。`RUNTIME-VERSION-STREAM-
+REGION-LAYOUT-GAP`（同日 CLOSED）で region subdirectory layout
+（`backend/hazard/{type}/{region}/{file}`）へ対応した既存 streaming
+helper（`stream_versioned_glob()`）をそのまま再利用しており、新規の
+lease 実装は行っていない。
+
+`tsunami` の fallback path は現状 `json.load()` + `JSONResponse` 実装の
+まま（LARGE-HAZARD-FULL-BODY-POLICY Phase A で memory-unsafe と確認済み）
+——streaming 化は将来の hardening 候補（`LARGE-HAZARD-FULL-BODY-POLICY`
+finding、OPEN のまま。storm_surge と同一パターンの再利用が見込まれる）
+であり、今回のスコープには含まれない。
 
 ---
 

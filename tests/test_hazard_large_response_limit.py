@@ -171,8 +171,12 @@ def test_D_413_response_detail_is_generic_no_internal_leak(client):
 # LARGE-HAZARD-FULL-BODY-POLICY Phase B1でpolicy-rejected type（422）に
 # なったため、対象から除外（そちらの契約は
 # tests/test_hazard_policy_rejected_types.py で検証する）。
+# storm_surgeは、本テスト作成後のSTORM-SURGE-FALLBACK-STREAMING Phase B1で
+# catch-all routeを経由しない専用streaming routeへ切り替わったため対象から
+# 除外（get_active_hazard_geojson()を呼ばなくなった。その契約は
+# tests/test_storm_surge_fallback_streaming.py で検証する）。
 
-@pytest.mark.parametrize("hazard_type", ["storm_surge", "tsunami"])
+@pytest.mark.parametrize("hazard_type", ["tsunami"])
 def test_E_other_types_unaffected_normal_response(client, hazard_type):
     fake_geojson = {"type": "FeatureCollection", "features": []}
     with patch.object(

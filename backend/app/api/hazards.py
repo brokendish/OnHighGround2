@@ -178,6 +178,36 @@ async def get_landslide(region: str):
     return FileResponse(path, media_type="application/geo+json")
 
 
+@router.get("/storm_surge/{region}")
+async def get_storm_surge(region: str):
+    """高潮浸水想定 GeoJSON を返す（lease保護されたdata_runtime current → data_lake の優先順）。
+
+    STORM-SURGE-FALLBACK-STREAMING Phase B1（RUNTIME-VERSION-STREAM-REGION-
+    LAYOUT-GAP修正で正しく機能するようになったcurrent/versioned優先の
+    streaming helperをstorm_surgeへ適用）: 従来はcatch-all route
+    （get_active_hazard_geojson）経由で`json.load()`によるfull memory
+    展開＋FastAPI JSONResponseの再シリアライズが発生していた
+    （tokyo≈54MB/kanagawa≈82MB、LARGE-HAZARD-GEOJSON-SWAP-THRASH対応で
+    flood同様の懸念が指摘されていた）。inland_flood/landslideと同一の
+    streaming pattern（StreamingResponse/FileResponse）をこのroute専用に
+    適用し、json.load()を一切発生させない。
+
+    content-type: 既存のstorm_surge public contractからの変化を最小化する
+    ため`application/json`を使う（catch-all route時代のFastAPI default
+    JSONResponseと同じ）。inland_flood/landslideが使う
+    `application/geo+json`はここでは踏襲しない（両者は独立した既存
+    precedentであり、本routeが新たに`application/geo+json`へ揃える理由は
+    ない——OWNER Gate参照）。
+    """
+    stream = await _runtime_stream_or_none("storm_surge", region, "http-hazard-storm_surge")
+    if stream is not None:
+        return StreamingResponse(stream, media_type="application/json")
+    path = _find_hazard_file_for_region("storm_surge", region)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"storm_surge データが見つかりません: region={region}")
+    return FileResponse(path, media_type="application/json")
+
+
 # Residual Finding Remediation 04（PUBLIC-ERROR-DETAIL-LEAK）: OSError/ValueError
 # はfilesystem path・errno文字列を内包する場合があり（例:
 # "[Errno 13] Permission denied: '/data_runtime/...'"）、str(exc)をそのまま
