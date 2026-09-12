@@ -43,11 +43,40 @@ def _find_tileset_for_region(hazard_type: str, region: str) -> Optional[dict]:
     mbtiles自身のmetadataテーブルに記録されたvector layer名（tippecanoeの
     `--layer`指定、Martinのvector_layers.idと同一）を返す。該当なしはNone。
     複数fileがある場合は最大サイズを選ぶ（hazards.pyの他のfile選択と同じ規約）。
+
+    HAZARD-META-TILESET-REGION-SELECTION-GAP対応（Phase B、region-prefix
+    filter）: tsunamiはTokyo/Kanagawa(×2)/Chiba全てのMBTilesが物理的に
+    同一directory（`tile_dir = tokyo/tsunami/`）へ同居しており、
+    従来はdirectory scopingのみに頼っていたため、`region="tokyo"`の
+    問い合わせに対して同居する最大サイズのChiba tilesetを誤って返す
+    実バグがあった（実機確認: `chiba_tsunami_A40-18_12.mbtiles`
+    34,267,136 bytes が `tokyo_tsunami_A40-23_13.mbtiles` 7,716,864 bytes
+    より大きいため誤選択）。glob直後にfilenameのregion接頭辞
+    （`{region}_`/`{region}-`）でfilterしてから、既存の最大サイズ
+    selectorを適用する。`not_tokyo_xxx.mbtiles`のような偽陽性
+    （substring anywhere一致）を避けるため、`startswith()`による
+    厳密な接頭辞一致のみを判定基準とする。
+
+    他5 hazard type（flood/storm_surge/pseudo_inland_flood/
+    lowland_poor_drainage/inland_flood）は、region毎に専用directoryへ
+    正しく分離済み（Phase A実機inventoryで確認）で、かつ全MBTilesが
+    既にregion接頭辞命名に従っているため、このfilterは既存の選択結果を
+    一切変更しない（無害な拡張）。
+
+    Kanagawaのtsunami（`kanagawa/tsunami/`directory自体が存在しない）や
+    Chiba（backend active dataset未登録、`get_active_hazard_meta()`の
+    registry checkがこの関数へ到達する前に404を返す）は、今回のfilter
+    追加では解決しない——directory自体が無ければ従来通りNoneのまま
+    （HAZARD-META-MULTI-TILESET-CONTRACT-GAPとして別途deferred）。
     """
     tile_dir = _TILE_ROOT / region / hazard_type
     if not tile_dir.is_dir():
         return None
-    candidates = sorted(tile_dir.glob("*.mbtiles"))
+    all_candidates = sorted(tile_dir.glob("*.mbtiles"))
+    candidates = [
+        p for p in all_candidates
+        if p.stem == region or p.stem.startswith(f"{region}_") or p.stem.startswith(f"{region}-")
+    ]
     if not candidates:
         return None
     chosen = max(candidates, key=lambda p: p.stat().st_size)

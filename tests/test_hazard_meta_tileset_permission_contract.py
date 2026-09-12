@@ -154,9 +154,14 @@ def test_C_D_find_tileset_lists_and_reads_mbtiles_metadata(tmp_path, monkeypatch
 
 
 def test_C_D_find_tileset_picks_largest_when_multiple_candidates(tmp_path, monkeypatch):
+    # HAZARD-META-TILESET-REGION-SELECTION-GAP対応（Phase B）: region-prefix
+    # filterの導入により、region接頭辞を持たないfilename（旧: small/large）
+    # は候補から除外されるようになったため、実際の命名規則
+    # （{region}_...）に沿ったfixtureへ更新する。「同一region内で最大
+    # サイズを選ぶ」という検証意図自体は変更しない。
     tile_dir = tmp_path / "tiles" / "tokyo" / "flood"
-    small = tile_dir / "small.mbtiles"
-    large = tile_dir / "large.mbtiles"
+    small = tile_dir / "tokyo_small.mbtiles"
+    large = tile_dir / "tokyo_large.mbtiles"
     _make_valid_mbtiles(small, vector_layer_id="small_layer")
     _make_valid_mbtiles(large, vector_layer_id="large_layer")
     # sizeを明確に差別化する（DBを大きくする）
@@ -169,7 +174,7 @@ def test_C_D_find_tileset_picks_largest_when_multiple_candidates(tmp_path, monke
     monkeypatch.setattr(hazards, "_TILE_ROOT", tmp_path / "tiles")
 
     result = hazards._find_tileset_for_region("flood", "tokyo")
-    assert result["tileset_id"] == "large"
+    assert result["tileset_id"] == "tokyo_large"
 
 
 def test_C_D_find_tileset_returns_none_when_no_candidates(tmp_path, monkeypatch):

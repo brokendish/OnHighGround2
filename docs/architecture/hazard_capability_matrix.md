@@ -351,6 +351,27 @@ test_catch_all_has_no_remaining_real_type_consumer` で静的に検証）。
 別途 OWNER 判断とする——本 Phase では catch-all route 自体の削除・
 大改修は行っていない。
 
+**`HAZARD-META-TILESET-REGION-SELECTION-GAP`（Phase B、2026-09-12 CLOSED
+/ FIX_SELECTOR）**: `_find_tileset_for_region()`（`/meta` エンドポイントの
+`tileset_id`/`tileset_source_layer` 解決）は、tsunami の Tokyo/
+Kanagawa(×2)/Chiba 全 MBTiles が物理的に同一 directory（`tokyo/tsunami/`）
+へ同居しているため、`region="tokyo"` の問い合わせに対し最大サイズの
+Chiba tileset を誤って返す実バグがあった（実機確認済み）。glob 直後に
+filename の region 接頭辞（`{region}_`/`{region}-`）で候補を絞ってから
+既存の最大サイズ selector を適用する region-prefix filter を追加して
+解消した。他 5 type（flood/storm_surge/pseudo_inland_flood/
+lowland_poor_drainage/inland_flood）は元々 region 毎に専用 directory へ
+分離済みかつ全 MBTiles が同じ命名規則に従うため、この filter は既存の
+選択結果を一切変更しない。
+
+Kanagawa の tsunami（`kanagawa/tsunami/` directory 自体が存在しない）は
+今回のfixでは解決されず、`tileset_id` は引き続き `null`。frontend の
+tsunami は `useStaticVectorTiles: true` によりこの値自体を参照しないため
+実害はない。この「1 region に複数 tileset」問題は
+`HAZARD-META-MULTI-TILESET-CONTRACT-GAP`（OPEN / NON-BLOCKING）として
+別途 defer する——meta schema 自体の変更（複数 tileset_id 対応）は
+本 Phase のスコープに含めていない。
+
 ---
 
 ## 参照先ドキュメント
