@@ -22,6 +22,13 @@ from dataclasses import dataclass
 from fastapi import Depends, HTTPException, Request
 
 from app.services.operator_audit_log import AuditSinkError, log_operator_auth
+from app.services.operator_session import (
+    CSRF_HEADER_NAME,
+    SAFE_METHODS,
+    SESSION_COOKIE_NAME,
+    Session,
+    get_session,
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +55,17 @@ def _derive_actor_id(token: str) -> str:
     """raw tokenを保持せず、一方向fingerprintの短い表示だけをactor_idとする。"""
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
     return f"op:{digest[:12]}"
+
+
+def derive_actor_id(token: str) -> str:
+    """`_derive_actor_id`の公開alias。Web login（admin_session.py）から
+    Bearer認証と同一のactor_id導出規則を再利用するために公開する。"""
+    return _derive_actor_id(token)
+
+
+def get_operator_secret() -> str:
+    """`_get_operator_secret`の公開alias。login route（token比較）が使う。"""
+    return _get_operator_secret()
 
 
 async def get_current_operator(request: Request) -> OperatorPrincipal:
@@ -97,7 +115,59 @@ async def get_current_operator(request: Request) -> OperatorPrincipal:
     return OperatorPrincipal(role="operator", actor_id=actor_id)
 
 
-def require_operator_role(principal: OperatorPrincipal = Depends(get_current_operator)) -> OperatorPrincipal:
+def _validate_csrf_or_raise(request: Request, session: Session) -> None:
+    """state変更method（POST/PUT/PATCH/DELETE等）に対し、`X-CSRF-Token`
+    headerがsession発行時のcsrf_tokenと一致することをconstant-timeで確認する。
+
+    GET/HEAD/OPTIONSはstateを変更しない前提のため対象外とする
+    （owner方針。同方針をmutation route側も守る責務を持つ）。
+    """
+    if request.method in SAFE_METHODS:
+        return
+    supplied = request.headers.get(CSRF_HEADER_NAME)
+    if not supplied or not secrets.compare_digest(supplied, session.csrf_token):
+        raise HTTPException(status_code=403, detail="csrf_token_invalid")
+
+
+async def get_current_operator_or_session(request: Request) -> OperatorPrincipal:
+    """既存Bearer認証routerを、session cookieでも通せるように拡張する
+    combined dependency。
+
+    優先順位:
+      1. `ohg_admin_session` cookieが有効なsessionを指している場合、それを使う
+         （state変更methodはCSRF検証も課す）。
+      2. cookieが無い、または無効／期限切れの場合は既存の`get_current_operator`
+         （Authorization: Bearerのみ）へそのまま委譲する。
+
+    既存のCLI/test/legacy Bearerクライアントの挙動・監査event・401 responseは
+    一切変更しない（cookieを一切送らない限り、本関数は`get_current_operator`と
+    完全に同一の経路を通る）。
+    """
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session = get_session(session_id) if session_id else None
+    if session is not None:
+        _validate_csrf_or_raise(request, session)
+        request.state.actor_id = session.actor_id
+        return OperatorPrincipal(role="operator", actor_id=session.actor_id)
+    return await get_current_operator(request)
+
+
+async def get_admin_session(request: Request) -> Session:
+    """Web管理画面専用session dependency（`ohg_admin_session` cookieのみを見る。
+
+    Bearerへはfallbackしない——logout／shutdownはブラウザsessionの概念であり、
+    Bearer保有だけでは（sessionを介さず）呼べないようにする設計上の判断
+    （defense in depth。Bearer秘密の漏洩単独でshutdownへ到達させない）。
+    """
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    _validate_csrf_or_raise(request, session)
+    return session
+
+
+def require_operator_role(principal: OperatorPrincipal = Depends(get_current_operator_or_session)) -> OperatorPrincipal:
     """認可段: `role == "operator"` であることを確認する。
 
     AUTH-N07: 「認証済みだが operator role でない principal」は本番HTTP経路

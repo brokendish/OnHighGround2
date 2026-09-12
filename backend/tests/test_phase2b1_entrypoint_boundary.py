@@ -320,8 +320,23 @@ class TestOperatorFailClosedSecret:
         assert "/health" not in paths
         assert "/api/evacuation" not in paths
         # operator routerは /api/admin または /api/simulation 配下のみ
+        # （OPERATOR-ADMIN-WEB-AUTH-AND-SHUTDOWN Phase B: /api/login・
+        # /api/session・/api/logout・/api/system/shutdown はWeb管理画面の
+        # login/session/shutdown専用routeで、operator-only・public appには
+        # 存在しない意図的な例外として固定allowlistへ追加する）。
         for p in paths:
-            if p in (None, "/operator/health", "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"):
+            if p in (
+                None,
+                "/operator/health",
+                "/openapi.json",
+                "/docs",
+                "/docs/oauth2-redirect",
+                "/redoc",
+                "/api/login",
+                "/api/session",
+                "/api/logout",
+                "/api/system/shutdown",
+            ):
                 continue
             assert p.startswith("/api/admin") or p.startswith("/api/simulation"), (
                 f"operator entrypointに想定外のroute prefixが登録されている: {p}"

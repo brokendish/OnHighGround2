@@ -39,6 +39,29 @@ docker compose --profile operator up -d
 
 秘密の生成・ローテーション手順は`.env.operator.example`のコメントに記載されている（`openssl rand -hex 32`での生成、更新後は`docker compose --profile operator up -d --force-recreate backend-operator`での再起動が必要）。
 
+## 4.1 Web管理画面のlogin / session / shutdown（OPERATOR-ADMIN-WEB-AUTH-AND-SHUTDOWN）
+
+`/admin/`（`http://127.0.0.1:18100/admin/`、またはSSH forward先）を開くと、
+未認証の場合は自動的に`/admin/login.html`へ誘導される。`OPERATOR_AUTH_SECRET`
+の値（4節のBearer credentialと同一）を入力してログインすると、
+server-side in-memory session（TTL 60分、`backend-operator`再起動で全件失効）
+が発行され、以後は`ohg_admin_session` cookie（`Secure`・`HttpOnly`・
+`SameSite=Strict`・`Path=/admin`）でページ間・reload後も再ログイン不要になる
+（従来の「ページごとにBearer tokenを貼り付け直す」運用は不要になった。
+既存のBearer経路自体はCLI・自動化向けにそのまま残る）。
+
+state変更API（logout・「管理画面を終了」・既存admin mutation route）は
+`X-CSRF-Token` headerも要求する（`SameSite=Strict`との多層防御。値は
+`GET /admin/api/session`のresponseから取得し、`operator/frontend-admin/js/admin-shell.js`
+が自動付与する）。
+
+画面右上の「管理画面を終了」は、確認dialog後に`POST /admin/api/system/shutdown`
+を呼び、`operator-gateway`→`backend-operator`の順に固定2 containerだけを
+`docker stop`する（`docker_operation_gateway.py`のallowlistに
+`stop:operator-gateway`・`stop:backend-operator`として追加済み。任意
+container名をrequestから受け取ることはできない）。再開は引き続き
+`docker compose --profile operator up -d`のみ。
+
 ## 5. Docker操作のallowlist限定
 
 `backend-operator`は`/var/run/docker.sock`をmountするが、任意のDocker操作を許可するものではない。許可される操作は`backend/app/services/docker_operation_gateway.py`が定義するallowlistに限定される（実装詳細はコード参照、本ドキュメントでは概要のみ記載する）。`backend-public`はDocker socketを一切mountしない。
@@ -52,6 +75,15 @@ docker compose --profile operator up -d
 ## 7. SSH forward等の一般的接続概念
 
 VPS等のリモート環境でoperator UIへアクセスする場合、`operator-gateway`のhost bindがloopback限定であることを踏まえ、SSHローカルポートフォワード（例: `ssh -L 18100:127.0.0.1:18100 user@vps`）等、リモートホストのloopbackへ安全にトンネルする一般的な接続方法を利用することを想定する。本ドキュメントは特定のVPSホスト名・IP・実運用port番号を記載しない。
+
+SSH forward経由でも、4.1節のWeb login（session cookie + CSRF）は同一に要求される
+（「loopback／トンネル経由だから認証不要」という分岐は存在しない）。
+
+OWNER方針として、host上のリバースプロキシ（Caddy等）から`/admin/*`のみを
+`operator-gateway`（`127.0.0.1:18100`）へ限定転送する構成も別途検討されている
+（このリポジトリのコードは変更せず、host環境固有の設定として追加する想定。
+7.1節と同じ「ベースの`docker-compose.yml`は変更しない」原則に従う）。
+この構成が適用されるまでは、SSH forwardが唯一の接続経路のままである。
 
 ## 7.1 public backend/OSRM を host リバースプロキシから公開する場合
 

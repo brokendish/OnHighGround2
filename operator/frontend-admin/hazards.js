@@ -1,13 +1,13 @@
 /**
  * hazards.js — 管理画面ロジック（read-only）
  *
- * backend の /api/admin/* エンドポイントからデータを取得し、
+ * backend の /admin/api/admin/* エンドポイントからデータを取得し、
  * テーブルと詳細パネルを描画する。
  */
 
 // ── API ───────────────────────────────────────────────────────────────────
 
-const API_BASE = '/api/admin';
+const API_BASE = '/admin/api/admin';
 
 async function fetchJSON(path) {
     const resp = await fetch(API_BASE + path);

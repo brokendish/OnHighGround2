@@ -4,11 +4,15 @@ docker_operation_gateway.py — Phase 2-B.3 Docker operation allowlist gateway
 tasks/public-release/phase2b3_claude_implementation_instruction.md 第5節。
 
 Docker実行を1つのoperator専用gatewayへ集約する。API入力からcontainer名・
-Docker verb・command・argv・shell文字列を一切受け取らない。7種の
+Docker verb・command・argv・shell文字列を一切受け取らない。9種の
 operation_idだけがコード内固定catalogから解決され、それぞれ固定verb・固定
 target container・固定argv templateへ一意に対応する。allowlistにない
 operationはdefault branchで実行できない構造（catalogに存在しないkeyは
 即座にDockerOperationErrorとなり、subprocessは1つも起動されない）。
+
+Phase B（OPERATOR-ADMIN-WEB-AUTH-AND-SHUTDOWN）で`stop:operator-gateway`・
+`stop:backend-operator`の2件を追加した（元7種）。対象はoperator profileの
+2 containerに固定。
 
 `asyncio.create_subprocess_exec`（shell=False）でのみ起動する。
 `shell=True`・shell文字列・`sh -c`・`bash -c`は使用しない（DOP-N05で
@@ -33,6 +37,8 @@ _OSRM_CONTAINER_NAMES = {
     "driving": "evacuation-navi-osrm-driving",
 }
 _PROFILE_CONTAINER = "evacuation-navi-osrm-walking"
+_OPERATOR_GATEWAY_CONTAINER = "evacuation-navi-operator-gateway"
+_BACKEND_OPERATOR_CONTAINER = "evacuation-navi-backend-operator"
 _PROFILE_PBF = "/data_lake/validated/tokyo/osm/walking/tokyo-kanagawa/tokyo-kanagawa-260214.osm.pbf"
 _PROFILE_OSRM = _PROFILE_PBF.replace(".osm.pbf", ".osrm")
 
@@ -79,10 +85,24 @@ _CATALOG: dict[str, _OperationSpec] = {
         argv=("docker", "restart", _PROFILE_CONTAINER),
         target_id=_PROFILE_CONTAINER,
     ),
+    # OPERATOR-ADMIN-WEB-AUTH-AND-SHUTDOWN Phase B: 管理画面「終了」機能。
+    # 対象は固定2 containerのみ（operator profile限定）。backend-public /
+    # frontend / martin / osrm-walking / runtime-init はcatalogに一切存在せず、
+    # 構造的に対象にできない。呼出し順序（gateway→backend-operator）は
+    # app_operator.py側のbackground taskが保証する（本file自体は順序を
+    # 強制しない、単一操作の実行gatewayに徹する）。
+    "stop:operator-gateway": _OperationSpec(
+        argv=("docker", "stop", _OPERATOR_GATEWAY_CONTAINER),
+        target_id=_OPERATOR_GATEWAY_CONTAINER,
+    ),
+    "stop:backend-operator": _OperationSpec(
+        argv=("docker", "stop", _BACKEND_OPERATOR_CONTAINER),
+        target_id=_BACKEND_OPERATOR_CONTAINER,
+    ),
 }
 
 ALLOWED_OPERATION_IDS = frozenset(_CATALOG.keys())
-assert len(ALLOWED_OPERATION_IDS) == 7, f"operation catalog must have exactly 7 entries, has {len(ALLOWED_OPERATION_IDS)}"
+assert len(ALLOWED_OPERATION_IDS) == 9, f"operation catalog must have exactly 9 entries, has {len(ALLOWED_OPERATION_IDS)}"
 
 
 class DockerOperationError(Exception):

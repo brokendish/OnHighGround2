@@ -32,6 +32,7 @@ from app.api.admin import router as admin_router
 from app.api.admin_config import router as admin_config_router
 from app.api.admin_datasets import router as admin_datasets_router
 from app.api.admin_datasets import jobs_router as admin_jobs_router
+from app.api.admin_session import router as admin_session_router
 from app.api.admin_upload import router as admin_upload_router
 from app.api.layer_types_api import router as layer_types_router
 from app.api.simulation import router as simulation_router
@@ -114,6 +115,12 @@ OPERATOR_ROUTERS = [
 ]
 for _router in OPERATOR_ROUTERS:
     app.include_router(_router, dependencies=[Depends(require_operator_role)])
+
+# Phase B（OPERATOR-ADMIN-WEB-AUTH-AND-SHUTDOWN）: login/session/logout/shutdown。
+# loginは必然的に匿名でなければならないため、OPERATOR_ROUTERSのような
+# router単位一括dependenciesは付けない（route単位で
+# get_admin_session／require_operator_role相当をadmin_session.py内で個別指定）。
+app.include_router(admin_session_router)
 
 
 @app.on_event("startup")

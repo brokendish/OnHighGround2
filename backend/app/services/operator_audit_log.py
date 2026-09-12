@@ -9,6 +9,13 @@ tasks/public-release/phase2b3_claude_implementation_instruction.md 第7節。
     operator_docker_operation    : timestamp, request_id, actor_id, operation_id, target_id, result, error_code
     operator_internal_inspect    : timestamp, actor_id=system, operation_id=inspect:self, result, error_code
 
+Phase B（OPERATOR-ADMIN-WEB-AUTH-AND-SHUTDOWN）追加event（固定3種、同じ規律）:
+    operator_login              : timestamp, request_id, actor_id, result, reason_code
+    operator_logout              : timestamp, request_id, actor_id
+    operator_shutdown_requested  : timestamp, request_id, actor_id
+（stop:operator-gateway / stop:backend-operatorの実行自体は既存の
+ operator_docker_operationをそのまま再利用する。新event typeは増やさない。）
+
 設計方針:
     - 各eventにつき専用関数（`log_operator_*`）だけを公開し、汎用`**fields`受け口は
       持たない。呼び出し側が誤って任意fieldを追加できない構造にする（型安全性による
@@ -44,6 +51,8 @@ AUTH_RESULTS = frozenset({"success", "failure"})
 AUTH_REASON_CODES = frozenset(
     {"OK", "MISSING_AUTHORIZATION", "INVALID_SCHEME", "EMPTY_TOKEN", "TOKEN_MISMATCH", "AUDIT_SINK_UNAVAILABLE"}
 )
+LOGIN_RESULTS = frozenset({"success", "failure"})
+LOGIN_REASON_CODES = frozenset({"OK", "EMPTY_TOKEN", "TOKEN_MISMATCH", "AUDIT_SINK_UNAVAILABLE"})
 REQUEST_RESULTS = frozenset({"accepted", "rejected"})
 DOCKER_OPERATION_RESULTS = frozenset({"attempting", "success", "failure", "timeout"})
 DOCKER_OPERATION_ERROR_CODES = frozenset(
@@ -150,6 +159,57 @@ def log_operator_docker_operation(
             "target_id": target_id,
             "result": result,
             "error_code": error_code,
+        },
+    )
+
+
+def log_operator_login(*, request_id: str, actor_id: str, result: str, reason_code: str) -> None:
+    """Web管理画面のlogin試行結果を記録する（供給されたtoken値そのものは含まない）。"""
+    if result not in LOGIN_RESULTS:
+        raise ValueError(f"invalid operator_login result: {result!r}")
+    if reason_code not in LOGIN_REASON_CODES:
+        raise ValueError(f"invalid operator_login reason_code: {reason_code!r}")
+    _write(
+        "operator_login",
+        {
+            "event": "operator_login",
+            "timestamp": _utc_now_iso(),
+            "request_id": request_id,
+            "actor_id": actor_id,
+            "result": result,
+            "reason_code": reason_code,
+        },
+    )
+
+
+def log_operator_logout(*, request_id: str, actor_id: str) -> None:
+    """Web管理画面のlogoutを記録する（session idそのものは含まない）。"""
+    _write(
+        "operator_logout",
+        {
+            "event": "operator_logout",
+            "timestamp": _utc_now_iso(),
+            "request_id": request_id,
+            "actor_id": actor_id,
+        },
+    )
+
+
+def log_operator_shutdown_requested(*, request_id: str, actor_id: str) -> None:
+    """「管理画面を終了」requestが受理されたことを記録する。
+
+    実際のcontainer停止（stop:operator-gateway / stop:backend-operator）は
+    既存のlog_operator_docker_operationが別途attempting/success/failure/timeoutを
+    記録する。本eventは「shutdown requestそのものが受理された」という、
+    どのDocker operationよりも先に必ず1件だけ書けるはずの事実だけを記録する。
+    """
+    _write(
+        "operator_shutdown_requested",
+        {
+            "event": "operator_shutdown_requested",
+            "timestamp": _utc_now_iso(),
+            "request_id": request_id,
+            "actor_id": actor_id,
         },
     )
 

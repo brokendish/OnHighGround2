@@ -3,13 +3,13 @@
  *
  * 設計方針:
  * - 依存ライブラリなし（バニラJS）
- * - API との通信は /api/admin/datasets/* エンドポイント
+ * - API との通信は /admin/api/admin/datasets/* エンドポイント
  * - ポーリングで状態を自動更新（3秒間隔、実行中ジョブがある場合）
  */
 
 "use strict";
 
-const API = "/api/admin";
+const API = "/admin/api/admin";
 const POLL_INTERVAL_MS = 3000;
 const DETAIL_LOG_INTERVAL_MS = 3000;
 const LIST_AUTO_REFRESH_INTERVAL_MS = 5000;
@@ -309,7 +309,7 @@ function renderDatasetRow(d) {
   const canActivate = d.layer_type && d.deploy_status === "deployed" && !d.is_active && !isRunning;
 
   const fileInfo = d.current_file_name
-    ? `<div class="file-name" title="${d.current_file_name}">${d.current_file_name}</div>
+    ? `<div class="file-name" title="${escAttr(d.current_file_name)}">${escHtml(d.current_file_name)}</div>
        <div class="file-size">${formatBytes(d.current_file_size)}</div>`
     : `<span style="color:#cbd5e1;font-size:12px">なし</span>`;
 
@@ -327,11 +327,11 @@ function renderDatasetRow(d) {
         : `<span style="color:#cbd5e1;font-size:11px">—</span>`)
     : `<span style="color:#e2e8f0;font-size:11px">対象外</span>`;
 
-  return `<tr data-id="${d.dataset_id}" ${d.is_active ? 'class="row-active"' : ''}>
+  return `<tr data-id="${escAttr(d.dataset_id)}" ${d.is_active ? 'class="row-active"' : ''}>
     <td><span style="font-size:11px;color:#64748b">${regionLabel(d.region)}</span></td>
-    <td><span class="dataset-id">${d.dataset_id}</span></td>
+    <td><span class="dataset-id">${escHtml(d.dataset_id)}</span></td>
     <td>
-      <div class="dataset-name">${d.display_name}</div>
+      <div class="dataset-name">${escHtml(d.display_name)}</div>
     </td>
     <td>
       <span class="hint-icon">?
@@ -350,28 +350,28 @@ function renderDatasetRow(d) {
     <td>
       <div class="action-group">
         <button class="btn btn-primary"
-          onclick="openUpdateModal('${d.dataset_id}')"
+          onclick="openUpdateModal('${escAttr(escJs(d.dataset_id))}')"
           ${isRunning ? "disabled title='処理中'" : ""}>更新</button>
         <button class="btn btn-detail"
-          onclick="openDetail('${d.dataset_id}')">詳細</button>
+          onclick="openDetail('${escAttr(escJs(d.dataset_id))}')">詳細</button>
         ${!isRailwayPmtiles ? `<button class="btn btn-success"
-          onclick="openDeployModal('${d.dataset_id}')"
+          onclick="openDeployModal('${escAttr(escJs(d.dataset_id))}')"
           ${canDeploy ? "" : "disabled"}
-          title="${canDeploy ? '実行環境へ反映' : deployBlockReason(d)}">反映</button>` : ""}
+          title="${canDeploy ? '実行環境へ反映' : escAttr(deployBlockReason(d))}">反映</button>` : ""}
         ${!isRailwayPmtiles ? `<button class="btn btn-secondary"
-          onclick="openRollbackModal('${d.dataset_id}')"
+          onclick="openRollbackModal('${escAttr(escJs(d.dataset_id))}')"
           ${canRollback ? "" : "disabled"}
           title="${canRollback ? '1世代前に戻す' : (!d.has_backup ? 'バックアップがありません（初回デプロイ後に利用可）' : '処理中のため実行不可')}">戻す</button>` : ""}
         ${d.layer_type ? `<button class="btn btn-activate"
-          onclick="openActivateModal('${d.dataset_id}')"
+          onclick="openActivateModal('${escAttr(escJs(d.dataset_id))}')"
           ${canActivate ? "" : "disabled"}
           title="${d.is_active ? '既に有効です' : (d.layer_type ? '有効データセットに設定' : 'レイヤー種別なし')}">有効化</button>` : ""}
         ${d.requires_osrm_rebuild ? `<button class="btn btn-osrm"
-          onclick="openOsrmModal('${d.dataset_id}')"
+          onclick="openOsrmModal('${escAttr(escJs(d.dataset_id))}')"
           ${canOsrm ? "" : "disabled"}
           title="${canOsrm ? 'ルートエンジン再構築' : '先に反映を実行してください'}">OSRM</button>` : ""}
         ${d.last_job_id ? `<button class="btn btn-secondary"
-          onclick="openLogModal('${d.last_job_id}')"
+          onclick="openLogModal('${escAttr(escJs(d.last_job_id))}')"
           style="font-size:11px">ログ</button>` : ""}
       </div>
     </td>
@@ -423,20 +423,20 @@ function renderDetail(detail) {
 
   // 基本情報
   document.getElementById("detail-info").innerHTML = [
-    detailRow("データセットID", `<span style="font-family:monospace;color:#6366f1">${defn.dataset_id}</span>`),
+    detailRow("データセットID", `<span style="font-family:monospace;color:#6366f1">${escHtml(defn.dataset_id)}</span>`),
     detailRow("地域", regionLabel(defn.region)),
     defn.routing_profile
-      ? detailRow("ルーティングプロファイル", `<span style="font-family:monospace">${defn.routing_profile}</span>`)
+      ? detailRow("ルーティングプロファイル", `<span style="font-family:monospace">${escHtml(defn.routing_profile)}</span>`)
       : "",
     defn.osrm_stem
-      ? detailRow("OSRMビルドベース名", `<span style="font-family:monospace;font-size:11px">${defn.osrm_stem}</span>`)
+      ? detailRow("OSRMビルドベース名", `<span style="font-family:monospace;font-size:11px">${escHtml(defn.osrm_stem)}</span>`)
       : "",
     detailRow("説明", escHtml(defn.description)),
     detailRow("影響範囲", escHtml(defn.impact_scope)),
     detailRow("整形処理", defn.requires_normalize ? "あり" : "不要"),
     detailRow("内容確認", defn.requires_validation ? "あり" : "不要"),
     detailRow("対応形式", defn.accepted_extensions.join(", ")),
-    detailRow("デプロイ先", `<span style="font-size:11px;font-family:monospace">${defn.runtime_path}</span>`),
+    detailRow("デプロイ先", `<span style="font-size:11px;font-family:monospace">${escHtml(defn.runtime_path)}</span>`),
   ].join("");
 
   // 状態
@@ -465,8 +465,8 @@ function renderDetail(detail) {
     // INTERNAL_ERROR かつ exit_code がない場合はサーバ再起動による中断と判定
     const isRestartInterrupt = job.error_code === "INTERNAL_ERROR" && job.exit_code == null;
     const errorCodeLabel = isRestartInterrupt
-      ? `<span style="font-family:monospace;color:#b91c1c">${job.error_code}</span> <span style="color:#92400e;font-size:0.85em">（アプリ再起動による中断）</span>`
-      : `<span style="font-family:monospace;color:#b91c1c">${job.error_code}</span>`;
+      ? `<span style="font-family:monospace;color:#b91c1c">${escHtml(job.error_code)}</span> <span style="color:#92400e;font-size:0.85em">（アプリ再起動による中断）</span>`
+      : `<span style="font-family:monospace;color:#b91c1c">${escHtml(job.error_code)}</span>`;
     document.getElementById("detail-error").innerHTML = [
       detailRow("エラーコード", errorCodeLabel),
       detailRow("内容", `<span style="color:#b91c1c">${escHtml(job.user_message || "")}</span>`),
@@ -762,7 +762,7 @@ async function executeUpdate() {
       if (_selectedFiles.length === 1) {
         // 単一ファイル → チャンクアップロード（大容量対応）
         const file = _selectedFiles[0];
-        _chunkUploadMgr = new UploadManager({ api: '/api/admin/upload' });
+        _chunkUploadMgr = new UploadManager({ api: '/admin/api/admin/upload' });
         _showChunkProgress(file);
         btn.textContent = "アップロード中...";
         try {
@@ -1749,7 +1749,7 @@ async function _pollOsrmRebuildJob(jobId, btn, status) {
 
     let job;
     try {
-      job = await fetchJSON(`/api/admin/jobs/${jobId}`);
+      job = await fetchJSON(`/admin/api/admin/jobs/${jobId}`);
     } catch (_) {
       continue;  // ポーリング失敗は無視して継続
     }
@@ -2186,6 +2186,19 @@ function escHtml(str) {
 
 function escAttr(value) {
   return escHtml(value).replace(/'/g, "&#39;");
+}
+
+// inline onclick="fn('${value}')" のように、値を "HTML属性の中の
+// 単一引用符で囲まれたJS文字列リテラル" へ埋め込む箇所専用のescape。
+// HTML属性値はブラウザがentity decodeしてから inline event handlerの
+// JSソースとして解釈するため、escAttr（'を&#39;にするだけ）単独では
+// JS文字列の境界を破れてしまう（&#39;はdecodeされ生の'に戻ってから
+// JSとして解釈されるため）。escJsで先にJS文字列として安全な形
+// （\'・\\）へ変換してからescAttrへ通すことで、decode後もJS文字列
+// リテラルの境界を破れない状態を保つ。使う場合は必ず
+// escAttr(escJs(value)) の順で合成すること。
+function escJs(str) {
+  return String(str || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 function configDomId(key) {

@@ -2,7 +2,7 @@
  * upload-manager.js — 大容量ファイル チャンクアップロード管理
  *
  * 使い方:
- *   const mgr = new UploadManager({ api: '/api/admin/upload' });
+ *   const mgr = new UploadManager({ api: '/admin/api/admin/upload' });
  *   const result = await mgr.upload(file, datasetId, {
  *     onProgress: ({ percent, speed, etaSec, receivedBytes, totalBytes }) => {},
  *     onError: (err) => {},
@@ -12,7 +12,7 @@
  *   mgr.cancel();  // アップロード中断
  */
 class UploadManager {
-  constructor({ api = '/api/admin/upload' } = {}) {
+  constructor({ api = '/admin/api/admin/upload' } = {}) {
     this._api = api;
     this._cancelled = false;
     this._uploadId = null;

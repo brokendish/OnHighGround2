@@ -352,13 +352,15 @@ class TestDockerOperationPositive:
         assert len(recorder.calls) == 1
         argv = recorder.calls[0]
         assert argv[0] == "docker"
-        assert argv[1] in ("restart", "exec")
+        assert argv[1] in ("restart", "exec", "stop")
         spec = gw._CATALOG[operation_id]
         assert tuple(argv) == spec.argv
         assert spec.target_id in argv
 
-    def test_dop_p_exactly_seven_operations_in_catalog(self):
-        assert len(gw.ALLOWED_OPERATION_IDS) == 7
+    def test_dop_p_exactly_nine_operations_in_catalog(self):
+        """Phase B（OPERATOR-ADMIN-WEB-AUTH-AND-SHUTDOWN）でstop:operator-gateway・
+        stop:backend-operatorの2件が追加され、元7件から9件になった。"""
+        assert len(gw.ALLOWED_OPERATION_IDS) == 9
         assert gw.ALLOWED_OPERATION_IDS == {
             "restart:martin",
             "restart:osrm:walking",
@@ -367,6 +369,8 @@ class TestDockerOperationPositive:
             "exec:profile_rebuild:partition",
             "exec:profile_rebuild:customize",
             "restart:profile",
+            "stop:operator-gateway",
+            "stop:backend-operator",
         }
 
 

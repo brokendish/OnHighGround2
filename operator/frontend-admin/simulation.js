@@ -150,7 +150,7 @@ function initMap() {
 async function loadScenarios() {
     const container = document.getElementById('scenario-buttons');
     try {
-        const res = await fetch('/api/simulation/scenarios');
+        const res = await fetch('/admin/api/simulation/scenarios');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const scenarios = (data || {}).scenarios || [];
@@ -282,7 +282,7 @@ async function runSimulation() {
 
     try {
         const body = buildRequestBody();
-        const res = await fetch('/api/simulation/run', {
+        const res = await fetch('/admin/api/simulation/run', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(body),
@@ -453,7 +453,7 @@ async function runPointInspect(lat, lon) {
     if (_mapAvailable) SimMap.setClickMode(null);
 
     try {
-        const res = await fetch('/api/simulation/point-inspect', {
+        const res = await fetch('/admin/api/simulation/point-inspect', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({
@@ -524,7 +524,7 @@ async function runAuto() {
     modal.style.display = 'flex';
 
     try {
-        const res = await fetch('/api/simulation/auto-run', {
+        const res = await fetch('/admin/api/simulation/auto-run', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    '{}',
@@ -605,7 +605,7 @@ async function saveScenario() {
     btn.disabled = true;
     try {
         const body = buildRequestBody(id);
-        const res = await fetch('/api/simulation/scenarios/save', {
+        const res = await fetch('/admin/api/simulation/scenarios/save', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ ...body, title }),
@@ -634,7 +634,7 @@ async function openSavedScenariosModal() {
     modal.style.display = 'flex';
 
     try {
-        const res = await fetch('/api/simulation/scenarios/saved');
+        const res = await fetch('/admin/api/simulation/scenarios/saved');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const scenarios = (data || {}).scenarios || [];

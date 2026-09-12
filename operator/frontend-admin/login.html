@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Operator Console — Login</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #10151c;
+      color: #e8edf3;
+    }
+    .card {
+      width: 320px;
+      padding: 28px 24px;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+    }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+    .subtitle { color: #8ea0b5; margin: 0 0 20px; font-size: 12px; }
+    label { display: block; font-size: 12px; color: #8ea0b5; margin-bottom: 6px; }
+    input[type="password"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      border-radius: 5px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: #0b0f14;
+      color: #e8edf3;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 9px 10px;
+      border: none;
+      border-radius: 5px;
+      background: #2563eb;
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: default; }
+    #error {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #f87171;
+      min-height: 1.4em;
+    }
+  </style>
+</head>
+<body>
+  <form class="card" id="login-form" autocomplete="off">
+    <h1>OnHighGround2 — Operator Console</h1>
+    <p class="subtitle">管理用トークンでログインしてください。</p>
+    <label for="token">Operator token</label>
+    <input type="password" id="token" name="token" autocomplete="off" spellcheck="false" required>
+    <button type="submit" id="submit-btn">ログイン</button>
+    <div id="error"></div>
+  </form>
+  <script src="/admin/login.js"></script>
+</body>
+</html>

@@ -9,7 +9,7 @@
  *
  * 既存admin/simulation JS（datasets.js等）は無改造のまま `fetch(...)` を
  * 呼び続ける。本fileは window.fetch を最小限に上書きし、同一origin かつ
- * `/api/admin/` または `/api/simulation/` 配下のrequestにのみ
+ * `/admin/api/admin/` または `/admin/api/simulation/` 配下のrequestにのみ
  * `Authorization: Bearer <token>` を付与する。query/body/form/cookieへ
  * tokenを載せることは行わない。
  */
@@ -19,7 +19,7 @@
     let _operatorToken = null;
     const _nativeFetch = window.fetch.bind(window);
 
-    const PROTECTED_PREFIXES = ['/api/admin/', '/api/simulation/'];
+    const PROTECTED_PREFIXES = ['/admin/api/admin/', '/admin/api/simulation/'];
 
     function _protectedPathOrNull(input) {
         let raw;

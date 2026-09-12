@@ -29,6 +29,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from app.api.admin_upload import _sanitize_filename
+
 from app.services.operator_auth import OperatorPrincipal, require_operator_role
 from app.models.admin_dataset import (
     DatasetDetail,
@@ -267,15 +269,20 @@ async def upload_dataset(
     contents: List[tuple[str, bytes]] = []
     total_bytes = 0
     for f in files:
-        ext = Path(f.filename or "").suffix.lower()
+        # クライアント供給のfilenameは、ディレクトリ成分（path traversal対策）と
+        # 英数字・`-`・`.`・space以外の文字（admin UIでの表示時にHTML/JS
+        # injectionの経路となり得るため）をあらかじめ除去する
+        # （admin_upload.pyの_sanitize_filenameと同一規則、単一の真実源）。
+        safe_filename = _sanitize_filename(f.filename or "")
+        ext = Path(safe_filename).suffix.lower()
         if defn.accepted_extensions and ext not in defn.accepted_extensions:
             return _error_response(
                 "UPLOAD_EXTENSION_NOT_ALLOWED",
-                detail=f"ファイル '{f.filename}' の形式は非対応です。allowed: {defn.accepted_extensions}",
+                detail=f"ファイル '{safe_filename}' の形式は非対応です。allowed: {defn.accepted_extensions}",
             )
         data = await f.read()
         total_bytes += len(data)
-        contents.append((f.filename or f"file{len(contents)}{ext}", data))
+        contents.append((safe_filename or f"file{len(contents)}{ext}", data))
 
     actual_mb = total_bytes / (1024 * 1024)
     if actual_mb > defn.max_browser_upload_mb:
