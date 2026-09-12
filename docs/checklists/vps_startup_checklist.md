@@ -37,8 +37,12 @@ in-place 再構築**時に使用する。手順は記載の順番で実行する
 
 - [ ] `git rev-parse HEAD` と `git branch --show-current` を記録する（再構築前の正確な版）
 - [ ] `docker compose ps -a` の出力を保存する（再構築前の稼働状態）
-- [ ] `docker compose config` の出力を保存する（実際に解決された設定値の記録。`.env` 系の値は
-      漏洩に注意して取り扱う）
+- [ ] `docker compose config --quiet`（構文検証のみ）を実行する。**`--quiet` を
+      付けない値解決済み全文表示は production では実行しない**
+      （`.env` 系の実secret値を平文で出力してしまうため。2026-09-12 の
+      production incidentで実際に発生し、`OPERATOR_AUTH_SECRET` のrotationが
+      必要になった。詳細・secret露出時の対応は
+      [Operator setup 1.2節・4.2節](../operator-setup.md) 参照）
 
 ### バックアップ取得
 
@@ -455,6 +459,21 @@ _registry_instance = ShelterRegistry(ttl_seconds=3600)  # 30 ではなく 3600 �
 （4.5 節の Martin 同期が正しく行われたか、そもそも `data_lake/tiles/` に元データがあるかを
 確認する）。`tileset_id` が非 null なのに Martin から 404 が返る場合は、`docker compose
 restart martin` を実行していない可能性が高い（Martin は起動時に一度だけ scan する）。
+
+### operator の Docker operation（restart:martin・stop:\* 等）が permission denied で失敗する
+
+`.env` に `DOCKER_SOCKET_GID` が未設定、または host の docker.sock の実際の
+group GID と不一致。詳細な確認・設定手順は
+[Operator setup 5.1節](../operator-setup.md) を参照。
+
+### `api.brokendish.org` が 502 を返す（pre-existing、今回未対応）
+
+`docker-compose.override.yml` が存在せず `backend-public:8000` が host へ
+publish されていないため、host 上の Caddy（`api.brokendish.org { reverse_proxy
+127.0.0.1:8000 }`）から到達できない。2026-09-12 時点で発見された既存の
+設定debtであり、OPERATOR-ADMIN-WEB-AUTH-AND-SHUTDOWN 対応の一部としては
+意図的に修正していない（別途対応が必要な場合は
+[Operator setup 7.1節](../operator-setup.md) の host publish パターンを参照）。
 
 ---
 
