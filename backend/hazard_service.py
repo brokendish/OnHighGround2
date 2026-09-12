@@ -119,12 +119,19 @@ def _centroid_of_ring(ring: List[List[float]]) -> Tuple[float, float]:
     GeoJSON 外環 [[lon, lat], ...] の算術重心 (centroid_lat, centroid_lon) を返す。
 
     閉じたリング（最終点 == 先頭点）を想定し、重複する末尾点を除いて計算する。
+
+    HAZARD-LOAD-JSONLOAD-TRANSIENT-PEAK-RESIDUAL Phase B0対応: ijson
+    streaming backendはJSON数値をDecimalで返すため（_ring_bbox()の
+    docstring参照）、明示的にfloatへ変換する。float化しないと、後段の
+    get_tsunami_centroid_distance_m() → _haversine_m() でfloatとの
+    減算時にTypeErrorになる（load()経由のjson.load()はnative floatを
+    返すため、この変換が無くても偶然動いていた）。
     """
     n = len(ring) - 1  # 末尾の重複点を除く
     if n <= 0:
-        return ring[0][1], ring[0][0]
-    centroid_lon = sum(c[0] for c in ring[:n]) / n
-    centroid_lat = sum(c[1] for c in ring[:n]) / n
+        return float(ring[0][1]), float(ring[0][0])
+    centroid_lon = sum(float(c[0]) for c in ring[:n]) / n
+    centroid_lat = sum(float(c[1]) for c in ring[:n]) / n
     return centroid_lat, centroid_lon
 
 
@@ -596,8 +603,27 @@ class HazardService:
         ——ijsonで削減できるのはparse peakのみで、retained memoryは
         元々小さいことを実測確認済み（設計投資時のプロファイリング結果）。
 
-        現状はbbox_onlyのflood/storm_surge向けに限定する。他typeへの
-        適用は将来の検討課題（今回のスコープ外）。
+        HAZARD-LOAD-JSONLOAD-TRANSIENT-PEAK-RESIDUAL対応（Phase B0）:
+        当初はflood/storm_surgeのみに限定していたが、tsunami/landslideは
+        bbox_only時の保持データ自体は軽量（tsunami: bbox配列＋centroid、
+        landslide: bbox配列＋properties list）であるにもかかわらず、
+        呼び出し元（app_public.py）が引き続き`load()`（json.load()で
+        ファイル全体をフルparse）を使っていたため、同じ4〜5倍parseピーク
+        問題が残存していた（tsunami/kanagawa≈59MB、landslide/kanagawa≈
+        63MBで、瞬間的に240-300MB規模のピークが発生しうると推定）。
+        tsunami/landslideもここでbbox_only分岐に対応させ、`load()`の
+        該当分岐（それぞれ`new_tsunami_rows`+`new_tsunami_centroids`、
+        `new_landslide_rows`+`new_landslide_props`への追記）と完全に
+        同じ最終構造を、ijson streaming経由で構築する。
+
+        lowland_poor_drainageは元々`else: new_polygons.append({"bbox":
+        bbox})`という汎用分岐で処理されており、load()と全く同じ出力に
+        なるため、この関数自体への追加変更は不要（呼び出し元の切り替えの
+        みで対応可能）。
+
+        inland_flood（bbox_only=False、full coords/properties保持）は
+        今回のスコープ外（実データが約188KBと極小のため優先度が低いと
+        OWNER判断、docstring変更もしない）。
 
         malformed JSON等でstreaming途中に失敗した場合、それまでに
         一時リストへ蓄積した値は破棄し、self._flood_bboxes_np等の永続
@@ -620,6 +646,10 @@ class HazardService:
         new_polygons: List[dict] = []
         new_flood_rows: List[Tuple] = []
         new_surge_rows: List[Tuple] = []
+        new_tsunami_rows: List[Tuple] = []
+        new_tsunami_centroids: List[Tuple[float, float]] = []
+        new_landslide_rows: List[Tuple] = []
+        new_landslide_props: List[dict] = []
         feature_count = 0
 
         try:
@@ -637,6 +667,12 @@ class HazardService:
                                 new_flood_rows.append(bbox)
                             elif hazard_type == "storm_surge":
                                 new_surge_rows.append(bbox)
+                            elif hazard_type == "tsunami":
+                                new_tsunami_rows.append(bbox)
+                                new_tsunami_centroids.append(_centroid_of_ring(ring))
+                            elif hazard_type == "landslide":
+                                new_landslide_rows.append(bbox)
+                                new_landslide_props.append(props)
                             else:
                                 new_polygons.append({"bbox": bbox})
                         else:
@@ -656,6 +692,12 @@ class HazardService:
                 self._flood_bboxes_np = _concat_np(self._flood_bboxes_np, new_flood_rows)
             if hazard_type == "storm_surge" and bbox_only and new_surge_rows:
                 self._storm_surge_bboxes_np = _concat_np(self._storm_surge_bboxes_np, new_surge_rows)
+            if hazard_type == "tsunami" and bbox_only and new_tsunami_rows:
+                self._tsunami_bboxes_np = _concat_np(self._tsunami_bboxes_np, new_tsunami_rows)
+                self._tsunami_centroids.extend(new_tsunami_centroids)
+            if hazard_type == "landslide" and bbox_only and new_landslide_rows:
+                self._landslide_bboxes_np = _concat_np(self._landslide_bboxes_np, new_landslide_rows)
+                self._landslide_props.extend(new_landslide_props)
 
             existing = self._polygons.get(hazard_type, [])
             existing.extend(new_polygons)
@@ -668,6 +710,8 @@ class HazardService:
             _numpy_counts = {
                 "flood": len(new_flood_rows),
                 "storm_surge": len(new_surge_rows),
+                "tsunami": len(new_tsunami_rows),
+                "landslide": len(new_landslide_rows),
             }
             _loaded_count = _numpy_counts.get(hazard_type, len(new_polygons)) if bbox_only else len(new_polygons)
             logger.info(

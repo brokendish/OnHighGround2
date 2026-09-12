@@ -1167,7 +1167,7 @@ def _reload_hazard_backend_mirror(job, defn, state, jm) -> None:
             from app.services.hazard_runtime_service import get_hazard_service
             svc = get_hazard_service()
             if svc is not None:
-                svc.load("lowland_poor_drainage", dest, bbox_only=True)
+                svc.load_geojson_streaming("lowland_poor_drainage", dest, bbox_only=True)
                 jm.log(job, f"hazard_service reloaded: lowland_poor_drainage/{defn.region} → {dest}")
             else:
                 jm.log(job, "INFO: hazard_service 未登録 — 次回起動時に自動読み込みされます")

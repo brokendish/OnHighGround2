@@ -509,7 +509,7 @@ for _target in _tsunami_targets:
     _validated_path = _tsunami_validated_dir / _filename
     if _runtime_path.exists():
         logger.info("Tsunami loaded from runtime: %s", _runtime_path)
-        hazard_service.load("tsunami", _runtime_path, bbox_only=True)
+        hazard_service.load_geojson_streaming("tsunami", _runtime_path, bbox_only=True)
     elif _HAZARD_USING_ATOMIC_LEASE:
         # CX-004（第7ラウンド）対応: leaseされたversionにこのtargetがない
         # だけでdata_lakeへは読みに行かない（snapshot混在防止）。
@@ -519,7 +519,7 @@ for _target in _tsunami_targets:
         )
     elif _validated_path.exists():
         logger.warning("Tsunami fallback to data_lake: %s", _validated_path)
-        hazard_service.load("tsunami", _validated_path, bbox_only=True)
+        hazard_service.load_geojson_streaming("tsunami", _validated_path, bbox_only=True)
     else:
         logger.warning(
             "Tsunami file not found for target '%s': checked runtime=%s, validated=%s — skipped "
@@ -593,7 +593,7 @@ if LANDSLIDE_ENABLED:
     if _landslide_geojson_files:
         for _f in _landslide_geojson_files:
             logger.info("Landslide loaded from runtime: %s", _f)
-            hazard_service.load("landslide", _f, bbox_only=True)
+            hazard_service.load_geojson_streaming("landslide", _f, bbox_only=True)
     elif _HAZARD_USING_ATOMIC_LEASE:
         logger.info("Landslide: 現行versionにdataなし（snapshot混在防止のためskip、data_lakeへはfallbackしない）")
     else:
@@ -620,7 +620,7 @@ if _lowland_enabled:
     if _lowland_geojson_files:
         for _f in _lowland_geojson_files:
             logger.info("LowlandPoorDrainage loaded from runtime: %s", _f)
-            hazard_service.load("lowland_poor_drainage", _f, bbox_only=True)
+            hazard_service.load_geojson_streaming("lowland_poor_drainage", _f, bbox_only=True)
     elif _HAZARD_USING_ATOMIC_LEASE:
         # CX-004（第7ラウンド）対応: snapshot混在防止のためdata_lakeへは
         # fallbackしない。lowland_poor_drainageはdeploy_to_runtime.shが
@@ -635,7 +635,7 @@ if _lowland_enabled:
             if _lowland_files:
                 _lowland_path = _lowland_files[0]
                 logger.info("LowlandPoorDrainage loaded from validated (%s): %s", _region, _lowland_path)
-                hazard_service.load("lowland_poor_drainage", _lowland_path, bbox_only=True)
+                hazard_service.load_geojson_streaming("lowland_poor_drainage", _lowland_path, bbox_only=True)
             else:
                 logger.info("低地データが見つかりません（スキップ）: %s", _validated_dir)
 
