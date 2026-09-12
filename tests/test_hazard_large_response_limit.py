@@ -166,36 +166,31 @@ def test_D_413_response_detail_is_generic_no_internal_leak(client):
     assert "meta" in body["detail"].lower()  # /meta参照への案内を含む
 
 
-# ── E. floodのLIMITとは無関係のtypeは無変更（200維持） ─────────────────────────
+# ── E. floodのLIMITとは無関係のtypeはprobe-onlyを経由しない ───────────────────
 # pseudo_inland_flood/lowland_poor_drainageは、本テスト作成後の
 # LARGE-HAZARD-FULL-BODY-POLICY Phase B1でpolicy-rejected type（422）に
 # なったため、対象から除外（そちらの契約は
 # tests/test_hazard_policy_rejected_types.py で検証する）。
-# storm_surge/tsunamiは、本テスト作成後のSTORM-SURGE-FALLBACK-STREAMING/
-# TSUNAMI-FALLBACK-STREAMING各Phase B1で、catch-all routeを経由しない専用
-# streaming routeへ切り替わったため対象から除外（get_active_hazard_geojson()
-# を呼ばなくなった。その契約はそれぞれ専用test fileで検証する）。
 #
-# この結果、_HAZARD_LARGE_RESPONSE_LIMITED_TYPES/_HAZARD_POLICY_REJECTED_
-# TYPESのいずれにも属さない現行の実hazard typeは無くなった
-# （HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH candidate）。本テストの意図は
-# 「LIMIT対象外typeがprobe-onlyを経由せず通常load pathへ到達すること」という
-# catch-all自身の分岐契約の検証であり、特定の実typeに依存しないため、
-# 合成type（`some_type`）へ切り替える。
+# HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH対応（2026-09-12）: 本テストは
+# 当初「LIMIT対象外typeが200で正常応答すること」を検証していたが、
+# 全7 hazard typeがreject分岐/専用streaming routeへ吸収された結果、
+# catch-allのfull-body load呼び出し自体が除去され、`_HAZARD_LARGE_
+# RESPONSE_LIMITED_TYPES`/`_HAZARD_POLICY_REJECTED_TYPES`のいずれにも
+# 属さないtypeは常に404（Unsupported hazard_type）になった。本テストは
+# 「floodのLIMIT分岐（probe-only）だけには入らないこと」の検証に純化する。
 
 @pytest.mark.parametrize("hazard_type", ["some_type"])
-def test_E_other_types_unaffected_normal_response(client, hazard_type):
-    fake_geojson = {"type": "FeatureCollection", "features": []}
+def test_E_other_types_do_not_take_probe_only_branch(client, hazard_type):
     with patch.object(
-        hazards.hazard_dataset_service, "get_active_hazard_geojson", return_value=fake_geojson,
+        hazards.hazard_dataset_service, "get_active_hazard_geojson",
     ) as load_mock, \
          patch.object(hazards.hazard_dataset_service, "has_active_hazard_dataset") as probe_mock:
         resp = client.get(f"/api/hazards/{hazard_type}/tokyo")
 
-    assert resp.status_code == 200
-    assert resp.json() == fake_geojson
-    load_mock.assert_called_once_with(hazard_type, "tokyo")
-    probe_mock.assert_not_called()  # 413経路（probe-only）は通らない
+    assert resp.status_code == 404
+    load_mock.assert_not_called()
+    probe_mock.assert_not_called()  # 413経路（probe-only）も通常load経路も通らない
 
 
 # ── F. meta endpointはfloodについても無変更（200維持） ─────────────────────────

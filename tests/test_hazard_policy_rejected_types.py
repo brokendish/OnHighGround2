@@ -141,27 +141,29 @@ def test_H_flood_still_413_with_distinct_detail(client):
     assert resp.json()["detail"] != hazards._HAZARD_POLICY_REJECTED_DETAIL
 
 
-# ── I/J. policy-rejected typesとは無関係のtypeは無変更（200維持） ─────────────
+# ── I/J. policy-rejected typesとは無関係のtypeはprobe-onlyを経由しない ────────
 # storm_surge/tsunamiは、それぞれSTORM-SURGE-FALLBACK-STREAMING/
 # TSUNAMI-FALLBACK-STREAMING Phase B1でcatch-all routeを経由しない専用
 # streaming routeへ切り替わったため対象から除外（それぞれの契約は専用
-# test fileで検証する）。catch-all自身の「policy-rejected typesとは無関係の
-# typeはhas_active_hazard_dataset()を経由しない」という分岐契約は特定の
-# 実typeに依存しないため、合成type（`some_type`）で検証する
-# （HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH candidate参照）。
+# test fileで検証する）。
+#
+# HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH対応（2026-09-12）: 全7 hazard
+# typeがreject分岐/専用streaming routeへ吸収された結果、catch-allの
+# full-body load呼び出し自体が除去され、policy-rejected typesとは無関係の
+# typeは常に404（Unsupported hazard_type）になった。本テストは
+# 「has_active_hazard_dataset()（probe-only分岐）を経由しないこと」の
+# 検証に純化する。
 
 @pytest.mark.parametrize("hazard_type", ["some_type"])
 def test_IJ_storm_surge_tsunami_unaffected(client, hazard_type):
-    fake_geojson = {"type": "FeatureCollection", "features": []}
     with patch.object(
-        hazards.hazard_dataset_service, "get_active_hazard_geojson", return_value=fake_geojson,
+        hazards.hazard_dataset_service, "get_active_hazard_geojson",
     ) as load_mock, \
          patch.object(hazards.hazard_dataset_service, "has_active_hazard_dataset") as probe_mock:
         resp = client.get(f"/api/hazards/{hazard_type}/tokyo")
 
-    assert resp.status_code == 200
-    assert resp.json() == fake_geojson
-    load_mock.assert_called_once_with(hazard_type, "tokyo")
+    assert resp.status_code == 404
+    load_mock.assert_not_called()
     probe_mock.assert_not_called()
 
 

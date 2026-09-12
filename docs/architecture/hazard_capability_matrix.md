@@ -338,18 +338,31 @@ patterns に接尾辞形（`*_{region}.geojson`）を追加することで対応
 active dataset が未登録のため、versioned/flat どちらの解決も一致せず
 既存の 404 のまま区別される（Chiba 用 artifact を新設していない）。
 
-**catch-all（`get_active_hazard_geojson()`、`json.load()` full-body path）
-の残存 consumer**: 本 Phase 完了時点で、`_HAZARD_LARGE_RESPONSE_LIMITED_
-TYPES`/`_HAZARD_POLICY_REJECTED_TYPES`（flood/pseudo_inland_flood/
-lowland_poor_drainage）と専用 route を持つ type（inland_flood/landslide/
-storm_surge/tsunami）の和集合が `HazardDatasetService.HAZARD_LAYER_TYPES`
-の全量と一致する（`tests/test_tsunami_fallback_streaming.py::
-test_catch_all_has_no_remaining_real_type_consumer` で静的に検証）。
-つまり、catch-all の `json.load()` full-body path を実際に経由する現行の
-実 hazard type は存在しない。将来的な catch-all 自体の縮小・削除は
-`HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH`（新規 candidate）として
-別途 OWNER 判断とする——本 Phase では catch-all route 自体の削除・
-大改修は行っていない。
+**`HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH`（2026-09-12 CLOSED、local
+PASS。VPS rollout PASS後に正式CLOSE）**: 全 7 hazard type
+（`_HAZARD_LARGE_RESPONSE_LIMITED_TYPES`/`_HAZARD_POLICY_REJECTED_TYPES`
+の flood/pseudo_inland_flood/lowland_poor_drainage と、専用 route を持つ
+inland_flood/landslide/storm_surge/tsunami の和集合が
+`HazardDatasetService.HAZARD_LAYER_TYPES` の全量と一致する、
+`tests/test_hazard_public_catchall_dead_path.py::
+test_reject_and_dedicated_route_types_cover_all_known_hazard_types` で
+静的検証済み）が reject 分岐または専用 streaming route へ吸収された
+結果、catch-all（`GET /{hazard_type}/{region_code}`）から
+`HazardDatasetService.get_active_hazard_geojson()`（`json.load()` による
+full-body load）を呼び出すコードパスは構造的に到達不能になっていた。
+
+この呼び出し自体を catch-all から除去し、reject/専用 route のいずれにも
+該当しない `hazard_type` は常に明示的な 404（`"Unsupported hazard_type:
+{hazard_type}"`、既存の `KeyError` 由来の `str()` 表現・前後の引用符を
+含め既存 4xx contract を完全に維持）を返すよう簡略化した。これにより、
+将来 `HAZARD_LAYER_TYPES` に新 type を追加しても、専用 route/reject 分岐
+の追加を忘れた場合に危険な full-body load へ暗黙 fallback することなく、
+fail-closed（404）になる。
+
+`HazardDatasetService.get_active_hazard_geojson()` 自体は削除していない
+——`HazardDatasetService` の current/versioned 優先解決 contract を検証
+する独立した単体テスト群（`test_hazard_dataset_service_current_priority.py`
+等）という別 consumer が存在するため。
 
 **`HAZARD-META-TILESET-REGION-SELECTION-GAP`（Phase B、2026-09-12 CLOSED
 / FIX_SELECTOR）**: `_find_tileset_for_region()`（`/meta` エンドポイントの

@@ -15,6 +15,22 @@ filesystem path・errnoメッセージが未認証public clientへ露出して�
     変更されていないことを確認する。
   - server-side loggingでroot causeが失われていないことをcaplogで確認する。
 
+HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH対応（2026-09-12）: catch-all
+route（`GET /{hazard_type}/{region_code}`）の
+`hazard_dataset_service.get_active_hazard_geojson()`呼び出しは、
+全7 hazard typeがreject分岐または専用streaming routeへ吸収済みで
+構造的に到達不能だったため除去された。これに伴い、この呼び出しの
+例外マッピング（PermissionError/OSError/ValueError→500、
+FileNotFoundError/KeyError→404）を合成type（`some_type`）経由で検証
+していた旧テスト群は、検証対象の実装が既に存在しないため削除した
+（同種のPUBLIC-ERROR-DETAIL-LEAK safety property自体は、reject分岐
+（`has_active_hazard_dataset()`呼び出し）に対する
+`test_hazard_policy_rejected_types.py::test_M_internal_path_does_not_
+leak_on_policy_rejected_type`で引き続き実証されている——生きている
+コードパスでの検証に一本化した）。代わりに、catch-allの新しい
+「未対応/未登録hazard_typeは常に404」という契約自体をこのファイルで
+検証する。
+
 hazards.pyのrouterのみを軽量FastAPI test appへmountし、
 hazard_dataset_serviceをmockすることで、実データ読み込みを伴う
 app_public.py全体のimportを避ける。
@@ -42,48 +58,7 @@ def client():
     return TestClient(app, raise_server_exceptions=False)
 
 
-# ── A. PermissionError → path/errno非公開、既存500維持 ────────────────────────
-
-def test_permission_error_hides_filesystem_path(client, caplog):
-    # LARGE-HAZARD-FULL-BODY-POLICY Phase B1対応: pseudo_inland_floodは
-    # policy-rejected type（422、has_active_hazard_datasetのみ呼ばれる）に
-    # なったため対象から外した。STORM-SURGE-FALLBACK-STREAMING/
-    # TSUNAMI-FALLBACK-STREAMING Phase B1で、storm_surge/tsunamiも専用
-    # streaming routeへ移行しcatch-allを経由しなくなったため、これらも
-    # 対象から外れた。inland_flood/landslideも既に専用route。
-    #
-    # この結果、catch-all（get_active_hazard_geojson()経由のjson.load()
-    # full-body path）を実際に経由する現行の実hazard typeは無くなった
-    # （HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH candidate、TSUNAMI-
-    # FALLBACK-STREAMING Phase B1 OWNER Gate参照）。本テストの意図は
-    # 「catch-all route自身の例外→HTTPException変換ロジックがpath/errnoを
-    # 漏らさないこと」の検証であり、特定の実hazard typeの業務的意味には
-    # 依存しない。get_active_hazard_geojson()を完全にmockするため、
-    # HazardDatasetService.HAZARD_LAYER_TYPES非登録の合成type文字列
-    # （`test_file_not_found_keeps_404_detail`と同じ`some_type`パターン）を
-    # 使い、実typeの切り替え保守を続ける代わりにこの依存自体を断つ。
-    leaked_path = "/data_runtime/frontend/tiles/tokyo/some_type/tokyo-some-type-001.geojson"
-    exc = PermissionError(13, "Permission denied")
-    exc.filename = leaked_path
-    # OSErrorのstr()表現は "[Errno 13] Permission denied: '<path>'" になる
-    exc_with_path = OSError(f"[Errno 13] Permission denied: '{leaked_path}'")
-
-    with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc_with_path), \
-         caplog.at_level(logging.ERROR):
-        resp = client.get("/api/hazards/some_type/tokyo")
-
-    assert resp.status_code == 500
-    body_text = resp.text
-    assert leaked_path not in body_text
-    assert "Permission denied" not in body_text
-    assert "Errno" not in body_text
-    # server-side logへはroot causeが残っていること
-    assert any(leaked_path in record.getMessage() or leaked_path in str(record.exc_info)
-               for record in caplog.records) or any(
-                   record.exc_info and leaked_path in str(record.exc_info[1])
-                   for record in caplog.records
-               )
-
+# ── A. PermissionError → path/errno非公開、既存500維持（/meta route） ─────────
 
 def test_permission_error_on_meta_endpoint_hides_path(client):
     leaked_path = "/data_runtime/frontend/tiles/tokyo/lowland_poor_drainage/tokyo-lowland-poor-drainage-001.geojson"
@@ -108,65 +83,34 @@ def test_permission_error_on_active_list_endpoint_hides_path(client):
     assert leaked_path not in resp.text
 
 
-# ── B. OSError一般（IOError等）→ raw errno非公開 ──────────────────────────────
+# ── D. unknown hazard_type → 404 contract（HAZARD-PUBLIC-CATCHALL-
+#      JSONLOAD-DEAD-PATH対応後の新しい検証対象） ──────────────────────────────
 
-def test_generic_oserror_hides_errno_detail(client):
-    # TSUNAMI-FALLBACK-STREAMING Phase B1対応: tsunami/storm_surgeとも専用
-    # streaming routeへ移行したため、catch-all自身のcontractを検証する
-    # 合成type（`some_type`）を使う。上記test_permission_error_hides_
-    # filesystem_pathのコメント参照。
-    exc = OSError(28, "No space left on device")  # errno例: ENOSPC
-
-    with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
-        resp = client.get("/api/hazards/some_type/tokyo")
-
-    assert resp.status_code == 500
-    assert "No space left on device" not in resp.text
-    assert "28" not in resp.text or "errno" not in resp.text.lower()
-
-
-# ── C. malformed GeoJSON（ValueError、path埋め込み）→ path非公開 ──────────────
-
-def test_value_error_with_embedded_path_hides_path(client):
-    # TSUNAMI-FALLBACK-STREAMING Phase B1対応: 上記と同じ理由で合成type
-    # （`some_type`）へ切り替える。
-    leaked_path = "/data_lake/validated/tokyo/some_type/tokyo-some-type-001.geojson"
-    exc = ValueError(f"GeoJSON root must be an object: {leaked_path}")
-
-    with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
-        resp = client.get("/api/hazards/some_type/tokyo")
-
-    assert resp.status_code == 500
-    assert leaked_path not in resp.text
-
-
-# ── D. dataset not registered → 既存404契約維持 ───────────────────────────────
-
-def test_dataset_not_registered_keeps_404_detail(client):
-    # LARGE-HAZARD-FULL-BODY-POLICY/STORM-SURGE/TSUNAMI-FALLBACK-STREAMING
-    # 各Phase B1対応: pseudo_inland_flood/storm_surge/tsunamiは、いずれも
-    # get_active_hazard_geojson()経由のcatch-all pathを経由しなくなった
-    # （pseudo_inland_flood自身の404契約はhas_active_hazard_datasetベースで
-    # test_hazard_large_response_limit.py側に別途カバーする）。本テストは
-    # catch-all route自身の404 mapping契約を検証する合成type（`some_type`）
-    # へ切り替える。
-    exc = KeyError("Active dataset is not registered: some_type:chiba")
-
-    with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
-        resp = client.get("/api/hazards/some_type/chiba")
-
-    assert resp.status_code == 404
-    assert "not registered" in resp.text
-
-
-def test_file_not_found_keeps_404_detail(client):
-    exc = FileNotFoundError("Active dataset has no resolved artifact: TOKYO-XXX-001")
-
-    with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", side_effect=exc):
+def test_unknown_hazard_type_returns_404_without_calling_service(client):
+    """catch-allは、reject分岐にも専用streaming routeにも該当しない
+    hazard_typeについて、`hazard_dataset_service.get_active_hazard_
+    geojson()`を一切呼び出さず、直接404を返す（dead path除去の直接
+    証明）。既存の「Unsupported hazard_type」文言・KeyErrorのstr()表現
+    （前後の引用符を含む）という後方互換contractも確認する。"""
+    with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson") as load_mock:
         resp = client.get("/api/hazards/some_type/tokyo")
 
     assert resp.status_code == 404
-    assert "no resolved artifact" in resp.text
+    assert resp.json() == {"detail": "'Unsupported hazard_type: some_type'"}
+    load_mock.assert_not_called()
+
+
+def test_unknown_hazard_type_404_even_if_service_mock_would_succeed(client):
+    """万一mockが正常値を返すよう設定されていても（＝サービス層の挙動に
+    一切依存せず）、catch-all自身の分岐ロジックだけで404になることを
+    確認する（本当に到達不能であることの証明、mockの設定内容に無関係）。"""
+    with patch.object(
+        hazards.hazard_dataset_service, "get_active_hazard_geojson",
+        return_value={"type": "FeatureCollection", "features": []},
+    ):
+        resp = client.get("/api/hazards/completely_unknown_type/tokyo")
+
+    assert resp.status_code == 404
 
 
 # ── E. pseudo_inland_flood/kanagawa 実contractも確認（KeyError経由） ──────────
@@ -186,21 +130,7 @@ def test_pseudo_kanagawa_404_contract_unchanged(client):
     load_mock.assert_not_called()
 
 
-# ── F. 正常系 → 200維持 ────────────────────────────────────────────────────────
-
-def test_normal_response_untouched(client):
-    # TSUNAMI-FALLBACK-STREAMING Phase B1対応: storm_surge/tsunamiとも専用
-    # streaming routeへ移行したため、catch-all自身の正常応答契約を検証する
-    # 合成type（`some_type`）を使う。
-    payload = {"type": "FeatureCollection", "features": []}
-    with patch.object(hazards.hazard_dataset_service, "get_active_hazard_geojson", return_value=payload):
-        resp = client.get("/api/hazards/some_type/tokyo")
-
-    assert resp.status_code == 200
-    assert resp.json() == payload
-
-
-# ── G. server-side logging: 予期しない例外もloggerへ記録される ────────────────
+# ── F. server-side logging: 予期しない例外もloggerへ記録される ────────────────
 
 def test_unexpected_value_error_logs_exception_with_context(client, caplog):
     exc = ValueError("Invalid GeoJSON in /data_lake/validated/x.geojson: some parse error")

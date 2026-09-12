@@ -396,6 +396,34 @@ async def get_active_hazard_meta(hazard_type: str, region_code: str):
 
 @router.get("/{hazard_type}/{region_code}")
 async def get_active_hazard_geojson(hazard_type: str, region_code: str):
+    """全7 hazard type（`HazardDatasetService.HAZARD_LAYER_TYPES`）は、
+    上記のreject分岐（flood/pseudo_inland_flood/lowland_poor_drainage）
+    または本routeより前に登録済みの専用streaming route
+    （inland_flood/landslide/storm_surge/tsunami）のいずれかへ既に
+    吸収されている（`tests/test_hazard_public_catchall_dead_path.py::
+    test_reject_and_dedicated_route_types_cover_all_known_hazard_types`
+    で静的に固定）。したがってこの関数本体へ実際に到達する
+    `hazard_type`は、常に「未対応/未登録」である。
+
+    HAZARD-PUBLIC-CATCHALL-JSONLOAD-DEAD-PATH対応: 従来はここで
+    `hazard_dataset_service.get_active_hazard_geojson()`
+    （`json.load()`によるfull memory展開を伴う）を呼び出していたが、
+    上記の理由によりこの呼び出しがfile読み込みまで到達することは
+    構造的にあり得なかった（`HAZARD_LAYER_TYPES`に無いhazard_typeは
+    サービス側の`if hazard_type not in self.HAZARD_LAYER_TYPES`
+    ガードで即座にKeyErrorになり、`json.load()`前段で必ず止まる）。
+    この呼び出し自体を除去し、明示的な404を返すことで、
+    「HAZARD_LAYER_TYPESに将来型を追加したが専用route/reject分岐の
+    追加を忘れた」場合でも、危険なfull-body loadへ暗黙にfallbackせず
+    fail-closedになるようにする（本remediation系列で一貫して採用して
+    きた設計方針）。`HazardDatasetService.get_active_hazard_geojson()`
+    自体は他の実consumer（`HazardDatasetService`の直接単体テスト群、
+    current/versioned優先解決contractの検証）があるため削除しない。
+
+    既存の「Unsupported hazard_type」404 contract（`KeyError`の
+    `str()`表現——前後の引用符を含む——をそのまま`detail`へ使う挙動）は、
+    呼び出し元を変えずに再現し、後方互換を維持する。
+    """
     if hazard_type in _HAZARD_LARGE_RESPONSE_LIMITED_TYPES or hazard_type in _HAZARD_POLICY_REJECTED_TYPES:
         # public full-body拒否対象（理由はtype毎に異なる——上記コメント参照）:
         # active datasetの存在確認のみ行い（404判定のため）、file内容も
@@ -413,10 +441,4 @@ async def get_active_hazard_geojson(hazard_type: str, region_code: str):
             raise HTTPException(status_code=413, detail=_HAZARD_LARGE_RESPONSE_DETAIL)
         raise HTTPException(status_code=422, detail=_HAZARD_POLICY_REJECTED_DETAIL)
 
-    try:
-        return hazard_dataset_service.get_active_hazard_geojson(hazard_type, region_code)
-    except (FileNotFoundError, KeyError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except (ValueError, json.JSONDecodeError, OSError) as exc:
-        logger.exception("hazard geojson error: hazard_type=%s region_code=%s", hazard_type, region_code)
-        raise HTTPException(status_code=500, detail=_HAZARD_INTERNAL_ERROR_DETAIL) from exc
+    raise HTTPException(status_code=404, detail=str(KeyError(f"Unsupported hazard_type: {hazard_type}")))
