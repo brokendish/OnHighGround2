@@ -380,10 +380,53 @@ lowland_poor_drainage/inland_flood）は元々 region 毎に専用 directory へ
 Kanagawa の tsunami（`kanagawa/tsunami/` directory 自体が存在しない）は
 今回のfixでは解決されず、`tileset_id` は引き続き `null`。frontend の
 tsunami は `useStaticVectorTiles: true` によりこの値自体を参照しないため
-実害はない。この「1 region に複数 tileset」問題は
-`HAZARD-META-MULTI-TILESET-CONTRACT-GAP`（OPEN / NON-BLOCKING）として
-別途 defer する——meta schema 自体の変更（複数 tileset_id 対応）は
-本 Phase のスコープに含めていない。
+実害はない。この「1 region に複数 tileset」問題は、以下の
+`HAZARD-META-MULTI-TILESET-CONTRACT-GAP` として引き続き整理した。
+
+**`HAZARD-META-MULTI-TILESET-CONTRACT-GAP`（2026-09-12 CLOSED /
+DOCUMENT_STATIC_AUTHORITY、schema拡張は DEFERRED）**: `/meta` の
+`tileset_id`/`tileset_source_layer` は単一値のみを表現できるが、
+Kanagawa の tsunami は物理的に2つの MBTiles
+（`kanagawa_tsunami_A40-16_14`/`kanagawa_tsunami_A40-20_14`、国土数値情報
+コードが異なる=地理的に異なる範囲をカバーする別 source）を**両方同時に**
+必要とする——「どちらか一方を選べばよい」のではなく、frontend が
+`Promise.all` で両方の存在確認を行い、揃って初めて tile-available と
+判定する設計（`hazard-layers.js` の `useStaticVectorTiles` 分岐）。
+
+**採用した contract（DOCUMENT_STATIC_AUTHORITY）**:
+
+- tsunami の multi-tileset discovery は `/meta` の責務としない。
+  authoritative source は frontend の `VECTOR_TILE_SOURCES`
+  （`tsunami_kanagawa` に 2 tileset を静的に列挙済み）。
+- tsunami の `/meta` は `tileset_id: null` / `tileset_source_layer: null`
+  を正式な契約として許容する（frontend は元々この値を参照しない）。
+- `tileset_id`/`tileset_source_layer`（単一値）は、single-tileset type
+  （flood/storm_surge/inland_flood/pseudo_inland_flood/
+  lowland_poor_drainage）向けの既存 contract として維持する。既存
+  consumer の挙動は無変更。
+- Chiba の tsunami は、tile 自体は存在するが backend 側に active
+  dataset が未登録のため `/meta` は引き続き 404
+  （`get_active_hazard_meta()` の registry check が
+  `_find_tileset_for_region()` より先に走るため、filesystem 上の
+  tile 存在だけを理由に meta を合成することはない）。
+
+**調査で確認した事実**: `tokyo/flood`（`tokyo_river_001`/
+`tokyo_flood_max`）・`tokyo/storm_surge`（`tokyo_surge_001`/
+`tokyo_storm_surge`）にもそれぞれ2つの MBTiles が存在するが、これらは
+Kanagawa tsunami と異なり「新旧いずれかが正本」という duplicate/legacy
+関係であることを frontend の静的定義（`flood_tokyo_max`/
+`storm_surge_tokyo`、いずれも配列要素1件）から確認した——既存の最大
+サイズ selector（region-prefix filter適用後）がそのまま正しく機能する
+ため、multi-tileset contract の対象ではない。
+
+**schema拡張（`tilesets: [{id, source_layer}, ...]`）は
+DEFERRED**——実装しても現状これを消費する frontend 経路が存在しない
+ため（tsunami は `useStaticVectorTiles` で参照せず、他 type は単一
+tileset のため配列化の恩恵がない）。以下のいずれかが発生した場合に
+再検討する: (1) tsunami 以外で complementary multi-tileset が発生、
+(2) frontend が静的 `VECTOR_TILE_SOURCES` を廃止、(3) backend の
+dynamic discovery が multi-tileset 対応必須になる、(4) registry に
+正式な tileset mapping が追加される。
 
 ---
 
