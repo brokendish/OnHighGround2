@@ -65,13 +65,21 @@ OSM・DEM・ハザード・OSRM・Martin/PostGIS の準備は
 
 ## 設定と secret
 
-設定は 2 系統に分かれます。
+設定は主に `.env` 1 つで完結します。
+
+```bash
+cp .env.example .env
+vi .env   # CARTO_BASEMAP_API_KEY=your_key_here
+docker compose up -d frontend
+```
 
 - **ブラウザから参照可能なランタイム公開設定**（背景地図の
-  `CARTO_BASEMAP_API_KEY` など）: `config/runtime-config.example.js` を
-  `config/runtime-config.local.js` へコピーして設定します。
-- **server-side secret**（backend / operator / stream）: `.env`・`.env.operator`・
-  `.env.stream` を使います。
+  `CARTO_BASEMAP_API_KEY` など）: `.env` の `CARTO_BASEMAP_API_KEY` に設定
+  します。任意設定で、未設定・空文字なら OpenStreetMap へ自動フォールバック
+  します。backend secret ではなくブラウザから参照可能な公開設定である点に
+  注意してください。
+- **server-side secret**（backend / operator / stream）: `.env`（`ODPT_API_KEY`
+  等）・`.env.operator`・`.env.stream` を使います。
 
 いずれの実値もコミットしないでください（example にはプレースホルダーのみ）。
 詳細は [docs/configuration.md](docs/configuration.md) を参照してください。

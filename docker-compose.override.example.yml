@@ -6,20 +6,20 @@
 #
 #   cp docker-compose.override.example.yml docker-compose.override.yml
 #
-# このファイルは 2 つの独立した用途をまとめている。どちらか一方だけ使う場合は、
-# 不要な側の service / volumes ブロックをコピー後に削除してよい。
+# CARTO Basemaps runtime config UX simplification（GitHub公開前）:
+# ブラウザから参照可能なランタイム公開設定（CARTO_BASEMAP_API_KEY 等）は
+# `.env` の CARTO_BASEMAP_API_KEY だけで完結するようになったため、この override
+# は不要になった（frontend コンテナ起動時に自動生成される。詳細は
+# docs/configuration.md §8）。このファイルには override.yml のもう一つの用途
+# （B: macOS Docker Desktop 向け local runtime profile）だけを残す。
 #
-#   A. ブラウザから参照可能なランタイム公開設定（CARTO_BASEMAP_API_KEY 等）
-#   B. macOS Docker Desktop 向け local runtime profile
-#      （/data_runtime を host bind mount から named volume へ切り替える）
+# 既に config/runtime-config.local.js + docker-compose.override.yml の組み合わせを
+# 使っている環境は、`.env` の CARTO_BASEMAP_API_KEY が空の間、引き続きそちらの値が
+# 後方互換フォールバックとして使われる（生成スクリプトが両対応）。新規に設定する
+# 場合は `.env` を使うこと。
 #
 # 詳細は docs/configuration.md / docs/installation.md を参照。
 
-# ─────────────────────────────────────────────────────────────────────────────
-# A. ランタイム公開設定（config/runtime-config.local.js を frontend へ差し込む）
-# ─────────────────────────────────────────────────────────────────────────────
-#   cp config/runtime-config.example.js config/runtime-config.local.js   # 実値を設定
-#
 # ─────────────────────────────────────────────────────────────────────────────
 # B. local runtime profile（named volume 化。macOS Docker Desktop 向け）
 # ─────────────────────────────────────────────────────────────────────────────
@@ -40,11 +40,6 @@
 # 別手順（docs/data-setup.md）。データ無しでも backend は degraded 起動する。
 
 services:
-  # ── A: ランタイム公開設定 ──────────────────────────────────────────────────
-  frontend:
-    volumes:
-      - ./config/runtime-config.local.js:/usr/share/nginx/html/js/shared/runtime-config.js:ro
-
   # ── B: local runtime profile ─────────────────────────────────────────────
   # /data_runtime を named volume へ差し替える 4 service。target path が base と
   # 同一なので volumes マージ規則（後勝ち）で自動的に上書きされる（martin のみ

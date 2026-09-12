@@ -182,15 +182,6 @@ def test_override_example_declares_named_volumes():
         )
 
 
-def test_override_example_preserves_carto_mount():
-    """A: CARTO ランタイム公開設定の mount を消さない（§21）。"""
-    doc = _load_yaml(OVERRIDE_EXAMPLE)
-    fe = doc["services"]["frontend"]["volumes"]
-    assert any("runtime-config.local.js" in str(v) for v in fe), (
-        "frontend の CARTO runtime-config mount が失われている"
-    )
-
-
 def test_override_example_wires_three_runtime_services():
     doc = _load_yaml(OVERRIDE_EXAMPLE)
     svc = doc["services"]
@@ -246,7 +237,3 @@ def test_compose_merge_contract():
 
     ri = mounts("runtime-init")
     assert ("data-runtime", "/data_runtime", False) in ri, "runtime-init が /data_runtime を rw で持たない"
-
-    # A: CARTO mount 保持
-    fe = mounts("frontend")
-    assert any(t == "/usr/share/nginx/html/js/shared/runtime-config.js" for (_s, t, _ro) in fe)

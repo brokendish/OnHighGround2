@@ -655,7 +655,7 @@ def extract_env_example_keys(env_example_text: str) -> set:
 
 def check_env_example_key_coverage(env_example_text: str | None, actual_referenced_keys: set) -> CheckResult:
     if env_example_text is None:
-        return CheckResult("23", "example env key coverage一致", False, "backend/.env.example missing")
+        return CheckResult("23", "example env key coverage一致", False, ".env.example missing")
     example_keys = extract_env_example_keys(env_example_text)
     missing_from_example = actual_referenced_keys - example_keys
     ok = len(missing_from_example) == 0
@@ -704,7 +704,7 @@ PUBLIC_ENV_REFERENCE_FILES = [
 ]
 
 # admin/simulation/operator専用モジュールは public backendの参照範囲から除外する
-# （それらのkeyは.env.operatorスコープであり、backend/.env.exampleの対象外）。
+# （それらのkeyは.env.operatorスコープであり、.env.exampleの対象外）。
 
 
 def _read(path: Path) -> str | None:
@@ -738,7 +738,7 @@ def run_all(repo_root: Path = REPO_ROOT) -> RunReport:
     notices_text = _read(repo_root / "THIRD_PARTY_NOTICES.md")
     inventory_text = _read(repo_root / "docs" / "third-party-inventory.md")
     readme_text = _read(repo_root / "README.md")
-    env_example_text = _read(repo_root / "backend" / ".env.example")
+    env_example_text = _read(repo_root / ".env.example")
     installation_text = _read(repo_root / "docs" / "installation.md")
     configuration_text = _read(repo_root / "docs" / "configuration.md")
     operator_setup_text = _read(repo_root / "docs" / "operator-setup.md")
@@ -760,7 +760,7 @@ def run_all(repo_root: Path = REPO_ROOT) -> RunReport:
         "docs/installation.md": installation_text,
         "docs/configuration.md": configuration_text,
         "docs/operator-setup.md": operator_setup_text,
-        "backend/.env.example": env_example_text,
+        ".env.example": env_example_text,
     }
 
     actual_keys = _extract_actual_public_env_keys(repo_root)

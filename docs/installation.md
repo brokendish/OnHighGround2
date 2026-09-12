@@ -36,7 +36,7 @@ Kubernetes のデプロイは本ガイドでは検証していません。Docker
 ```bash
 git clone https://github.com/brokendish/OnHighGround2.git
 cd OnHighGround2
-cp backend/.env.example .env
+cp .env.example .env
 ```
 
 `.env` は Compose にとって任意ですが、値が必要な場合の公開構成ファイルです。
@@ -121,12 +121,13 @@ Playwright / npm は開発・テスト用の依存であり、公開 runtime の
 
 `/live` と `/live/stream` の背景地図は CARTO Basemaps の API キー（任意の
 `CARTO_BASEMAP_API_KEY`）を使います。未設定でもアプリは起動し、背景地図は
-キー不要の OpenStreetMap タイルへフォールバックします。設定する場合は
-example をコピーします（詳細は [設定](configuration.md)）。
+キー不要の OpenStreetMap タイルへフォールバックします。設定する場合は `.env`
+に1行追加するだけです（詳細は [設定](configuration.md) §8）。
 
 ```bash
-cp config/runtime-config.example.js config/runtime-config.local.js   # 自分のキーを設定
-cp docker-compose.override.example.yml docker-compose.override.yml
+cp .env.example .env   # 未作成の場合
+vi .env                # CARTO_BASEMAP_API_KEY=your_key_here を設定
+docker compose up -d frontend
 ```
 
 ## 6. local runtime profile（macOS Docker Desktop 向け・任意）

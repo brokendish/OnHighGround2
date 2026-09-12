@@ -342,9 +342,17 @@ services:
     container_name: evacuation-navi-frontend
     ports:
       - "8080:80"
+    # CARTO Basemaps runtime config UX simplification: .env の
+    # CARTO_BASEMAP_API_KEY（browser-visible な公開設定。backend secret ではない）
+    # を frontend container へ渡し、起動時に scripts/frontend/generate_runtime_config.sh
+    # が window.OHG2_RUNTIME_CONFIG を生成する（詳細は docs/configuration.md §8）。
+    environment:
+      - CARTO_BASEMAP_API_KEY=${CARTO_BASEMAP_API_KEY:-}
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./config/runtime-config.template.js:/etc/ohg2/runtime-config.template.js:ro
+      - ./scripts/frontend/generate_runtime_config.sh:/docker-entrypoint.d/50-generate-runtime-config.sh:ro
     depends_on:
       - backend-public
       - osrm-walking
