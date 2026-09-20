@@ -11,7 +11,7 @@
  *   以下のカラー定数は VECTOR_TILE_SOURCES より前に宣言しなければならない。
  *   新しいカラー定数を追加するときは必ずこのブロック内に追記すること。
  *     FLOOD_RANK_COLORS / FLOOD_UNKNOWN_COLOR / getFloodRankColor / FLOOD_BORDER
- *     STORM_SURGE_RANK_COLORS / STORM_SURGE_UNKNOWN_COLOR / STORM_SURGE_BORDER
+ *     STORM_SURGE_CLASSES / STORM_SURGE_RANK_COLORS / STORM_SURGE_UNKNOWN_COLOR / STORM_SURGE_BORDER
  *     INLAND_FLOOD_BORDER
  */
 
@@ -26,11 +26,39 @@ const FLOOD_UNKNOWN_COLOR = '#e3f2fd';
 function getFloodRankColor(rank) { return FLOOD_RANK_COLORS[rank] || FLOOD_UNKNOWN_COLOR; }
 const FLOOD_BORDER = { color: '#1565c0', weight: 0.4, opacity: 0.25 };
 // storm_surge: 紫系
-const STORM_SURGE_RANK_COLORS = {
-    1: '#f3e5f5', 2: '#ce93d8', 3: '#ba68c8', 4: '#9c27b0',
-    5: '#7b1fa2', 6: '#6a1b9a', 7: '#4a148c',
-};
-const STORM_SURGE_UNKNOWN_COLOR = '#f3e5f5';
+// 浸水深階級の定義（実描画・全凡例・ラベルの唯一の定義元）。
+// rank / 境界は scripts/normalize/normalize_storm_surge.py の DEPTH_TABLE（国土数値情報 A49_003）と一致させる。
+// 境界は「min 以上 max 未満」（0.3m ちょうどは rank 2）。label は min/max から生成する。
+const STORM_SURGE_CLASSES = [
+    { rank: 1, min: 0,   max: 0.3, color: '#f3e5f5' },
+    { rank: 2, min: 0.3, max: 0.5, color: '#ce93d8' },
+    { rank: 3, min: 0.5, max: 1,   color: '#ba68c8' },
+    { rank: 4, min: 1,   max: 3,   color: '#9c27b0' },
+    { rank: 5, min: 3,   max: 5,   color: '#7b1fa2' },
+    { rank: 6, min: 5,   max: 10,  color: '#6a1b9a' },
+    { rank: 7, min: 10,  max: 20,  color: '#4a148c' },
+];
+function getStormSurgeClassLabel(cls) {
+    return cls.min <= 0 ? `${cls.max}m未満` : `${cls.min}〜${cls.max}m`;
+}
+const STORM_SURGE_LEGEND_ENTRIES = STORM_SURGE_CLASSES.map((cls) => ({
+    color: cls.color,
+    label: getStormSurgeClassLabel(cls),
+}));
+const STORM_SURGE_RANK_COLORS = Object.fromEntries(
+    STORM_SURGE_CLASSES.map((cls) => [cls.rank, cls.color])
+);
+// rank 欠損・0（未知の depth_text）・範囲外は正常階級と区別できる中立グレー（rank 1 と同色にしない）
+const STORM_SURGE_UNKNOWN_COLOR = '#9e9e9e';
+function getStormSurgeRankColor(rank) {
+    return STORM_SURGE_RANK_COLORS[rank] || STORM_SURGE_UNKNOWN_COLOR;
+}
+// 浸水深[m] → 階級（境界: min <= depth < max）。範囲外・非数値は null
+function getStormSurgeClassByDepth(depthMeters) {
+    const d = Number(depthMeters);
+    if (depthMeters === null || depthMeters === '' || !Number.isFinite(d)) return null;
+    return STORM_SURGE_CLASSES.find((cls) => d >= cls.min && d < cls.max) || null;
+}
 const STORM_SURGE_BORDER = { color: '#6a1b9a', weight: 0.4, opacity: 0.25 };
 // inland_flood: シアン・ティール系
 // INLAND_FLOOD_BORDER: VECTOR_TILE_SOURCES の borderStyle から直接参照するため
@@ -77,14 +105,7 @@ const HAZARD_CATEGORY_CONFIG = {
     },
     storm_surge: {
         label: '高潮浸水想定',
-        legend: [
-            { color: '#f3e5f5', label: '0.3m未満' },
-            { color: '#ce93d8', label: '0.3〜0.5m' },
-            { color: '#ba68c8', label: '0.5〜1m' },
-            { color: '#9c27b0', label: '1〜3m' },
-            { color: '#7b1fa2', label: '3〜5m' },
-            { color: '#4a148c', label: '5m超' },
-        ]
+        legend: STORM_SURGE_LEGEND_ENTRIES
     },
     inland_flood: {
         label: '内水氾濫',
@@ -457,7 +478,7 @@ const VECTOR_TILE_SOURCES = {
         {
             tilesetId: 'tokyo_surge_001',
             sourceLayer: 'storm_surge',
-            colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
+            colorFn: (props) => getStormSurgeRankColor(props['storm_surge_rank']),
             borderStyle: STORM_SURGE_BORDER,
             opacityFn: () => 0.18,
             maxNativeZoom: 16
@@ -467,7 +488,7 @@ const VECTOR_TILE_SOURCES = {
         {
             tilesetId: 'kanagawa_surge_001',
             sourceLayer: 'storm_surge',
-            colorFn: (props) => STORM_SURGE_RANK_COLORS[props['storm_surge_rank']] || STORM_SURGE_UNKNOWN_COLOR,
+            colorFn: (props) => getStormSurgeRankColor(props['storm_surge_rank']),
             borderStyle: STORM_SURGE_BORDER,
             opacityFn: () => 0.18,
             maxNativeZoom: 16
@@ -832,7 +853,7 @@ function getLandslideFeatureStyle(feature) {
 
 function getStormSurgeFeatureStyle(feature) {
     const rank = feature?.properties?.['storm_surge_rank'];
-    const fillColor = STORM_SURGE_RANK_COLORS[rank] || STORM_SURGE_UNKNOWN_COLOR;
+    const fillColor = getStormSurgeRankColor(rank);
     return {
         ...STORM_SURGE_BORDER,
         fillColor,
@@ -1402,6 +1423,39 @@ function setLandslideStatus(msg) {
     if (el) el.textContent = msg;
 }
 
+// ── 高潮凡例の描画（静的HTMLの二重管理を避け、STORM_SURGE_LEGEND_ENTRIES から生成）────
+// #stormSurgeLegend（サイドバー）と #mapLegendStormSurge（凡例タブの元になる #mapLegend）
+function renderStormSurgeLegends() {
+    const sidebar = document.getElementById('stormSurgeLegend');
+    if (sidebar) {
+        sidebar.replaceChildren(...STORM_SURGE_LEGEND_ENTRIES.map(({ color, label }) => {
+            const row = document.createElement('div');
+            row.className = 'hazard-legend-entry';
+            const swatch = document.createElement('span');
+            swatch.className = 'hazard-legend-swatch';
+            swatch.style.background = color;
+            row.append(swatch, label);
+            return row;
+        }));
+    }
+    const mapLegend = document.getElementById('mapLegendStormSurge');
+    if (mapLegend) {
+        const title = document.createElement('div');
+        title.className = 'legend-item';
+        title.append(Object.assign(document.createElement('span'), { textContent: '高潮浸水想定（浸水深）' }));
+        mapLegend.replaceChildren(title, ...STORM_SURGE_LEGEND_ENTRIES.map(({ color, label }) => {
+            const row = document.createElement('div');
+            row.className = 'legend-item';
+            const swatch = document.createElement('div');
+            swatch.className = 'legend-color';
+            swatch.style.background = color;
+            row.append(swatch, Object.assign(document.createElement('span'), { textContent: label }));
+            return row;
+        }));
+    }
+}
+renderStormSurgeLegends();
+
 // ── モジュール自己診断 ─────────────────────────────────────────────────────
 // モジュール評価が最後まで到達したことを確認し、定数の欠落を早期検出する。
 // TDZ クラッシュや宣言順序の崩れがあればここに到達せず、その前のエラーがコンソールに表示される。
@@ -1409,6 +1463,7 @@ function setLandslideStatus(msg) {
     const required = {
         FLOOD_RANK_COLORS,
         FLOOD_BORDER,
+        STORM_SURGE_CLASSES,
         STORM_SURGE_RANK_COLORS,
         STORM_SURGE_BORDER,
         TSUNAMI_BORDER,

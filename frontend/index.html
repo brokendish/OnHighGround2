@@ -4343,14 +4343,8 @@
                         <input type="checkbox" id="showStormSurgeKanagawa">
                         神奈川県
                     </label>
-                    <div id="stormSurgeLegend" class="hazard-legend" style="display:none;">
-                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#b3e5fc;"></span>0.3m未満</div>
-                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#4fc3f7;"></span>0.3〜0.5m</div>
-                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#0288d1;"></span>0.5〜1m</div>
-                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#01579b;"></span>1〜3m</div>
-                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#7b1fa2;"></span>3〜5m</div>
-                        <div class="hazard-legend-entry"><span class="hazard-legend-swatch" style="background:#4a148c;"></span>5m超</div>
-                    </div>
+                    <!-- 凡例の色・階級は hazard-layers.js の STORM_SURGE_CLASSES から描画（renderStormSurgeLegends） -->
+                    <div id="stormSurgeLegend" class="hazard-legend" style="display:none;"></div>
                 </details>
                 <div class="shelter-status" id="stormSurgeStatus">高潮浸水想定レイヤー: OFF</div>
                 <details class="hazard-group">
@@ -5246,10 +5240,8 @@
                     <div class="legend-color" style="background: #66bb6a; opacity: 0.5; border: 2px solid #2e7d32;"></div>
                     <span>避難可能エリア (RSA)</span>
                 </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #0288d1; opacity: 0.5;"></div>
-                    <span>高潮浸水想定</span>
-                </div>
+                <!-- 高潮浸水想定の浸水深階級凡例: hazard-layers.js の STORM_SURGE_CLASSES から描画（renderStormSurgeLegends） -->
+                <div id="mapLegendStormSurge"></div>
                 <div class="legend-item">
                     <div class="legend-line" style="border-top-color: #ff9800;"></div>
                     <span>避難ルート候補1</span>

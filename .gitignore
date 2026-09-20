@@ -208,3 +208,7 @@ tasks/finalize-release/
 #      検証実行結果（results/）のみ git 管理外とする。fixture source / expected data /
 #      input files / test scripts は追跡対象のまま。----
 tests/fixtures/public_release/*/results/
+
+# E2E 検証スクリーンショット（実機確認用の一時成果物）
+reports/mobile-bottom-panel-compact/
+reports/storm-surge-legend-color-match/
