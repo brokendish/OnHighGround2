@@ -3529,6 +3529,102 @@
             }
         }
 
+        /* ── スマホ: 下部パネル compact 化（MOBILE-BOTTOM-PANEL-COMPACT） ─────────
+           初期は collapsed（ハンドル + 安全/標高/精度の1行のみ）。開閉は既存の
+           #map-bottom-handle / .mbc-collapsed を再利用する。PC（>480px）は変更しない。
+           パネルは overlay のため開閉で地図コンテナのサイズは変わらず invalidateSize 不要。 */
+        @media (max-width: 480px) {
+            #map-bottom-controls {
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+                padding: 6px 12px 8px;
+            }
+            #map-bottom-controls.mbc-collapsed {
+                padding-top: 4px;
+                padding-bottom: 2px;
+            }
+            #map-bottom-handle { gap: 1px; padding: 0 0 2px; }
+            .mbc-handle-chevron { width: 18px; height: 14px; }
+            /* collapsed = ▲（タップで開く）/ expanded = ▼（タップで閉じる） */
+            #map-bottom-controls .mbc-handle-chevron { transform: rotate(180deg); }
+            #map-bottom-controls.mbc-collapsed .mbc-handle-chevron { transform: none; }
+            #map-bottom-controls.mbc-collapsed .mbc-expand-hint { display: none; }
+
+            /* collapsed 時は中身をフォーカス・読み上げ対象からも外す */
+            #map-bottom-controls.mbc-collapsed #map-bottom-body {
+                visibility: hidden;
+                transition: max-height 0.25s ease, opacity 0.2s ease, visibility 0s linear 0.25s;
+            }
+            /* expanded 時の高さ: 地図を覆い切らない（パネル全体で約 65dvh 以内）。内部のみスクロール */
+            #map-bottom-body { max-height: min(50dvh, 440px); }
+            #map-bottom-controls.mbc-info-expanded #map-bottom-body {
+                max-height: 60dvh;
+            }
+            #map-bottom-controls.mbc-earthquake-active.mbc-earthquake-expanded #map-bottom-body {
+                height: 60dvh;
+                max-height: 60dvh;
+            }
+
+            /* attribution: 削除せず 1 行に compact 化（右下・半透明・パネルと非重なり） */
+            #map .leaflet-bottom.leaflet-right {
+                left: 0;
+                bottom: env(safe-area-inset-bottom, 0px);
+                display: flex;
+                align-items: flex-end;
+                justify-content: flex-end;
+            }
+            #map .leaflet-bottom.leaflet-right.ohg2-attr-open,
+            #map .leaflet-bottom.leaflet-right.ohg2-attr-pinned {
+                z-index: 1400;
+            }
+            #map .leaflet-control-attribution {
+                float: none;
+                flex: 0 1 auto;
+                min-width: 0;
+                margin: 0;
+                padding: 1px 4px;
+                font-size: 9px;
+                line-height: 1.35;
+                background: rgba(255, 255, 255, 0.7);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            #map .leaflet-bottom.leaflet-right.ohg2-attr-open .leaflet-control-attribution,
+            #map .leaflet-bottom.leaflet-right.ohg2-attr-pinned .leaflet-control-attribution {
+                white-space: normal;
+                font-size: 10px;
+                background: rgba(255, 255, 255, 0.92);
+            }
+            /* 開閉トグル（JS が #map の右下 corner に追加） */
+            #map .ohg2-attr-toggle {
+                position: relative;
+                float: none;
+                flex: none;
+                margin: 0;
+                width: 26px;
+                height: 15px;
+                padding: 0;
+                border: none;
+                background: rgba(255, 255, 255, 0.7);
+                color: #333;
+                font-size: 9px;
+                line-height: 15px;
+                text-align: center;
+                cursor: pointer;
+            }
+            /* 見た目は小さく、タップ領域は広げる */
+            #map .ohg2-attr-toggle::before {
+                content: '';
+                position: absolute;
+                inset: -10px -4px -4px -8px;
+            }
+            #map .leaflet-bottom.leaflet-right.ohg2-attr-pinned .ohg2-attr-toggle { display: none; }
+        }
+        /* attribution 開閉トグルは PC では不要 */
+        @media (min-width: 481px) {
+            #map .ohg2-attr-toggle { display: none; }
+        }
+
         /* ── iPad 上下余白補正 ──────────────────────────────── */
         @media (min-width: 768px) and (max-width: 1366px) {
             :root {

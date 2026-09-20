@@ -177,6 +177,8 @@ test.describe('避難所マーカー画像化検証', () => {
     await expect(page.locator('.shelter-icon--near')).toHaveCount(0);
     await expect(page.locator('.shelter-icon--far')).toHaveCount(0);
     await expect(page.locator('#map')).toBeVisible();
+    // スマホ幅では下部パネルは初期 collapsed（MOBILE-BOTTOM-PANEL-COMPACT）。ハンドルで展開してからタブを確認する
+    await page.locator('#map-bottom-handle').click();
     await expect(page.locator('#mbc-tab-btn-layer')).toBeVisible();
 
     const mapBox = await page.locator('#map').boundingBox();
