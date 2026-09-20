@@ -165,6 +165,32 @@ MBTiles ディレクトリを宣言します。理由は、Martin 1.14.0 が `mb
 更新を反映するには同期後に `docker compose restart martin` が必要です
 （`docs/checklists/vps_startup_checklist.md` の publish 手順を参照）。
 
+**flat mirror の permission contract（RUNTIME-MBTILES-GROUP-CONTRACT）**:
+Martin は root で動くため権限に関係なく配信できますが、`GET /api/hazards/<type>/<region>/meta`
+の `tileset_source_layer` は **backend-public（uid 10001、supplemental gid 20001）が
+MBTiles を sqlite で開いて**解決します。次の契約を満たさない MBTiles は、Martin から
+配信できても meta の `tileset_source_layer` が `null` になります。
+
+| 対象 | owner | group | mode |
+|---|---|---|---|
+| directory（`frontend/tiles` 配下） | operator（10002） | `ohg2leases`（20001） | 0750 |
+| `*.mbtiles` | operator（10002） | `ohg2leases`（20001） | 0640 |
+
+この契約は `scripts/publish/sync_frontend_tiles_mirror.sh` が publish のたびに明示的な
+`chgrp`/`chmod`（setgid には依存しない）で保証し、満たせない場合は `deploy_to_runtime_atomic.sh`
+が exit 4 で報告します。operator image には `rsync` が無く、従来の同期（`cp -r`）は file の group を
+operator の primary gid（10002）にしていたため、この契約が守られていませんでした。
+READ ONLY の検証は次のとおり（何も変更しません）:
+
+```bash
+docker compose --profile operator run --rm --no-deps --entrypoint bash backend-operator -c \
+  "/scripts/publish/sync_frontend_tiles_mirror.sh --check /data_runtime/frontend/tiles"
+```
+
+なお、ローカルから VPS へ `rsync` で `data_runtime/` を転送する場合（VPS-README）は、ローカルの
+gid・mode がそのまま持ち込まれるため、転送後に上記 `--check` で確認し、必要なら publish を
+やり直してください。
+
 ```text
 data_lake/tiles/<region>/<hazard>/*.mbtiles
         ↓ deploy_to_runtime_atomic.sh

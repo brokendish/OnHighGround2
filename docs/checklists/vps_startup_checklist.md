@@ -290,7 +290,8 @@ curl -s http://localhost:8080/tiles/catalog | python3 -m json.tool
 旧世代の VPS では `data_runtime/frontend/tiles/` に、atomic publish 導入前から
 直接配置された `.mbtiles`（`data_lake/tiles/<region>/<type>/` に対応する
 source が無いもの）が存在する場合がある。`deploy_to_runtime_atomic.sh` の
-flat mirror 同期は `rsync -a`（`--delete` なし）による**追加専用**の同期であり、
+flat mirror 同期は（operator image に `rsync` が無いため実際は `cp -r --remove-destination`、
+`scripts/publish/sync_frontend_tiles_mirror.sh`）`--delete` なしの**追加専用**の同期であり、
 新しい staging 側にその tile の source が無くても、既存ファイルを削除しない
 設計になっている。ただし、これは実装上の期待であり、**初回 publish 直後に
 必ず該当ファイルが消えていないことを確認すること**（`find data_runtime/frontend/tiles
@@ -453,6 +454,23 @@ _registry_instance = ShelterRegistry(ttl_seconds=3600)  # 30 ではなく 3600 �
 直接実行すると、解決結果と警告が確認できる）。
 
 ### hazard レイヤーが Martin ではなく GeoJSON fallback で表示される
+
+`GET /api/hazards/<type>/<region>/meta` の `tileset_id` が非 null なのに
+`tileset_source_layer` が `null` の場合は、backend-public が MBTiles を sqlite で開けていません
+（Martin は root のため配信できる）。フロントは固定の source layer 名へ縮退するため、実タイルの
+layer 名と異なると Leaflet 既定の青い太線で描画されます（RUNTIME-MBTILES-GROUP-CONTRACT）。
+READ ONLY で確認する:
+
+```bash
+ls -lan --time-style=long-iso data_runtime/frontend/tiles/*/*/*.mbtiles
+# 期待: 各 .mbtiles が「10002 20001 -rw-r-----」（owner=10002 / group=20001 / 0640）
+docker compose --profile operator run --rm --no-deps --entrypoint bash backend-operator -c \
+  "/scripts/publish/sync_frontend_tiles_mirror.sh --check /data_runtime/frontend/tiles"
+docker compose logs backend-public | grep "tileset metadata unreadable"
+```
+
+原因が group/mode の逸脱なら、次回の `deploy_to_runtime_atomic.sh` publish が自動で
+`10002:20001 / 0640` へ正規化する（是正手順を手作業の `chgrp` に頼らない）。
 
 `GET /api/hazards/<type>/<region>/meta` の `tileset_id` が `null` の場合、
 `data_runtime/frontend/tiles/<region>/<hazard_type>/` に該当 `.mbtiles` が存在しない

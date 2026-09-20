@@ -195,6 +195,13 @@ rsync -avz --progress \
   ${VPS}:${REMOTE}/data_lake/validated/tokyo/shelter/
 ```
 
+> **転送後の権限確認**: `rsync -a` はローカルの gid・mode を VPS へ持ち込みます。`data_runtime/frontend/tiles/`
+> の `.mbtiles` は、backend-public（uid 10001、supplemental gid 20001）が読める `10002:20001 / 0640`
+> でないと、Martin からは配信できても `GET /api/hazards/<type>/<region>/meta` の `tileset_source_layer` が
+> `null` になります。転送後に READ ONLY で確認してください:
+> `docker compose --profile operator run --rm --no-deps --entrypoint bash backend-operator -c "/scripts/publish/sync_frontend_tiles_mirror.sh --check /data_runtime/frontend/tiles"`
+> （通常運用の `deploy_to_runtime_atomic.sh` publish は、この契約を自動で保証します。）
+
 転送後の内訳（参考）：
 
 ```text

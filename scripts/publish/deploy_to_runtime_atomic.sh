@@ -23,6 +23,11 @@
 #
 # (--dry-run は本atomic wrapperでは非対応。dry-runしたい場合は
 #  既存 deploy_to_runtime.sh を直接呼ぶこと。)
+#
+# 終了コード: 0=成功 / 1=publish失敗（currentは未変更）/ 3=耐久性未確認（current切替済み）/
+#             4=publish成功（current切替済み）だがMartin向けflat mirrorのpermission contract
+#               （file 10002:20001 0640。backend-publicがmbtilesを読めること）を満たせない
+#               （RUNTIME-MBTILES-GROUP-CONTRACT、sync_frontend_tiles_mirror.sh）
 
 set -euo pipefail
 
@@ -195,19 +200,26 @@ if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
     TILES_SRC="${DATA_RUNTIME}/current/frontend/tiles"
     TILES_DST="${DATA_RUNTIME}/frontend/tiles"
     if [[ -d "${TILES_SRC}" ]]; then
-        mkdir -p "${TILES_DST}" 2>/dev/null || true
-        if command -v rsync &>/dev/null; then
-            if rsync -a "${TILES_SRC}/" "${TILES_DST}/"; then
-                log_info "synced current/frontend/tiles -> data_runtime/frontend/tiles (Martin向けflat mirror)"
-            else
-                log_warn "current/frontend/tiles -> data_runtime/frontend/tiles 同期に失敗（publish自体は成功済み。Martin向けmirror未整備の可能性、frontend/tiles配下のoperator write権限を確認すること）"
-            fi
+        # RUNTIME-MBTILES-GROUP-CONTRACT: 同期と permission contract（file
+        # 10002:20001 0640 / dir 0750。backend-publicがmbtilesをsqliteで開けること）の
+        # 保証は sync_frontend_tiles_mirror.sh に集約している。operator imageには
+        # rsyncが無く、従来の`cp -r --remove-destination`はfileのgroupをoperatorの
+        # primary gid（10002）にしてしまい、backend-publicがmbtilesを読めず
+        # meta の tileset_source_layer が null になっていた。
+        # 終了コード: 0=OK / 2=同期失敗（publish自体は成功済みのためwarning）/
+        #             4=契約を満たせない（publish済みだがbackend-publicが読めない状態。要operator対応）
+        set +e
+        bash "${SCRIPT_DIR}/sync_frontend_tiles_mirror.sh" "${TILES_SRC}" "${TILES_DST}"
+        MIRROR_EXIT_CODE=$?
+        set -e
+        if [[ "${MIRROR_EXIT_CODE}" -eq 0 ]]; then
+            log_info "synced current/frontend/tiles -> data_runtime/frontend/tiles (Martin向けflat mirror)"
+        elif [[ "${MIRROR_EXIT_CODE}" -eq 4 ]]; then
+            log_error "current -> versions/${VERSION_ID} は既にactiveだが、flat mirrorのpermission contractを満たせていない。"
+            log_error "backend-publicがmbtilesを読めず、meta APIのtileset_source_layerがnullになる。上記VIOLATIONを是正すること。"
+            exit 4
         else
-            if cp -r --remove-destination "${TILES_SRC}/." "${TILES_DST}/"; then
-                log_info "synced current/frontend/tiles -> data_runtime/frontend/tiles (Martin向けflat mirror)"
-            else
-                log_warn "current/frontend/tiles -> data_runtime/frontend/tiles 同期に失敗（publish自体は成功済み。Martin向けmirror未整備の可能性、frontend/tiles配下のoperator write権限を確認すること）"
-            fi
+            log_warn "current/frontend/tiles -> data_runtime/frontend/tiles 同期に失敗（publish自体は成功済み。Martin向けmirror未整備の可能性、frontend/tiles配下のoperator write権限を確認すること）"
         fi
     fi
 fi

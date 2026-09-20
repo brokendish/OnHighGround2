@@ -484,6 +484,8 @@ def linux_native_permission_matrix() -> None:
                 "--user", "0:0",
                 "-v", f"{volume_name}:/data_runtime",
                 "-v", f"{REPO_ROOT}/backend/app:/app/app:ro",
+                # RUNTIME-MBTILES-GROUP-CONTRACT: flat mirror同期scriptの権限matrix用
+                "-v", f"{REPO_ROOT}/scripts:/scripts:ro",
                 "-v", f"{inner_script}:/perm_test.py:ro",
                 "python:3.11-slim", "python3", "/perm_test.py",
             ],

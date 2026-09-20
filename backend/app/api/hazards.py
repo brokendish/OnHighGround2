@@ -92,7 +92,17 @@ def _find_tileset_for_region(hazard_type: str, region: str) -> Optional[dict]:
                     source_layer = layers[0].get("id")
         finally:
             conn.close()
-    except (sqlite3.DatabaseError, OSError, json.JSONDecodeError):
+    except (sqlite3.DatabaseError, OSError, json.JSONDecodeError) as exc:
+        # RUNTIME-MBTILES-GROUP-CONTRACT: 従来は握り潰しており、mbtilesが
+        # backend-publicから読めない（group/mode契約違反）場合にも無音で
+        # source_layer=Noneになっていた（実機でstorm_surge/flood/tsunamiの
+        # tileset_source_layerがnullになった原因の特定を著しく難しくした）。
+        # 返り値仕様（source_layer=None）は変えず、server-side logにだけ残す
+        # （HTTP responseへは出さないためpathは漏れない）。
+        logger.warning(
+            "hazard tileset metadata unreadable: hazard_type=%s region=%s tileset=%s error=%s: %s",
+            hazard_type, region, chosen.name, type(exc).__name__, exc,
+        )
         source_layer = None
 
     return {"tileset_id": chosen.stem, "source_layer": source_layer}

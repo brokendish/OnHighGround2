@@ -936,6 +936,223 @@ def run_published_version_file_matrix(root: str, leases_root: str) -> None:
         pass
 
 
+# ── 9. Martin向けflat mirror（RUNTIME-MBTILES-GROUP-CONTRACT） ───────────────
+# root cause（VPS実測）: operator imageにはrsyncが無く、従来のflat mirror同期
+# （`cp -r --remove-destination`）はfileのgroupをoperatorのprimary gid(10002)にした。
+# directoryは既存のためgroup 20001のまま、fileだけ10002:10002 0640になり、
+# backend-public(10001、supplemental 20001)がmbtilesをsqliteで開けず
+# GET /api/hazards/{type}/{region}/meta の tileset_source_layer が null になっていた。
+# 契約: file 10002:20001 0640 / dir 0750（sync_frontend_tiles_mirror.sh）。
+MIRROR_SCRIPT = "/scripts/publish/sync_frontend_tiles_mirror.sh"
+MIRROR_ROOT_NAME = "mirror_matrix"
+
+
+def _make_mbtiles(path: str, layer_id: str) -> None:
+    import sqlite3
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE metadata (name TEXT, value TEXT)")
+        conn.execute("INSERT INTO metadata VALUES ('json', ?)", (json.dumps({"vector_layers": [{"id": layer_id}]}),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _read_layer_id_as_public(path: str) -> None:
+    """hazards.py::_find_tileset_for_region()と同じ読み方（mode=ro、metadata.json）。"""
+    import sqlite3
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        row = conn.execute("SELECT value FROM metadata WHERE name = 'json'").fetchone()
+        assert row and json.loads(row[0])["vector_layers"][0]["id"]
+    finally:
+        conn.close()
+
+
+def _traverse_and_read_all_as_public(dst: str) -> None:
+    for dirpath, _dirs, files in os.walk(dst, onerror=lambda e: (_ for _ in ()).throw(e)):
+        for name in files:
+            if name.endswith(".mbtiles"):
+                _read_layer_id_as_public(os.path.join(dirpath, name))
+
+
+def _operator_run(argv) -> None:
+    """operator(10002:10002 + supplemental 20001、umask 0007)でscriptを実行する。"""
+    import subprocess
+
+    def _run():
+        os.umask(0o007)
+        env = dict(os.environ, OHG2_LEASES_GID=str(LEASES_GID))
+        r = subprocess.run(["bash", MIRROR_SCRIPT, *argv], env=env, capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.stderr.write(r.stdout + r.stderr)
+            os._exit(r.returncode if r.returncode < 128 else 1)
+
+    return _fork_as(OPERATOR_UID, OPERATOR_GID, [LEASES_GID], _run)
+
+
+def _stat3(path: str):
+    st = os.stat(path)
+    return st.st_uid, st.st_gid, oct(st.st_mode & 0o7777)
+
+
+def _seed_published_src(src: str) -> None:
+    """activate_version.pyが検証済みのpublished tree相当（10002:20001、dir 0750/file 0640）。"""
+    import shutil
+    shutil.rmtree(src, ignore_errors=True)
+    for rel, layer in (("tokyo/storm_surge/tokyo_storm_surge.mbtiles", "tokyo_storm_surge"),
+                       ("tokyo/flood/tokyo_flood_max.mbtiles", "tokyo_flood_max"),
+                       ("tokyo/tsunami/tokyo_tsunami_A40-23_13.mbtiles", "tokyo_tsunami_A40-23_13")):
+        _make_mbtiles(os.path.join(src, rel), layer)
+    for dirpath, dirs, files in os.walk(src):
+        for d in dirs:
+            os.chown(os.path.join(dirpath, d), OPERATOR_UID, LEASES_GID)
+            os.chmod(os.path.join(dirpath, d), 0o750)
+        for f in files:
+            os.chown(os.path.join(dirpath, f), OPERATOR_UID, LEASES_GID)
+            os.chmod(os.path.join(dirpath, f), 0o640)
+    os.chown(src, OPERATOR_UID, LEASES_GID)
+    os.chmod(src, 0o750)
+
+
+def _seed_mirror_dst(base: str) -> str:
+    """契約どおりの既存flat mirror: <base>/frontend/tiles/tokyo/storm_surge は既存directory
+    （operator:leases 0750）。旧世代fileはroot:root 0644（otherが読める）。"""
+    import shutil
+    shutil.rmtree(base, ignore_errors=True)
+    dst = os.path.join(base, "frontend", "tiles")
+    os.makedirs(os.path.join(dst, "tokyo", "storm_surge"))
+    legacy = os.path.join(dst, "tokyo", "storm_surge", "tokyo_surge_001.mbtiles")
+    _make_mbtiles(legacy, "storm_surge")
+    os.chown(legacy, 0, 0)
+    os.chmod(legacy, 0o644)
+    for p in (base, os.path.join(base, "frontend"), dst, os.path.join(dst, "tokyo"),
+              os.path.join(dst, "tokyo", "storm_surge")):
+        os.chown(p, OPERATOR_UID, LEASES_GID)
+        os.chmod(p, 0o750)
+    return dst
+
+
+def run_flat_tiles_mirror_matrix(root: str) -> None:
+    import shutil
+    base = os.path.join(root, MIRROR_ROOT_NAME)
+    src = os.path.join(base, "current_frontend_tiles")
+    os.makedirs(base, exist_ok=True)
+    os.chown(base, OPERATOR_UID, LEASES_GID)
+    os.chmod(base, 0o750)
+    if not os.path.isfile(MIRROR_SCRIPT):
+        record("flat mirror準備: /scripts/publish/sync_frontend_tiles_mirror.sh がmountされている", False, MIRROR_SCRIPT)
+        return
+    mirror_base = os.path.join(base, "m")
+    storm = "tokyo/storm_surge/tokyo_storm_surge.mbtiles"
+
+    def public_reads_all(dst):
+        return _fork_as(PUBLIC_UID, PUBLIC_GID, [LEASES_GID], lambda: _traverse_and_read_all_as_public(dst))
+
+    # 9-0: 原因の再現（旧同期 `cp -r --remove-destination`）。合格条件は「backend-publicが読めない」こと
+    _seed_published_src(src)
+    dst = _seed_mirror_dst(mirror_base)
+    import subprocess
+    ok_old, code_old = _fork_as(OPERATOR_UID, OPERATOR_GID, [LEASES_GID], lambda: (
+        os.umask(0o007),
+        subprocess.run(["cp", "-r", "--remove-destination", src + "/.", dst + "/"], check=True),
+    ))
+    uid, gid, mode = _stat3(os.path.join(dst, storm))
+    ok_pub_old, _ = public_reads_all(dst)
+    record("flat mirror root cause再現【旧同期 cp -r --remove-destination】: fileが10002:10002 0640になる"
+           "（directoryは20001のまま）", ok_old and (uid, gid, mode) == (OPERATOR_UID, OPERATOR_GID, "0o640"),
+           f"exit={code_old} actual={uid}:{gid}/{mode}")
+    record("flat mirror root cause再現【旧同期】: backend-publicがmbtilesをsqliteで開けない"
+           "（＝meta の tileset_source_layer が null になる状態）", not ok_pub_old, f"public_read_ok={ok_pub_old}")
+
+    # 9-1: baseline（新しいsync + 正規化）
+    _seed_published_src(src)
+    dst = _seed_mirror_dst(mirror_base)
+    ok, code = _operator_run([src, dst])
+    record("flat mirror baseline: operatorによるsyncが成功する（exit 0）", ok, f"exit={code}")
+    for rel in (storm, "tokyo/flood/tokyo_flood_max.mbtiles", "tokyo/tsunami/tokyo_tsunami_A40-23_13.mbtiles"):
+        uid, gid, mode = _stat3(os.path.join(dst, rel))
+        record(f"flat mirror baseline: {rel} が owner=10002 / group=20001 / mode 0640",
+               (uid, gid, mode) == (OPERATOR_UID, LEASES_GID, "0o640"), f"actual={uid}:{gid}/{mode}")
+    ok, code = public_reads_all(dst)
+    record("flat mirror baseline: backend-public(10001+20001)が公開対象MBTilesを全て読める"
+           "（旧世代root:root 0644を含む）", ok, f"exit={code}")
+
+    # 9-2: 単独mutation（group）— 実運用で起きた状態へ戻す → 検出できる
+    os.chown(os.path.join(dst, storm), OPERATOR_UID, OPERATOR_GID)
+    ok_pub, _ = public_reads_all(dst)
+    record("flat mirror single-mutation【group単独】: fileのgroupを10002へ誤らせるとbackend-publicが読めない"
+           "（mutationが実際に有効であることの確認）", not ok_pub, f"public_read_ok={ok_pub}")
+    ok_chk, code_chk = _operator_run(["--check", dst])
+    record("flat mirror single-mutation【group単独】: `--check`（READ ONLY）がbackend-publicから読めないfileを検出する"
+           "（exit 1）", (not ok_chk) and code_chk == 1, f"exit={code_chk}")
+    before = _stat3(os.path.join(dst, storm))
+    _operator_run(["--check", dst])
+    record("flat mirror `--check` はREAD ONLY（何も変更しない）", _stat3(os.path.join(dst, storm)) == before, "")
+
+    # 9-3: 再sync（次回publish相当）で自動修復される
+    ok, code = _operator_run([src, dst])
+    uid, gid, mode = _stat3(os.path.join(dst, storm))
+    ok_pub, _ = public_reads_all(dst)
+    record("flat mirror 自動修復: 次回sync（publish相当）でgroup driftが20001/0640へ戻り、backend-publicが読める",
+           ok and ok_pub and (uid, gid, mode) == (OPERATOR_UID, LEASES_GID, "0o640"),
+           f"exit={code} actual={uid}:{gid}/{mode} public_ok={ok_pub}")
+
+    # 9-4: mode単独mutation（0600）
+    os.chmod(os.path.join(dst, storm), 0o600)
+    ok_pub, _ = public_reads_all(dst)
+    record("flat mirror single-mutation【mode単独】: mode 0600ではbackend-publicが読めない", not ok_pub, f"public_read_ok={ok_pub}")
+    ok, code = _operator_run([src, dst])
+    ok_pub, _ = public_reads_all(dst)
+    record("flat mirror 自動修復【mode単独】: syncで0640へ戻りbackend-publicが読める", ok and ok_pub, f"exit={code}")
+
+    # 9-5: 新規region/hazard directory（cp/mkdirがprimary gidで作る領域）
+    _make_mbtiles(os.path.join(src, "kanagawa", "storm_surge", "kanagawa_surge_001.mbtiles"), "storm_surge")
+    for d in (os.path.join(src, "kanagawa"), os.path.join(src, "kanagawa", "storm_surge")):
+        os.chown(d, OPERATOR_UID, LEASES_GID); os.chmod(d, 0o750)
+    kf = os.path.join(src, "kanagawa", "storm_surge", "kanagawa_surge_001.mbtiles")
+    os.chown(kf, OPERATOR_UID, LEASES_GID); os.chmod(kf, 0o640)
+    ok, code = _operator_run([src, dst])
+    d_uid, d_gid, d_mode = _stat3(os.path.join(dst, "kanagawa", "storm_surge"))
+    ok_pub, _ = public_reads_all(dst)
+    record("flat mirror 新規directory: 新しいregion/hazard directoryも 10002:20001 0750 になりbackend-publicがtraverse・readできる",
+           ok and ok_pub and (d_uid, d_gid, d_mode) == (OPERATOR_UID, LEASES_GID, "0o750"),
+           f"exit={code} dir={d_uid}:{d_gid}/{d_mode} public_ok={ok_pub}")
+
+    # 9-6: 既存directoryのgroup drift（operator所有）→ 正規化される
+    os.chown(os.path.join(dst, "tokyo", "flood"), OPERATOR_UID, OPERATOR_GID)
+    ok_pub, _ = public_reads_all(dst)
+    record("flat mirror single-mutation【directory group単独】: directoryのgroupを10002へ誤らせる"
+           "（mode 0750ではpublicがtraverse不可）", not ok_pub, f"public_read_ok={ok_pub}")
+    ok, code = _operator_run([src, dst])
+    ok_pub, _ = public_reads_all(dst)
+    record("flat mirror 自動修復【directory group】: syncでdirectoryのgroupが20001へ戻る", ok and ok_pub, f"exit={code}")
+
+    # 9-7: 修復不能（他ownerのdirectory）はfail-loud（exit 4）。publicが読めない状態を黙認しない。
+    # root:10002 0770 のdirectoryはoperator(gid 10002)が書けるためcp同期は成功するが、
+    # operatorはowner ではなくchgrp/chmodできず、public(10001+20001)はtraverseできない。
+    tsu = os.path.join(dst, "tokyo", "tsunami")
+    os.chown(tsu, 0, OPERATOR_GID)
+    os.chmod(tsu, 0o770)
+    ok, code = _operator_run([src, dst])
+    record("flat mirror fail-loud: operatorが修復できずbackend-publicがtraverseできないdirectory（root:10002 0770）がある場合、"
+           "syncは黙って成功せずexit 4で契約違反を報告する", (not ok) and code == 4, f"exit={code}")
+    os.chown(tsu, OPERATOR_UID, LEASES_GID)
+    os.chmod(tsu, 0o750)
+
+    # 9-8: 同期自体の失敗（operatorが書き込めない）はexit 2（呼び出し側はwarning扱い＝従来のsync失敗semantics）
+    os.chown(tsu, 0, 0)
+    os.chmod(tsu, 0o700)
+    ok, code = _operator_run([src, dst])
+    record("flat mirror sync失敗: operatorが書き込めないdirectory（root:root 0700）ではexit 2（同期失敗。契約違反ではなく従来のwarning扱い）",
+           (not ok) and code == 2, f"exit={code}")
+    os.chown(tsu, OPERATOR_UID, LEASES_GID)
+    os.chmod(tsu, 0o750)
+
+    shutil.rmtree(base, ignore_errors=True)
+
+
 def main() -> int:
     if os.geteuid() != 0:
         print("FAIL: このscriptはroot(uid 0)で実行する必要がある", file=sys.stderr)
@@ -957,6 +1174,7 @@ def main() -> int:
     run_tombstone_matrix(leases_root)
     run_real_active_entry_and_lock_matrix(DATA_RUNTIME_ROOT, leases_root)
     run_published_version_file_matrix(DATA_RUNTIME_ROOT, leases_root)
+    run_flat_tiles_mirror_matrix(DATA_RUNTIME_ROOT)
 
     print(json.dumps({"results": RESULTS}, ensure_ascii=False))
     failed = [r for r in RESULTS if not r["pass"]]
