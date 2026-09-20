@@ -194,6 +194,10 @@ test.describe('Phase 4-B: 状況理解カード', () => {
         await page.evaluate(r => situationCardOnRouteUpdate(r), routeRisk('caution'));
         await activateRoutePreview(page);
         await page.evaluate(() => situationCardOnKkkUpdate());
+        // スマホ幅では下部パネルは初期 collapsed（MOBILE-BOTTOM-PANEL-COMPACT）。ハンドルで展開する
+        if (await page.locator('#map-bottom-controls.mbc-collapsed').count()) {
+            await page.locator('#map-bottom-handle').click();
+        }
         // アコーディオン本文を開く（カードが表示状態になってからクリック）
         await expect(page.locator('#sit-card-section')).toBeVisible();
         await page.locator('#sit-card-section .lip-accordion-header').click();

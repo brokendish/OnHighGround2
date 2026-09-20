@@ -104,6 +104,7 @@ function initMapOverlayUI() {
     bindClearButton();
     initShelterControls();
     bindBottomPanelToggle();
+    bindMobileAttributionToggle();
     bindBrandBadgeTooltip();
     bindDetailToggle();
     bindOutsideClick();
@@ -164,6 +165,33 @@ function bindBottomPanelToggle() {
     const handle   = document.getElementById('map-bottom-handle');
     const controls = document.getElementById('map-bottom-controls');
     if (!handle || !controls) return;
+
+    // スマホ（<=480px）は collapsed を初期状態にする（PC は従来どおり展開）
+    if (window.matchMedia && window.matchMedia('(max-width: 480px)').matches) {
+        controls.classList.add('mbc-collapsed');
+    }
+
+    // a11y: ハンドルをボタンとして扱い、collapsed クラスに追従して aria を更新する
+    handle.setAttribute('role', 'button');
+    handle.setAttribute('tabindex', '0');
+    handle.setAttribute('aria-controls', 'map-bottom-body');
+    function _syncHandleA11y() {
+        const collapsed = controls.classList.contains('mbc-collapsed');
+        handle.setAttribute('aria-expanded', String(!collapsed));
+        let label = '下部パネルを閉じる';
+        if (collapsed) label = '下部パネルを開く';
+        else if (_isInfoMode() || _isEarthquakeMode()) label = '下部パネルを広げる・閉じる';
+        handle.setAttribute('aria-label', label);
+    }
+    // クラス変更は app.js（タブ切替）等からも行われるため MutationObserver で追従する
+    new MutationObserver(_syncHandleA11y).observe(controls, { attributes: true, attributeFilter: ['class'] });
+    _syncHandleA11y();
+    handle.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handle.click();
+        }
+    });
 
     function _isEarthquakeMode() {
         return controls.classList.contains('mbc-earthquake-active');
@@ -283,6 +311,42 @@ function bindBottomPanelToggle() {
         }
         touchStartY = null;
     }, { passive: true });
+}
+
+// ── スマホ: attribution の 1 行 compact 表示 + 開閉トグル ──────────────────
+// attribution は削除せず、スマホでは CSS で 1 行（省略表示）にし、トグルで全文を開閉する。
+// JARTIC 免責文言など「常時確認できる」必要がある文言が含まれる間は全文表示に固定する。
+function bindMobileAttributionToggle() {
+    if (typeof map === 'undefined' || !map || !map.attributionControl) return;
+    const attr   = map.attributionControl.getContainer();
+    const corner = attr && attr.parentElement;
+    if (!attr || !corner) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'leaflet-control ohg2-attr-toggle';
+    btn.textContent = '出典';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-label', '出典・ライセンス表示の全文を開く');
+    corner.appendChild(btn);
+
+    function _setOpen(open) {
+        corner.classList.toggle('ohg2-attr-open', open);
+        btn.setAttribute('aria-expanded', String(open));
+        btn.setAttribute('aria-label', open ? '出典・ライセンス表示を閉じる' : '出典・ライセンス表示の全文を開く');
+    }
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _setOpen(!corner.classList.contains('ohg2-attr-open'));
+    });
+    if (typeof L !== 'undefined') L.DomEvent.disableClickPropagation(btn);
+
+    // MLIT 交通量API機能の免責文言はサービス利用中は常時確認できる必要がある
+    function _syncPinned() {
+        corner.classList.toggle('ohg2-attr-pinned', attr.textContent.indexOf('交通量API機能') !== -1);
+    }
+    new MutationObserver(_syncPinned).observe(attr, { childList: true, characterData: true, subtree: true });
+    _syncPinned();
 }
 
 // ── Leaflet へのイベント伝播を防止 ────────────────────────────────────────
