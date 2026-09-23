@@ -18,6 +18,12 @@
  *   _weatherServiceUpdate(lat, lon)   — 3並列取得してコールバック呼び出し
  *   _weatherServiceSetCallback(fn)    — データ更新時コールバック登録
  *                                       fn(alerts, precip, riskInfo) の3引数
+ *
+ * 取得状態 contract（各 fetch の戻り値 status）:
+ *   ok          — 最新取得成功
+ *   stale       — 最新取得に失敗し、同一地点の前回取得データを返している（値は前回値・最新を保証しない）
+ *   unavailable — 最新取得に失敗し、利用できる前回データもない
+ * status は取得状態、severity / risk_level は内容（none = 正常取得の結果「なし」）であり混同しない。
  */
 
 const _WS_ALERT_TTL_MS   = 120_000;  // 120秒
@@ -33,11 +39,30 @@ function _weatherServiceSetCallback(fn) {
     _wsCallback = fn;
 }
 
-function _wsCacheHit(cache, lat, lon, ttlMs) {
+function _wsCacheNear(cache, lat, lon) {
     if (!cache) return false;
     if (Math.abs(cache.lat - lat) > 0.05) return false;
     if (Math.abs(cache.lon - lon) > 0.05) return false;
+    return true;
+}
+
+function _wsCacheHit(cache, lat, lon, ttlMs) {
+    if (!_wsCacheNear(cache, lat, lon)) return false;
     return (Date.now() - cache.fetchedAt) < ttlMs;
+}
+
+/**
+ * 再取得失敗時の前回データ fallback。
+ * 保存済み cache を変更せず、返却用コピーに status='stale' を付けて返す。
+ * 同一地点の cache がなければ null（呼び出し側で unavailable を返す）。
+ * 前回データ自体が unavailable（backend 側の取得失敗応答）の場合は unavailable のまま返す。
+ */
+function _wsStaleFallback(cache, lat, lon, extra) {
+    if (!_wsCacheNear(cache, lat, lon)) return null;
+    const copy = JSON.parse(JSON.stringify(cache.data));  // API JSON 由来のため JSON clone で十分
+    if (copy.status === 'unavailable') return copy;
+    copy.status = 'stale';
+    return Object.assign(copy, extra || {});
 }
 
 async function _weatherAlertFetch(lat, lon) {
@@ -52,7 +77,10 @@ async function _weatherAlertFetch(lat, lon) {
         return data;
     } catch (err) {
         console.warn('[weather-service] alerts fetch error:', err);
-        if (_wsAlertCache) return _wsAlertCache.data;
+        const stale = _wsStaleFallback(_wsAlertCache, lat, lon, {
+            message: '最新の気象情報を取得できません（前回取得データを表示中）',  // backend stale 応答と同文言
+        });
+        if (stale) return stale;
         return { status: 'unavailable', severity: 'none', alerts: [], message: '気象情報を取得できません' };
     }
 }
@@ -69,7 +97,8 @@ async function _weatherPrecipFetch(lat, lon) {
         return data;
     } catch (err) {
         console.warn('[weather-service] precip fetch error:', err);
-        if (_wsPrecipCache) return _wsPrecipCache.data;
+        const stale = _wsStaleFallback(_wsPrecipCache, lat, lon);
+        if (stale) return stale;
         return { status: 'unavailable', severity: 'none', summary: '降水情報を取得できません',
                  current: { label: '不明', intensity: 'unknown' }, forecast: [] };
     }
@@ -87,7 +116,8 @@ async function _weatherRiskContextFetch(lat, lon) {
         return data;
     } catch (err) {
         console.warn('[weather-service] risk context fetch error:', err);
-        if (_wsContextCache) return _wsContextCache.data;
+        const stale = _wsStaleFallback(_wsContextCache, lat, lon);
+        if (stale) return stale;
         return { status: 'unavailable', risk_level: 'unknown',
                  combined: [], hazards: { data_available: false } };
     }
@@ -106,6 +136,10 @@ function _wsRankOf(sev) {
  * - 降水は最大 warning（emergency は警報専用）
  * - context の risk_level は加算ソース（backend が計算した combined を反映）
  * - 'unknown' は none より安全側に扱うが既知リスクを上書きしない
+ * - 警報・降水の取得失敗（status='unavailable'）は none ではなく 'unknown'（判定不能）
+ *   backend weather_risk_context_service._compute_risk_level と同じ判定順
+ * - status='stale'（前回取得データ）は前回値で評価する（backend stale policy と同じ）。
+ *   stale であることは riskInfo / 表示側で明示する
  */
 function _computeRiskLevel(alertsData, precipData, contextData) {
     const alertRank   = _wsRankOf((alertsData  || {}).severity);
@@ -119,6 +153,9 @@ function _computeRiskLevel(alertsData, precipData, contextData) {
     //   - 未分類コードの警報・注意報のみ発表中（alerts severity=unknown）→ none と断定しない
     //   - backend context が unknown と判定
     if ((alertsData  || {}).severity   === 'unknown') return 'unknown';
+    //   - 警報・降水の取得失敗 → 「なし」と断定しない
+    if ((alertsData  || {}).status     === 'unavailable') return 'unknown';
+    if ((precipData  || {}).status     === 'unavailable') return 'unknown';
     if ((contextData || {}).risk_level === 'unknown') return 'unknown';
     return 'none';
 }
@@ -128,8 +165,10 @@ function _computeRiskLevel(alertsData, precipData, contextData) {
  */
 function _buildPrecipInfo(precipData) {
     if (!precipData || precipData.status === 'unavailable') {
-        return { current: null, forecastStrongest: null, forecast: [] };
+        // unavailable: 取得失敗（「降水なし」とは区別して表示側へ伝える）
+        return { current: null, forecastStrongest: null, forecast: [], unavailable: true };
     }
+    const stale    = precipData.status === 'stale';  // 前回取得データ（値は表示するが最新ではない）
     const current  = precipData.current || null;
     const forecast = precipData.forecast || [];
     const RANK = { severe: 4, strong: 3, moderate: 2, weak: 1, none: 0, unknown: -1 };
@@ -139,7 +178,7 @@ function _buildPrecipInfo(precipData) {
         const rank = RANK[f.intensity] ?? -1;
         if (rank > maxRank) { maxRank = rank; forecastStrongest = f; }
     }
-    return { current, forecastStrongest, forecast };
+    return { current, forecastStrongest, forecast, stale };
 }
 
 // ── メイン更新 ────────────────────────────────────────────────────────────────
@@ -157,6 +196,7 @@ async function _weatherServiceUpdate(lat, lon) {
         riskLevel,
         precipInfo,
         precipUnknown,
+        contextStale: (context || {}).status === 'stale',
         combined: (context || {}).combined  || [],
         hazards:  (context || {}).hazards   || { data_available: false },
     };

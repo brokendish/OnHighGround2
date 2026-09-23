@@ -187,6 +187,16 @@ function _scRender() {
         if (fore) {
             html += `<span class="sit-precip-forecast">${fore.minutes}分後: ${_scEsc(fore.label || fore.intensity)}</span>`;
         }
+        if (_scPrecipInfo.stale) {
+            // 前回取得データ: 最新値と誤認させない
+            html += '<span class="sit-precip-stale">（前回取得データ）</span>';
+        }
+        html += '</div>';
+    } else if (_scPrecipInfo?.unavailable) {
+        // 降水の取得失敗: 行ごと消さず「取得できません」を明示（降水なしと区別）
+        html += '<div class="sit-row">';
+        html += '<span class="sit-row-label">降水</span>';
+        html += '<span class="sit-row-val sit-level--unavailable">取得できません</span>';
         html += '</div>';
     }
 

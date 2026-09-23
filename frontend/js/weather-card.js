@@ -110,7 +110,9 @@ function _wcRenderPrecip(precipData, precipInfo, precipUnknown) {
     if (!precipData || precipData.status === 'unavailable') {
         const d = document.createElement('div');
         d.className = 'wc-precip-current';
-        d.textContent = 'ナウキャスト取得不可';
+        d.dataset.intensity = 'unavailable';
+        // 取得失敗を「降水なし」・空欄にしない（警報欄の「取得できません」表記に統一）
+        d.textContent = '取得できません';
         el.appendChild(d);
         return;
     }
@@ -273,6 +275,17 @@ function _weatherCardRender(alertsData, precipData, riskInfo) {
     // 降水予測（現在/予測分離）
     _wcRenderPrecip(precipData, precipInfo, precipUnknown);
 
+    // 降水が前回取得データ（stale）の場合、値は残したまま最新でないことを明示する
+    const precipStale   = (precipData || {}).status === 'stale';
+    const contextStale  = (riskInfo || {}).contextStale || false;
+    const precipEl = _wcEl('lip-wc-precip-summary');
+    if (precipEl && precipStale) {
+        const staleDiv = document.createElement('div');
+        staleDiv.className = 'wc-precip-stale';
+        staleDiv.textContent = '⚠ 前回取得データ';
+        precipEl.appendChild(staleDiv);
+    }
+
     // 複合リスク（強雨 × ハザードゾーン）Phase2-C
     _wcRenderCombinedRisk(combined);
 
@@ -290,7 +303,8 @@ function _weatherCardRender(alertsData, precipData, riskInfo) {
         if (status === 'unavailable') {
             msg.textContent = '気象情報を取得できません';
             msg.style.display = '';
-        } else if (status === 'stale') {
+        } else if (status === 'stale' || precipStale || contextStale) {
+            // 警報・降水・複合リスクのいずれかが前回取得データ → 最新の「なし」と誤認させない
             msg.textContent = '⚠ 前回取得データを表示中';
             msg.style.display = '';
         } else {

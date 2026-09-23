@@ -225,6 +225,8 @@ async def get_weather_risk_context(
     避難判断向けの複合リスク（combined risk）と統合リスクレベルを返す。
 
     risk_level: none | advisory | warning | emergency | unknown
+      unknown = 判定不能（未分類コードの警報のみ / 警報・降水の取得失敗を含む。none と断定しない）
+    weather.alert_status / weather.precip_status: ok | stale | unavailable
     combined:   [{type, level, headline, message}]
     hazards:    {lowland, flood, inland_flood, landslide, tsunami, storm_surge, data_available}
 
@@ -237,7 +239,8 @@ async def get_weather_risk_context(
         return {
             "status":     "unavailable",
             "risk_level": "unknown",
-            "weather":    {"alert_severity": "unknown", "precip_severity": "unknown",
+            "weather":    {"alert_status": "unavailable", "precip_status": "unavailable",
+                           "alert_severity": "unknown", "precip_severity": "unknown",
                            "current_intensity": "unknown", "forecast_max_intensity": None, "forecast_max_minutes": None},
             "hazards":    {"lowland": None, "flood": None, "inland_flood": None, "landslide": None,
                            "tsunami": None, "storm_surge": None, "data_available": False},

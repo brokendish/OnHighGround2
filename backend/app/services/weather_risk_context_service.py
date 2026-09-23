@@ -12,9 +12,16 @@ risk_level:
   warning    — 警戒（strong/severe rain / 大雨系警報 / strong rain+flood等）
   emergency  — 特別警報 / severe rain + flood/inland_flood/landslide
   unknown    — 判定不能（既知のwarning/emergencyがある場合はそちらを優先）
+               未分類コードの警報のみ発表中、または警報・降水の取得失敗（unavailable）を含む。
+               取得失敗の区別は weather.alert_status / weather.precip_status で保持する。
+
+weather.alert_status / weather.precip_status: "ok" | "stale" | "unavailable"
+  unavailable = 取得そのものに失敗（「警報なし」「降水なし」とは区別する）
+  stale       = 前回取得データで評価（既存 stale fallback policy のまま）
 
 重要方針:
   - unknown を none に倒さない（false-safe 防止）
+  - 取得失敗（unavailable）を none に倒さない
   - hazard unavailable 時は API を落とさない（graceful degradation）
   - route scoring / reroute には影響しない
 """
@@ -70,6 +77,8 @@ def _unavailable_response(now_iso: str) -> dict:
         "status": "unavailable",
         "risk_level": "unknown",
         "weather": {
+            "alert_status":          "unavailable",
+            "precip_status":         "unavailable",
             "alert_severity":        "unknown",
             "precip_severity":       "unknown",
             "current_intensity":     "unknown",
@@ -177,6 +186,9 @@ def _build_hazard_flags(assessment: dict) -> dict:
 # ── 気象サマリー ──────────────────────────────────────────────────────────────
 
 def _build_weather_summary(alerts_data: dict, precip_data: dict) -> dict:
+    # 取得状態（status 欠落は既存呼び出し互換のため ok 扱い）
+    alert_status    = (alerts_data or {}).get("status", "ok") or "ok"
+    precip_status   = (precip_data or {}).get("status", "ok") or "ok"
     alert_severity  = (alerts_data or {}).get("severity", "none") or "none"
     precip_severity = (precip_data  or {}).get("severity", "none") or "none"
     current         = ((precip_data or {}).get("current") or {})
@@ -195,6 +207,8 @@ def _build_weather_summary(alerts_data: dict, precip_data: dict) -> dict:
             forecast_max_minutes = f.get("minutes")
 
     return {
+        "alert_status":           alert_status,
+        "precip_status":          precip_status,
         "alert_severity":         alert_severity,
         "precip_severity":        precip_severity,
         "current_intensity":      current_intensity,
@@ -275,6 +289,7 @@ def _compute_risk_level(weather: dict, hazards: dict, combined: list) -> str:
 
     優先度: emergency > warning > advisory > unknown > none
     unknown は none より安全側に扱うが、既知の強い危険を上書きしない。
+    unknown の要因（未分類コード / alerts 取得失敗 / 降水取得失敗）に相互の優劣は付けない。
     """
     alert_rank   = _SEV_RANK.get(weather["alert_severity"], 0)
     precip_rank  = min(_SEV_RANK.get(weather["precip_severity"], 0), 3)  # emergency は alert 専用
@@ -287,6 +302,10 @@ def _compute_risk_level(weather: dict, hazards: dict, combined: list) -> str:
 
     # 未分類コードの警報・注意報のみ発表中 → severity 不明。none（安全）と断定しない
     if weather["alert_severity"] == "unknown":
+        return "unknown"
+
+    # 警報・降水の取得失敗 → 「なし」ではなく判定不能（既知リスクは上で優先済み）
+    if weather.get("alert_status") == "unavailable" or weather.get("precip_status") == "unavailable":
         return "unknown"
 
     # known_rank == 0: 確認できるリスクなし → unknown チェック
