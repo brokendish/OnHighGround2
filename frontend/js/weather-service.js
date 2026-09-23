@@ -115,7 +115,10 @@ function _computeRiskLevel(alertsData, precipData, contextData) {
     if (maxRank >= 4) return 'emergency';
     if (maxRank === 3) return 'warning';
     if (maxRank === 2) return 'advisory';
-    // 'unknown' の伝播: backend が unknown と判定し、かつ既知リスクが0のとき
+    // 'unknown' の伝播: 既知リスクが0のとき
+    //   - 未分類コードの警報・注意報のみ発表中（alerts severity=unknown）→ none と断定しない
+    //   - backend context が unknown と判定
+    if ((alertsData  || {}).severity   === 'unknown') return 'unknown';
     if ((contextData || {}).risk_level === 'unknown') return 'unknown';
     return 'none';
 }

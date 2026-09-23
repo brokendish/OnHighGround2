@@ -6,9 +6,12 @@ jma_warning_service.py — 警報・注意報専用サービス（/api/weather/w
 
 レスポンス仕様:
   ok=True 時:
-    {ok, source, area_name, updated_at, has_warning, max_level, items}
+    {ok, source, area_name, updated_at, has_warning, has_unknown, max_level, items}
     items: [{name, level, status}]
-    max_level: "emergency" | "warning" | "advisory" | "none"
+    max_level: "emergency" | "warning" | "advisory" | "unknown" | "none"
+      "unknown" = 未分類コード（_CODE_SEVERITY 未登録）の警報・注意報のみ発表中。
+                  severity 不明のため advisory とも none とも断定しない（false-safe 防止）。
+    has_unknown: 未分類コードの項目が1件以上含まれる（既知の上位レベルと併存する場合も true）
   ok=False 時:
     {ok, source, reason, items: []}
 """
@@ -25,7 +28,7 @@ _SEVERITY_TO_LEVEL = {
     "emergency": "emergency",
     "warning":   "warning",
     "advisory":  "advisory",
-    "unknown":   "advisory",
+    "unknown":   "unknown",
     "none":      "none",
 }
 
@@ -81,8 +84,10 @@ def get_warnings_for_location(lat: float, lon: float) -> dict:
         if a.get("kind")
     ]
 
-    max_level = _SEVERITY_TO_LEVEL.get(severity, "none")
+    # 未定義 severity は none に倒さず unknown として扱う
+    max_level = _SEVERITY_TO_LEVEL.get(severity, "unknown")
     has_warning = severity in ("emergency", "warning")
+    has_unknown = any(a.get("severity") == "unknown" for a in alerts)
 
     return {
         "ok":          True,
@@ -90,6 +95,7 @@ def get_warnings_for_location(lat: float, lon: float) -> dict:
         "area_name":   area_name,
         "updated_at":  raw.get("updated_at"),
         "has_warning": has_warning,
+        "has_unknown": has_unknown,
         "max_level":   max_level,
         "items":       items,
     }

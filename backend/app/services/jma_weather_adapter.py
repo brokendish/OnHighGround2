@@ -87,6 +87,12 @@ _CODE_SEVERITY: dict[str, str] = {
     "36": "emergency",  # 大雪特別警報
     "37": "emergency",  # 波浪特別警報
     "38": "emergency",  # 高潮特別警報
+    "39": "emergency",  # レベル５土砂災害特別警報（2026年新体系）
+    # 危険警報（2026年新体系・レベル４）
+    # JMA区分は「警報」。既存 severity contract に危険警報専用の値は無いため warning へマップする。
+    "43": "warning",    # レベル４大雨危険警報
+    "48": "warning",    # レベル４高潮危険警報
+    "49": "warning",    # レベル４土砂災害危険警報
     # 警報（warning）
     "02": "warning",    # 暴風雪警報
     "03": "warning",    # 大雨警報
@@ -95,6 +101,7 @@ _CODE_SEVERITY: dict[str, str] = {
     "06": "warning",    # 大雪警報
     "07": "warning",    # 波浪警報
     "08": "warning",    # 高潮警報
+    "09": "warning",    # レベル３土砂災害警報（2026年新体系）
     # 注意報（advisory）
     "10": "advisory",   # 大雨注意報
     "12": "advisory",   # 大雪注意報
@@ -113,6 +120,7 @@ _CODE_SEVERITY: dict[str, str] = {
     "25": "advisory",   # 着氷注意報
     "26": "advisory",   # 着雪注意報
     "27": "advisory",   # その他の注意報
+    "29": "advisory",   # レベル２土砂災害注意報（2026年新体系・実データ確認済み: r8 kinds[].code="29", name なし）
 }
 
 # 警報種別コード → 名称（JMA仕様変更で warnings[].name が廃止された場合のフォールバック）
@@ -125,6 +133,11 @@ _CODE_NAME: dict[str, str] = {
     "36": "大雪特別警報",
     "37": "波浪特別警報",
     "38": "高潮特別警報",
+    "39": "レベル５土砂災害特別警報",
+    # 危険警報（2026年新体系）
+    "43": "レベル４大雨危険警報",
+    "48": "レベル４高潮危険警報",
+    "49": "レベル４土砂災害危険警報",
     # 警報
     "02": "暴風雪警報",
     "03": "大雨警報",
@@ -133,6 +146,7 @@ _CODE_NAME: dict[str, str] = {
     "06": "大雪警報",
     "07": "波浪警報",
     "08": "高潮警報",
+    "09": "レベル３土砂災害警報",
     # 注意報
     "10": "大雨注意報",
     "12": "大雪注意報",
@@ -151,6 +165,7 @@ _CODE_NAME: dict[str, str] = {
     "25": "着氷注意報",
     "26": "着雪注意報",
     "27": "その他の注意報",
+    "29": "レベル２土砂災害注意報",
 }
 
 # active と見なすステータス文字列（仕様変更でテキストが変わった場合はここを修正）
@@ -164,6 +179,7 @@ _ACTIVE_STATUSES = frozenset(["発表", "継続", "更新", "発表・更新"])
 
 STORM_SURGE_CODE_META: dict[str, dict] = {
     "38": {"severity": "emergency", "label": "高潮特別警報"},
+    "48": {"severity": "warning",   "label": "レベル４高潮危険警報"},
     "08": {"severity": "warning",   "label": "高潮警報"},
     "19": {"severity": "advisory",  "label": "高潮注意報"},
 }
@@ -285,9 +301,15 @@ def _make_alert_item(
     status_raw: str,
     updated_at: str,
     pref_name: str,
+    upstream_name: Optional[str] = None,
 ) -> Optional[WeatherAlertItem]:
-    """(area_code, warn_code, status) から WeatherAlertItem を生成する共通ヘルパー。"""
-    name = _CODE_NAME.get(warn_code) or ""
+    """(area_code, warn_code, status) から WeatherAlertItem を生成する共通ヘルパー。
+
+    名称の優先順位: upstream name（JSON の name フィールド）> _CODE_NAME > generic 表示。
+    r8 では kinds[].name が存在しないため、正式コードは _CODE_NAME から復元される。
+    generic 表示「警報・注意報（コードXX）」になるのは辞書にも upstream にも名称が無い真の unknown のみ。
+    """
+    name = (upstream_name or "").strip() or _CODE_NAME.get(warn_code) or ""
     severity = _normalize_severity(warn_code, name)
 
     if "特別警報" in name:
@@ -336,8 +358,8 @@ def _parse_r8_payload(
     場合は reportDatetime が新しい方の status を採用する。
     """
     now_iso = datetime.now(timezone.utc).isoformat()
-    # (area_code, warn_code) → (status, report_datetime)
-    latest: dict[tuple[str, str], tuple[str, str]] = {}
+    # (area_code, warn_code) → (status, report_datetime, upstream_name)
+    latest: dict[tuple[str, str], tuple[str, str, Optional[str]]] = {}
 
     for record in payload:
         if not isinstance(record, dict):
@@ -359,18 +381,22 @@ def _parse_r8_payload(
                     if not warn_code:
                         continue
                     status_raw = str(kind.get("status", ""))
+                    upstream_name = kind.get("name") if isinstance(kind.get("name"), str) else None
                     pair = (area_code, warn_code)
                     existing = latest.get(pair)
                     # より新しい reportDatetime を優先
                     if existing is None or report_dt >= existing[1]:
-                        latest[pair] = (status_raw, report_dt)
+                        latest[pair] = (status_raw, report_dt, upstream_name)
 
     items: list[WeatherAlertItem] = []
-    for (area_code, warn_code), (status_raw, report_dt) in latest.items():
+    for (area_code, warn_code), (status_raw, report_dt, upstream_name) in latest.items():
         if status_raw in ("解除", "発表警報・注意報はなし"):
             continue
         area_name = _AREA_CODE_NAME.get(area_code) or pref_name
-        item = _make_alert_item(area_code, area_name, warn_code, status_raw, report_dt, pref_name)
+        item = _make_alert_item(
+            area_code, area_name, warn_code, status_raw, report_dt, pref_name,
+            upstream_name=upstream_name,
+        )
         if item:
             items.append(item)
     return items
@@ -410,14 +436,18 @@ def _parse_legacy_payload(
                     continue
                 try:
                     raw_code = str(w.get("code", "")) or None
-                    name = w.get("name") or (raw_code and _CODE_NAME.get(raw_code)) or ""
+                    upstream_name = w.get("name") if isinstance(w.get("name"), str) else None
+                    name = upstream_name or (raw_code and _CODE_NAME.get(raw_code)) or ""
                     status_raw = str(w.get("status", ""))
                     if not name and not raw_code:
                         continue
                     if status_raw in ("解除", "発表警報・注意報はなし"):
                         continue
                     if raw_code:
-                        item = _make_alert_item(area_code_raw, area_name, raw_code, status_raw, updated_at, pref_name)
+                        item = _make_alert_item(
+                            area_code_raw, area_name, raw_code, status_raw, updated_at, pref_name,
+                            upstream_name=upstream_name,
+                        )
                         if item:
                             items.append(item)
                 except Exception as exc:

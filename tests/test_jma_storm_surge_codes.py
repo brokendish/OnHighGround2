@@ -39,9 +39,14 @@ def test_code_19_is_storm_surge_advisory():
     assert "19" in STORM_SURGE_CODES
 
 
+def test_code_48_is_storm_surge_danger_warning():
+    """レベル４高潮危険警報は "48" である（2026年新体系・JMA現行コード管理表）"""
+    assert "48" in STORM_SURGE_CODES
+
+
 def test_storm_surge_codes_count():
-    """STORM_SURGE_CODES は 特別警報/警報/注意報 の3種のみ（過不足確認）"""
-    assert len(STORM_SURGE_CODES) == 3
+    """STORM_SURGE_CODES は 特別警報/危険警報/警報/注意報 の4種のみ（過不足確認）"""
+    assert STORM_SURGE_CODES == frozenset({"38", "48", "08", "19"})
 
 
 # ── 回帰: 誤ったコードが STORM_SURGE_CODES に含まれない ─────────────────────
@@ -60,7 +65,7 @@ def test_code_24_is_not_storm_surge():
 
 
 def test_code_39_is_not_storm_surge():
-    """コード "39" は実在しないコードであり、高潮コードではない"""
+    """コード "39" はレベル５土砂災害特別警報（2026年新体系）であり、高潮コードではない"""
     assert "39" not in STORM_SURGE_CODES
 
 
@@ -101,6 +106,7 @@ def test_storm_surge_severity_matches_code_severity():
 def test_storm_surge_meta_severity_levels():
     """各コードの severity が正しい"""
     assert STORM_SURGE_CODE_META["38"]["severity"] == "emergency"
+    assert STORM_SURGE_CODE_META["48"]["severity"] == "warning"
     assert STORM_SURGE_CODE_META["08"]["severity"] == "warning"
     assert STORM_SURGE_CODE_META["19"]["severity"] == "advisory"
 
@@ -108,6 +114,7 @@ def test_storm_surge_meta_severity_levels():
 def test_storm_surge_meta_labels():
     """各コードの label が正しい"""
     assert STORM_SURGE_CODE_META["38"]["label"] == "高潮特別警報"
+    assert STORM_SURGE_CODE_META["48"]["label"] == "レベル４高潮危険警報"
     assert STORM_SURGE_CODE_META["08"]["label"] == "高潮警報"
     assert STORM_SURGE_CODE_META["19"]["label"] == "高潮注意報"
 

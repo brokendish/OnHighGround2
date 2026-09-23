@@ -30,6 +30,17 @@ _LEVEL_ORDER: Dict[str, int] = {
     "advisory": 2,
 }
 
+# 同一 severity 内の代表選択順位（小さいほど優先）。severity contract は変えず、
+# 高潮代表の選択にだけ使う。JMA 2026 体系の警戒レベル順:
+#   38 高潮特別警報(L5) > 48 レベル４高潮危険警報(L4) > 08 高潮警報(L3) > 19 高潮注意報(L2)
+# 08 と 48 はどちらも warning のため、この順位がないと代表が入力順依存になる。
+_STORM_SURGE_CODE_PRIORITY: Dict[str, int] = {
+    "38": 0,
+    "48": 1,
+    "08": 2,
+    "19": 3,
+}
+
 # 沿岸都道府県コード（高潮が発生しうる都道府県のみ取得）
 _COASTAL_PREF_CODES: List[str] = [
     "010000",  # 北海道
@@ -107,16 +118,17 @@ async def _fetch_pref_storm_surge(pref_code: str) -> List[Dict[str, Any]]:
     # storm_surge 関連の全アイテムを収集し、最上位レベルを決定する
     affected: List[Dict[str, Any]] = []
     best_code: Optional[str] = None
-    best_order = 999
+    best_key = (999, 999)
     for item in items:
         raw_code = item.raw_code
         if raw_code not in STORM_SURGE_CODES:
             continue
         meta = STORM_SURGE_CODE_META[raw_code]
         level = meta["severity"]
-        order = _LEVEL_ORDER.get(level, 9)
-        if order < best_order:
-            best_order = order
+        # severity 優先 → 同一 severity は高潮コード priority で決定（入力順非依存）
+        key = (_LEVEL_ORDER.get(level, 9), _STORM_SURGE_CODE_PRIORITY.get(raw_code, 99))
+        if key < best_key:
+            best_key = key
             best_code = raw_code
         affected.append({
             "area_name": item.area_name or pref_name,

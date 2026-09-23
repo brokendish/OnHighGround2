@@ -130,9 +130,10 @@ async def get_weather_warnings(
     経度は lon または lng で指定可（どちらか一方が必須）。
 
     ok=true 時:
-      {ok, source, area_name, updated_at, has_warning, max_level, items}
+      {ok, source, area_name, updated_at, has_warning, has_unknown, max_level, items}
       items: [{name, level, status}]
-      max_level: emergency | warning | advisory | none
+      max_level: emergency | warning | advisory | unknown | none
+        unknown = 未分類コードの警報・注意報のみ発表中（none と断定しない）
 
     ok=false 時（取得失敗）:
       {ok, source, reason, items:[]}

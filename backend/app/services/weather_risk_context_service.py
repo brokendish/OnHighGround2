@@ -285,6 +285,10 @@ def _compute_risk_level(weather: dict, hazards: dict, combined: list) -> str:
     if known_rank >= 3: return "warning"
     if known_rank >= 2: return "advisory"
 
+    # 未分類コードの警報・注意報のみ発表中 → severity 不明。none（安全）と断定しない
+    if weather["alert_severity"] == "unknown":
+        return "unknown"
+
     # known_rank == 0: 確認できるリスクなし → unknown チェック
     precip_unknown = weather["precip_severity"] == "unknown"
     alert_none     = weather["alert_severity"] in ("none", "unknown")
