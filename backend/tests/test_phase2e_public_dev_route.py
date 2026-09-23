@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from ._testclient_compat import TestClient
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))

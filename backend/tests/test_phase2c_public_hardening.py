@@ -45,7 +45,7 @@ if str(BACKEND_DIR) not in sys.path:
 import app_public  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from ._testclient_compat import TestClient  # noqa: E402
 
 from app_config_properties import (  # noqa: E402
     CorsConfigError,

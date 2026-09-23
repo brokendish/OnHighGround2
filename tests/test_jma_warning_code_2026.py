@@ -302,7 +302,7 @@ def test_mixed_29_and_released_code():
 @pytest.fixture
 def api_client():
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    from _testclient_compat import TestClient
     from app.api.weather import router
 
     app = FastAPI()

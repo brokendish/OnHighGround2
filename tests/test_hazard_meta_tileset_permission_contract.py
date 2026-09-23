@@ -188,7 +188,7 @@ def test_C_D_find_tileset_returns_none_when_no_candidates(tmp_path, monkeypatch)
 @pytest.fixture()
 def meta_client():
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    from _testclient_compat import TestClient
 
     app = FastAPI()
     app.include_router(hazards.router)

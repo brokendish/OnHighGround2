@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from _testclient_compat import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 

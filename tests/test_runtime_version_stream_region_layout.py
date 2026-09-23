@@ -492,7 +492,7 @@ def test_region_omitted_preserves_prior_direct_child_only_behavior(env):
 
 def test_inland_flood_route_uses_versioned_streaming_not_flat_fallback(env, monkeypatch):
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    from _testclient_compat import TestClient
     from app.api import hazards
 
     _write_geojson(
@@ -532,7 +532,7 @@ def test_inland_flood_route_uses_versioned_streaming_not_flat_fallback(env, monk
 
 def test_landslide_route_uses_versioned_streaming_not_flat_fallback(env, monkeypatch):
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    from _testclient_compat import TestClient
     from app.api import hazards
 
     _write_geojson(
@@ -568,7 +568,7 @@ def test_landslide_route_uses_versioned_streaming_not_flat_fallback(env, monkeyp
 
 def test_inland_flood_route_falls_back_to_flat_when_no_versioned_artifact(env, monkeypatch, tmp_path):
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    from _testclient_compat import TestClient
     from app.api import hazards
 
     # versioned側にinland_flood/tokyoを一切用意しない（真の未配備）。

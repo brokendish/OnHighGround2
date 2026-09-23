@@ -168,7 +168,7 @@ def test_stale_alerts_are_evaluated_with_stale_values():
 @pytest.fixture
 def api_client():
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    from _testclient_compat import TestClient
     from app.api.weather import router
 
     app = FastAPI()

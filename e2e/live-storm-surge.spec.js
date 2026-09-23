@@ -66,6 +66,42 @@ const RAIN_TIMES = { basetime: '20260601000000', times: [
     { offset_minutes: 0, validtime: '20260601000000', tile_url_template: 'https://www.jma.go.jp/bosai/jmatile/data/nowc/20260601000000/none/20260601000000/surf/hrpns/{z}/{x}/{y}.png' },
 ] };
 
+// /live 初期化時に取得されるが本 spec の検証対象外の API（未 mock だと 404 → console.error）。
+// 各 frontend consumer / backend の正常応答と同じ schema の「影響なし」正常データを返す。
+// live-layers.js _eqRefresh: items / source / fallback / municipalityIntensityAvailable
+const EQ_HISTORY_NONE = {
+    days: 3, source: 'p2p', fallback: false, municipalityIntensityAvailable: true,
+    updated_at: '2026-06-01T09:00:00+09:00', count: 0, items: [],
+};
+// live-train-panel.js _render: status / stale / scope / items（normal 以外を障害表示）
+const TRAINS_NO_ISSUE = {
+    status: 'ok', stale: false, scope: { mode: 'location', prefecture: '東京都' },
+    updated_at: '2026-06-01T09:00:00+09:00', items: [],
+};
+// live-weather-ticker.js: status / source / forecast_time / fetched_at / cache_status / items
+const WEATHER_PREFS_OK = {
+    status: 'ok', source: 'Open-Meteo Forecast',
+    forecast_time: '2026-06-01T09:00:00+09:00', fetched_at: '2026-06-01T09:00:00+09:00',
+    cache_status: 'fresh',
+    items: [{
+        id: 'tokyo', pref_code: '130000', pref_name: '東京都', point_name: '東京', display_order: 13,
+        weather_code: 1, weather_category: 'clear', weather_label: '晴れ',
+        temperature_c: 25, humidity_percent: 60, precipitation_probability_percent: 10,
+        flags: { precipitation_high: false, temperature_hot: false, temperature_cold: false, humidity_high: false },
+    }],
+};
+// live-road-traffic-panel.js _render: status / stale / scope / items（normal は影響なし扱い）
+const ROAD_TRAFFIC_NO_ISSUE = {
+    status: 'ok', stale: false, scope: { mode: 'location', prefecture: '東京都' },
+    updated_at: '2026-06-01T09:00:00+09:00',
+    items: [{
+        station_id: 'mock-001', road_name: '国道15号', direction: '上り', lat: 35.65, lng: 139.75,
+        volume_5min: 120, volume_1h: 1400, baseline_volume_1h: null,
+        status: 'normal', status_label: '通常', severity: 0,
+        observed_at: '2026-06-01T09:00:00+09:00', source: '国土交通省 交通量API（JARTIC提供）',
+    }],
+};
+
 function _liveSummary(tsunamiAreas, stormSurgeAreas) {
     return {
         status: 'ok',
@@ -89,6 +125,10 @@ async function mockBase(page, { tsunamiResp = TSUNAMI_NONE, stormSurgeResp = STO
     await page.route('/api/live/sun_moon**',            route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) }));
     await page.route('/api/weather/rain/tile/times',    route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
     await page.route('/api/live/rain/timeline',         route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RAIN_TIMES) }));
+    await page.route('/api/live/earthquakes/history**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(EQ_HISTORY_NONE) }));
+    await page.route('/api/live/trains/summary**',      route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TRAINS_NO_ISSUE) }));
+    await page.route('/api/live/weather/jma/prefectures**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(WEATHER_PREFS_OK) }));
+    await page.route('/api/live/road-traffic/summary**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ROAD_TRAFFIC_NO_ISSUE) }));
     await page.route('/api/live/summary',               route => {
         const tsAreas = tsunamiResp.areas || [];
         const ssAreas = stormSurgeResp.areas || [];
@@ -466,7 +506,9 @@ test.describe('/live — ステータスバー（高潮）', () => {
 test.describe('/live — コンソールエラーなし（高潮警報あり）', () => {
     test('高潮警報あり時に console.error が出ない', async ({ page }) => {
         const errors = [];
+        const httpErrors = [];
         page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+        page.on('response', res => { if (res.status() >= 400) httpErrors.push(`${res.status()} ${res.url()}`); });
         await mockBase(page, { tsunamiResp: TSUNAMI_NONE, stormSurgeResp: STORM_SURGE_WARNING });
         await Promise.all([
             page.waitForRequest('/api/live/storm_surge/warnings'),
@@ -478,5 +520,6 @@ test.describe('/live — コンソールエラーなし（高潮警報あり）'
             !e.includes('favicon') && !e.includes('net::ERR') && !e.includes('CORS')
         );
         expect(serious).toHaveLength(0);
+        expect(httpErrors).toEqual([]);  // 未 mock API の 404 等が残っていないこと
     });
 });

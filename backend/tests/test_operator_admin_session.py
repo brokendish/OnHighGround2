@@ -33,7 +33,7 @@ DUMMY_SECRET = os.environ["OPERATOR_AUTH_SECRET"]
 sys.path.insert(0, str(BACKEND_DIR)) if str(BACKEND_DIR) not in sys.path else None
 
 import app_operator  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from ._testclient_compat import TestClient  # noqa: E402
 
 from app.services import job_manager as job_manager_module  # noqa: E402
 from app.services import operator_audit_log  # noqa: E402
