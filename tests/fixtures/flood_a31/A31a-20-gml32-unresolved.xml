@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- fail closed 確認用: sf0 の interior が存在しない OrientableCurve（_cv9_9）を参照する -->
+<ksj:Dataset gml:id="A31aDataset"
+    xmlns:ksj="http://nlftp.mlit.go.jp/ksj/schemas/ksj-app"
+    xmlns:gml="http://schemas.opengis.net/gml/3.2"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+  <gml:description>test fixture</gml:description>
+  <gml:Curve gml:id="cv0_0">
+    <gml:segments>
+      <gml:LineStringSegment>
+        <gml:posList>
+        35.0 139.0
+        35.0 139.1
+        35.1 139.1
+        35.0 139.0
+        </gml:posList>
+      </gml:LineStringSegment>
+    </gml:segments>
+  </gml:Curve>
+  <gml:Surface gml:id="sf0">
+    <gml:patches>
+      <gml:PolygonPatch>
+        <gml:exterior>
+          <gml:Ring>
+            <gml:curveMember xlink:href="#cv0_0"/>
+          </gml:Ring>
+        </gml:exterior>
+        <gml:interior>
+          <gml:Ring>
+            <gml:curveMember xlink:href="#_cv9_9"/>
+          </gml:Ring>
+        </gml:interior>
+      </gml:PolygonPatch>
+    </gml:patches>
+  </gml:Surface>
+  <ksj:MaximumScale gml:id="id0">
+    <ksj:bounds xlink:href="#sf0"/>
+    <ksj:riverNumber>1300100001</ksj:riverNumber>
+    <ksj:riverName>境川</ksj:riverName>
+    <ksj:waterDepth>1</ksj:waterDepth>
+  </ksj:MaximumScale>
+</ksj:Dataset>

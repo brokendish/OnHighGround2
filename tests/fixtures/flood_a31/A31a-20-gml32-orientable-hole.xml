@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 2025年度版相当: OrientableCurve 経由の穴あきポリゴン。
+  sf1: exterior=_cv1_0(+) / interior=_cv1_1(+), _cv1_2(-: baseCurve を逆順に辿る)
+  sf2: exterior Ring が 2 本の開いた Curve（cv2_0, cv2_1）で構成され、接続点を共有する -->
+<ksj:Dataset gml:id="A31aDataset"
+    xmlns:ksj="http://nlftp.mlit.go.jp/ksj/schemas/ksj-app"
+    xmlns:gml="http://schemas.opengis.net/gml/3.2"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+  <gml:description>test fixture</gml:description>
+  <gml:Curve gml:id="cv1_0">
+    <gml:segments>
+      <gml:LineStringSegment>
+        <gml:posList>
+        35.0 139.0
+        35.0 139.1
+        35.1 139.1
+        35.1 139.0
+        35.0 139.0
+        </gml:posList>
+      </gml:LineStringSegment>
+    </gml:segments>
+  </gml:Curve>
+  <gml:OrientableCurve gml:id="_cv1_0" orientation=" + ">
+    <gml:baseCurve xlink:href="#cv1_0"/>
+  </gml:OrientableCurve>
+  <gml:Curve gml:id="cv1_1">
+    <gml:segments>
+      <gml:LineStringSegment>
+        <gml:posList>
+        35.02 139.02
+        35.04 139.02
+        35.04 139.04
+        35.02 139.04
+        35.02 139.02
+        </gml:posList>
+      </gml:LineStringSegment>
+    </gml:segments>
+  </gml:Curve>
+  <gml:OrientableCurve gml:id="_cv1_1" orientation=" + ">
+    <gml:baseCurve xlink:href="#cv1_1"/>
+  </gml:OrientableCurve>
+  <gml:Curve gml:id="cv1_2">
+    <gml:segments>
+      <gml:LineStringSegment>
+        <gml:posList>
+        35.06 139.06
+        35.06 139.08
+        35.08 139.08
+        35.08 139.06
+        35.06 139.06
+        </gml:posList>
+      </gml:LineStringSegment>
+    </gml:segments>
+  </gml:Curve>
+  <gml:OrientableCurve gml:id="_cv1_2" orientation="-">
+    <gml:baseCurve xlink:href="#cv1_2"/>
+  </gml:OrientableCurve>
+  <gml:Surface gml:id="sf1">
+    <gml:patches>
+      <gml:PolygonPatch>
+        <gml:exterior>
+          <gml:Ring>
+            <gml:curveMember xlink:href="#_cv1_0"/>
+          </gml:Ring>
+        </gml:exterior>
+        <gml:interior>
+          <gml:Ring>
+            <gml:curveMember xlink:href="#_cv1_1"/>
+          </gml:Ring>
+        </gml:interior>
+        <gml:interior>
+          <gml:Ring>
+            <gml:curveMember xlink:href="#_cv1_2"/>
+          </gml:Ring>
+        </gml:interior>
+      </gml:PolygonPatch>
+    </gml:patches>
+  </gml:Surface>
+  <gml:Curve gml:id="cv2_0">
+    <gml:segments>
+      <gml:LineStringSegment>
+        <gml:posList>
+        35.2 139.2
+        35.2 139.3
+        35.3 139.3
+        </gml:posList>
+      </gml:LineStringSegment>
+    </gml:segments>
+  </gml:Curve>
+  <gml:Curve gml:id="cv2_1">
+    <gml:segments>
+      <gml:LineStringSegment>
+        <gml:posList>
+        35.3 139.3
+        35.3 139.2
+        </gml:posList>
+      </gml:LineStringSegment>
+    </gml:segments>
+  </gml:Curve>
+  <gml:Surface gml:id="sf2">
+    <gml:patches>
+      <gml:PolygonPatch>
+        <gml:exterior>
+          <gml:Ring>
+            <gml:curveMember xlink:href="#cv2_0"/>
+            <gml:curveMember xlink:href="#cv2_1"/>
+          </gml:Ring>
+        </gml:exterior>
+      </gml:PolygonPatch>
+    </gml:patches>
+  </gml:Surface>
+  <ksj:MaximumScale gml:id="id1">
+    <ksj:bounds xlink:href="#sf1"/>
+    <ksj:riverNumber>8303030339</ksj:riverNumber>
+    <ksj:riverName>中川</ksj:riverName>
+    <ksj:waterDepth>3</ksj:waterDepth>
+  </ksj:MaximumScale>
+  <ksj:MaximumScale gml:id="id2">
+    <ksj:bounds xlink:href="#sf2"/>
+    <ksj:riverNumber>8303030339</ksj:riverNumber>
+    <ksj:riverName>中川</ksj:riverName>
+    <ksj:waterDepth>6</ksj:waterDepth>
+  </ksj:MaximumScale>
+</ksj:Dataset>

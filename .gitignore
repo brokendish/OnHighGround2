@@ -22,6 +22,8 @@ build/
 # （tests/fixtures/dem_demo/配下の他fileや他の`.tif`には一切影響しない）。
 !tests/fixtures/dem_demo/elevation_demo.tif
 *.xml
+# A31a 洪水 GML の synthetic regression fixture（実データではない）のみ例外化する。
+!tests/fixtures/flood_a31/*.xml
 *.zip
 /data/
 !/data/
@@ -85,6 +87,7 @@ data_lake/raw/
 !data_lake/raw/README.md
 data_lake/normalized/
 data_lake/validated/
+data_lake/derived/
 data_lake/tiles/
 data_lake/logs/
 

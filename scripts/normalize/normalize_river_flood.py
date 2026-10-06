@@ -23,7 +23,8 @@ GML 変換:
   A31 GML 構造:
     ksj:Dataset
       gml:Curve gml:id="cvN"   → 座標列（lat lon 順）
-      gml:Surface gml:id="sfN" → curveMember xlink:href="#cvN"
+      gml:OrientableCurve gml:id="_cvN" orientation="+|-" → baseCurve xlink:href="#cvN"
+      gml:Surface gml:id="sfN" → exterior/interior の Ring → curveMember xlink:href="#cvN|#_cvN"
       ksj:MaximumScale gml:id="idN"
         ksj:bounds xlink:href="#sfN"
         ksj:waterDepth (1-6)
@@ -164,7 +165,11 @@ def _extract_rank(props: dict) -> int:
 # 展開すると文字化けする。extractall を使わず read() で個別に読み出す。
 
 # GML / KSJ の XML 名前空間
+# GML 名前空間 URI は年度で異なる（要素構造は同一）:
+#   2024年度版以前 (KsjAppSchema-A31a-v4_2): http://schemas.opengis.net/gml/3.2.1
+#   2025年度版     (KsjAppSchema-A31a-v4_3): http://schemas.opengis.net/gml/3.2
 _NS_GML   = "http://schemas.opengis.net/gml/3.2.1"
+_NS_GML_ALL = (_NS_GML, "http://schemas.opengis.net/gml/3.2")
 _NS_KSJ   = "http://nlftp.mlit.go.jp/ksj/schemas/ksj-app"
 _NS_XLINK = "http://www.w3.org/1999/xlink"
 
@@ -172,6 +177,9 @@ _TAG_CURVE    = f"{{{_NS_GML}}}Curve"
 _TAG_SURFACE  = f"{{{_NS_GML}}}Surface"
 _TAG_POSLIST  = f"{{{_NS_GML}}}posList"
 _TAG_CURVE_MB = f"{{{_NS_GML}}}curveMember"
+_TAG_CURVES   = frozenset(f"{{{ns}}}Curve" for ns in _NS_GML_ALL)
+_TAG_SURFACES = frozenset(f"{{{ns}}}Surface" for ns in _NS_GML_ALL)
+_TAG_ORIENTABLE_CURVES = frozenset(f"{{{ns}}}OrientableCurve" for ns in _NS_GML_ALL)
 _TAG_MS       = f"{{{_NS_KSJ}}}MaximumScale"
 _TAG_BOUNDS   = f"{{{_NS_KSJ}}}bounds"
 _TAG_WD       = f"{{{_NS_KSJ}}}waterDepth"
@@ -179,6 +187,107 @@ _TAG_RNAME    = f"{{{_NS_KSJ}}}riverName"
 _TAG_RNUM     = f"{{{_NS_KSJ}}}riverNumber"
 _ATTR_ID      = f"{{{_NS_GML}}}id"
 _ATTR_HREF    = f"{{{_NS_XLINK}}}href"
+
+
+def _gml_ns(tag: str) -> str:
+    """'{ns}local' 形式の tag から名前空間 URI を返す。"""
+    return tag[1:].split("}", 1)[0]
+
+
+class _GeomUnresolved(Exception):
+    """A31 GML の参照構造からジオメトリを組み立てられなかった（reason を保持）。"""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _curve_flat_xy(elem: ET.Element, ns: str) -> array.array:
+    """gml:Curve の全 LineStringSegment の posList（lat lon 順）を flat [lon,lat, ...] にする。"""
+    flat = array.array("d")
+    for pos_el in elem.iter(f"{{{ns}}}posList"):
+        vals = (pos_el.text or "").split()
+        if len(vals) % 2:
+            raise _GeomUnresolved("posList の座標数が奇数")
+        pts = array.array("d", [
+            v
+            for i in range(0, len(vals), 2)
+            for v in (float(vals[i + 1]), float(vals[i]))  # lon, lat
+        ])
+        # 連続セグメントの接続点（前セグメント終点 == 次セグメント始点）は重複させない
+        if len(flat) >= 2 and len(pts) >= 2 and flat[-2:] == pts[:2]:
+            pts = pts[2:]
+        flat.extend(pts)
+    if not flat:
+        raise _GeomUnresolved("Curve に座標がない")
+    return flat
+
+
+def _reverse_flat_xy(flat: array.array) -> array.array:
+    """flat [x0,y0, x1,y1, ...] の点順を反転する。"""
+    out = array.array("d")
+    for j in range(len(flat) - 2, -1, -2):
+        out.append(flat[j])
+        out.append(flat[j + 1])
+    return out
+
+
+def _build_ring(ring_el: ET.Element, ns: str, curves: dict) -> array.array:
+    """
+    gml:Ring の curveMember（xlink:href）を順に連結し、閉じた ring を flat xy で返す。
+    参照先は gml:Curve または gml:OrientableCurve（向き適用済み）。
+    参照済み curve は curves から pop してメモリを解放する。
+    """
+    flat = array.array("d")
+    members = ring_el.findall(f"{{{ns}}}curveMember")
+    if not members:
+        raise _GeomUnresolved("Ring に curveMember がない")
+    for cm in members:
+        href = cm.get(_ATTR_HREF, "")
+        if not href.startswith("#"):
+            raise _GeomUnresolved("curveMember が xlink:href 参照でない")
+        cv = curves.pop(href[1:], None)
+        if cv is None:
+            raise _GeomUnresolved("curveMember の参照先 Curve/OrientableCurve が見つからない")
+        if len(flat) >= 2 and flat[-2:] == cv[:2]:
+            flat.extend(cv[2:])
+        else:
+            flat.extend(cv)
+    # ring closure を保証
+    if flat[:2] != flat[-2:]:
+        flat.extend(flat[:2])
+    if len(flat) < 8:
+        raise _GeomUnresolved("Ring の頂点数が 4 未満")
+    return flat
+
+
+def _ring_coords(flat: array.array) -> list:
+    """flat [x0,y0, x1,y1, ...] → GeoJSON の [[x0,y0], [x1,y1], ...]"""
+    return [[flat[j], flat[j + 1]] for j in range(0, len(flat), 2)]
+
+
+def _build_surface(elem: ET.Element, ns: str, curves: dict) -> list:
+    """
+    gml:Surface → Polygon ごとの ring リスト（PolygonPatch ごと）。
+    各 Polygon は [exterior, hole1, hole2, ...]（ring は flat xy の array）。穴を外周へ連結しない。
+    全 Surface は MaximumScale より先に出現し出力まで保持されるため、
+    GeoJSON 形式（list）への変換は出力時まで遅らせてメモリを抑える。
+    """
+    polygons = []
+    patches = elem.findall(f"{{{ns}}}patches/{{{ns}}}PolygonPatch")
+    if not patches:
+        raise _GeomUnresolved("Surface に PolygonPatch がない")
+    for patch in patches:
+        ext = patch.findall(f"{{{ns}}}exterior/{{{ns}}}Ring")
+        if len(ext) != 1:
+            raise _GeomUnresolved("PolygonPatch の exterior Ring が 1 つでない")
+        rings = [_build_ring(ext[0], ns, curves)]
+        for ring_el in patch.findall(f"{{{ns}}}interior/{{{ns}}}Ring"):
+            rings.append(_build_ring(ring_el, ns, curves))
+        if len(patch.findall(f"{{{ns}}}interior")) != len(rings) - 1:
+            raise _GeomUnresolved("interior が Ring 以外の形式")
+        polygons.append(rings)
+    return polygons
 
 
 def _parse_a31_xml_stream(xml_source, out_path: Path, label: str) -> int:
@@ -189,23 +298,31 @@ def _parse_a31_xml_stream(xml_source, out_path: Path, label: str) -> int:
     大きなファイル (337MB 等) でも zf.open() ストリームを渡せばメモリを使い切らない。
 
     処理フロー（1パス iterparse）:
-      1. gml:Curve  → ID: [[lon,lat], ...]  curves dict に蓄積
-      2. gml:Surface → ID: [[lon,lat], ...] surfaces dict に蓄積（curve を解決）
-      3. ksj:MaximumScale → feature を出力（surface を解決）
+      1. gml:Curve           → curves[id] = flat xy
+      2. gml:OrientableCurve → curves[id] = baseCurve の flat xy（orientation="-" は逆順）
+      3. gml:Surface         → surfaces[id] = [[exterior, hole...], ...]（curve を解決）
+           exterior/Ring と interior/Ring を区別し、各 Ring は curveMember を連結して閉じる
+      4. ksj:MaximumScale    → feature を出力（surface を解決）
 
     座標系: GML の posList は (lat lon) 順 → GeoJSON (lon lat) にスワップ。
+
+    ジオメトリを解決できないフィーチャが 1 件でもあれば fail closed（ValueError）。
+    解析できなかった区域を空白として出力しないため。
 
     Returns:
         int: 出力したフィーチャ数
 
     Raises:
-        ValueError: パース失敗または出力 0 件
+        ValueError: パース失敗、ジオメトリ未解決あり、または出力 0 件
     """
     # array.array('d', [x0,y0, x1,y1, ...]) で格納 → Python list より約 8 倍省メモリ
-    curves: dict[str, array.array]   = {}  # gml_id → array('d', flat xy)
-    surfaces: dict[str, array.array] = {}  # gml_id → array('d', flat xy)
+    curves: dict[str, array.array] = {}  # gml_id → array('d', flat xy)
+    # gml_id → 穴なし単一 Polygon は exterior の flat xy（array）そのもの、
+    #          それ以外は [[exterior, hole...], ...]（大多数を占める前者の list オーバーヘッドを避ける）
+    surfaces: dict[str, object] = {}
+    surface_errors: dict[str, str] = {}  # gml_id → 解決できなかった理由
+    unresolved: dict[str, int] = {}      # 理由 → MaximumScale 件数
     count = 0
-    geom_none_count = 0
 
     try:
         context = ET.iterparse(xml_source, events=("start", "end"))
@@ -235,53 +352,66 @@ def _parse_a31_xml_stream(xml_source, out_path: Path, label: str) -> int:
 
             tag = elem.tag
 
-            if tag == _TAG_CURVE:
-                gml_id = elem.get(_ATTR_ID)
+            if tag in _TAG_CURVES:
+                ns = _gml_ns(tag)
+                gml_id = elem.get(f"{{{ns}}}id")
                 if gml_id:
-                    pos_el = elem.find(f".//{_TAG_POSLIST}")
-                    if pos_el is not None and pos_el.text:
-                        vals = pos_el.text.split()
-                        # posList は lat lon lat lon … 順 → flat xy [lon,lat, lon,lat, ...]
-                        flat = array.array("d", [
-                            v
-                            for i in range(0, len(vals) - 1, 2)
-                            for v in (float(vals[i + 1]), float(vals[i]))  # lon, lat
-                        ])
-                        curves[gml_id] = flat
+                    try:
+                        curves[gml_id] = _curve_flat_xy(elem, ns)
+                    except _GeomUnresolved:
+                        pass  # 参照側で「参照先が見つからない」として計上される
 
-            elif tag == _TAG_SURFACE:
-                gml_id = elem.get(_ATTR_ID)
+            elif tag in _TAG_ORIENTABLE_CURVES:
+                ns = _gml_ns(tag)
+                gml_id = elem.get(f"{{{ns}}}id")
+                base_el = elem.find(f"{{{ns}}}baseCurve")
+                href = base_el.get(_ATTR_HREF, "") if base_el is not None else ""
+                orientation = (elem.get("orientation") or "+").strip()
+                if gml_id and href.startswith("#") and orientation in ("+", "-"):
+                    base = curves.pop(href[1:], None)  # 参照済み curve を解放
+                    if base is not None:
+                        # GML 3.2: orientation="-" は baseCurve を逆向きに辿ることを意味する
+                        curves[gml_id] = base if orientation == "+" else _reverse_flat_xy(base)
+
+            elif tag in _TAG_SURFACES:
+                ns = _gml_ns(tag)
+                gml_id = elem.get(f"{{{ns}}}id")
                 if gml_id:
-                    flat_pts: array.array = array.array("d")
-                    for cm in elem.findall(f".//{_TAG_CURVE_MB}"):
-                        href = cm.get(_ATTR_HREF, "")
-                        if href.startswith("#"):
-                            curve_id = href[1:]
-                            cv = curves.pop(curve_id, None)  # 参照済み curve を解放
-                            if cv:
-                                flat_pts.extend(cv)
-                    if flat_pts:
-                        surfaces[gml_id] = flat_pts
+                    try:
+                        polygons = _build_surface(elem, ns, curves)
+                        if len(polygons) == 1 and len(polygons[0]) == 1:
+                            surfaces[gml_id] = polygons[0][0]
+                        else:
+                            surfaces[gml_id] = polygons
+                    except _GeomUnresolved as exc:
+                        surface_errors[gml_id] = exc.reason
 
             elif tag == _TAG_MS:
                 # ジオメトリ解決
                 geom = None
+                reason = None
                 bounds_el = elem.find(_TAG_BOUNDS)
-                if bounds_el is not None:
-                    href = bounds_el.get(_ATTR_HREF, "")
-                    if href.startswith("#"):
-                        surface_id = href[1:]
-                        flat_ring = surfaces.pop(surface_id, None)  # 参照済み surface を解放
-                        if flat_ring:
-                            # flat array → [[lon,lat], ...] for GeoJSON
-                            ring = [
-                                [flat_ring[j], flat_ring[j + 1]]
-                                for j in range(0, len(flat_ring), 2)
-                            ]
-                            geom = {"type": "Polygon", "coordinates": [ring]}
+                href = bounds_el.get(_ATTR_HREF, "") if bounds_el is not None else ""
+                if not href.startswith("#"):
+                    reason = "MaximumScale に bounds xlink:href がない"
+                else:
+                    surface_id = href[1:]
+                    polygons = surfaces.pop(surface_id, None)  # 参照済み surface を解放
+                    if polygons is None:
+                        reason = surface_errors.pop(
+                            surface_id, "bounds の参照先 Surface が見つからない"
+                        )
+                    else:
+                        if isinstance(polygons, array.array):
+                            polygons = [[polygons]]
+                        coords = [[_ring_coords(r) for r in rings] for rings in polygons]
+                        if len(coords) == 1:
+                            geom = {"type": "Polygon", "coordinates": coords[0]}
+                        else:
+                            geom = {"type": "MultiPolygon", "coordinates": coords}
 
                 if geom is None:
-                    geom_none_count += 1
+                    unresolved[reason] = unresolved.get(reason, 0) + 1
 
                 # プロパティ抽出
                 props: dict = {}
@@ -300,21 +430,25 @@ def _parse_a31_xml_stream(xml_source, out_path: Path, label: str) -> int:
                 if rno_el is not None and rno_el.text:
                     props["river_number"] = rno_el.text
 
-                feat = {"type": "Feature", "properties": props, "geometry": geom}
-                fout.write(json.dumps(feat, ensure_ascii=False, separators=(",", ":")) + "\n")
-                count += 1
+                if geom is not None:
+                    feat = {"type": "Feature", "properties": props, "geometry": geom}
+                    fout.write(json.dumps(feat, ensure_ascii=False, separators=(",", ":")) + "\n")
+                    count += 1
 
-                if count % _GML_PROGRESS_INTERVAL == 0:
-                    print(f"  [{label}] {count:,} フィーチャ処理中...", file=sys.stderr)
+                    if count % _GML_PROGRESS_INTERVAL == 0:
+                        print(f"  [{label}] {count:,} フィーチャ処理中...", file=sys.stderr)
 
             # root 直下要素を処理したら root から切り離してメモリ解放
             if root is not None:
                 root.remove(elem)
 
-    if geom_none_count:
-        print(
-            f"  [{label}] ジオメトリ解決できなかったフィーチャ: {geom_none_count} 件",
-            file=sys.stderr,
+    if unresolved:
+        total = sum(unresolved.values())
+        detail = "\n".join(f"    - {r}: {n:,} 件" for r, n in sorted(unresolved.items()))
+        raise ValueError(
+            f"A31 GML のジオメトリを解決できなかったフィーチャ: {total:,} 件: {label}\n"
+            f"{detail}\n"
+            f"  解析できなかった区域を空白として出力しないため、処理を中止します（fail closed）。"
         )
 
     if count == 0:
