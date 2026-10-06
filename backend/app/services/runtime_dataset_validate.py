@@ -559,6 +559,76 @@ def _sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
+# RUNTIME-VALIDATE-STREAMING: staging 検証と前 version の件数導出は、従来すべての GeoJSON を
+# json.load で全量展開していた。flood routing（254MB）で RSS 約 2GB、前 version の flood canonical
+# （524MB）ではさらに大きく、RAM 3.9GB・swap 枯渇の VPS では publish が同居サービス（WordPress）を
+# 巻き込む OOM / swap thrash を起こしうる。top-level FeatureCollection の .geojson は ijson で
+# ストリーミングし、Feature ごとに既存の _validate_geojson_feature で同じ検証を行う。
+# それ以外（Feature / 素の geometry / .json）は小さいため従来どおり json.load。
+
+
+_ARRAY_ITEM_START_EVENTS = frozenset({"start_map", "start_array", "string", "number", "boolean", "null"})
+
+
+def _stream_scan_geojson(path: Path) -> "tuple[Any, bool, int]":
+    """JSON 全体の構文を検証しつつ、top-level の (type 値, features が配列か, features 件数) を返す。
+    top-level が object でなければ RuntimeAtomicError。オブジェクトを組み立てない（省メモリ）。"""
+    import ijson
+
+    top_type: Any = None
+    features_is_array = False
+    count = 0
+    first = True
+    try:
+        with open(path, "rb") as f:
+            for prefix, event, value in ijson.parse(f, use_float=True):
+                if first:
+                    if event != "start_map":
+                        raise RuntimeAtomicError(f"GeoJSONとして不正（top-levelがobjectでない）: {path}")
+                    first = False
+                if prefix == "type" and event in ("string", "number", "boolean", "null"):
+                    top_type = value
+                elif prefix == "features" and event == "start_array":
+                    features_is_array = True
+                elif prefix == "features.item" and event in _ARRAY_ITEM_START_EVENTS:
+                    # 配列要素の開始のみ数える（要素内の map_key / end_map は同じ prefix で来るため除外）。
+                    # object 以外の要素も件数に含め、feature 検証で拒否させる。
+                    count += 1
+    except RuntimeAtomicError:
+        raise
+    except ijson.common.JSONError as exc:
+        raise RuntimeAtomicError(f"不正なJSON構文: {path}: {exc}") from exc
+    except OSError as exc:
+        raise RuntimeAtomicError(f"file読取失敗: {path}: {exc}") from exc
+    if first:
+        raise RuntimeAtomicError(f"不正なJSON構文: {path}: 空のfile")
+    return top_type, features_is_array, count
+
+
+def _validate_feature_collection_streaming(
+    path: Path,
+    required_property_keys: Optional[FrozenSet[str]],
+    required_property_types: Optional[Dict[str, tuple]],
+    required_property_ranges: Optional[Dict[str, tuple]],
+) -> int:
+    import ijson
+
+    n = 0
+    try:
+        with open(path, "rb") as f:
+            for feat in ijson.items(f, "features.item", use_float=True):
+                _validate_geojson_feature(
+                    feat, path, f"features[{n}]", required_property_keys, required_property_types,
+                    required_property_ranges,
+                )
+                n += 1
+    except ijson.common.JSONError as exc:
+        raise RuntimeAtomicError(f"不正なJSON構文: {path}: {exc}") from exc
+    except OSError as exc:
+        raise RuntimeAtomicError(f"file読取失敗: {path}: {exc}") from exc
+    return n
+
+
 def _validate_json_file(
     path: Path,
     require_geojson_schema: bool = False,
@@ -567,6 +637,14 @@ def _validate_json_file(
     required_property_ranges: Optional[Dict[str, tuple]] = None,
 ) -> int:
     """検証したFeature件数を返す（geojson schema検証を行わない場合は0）。"""
+    if require_geojson_schema:
+        top_type, features_is_array, _count = _stream_scan_geojson(path)
+        if top_type == "FeatureCollection":
+            if not features_is_array:
+                raise RuntimeAtomicError(f"FeatureCollectionにfeatures配列がない: {path}")
+            return _validate_feature_collection_streaming(
+                path, required_property_keys, required_property_types, required_property_ranges
+            )
     try:
         with open(path, "r", encoding="utf-8") as f:
             obj = json.load(f)
@@ -765,7 +843,16 @@ def _count_features_in_file(path: Path) -> int:
     同じ安全側の挙動）。"""
     suffix = path.suffix.lower()
     try:
-        if suffix in GEOJSON_SUFFIXES or suffix in JSON_LIKE_SUFFIXES:
+        if suffix in GEOJSON_SUFFIXES:
+            # 省メモリ（RUNTIME-VALIDATE-STREAMING）: 構造を組み立てずに件数だけ数える
+            try:
+                top_type, features_is_array, count = _stream_scan_geojson(path)
+            except RuntimeAtomicError:
+                return 0
+            if top_type == "FeatureCollection":
+                return count if features_is_array else 0
+            return 1 if top_type == "Feature" else 0
+        if suffix in JSON_LIKE_SUFFIXES:
             with open(path, "r", encoding="utf-8") as f:
                 obj = json.load(f)
             if isinstance(obj, dict):
