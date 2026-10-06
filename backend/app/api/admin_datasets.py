@@ -54,6 +54,7 @@ from app.services.job_manager import get_job_manager
 from app.services.active_mapping_service import get_active_mapping_service
 from app.services.admin_log_service import write_app_log
 from app.services import pipeline_service
+from app.services import admin_atomic_publish as aap
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,22 @@ _ERROR_MESSAGES: Dict[str, Dict[str, str]] = {
     "DEPLOY_BLOCKED_RUNNING_JOB": {
         "user_message": "現在このデータセットで処理が実行中です。",
         "action_message": "処理が完了するまでお待ちください。",
+    },
+    "FLOOD_ROUTING_MIGRATION_REQUIRED": {
+        "user_message": "洪水データの判定用形式（routing）への初回移行が必要です。通常の反映はできません。",
+        "action_message": "OWNER の承認参照を入力し、「初回移行として反映」を実行してください。",
+    },
+    "FLOOD_ROUTING_MIGRATION_NOT_APPLICABLE": {
+        "user_message": "洪水 routing 形式への移行指定は、この状態では使用できません。",
+        "action_message": "移行は洪水データ（flood）で、旧形式が実行環境に残っている場合だけ指定できます。通常の反映を実行してください。",
+    },
+    "FLOOD_ROUTING_MIGRATION_APPROVAL_REQUIRED": {
+        "user_message": "初回移行には OWNER の承認参照が必要です。",
+        "action_message": "3〜200 文字の英数字と . _ : @ / + ( ) - 空白で承認参照を入力してください。",
+    },
+    "ROLLBACK_ATOMIC_PUBLISH_MANAGED": {
+        "user_message": "このデータは実行環境の version 単位で管理されているため、ここからは戻せません。",
+        "action_message": "operator が activate_version.py --rollback <version-id> で version を戻してください。",
     },
     "ROLLBACK_NOT_AVAILABLE": {
         "user_message": "戻せるバックアップがありません。",
@@ -516,12 +533,44 @@ async def railway_pmtiles_update(
                        message="鉄道路線 PMTiles の更新を受け付けました。OSM ダウンロードから PMTiles 生成まで自動実行します。")
 
 
+# ── GET /datasets/{dataset_id}/publish-status ────────────────────────────────
+
+@router.get("/{dataset_id}/publish-status")
+async def get_publish_status(dataset_id: str):
+    """反映方式と、洪水 routing 初回移行の要否（UI の通常反映／移行反映の出し分け用）。"""
+    defn = get_definition_service().get(dataset_id)
+    if defn is None:
+        return _not_found(dataset_id)
+    if defn.layer_type not in aap.ATOMIC_PUBLISH_LAYER_TYPES:
+        return {"dataset_id": dataset_id, "publish_mode": "legacy",
+                "current_version": None, "flood_routing_migration_required": False, "legacy_flood_files": []}
+    legacy = aap.legacy_flood_files_in_current()
+    return {
+        "dataset_id": dataset_id,
+        "publish_mode": "atomic",
+        "current_version": aap.current_version_id(),
+        "flood_routing_migration_required": bool(legacy),
+        "migration_allowed_for_dataset": defn.layer_type == "flood",
+        "legacy_flood_files": legacy,
+    }
+
+
 # ── POST /datasets/{dataset_id}/deploy ───────────────────────────────────────
+
+class DeployRequest(BaseModel):
+    """反映リクエスト（body 省略時は通常反映）。"""
+    model_config = ConfigDict(extra="forbid")
+
+    # 洪水 routing 初回移行（OWNER 承認参照必須）。通常反映では指定しない。暗黙に付与しない。
+    allow_flood_routing_migration: bool = False
+    owner_approval_ref: Optional[str] = None
+
 
 @router.post("/{dataset_id}/deploy", response_model=JobAccepted)
 async def deploy_dataset(
     dataset_id: str,
     request: Request,
+    body: Optional[DeployRequest] = None,
     principal: OperatorPrincipal = Depends(require_operator_role),
 ):
     ds_svc = get_definition_service()
@@ -546,6 +595,28 @@ async def deploy_dataset(
         return _error_response("DEPLOY_BLOCKED_VALIDATION_FAILED",
                                 detail="deploy conditions not met")
 
+    # 洪水 routing 初回移行の指定を検証する（暗黙の migration 許可はしない）
+    body = body or DeployRequest()
+    migration_ref: Optional[str] = None
+    if body.allow_flood_routing_migration:
+        if defn.layer_type != "flood":
+            return _error_response("FLOOD_ROUTING_MIGRATION_NOT_APPLICABLE",
+                                    detail=f"layer_type={defn.layer_type}")
+        try:
+            migration_ref = aap.validate_owner_approval_ref(body.owner_approval_ref)
+        except ValueError as exc:
+            return _error_response("FLOOD_ROUTING_MIGRATION_APPROVAL_REQUIRED", detail=str(exc))
+        if not aap.legacy_flood_files_in_current():
+            return _error_response("FLOOD_ROUTING_MIGRATION_NOT_APPLICABLE",
+                                    detail="実行環境は routing 形式へ移行済みです")
+    elif body.owner_approval_ref:
+        return _error_response("FLOOD_ROUTING_MIGRATION_NOT_APPLICABLE",
+                                detail="owner_approval_ref は allow_flood_routing_migration と併用してください")
+    elif defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES and aap.legacy_flood_files_in_current():
+        # atomic publish は全 region をまとめて検証するため、旧 flood が残る間は flood 以外の反映も拒否される
+        return _error_response("FLOOD_ROUTING_MIGRATION_REQUIRED",
+                                detail=f"legacy={aap.legacy_flood_files_in_current()[:3]}")
+
     job = jm.create(
         dataset_id, JobType.deploy,
         actor_id=principal.actor_id, request_id=getattr(request.state, "request_id", None),
@@ -554,11 +625,15 @@ async def deploy_dataset(
     state.last_job_id = job.job_id
     ss.save(state)
 
-    jm.submit(job, pipeline_service.run_deploy(job, defn, state, jm, ss))
+    jm.submit(job, pipeline_service.run_deploy(job, defn, state, jm, ss,
+                                               flood_routing_migration_ref=migration_ref))
     _safe_write_app_log(
         f"dataset request accepted action=deploy dataset_id={dataset_id} job_id={job.job_id}"
+        f"{' flood_routing_migration=1' if migration_ref else ''}"
     )
 
+    if migration_ref:
+        return JobAccepted(job_id=job.job_id, message="洪水 routing 形式への初回移行として反映を開始しました。")
     return JobAccepted(job_id=job.job_id, message="実行環境への反映を開始しました。")
 
 
@@ -582,6 +657,9 @@ async def rollback_dataset(
 
     if jm.has_running_job(dataset_id):
         return _error_response("DEPLOY_BLOCKED_RUNNING_JOB")
+
+    if defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES:
+        return _error_response("ROLLBACK_ATOMIC_PUBLISH_MANAGED")
 
     if not state.backup_path:
         return _error_response("ROLLBACK_NOT_AVAILABLE")

@@ -121,17 +121,42 @@ dst="${dst%/}"
 
 mkdir -p "${dst}" || { log_error "同期先を作成できない: ${dst}"; exit 2; }
 
-# 追加専用の同期（--delete なし。旧世代ファイルを消さない）。
-# operator image には rsync が無いため通常は cp 側を通る。--remove-destination は、
-# Martin が open 中のファイルを in-place で書き換えないための unlink+create。
 # 注意: `cp -a` は使わない。-a は既存 directory の timestamp 保持（utime）まで試みるため、
-# operator 所有でない既存 directory があると同期自体が失敗する（従来の `cp -r` は成功していた）。
-# group/mode の保証はコピー方法に依存させず、下の明示的な正規化で行う。
-if command -v rsync &>/dev/null; then
-    rsync -a "${src}/" "${dst}/" || { log_warn "rsync 同期に失敗: ${src} -> ${dst}"; exit 2; }
-else
-    cp -r --remove-destination "${src}/." "${dst}/" || { log_warn "cp 同期に失敗: ${src} -> ${dst}"; exit 2; }
-fi
+# operator 所有でない既存 directory があると同期自体が失敗する。
+# group/mode の保証は下の明示的な正規化でも再確認する。
+# MBTILES-MIRROR-ATOMIC-SYNC: Martin は dst を監視し *.mbtiles の変更で自動 reload する。従来の
+# `cp -r --remove-destination` / rsync は最終名の file を直接書き換えるため、コピー途中の file を
+# Martin が reload して `database disk image is malformed` になっていた（Local 実機ログで確認）。
+# file 単位に、内容が同一なら何もしない（不要な reload を起こさない）、異なれば Martin が拾わない
+# 一時名（`.<name>.syncing-<pid>`、拡張子が .mbtiles でない）へコピー → sync → group/mode →
+# 同一 directory 内 `mv -f`（rename、atomic）で最終名へ置き換える。
+# 追加専用（--delete なし。旧世代ファイルを消さない）は従来どおり。
+while IFS= read -r -d '' d; do
+    rel="${d#"${src}"}"; rel="${rel#/}"
+    mkdir -p "${dst}${rel:+/${rel}}" || { log_error "同期先 directory を作成できない: ${dst}/${rel}"; exit 2; }
+done < <(find "${src}" -type d -print0)
+replaced=0
+unchanged=0
+while IFS= read -r -d '' f; do
+    rel="${f#"${src}"/}"
+    target="${dst}/${rel}"
+    if [[ -f "${target}" ]] && cmp -s -- "${f}" "${target}"; then
+        unchanged=$((unchanged + 1))
+        continue
+    fi
+    tmp="$(dirname "${target}")/.$(basename "${target}").syncing-$$"
+    if ! cp -- "${f}" "${tmp}"; then
+        rm -f -- "${tmp}"; log_warn "cp 同期に失敗: ${f} -> ${tmp}"; exit 2
+    fi
+    sync -- "${tmp}" 2>/dev/null || true
+    chgrp "${LEASES_GID}" "${tmp}" 2>/dev/null || true
+    chmod "${FILE_MODE}" "${tmp}" 2>/dev/null || true
+    if ! mv -f -- "${tmp}" "${target}"; then
+        rm -f -- "${tmp}"; log_warn "rename に失敗: ${tmp} -> ${target}"; exit 2
+    fi
+    replaced=$((replaced + 1))
+done < <(find "${src}" -type f -print0)
+log_info "mirror sync: replaced=${replaced} unchanged=${unchanged}（atomic rename、同一内容は再配置しない）"
 
 # コピー方法（cp/rsync、umask）に依存しない明示的な正規化。
 # 対象は「今回 source に含まれていた directory/file」のみ（inventory-based、

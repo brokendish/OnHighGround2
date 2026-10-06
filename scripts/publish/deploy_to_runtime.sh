@@ -196,6 +196,28 @@ deploy_file \
 # 再発させないため）。resolverはprocess substitutionではなく明示的な
 # exit code検査で失敗を検出する（`< <(...)` はサブシェルの終了コードを
 # 呼び出し元へ伝播しないため）。
+# >>> purge_flood_runtime_for_region
+# staging 内の当該 region の flood runtime を空にする（flood/<region>/ と、flood 直下の
+# legacy flat 配置 <region>_* / <region>-*）。tests/test_admin_atomic_publish_deploy.py が
+# この関数単体を実行して検証する。
+purge_flood_runtime_for_region() {
+    local runtime_backend="$1" region="$2"
+    local flood_root="${runtime_backend}/hazard/flood"
+    [[ -n "${region}" && "${region}" != *[/.]* ]] || { log_error "invalid region: ${region}"; return 1; }
+    if [[ -d "${flood_root}/${region}" ]]; then
+        rm -rf -- "${flood_root:?}/${region}"
+        log_info "Cleared previous flood runtime files: ${flood_root}/${region}"
+    fi
+    if [[ -d "${flood_root}" ]]; then
+        local legacy
+        while IFS= read -r -d '' legacy; do
+            rm -f -- "${legacy}"
+            log_info "Removed legacy flat flood file: ${legacy}"
+        done < <(find "${flood_root}" -maxdepth 1 -type f \( -name "${region}_*" -o -name "${region}-*" \) -print0)
+    fi
+}
+# <<< purge_flood_runtime_for_region
+
 log_info "--- flood / storm_surge / pseudo_inland_flood (registry-resolved) ---"
 _hazard_gap_resolve_output="$(mktemp)"
 trap 'rm -f "${_hazard_gap_resolve_output}"' RETURN EXIT
@@ -212,6 +234,14 @@ _hazard_gap_resolved_count=0
 while IFS=$'\t' read -r _hz_layer_type _hz_dataset_id _hz_src_path; do
     [[ -z "${_hz_layer_type:-}" ]] && continue
     _hz_dst_dir="${RUNTIME_BACKEND}/hazard/${_hz_layer_type}/${REGION}"
+    # flood: canonical / routing 分離契約（docs/architecture/flood_canonical_routing_split.md）。
+    # staging は current を種に複製されるため、この region の旧 flood runtime file
+    # （flood/<region>/ 配下、および flood 直下の legacy flat 配置 <region>_flood_check.geojsonl 等）が
+    # 残る。resolver が返す routing artifact で当該 region の flood を丸ごと置き換える。
+    # （staging 内の操作のみ。current は activate_version.py の atomic switch まで変更されない）
+    if [[ "${_hz_layer_type}" == "flood" ]] && ! "${DRY_RUN}"; then
+        purge_flood_runtime_for_region "${RUNTIME_BACKEND}" "${REGION}"
+    fi
     if [[ -f "${_hz_src_path}" ]]; then
         deploy_file "${_hz_src_path}" "${_hz_dst_dir}/$(basename "${_hz_src_path}")" "backend"
     elif [[ -d "${_hz_src_path}" ]]; then

@@ -14,10 +14,15 @@ operator container内（UID 10002:10002、supplemental GID 20001）でのみ
 使い方:
     python3 activate_version.py --data-runtime-root /data_runtime --version-id <id>
     python3 activate_version.py --data-runtime-root /data_runtime --rollback <id>
+
+初回 flood routing migration（legacy flood path → *.routing.geojson、OWNER 承認必須・一度きり）:
+    python3 activate_version.py --data-runtime-root /data_runtime --version-id <id> \
+        --allow-flood-routing-migration --owner-approval-ref "<承認の参照>"
 """
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import sys
 from pathlib import Path
@@ -41,7 +46,13 @@ EXPECTED_SUPPLEMENTAL_GID = 20001
 EXPECTED_UMASK = 0o007
 
 
-def _validate_staging(staging_path: Path, previous_version_path) -> None:
+def _validate_staging(
+    staging_path: Path,
+    previous_version_path,
+    *,
+    allow_flood_routing_migration: bool = False,
+    owner_approval_ref=None,
+) -> None:
     """CODEX P2B5-CX-003対応: 「空でない」「backendが存在する」だけでなく、
     JSON/GeoJSON/GeoJSONLの構文検証、mbtilesのSQLite健全性検証、
     全fileのchecksum manifest生成までをここで行う。1件でも不正な内容が
@@ -51,8 +62,15 @@ def _validate_staging(staging_path: Path, previous_version_path) -> None:
     初回publishではNone）を渡し、件数整合性検証（前回からの壊滅的な
     Feature件数減少の検出）を有効にする。
     """
-    manifest, feature_counts = validate_and_manifest_staging(staging_path, previous_version_path)
-    write_manifest(staging_path, manifest, VERSION_FILE_MODE, feature_counts)
+    migrations: list = []
+    manifest, feature_counts = validate_and_manifest_staging(
+        staging_path,
+        previous_version_path,
+        allow_flood_routing_migration=allow_flood_routing_migration,
+        owner_approval_ref=owner_approval_ref,
+        migration_records=migrations,
+    )
+    write_manifest(staging_path, manifest, VERSION_FILE_MODE, feature_counts, migrations=migrations)
 
 
 def main() -> int:
@@ -61,6 +79,14 @@ def main() -> int:
     parser.add_argument("--version-id", help="publishするversion ID（.stagingに存在すること）")
     parser.add_argument("--rollback", help="rollback先のversion ID（versions/に存在すること）")
     parser.add_argument("--audit-dir", default=None)
+    parser.add_argument(
+        "--allow-flood-routing-migration",
+        action="store_true",
+        help="初回 flood routing migration 専用（legacy flood path の消失を一度だけ許可）。"
+             "--owner-approval-ref 必須。通常 publish では使用しない",
+    )
+    parser.add_argument("--owner-approval-ref", default=None,
+                        help="--allow-flood-routing-migration 時の OWNER 承認参照（manifest に記録）")
     parser.add_argument(
         "--skip-identity-check",
         action="store_true",
@@ -82,6 +108,17 @@ def main() -> int:
             print(f"FAIL identity: {exc}", file=sys.stderr)
             return 1
 
+    if args.allow_flood_routing_migration:
+        if args.rollback:
+            print("FAIL: --allow-flood-routing-migration は publish 専用（rollback では使用不可）", file=sys.stderr)
+            return 1
+        if not (args.owner_approval_ref or "").strip():
+            print("FAIL: --allow-flood-routing-migration には --owner-approval-ref が必須", file=sys.stderr)
+            return 1
+    elif args.owner_approval_ref:
+        print("FAIL: --owner-approval-ref は --allow-flood-routing-migration と併用する", file=sys.stderr)
+        return 1
+
     root = Path(args.data_runtime_root)
     publisher = AtomicPublisher(root, expect_uid=EXPECTED_OPERATOR_UID, expect_gid=EXPECTED_OPERATOR_GID)
     audit_dir = Path(args.audit_dir) if args.audit_dir else (root / "manifests" / "phase2b5_audit")
@@ -91,7 +128,12 @@ def main() -> int:
             result = publisher.rollback(args.rollback, audit_dir=audit_dir)
             action = "rollback"
         elif args.version_id:
-            result = publisher.publish(args.version_id, _validate_staging, audit_dir=audit_dir)
+            validator = functools.partial(
+                _validate_staging,
+                allow_flood_routing_migration=args.allow_flood_routing_migration,
+                owner_approval_ref=args.owner_approval_ref,
+            )
+            result = publisher.publish(args.version_id, validator, audit_dir=audit_dir)
             action = "publish"
         else:
             print("FAIL: --version-id または --rollback のいずれかが必要", file=sys.stderr)

@@ -106,6 +106,7 @@ let _allDatasets = [];           // 最新のDatasetSummary[]
 let _currentDatasetId = null;    // 詳細パネル表示中のdataset_id
 let _currentDetail = null;       // 最新のDatasetDetail
 let _updateModalDataset = null;  // 更新モーダル対象
+let _updateModalSeq = 0;         // 更新モーダルを開くたびに加算（古い詳細レスポンスの破棄用）
 let _deployModalDataset = null;  // 反映確認対象
 let _rollbackModalDataset = null;// ロールバック確認対象
 let _osrmModalDataset = null;    // OSRM再構築確認対象
@@ -304,7 +305,9 @@ function renderDatasetRow(d) {
   const isRunning = d.has_running_job;
   const isRailwayPmtiles = d.source_type === "railway_pmtiles";
   const canDeploy = d.is_deployable && !isRunning && !isRailwayPmtiles;
-  const canRollback = d.deploy_status === "deployed" && d.has_backup && !isRunning && !isRailwayPmtiles;
+  // atomic publish 管理の dataset は flat backup の「戻す」を使わない（version 単位で operator が戻す）
+  const isAtomicPublish = ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type);
+  const canRollback = d.deploy_status === "deployed" && d.has_backup && !isRunning && !isRailwayPmtiles && !isAtomicPublish;
   const canOsrm = d.requires_osrm_rebuild && d.deploy_status === "deployed" && !isRunning;
   const canActivate = d.layer_type && d.deploy_status === "deployed" && !d.is_active && !isRunning;
 
@@ -361,7 +364,7 @@ function renderDatasetRow(d) {
         ${!isRailwayPmtiles ? `<button class="btn btn-secondary"
           onclick="openRollbackModal('${escAttr(escJs(d.dataset_id))}')"
           ${canRollback ? "" : "disabled"}
-          title="${canRollback ? '1世代前に戻す' : (!d.has_backup ? 'バックアップがありません（初回デプロイ後に利用可）' : '処理中のため実行不可')}">戻す</button>` : ""}
+          title="${canRollback ? '1世代前に戻す' : (isAtomicPublish ? '実行環境の version 単位で管理されています（operator が version を戻します）' : (!d.has_backup ? 'バックアップがありません（初回デプロイ後に利用可）' : '処理中のため実行不可'))}">戻す</button>` : ""}
         ${d.layer_type ? `<button class="btn btn-activate"
           onclick="openActivateModal('${escAttr(escJs(d.dataset_id))}')"
           ${canActivate ? "" : "disabled"}
@@ -542,10 +545,26 @@ function openUpdateModal(datasetId) {
   document.getElementById("um-scope").textContent = d.impact_scope;
   document.getElementById("um-current").textContent = d.current_file_name || "なし";
 
+  // 取得元URL・URL指定取得欄はモーダルを開くたびにリセットする
+  const seq = ++_updateModalSeq;
+  const sourceUrlEl = document.getElementById("um-source-url");
+  sourceUrlEl.classList.remove("is-unset");
+  sourceUrlEl.textContent = "—";
+  const fetchUrlInput = document.getElementById("fetch-url-input");
+  fetchUrlInput.value = "";
+
   // 詳細定義を取得してタブ構築
   fetchJSON(`${API}/datasets/${datasetId}`).then(detail => {
+    // 応答待ちの間にモーダルが閉じられた/別データセットで開き直された場合は破棄
+    if (seq !== _updateModalSeq || _updateModalDataset !== d) return;
     const defn = detail.definition;
     document.getElementById("um-exts").textContent = defn.accepted_extensions.join(", ");
+    renderSourceUrl(sourceUrlEl, defn.source_url);
+    // dataset definition の source_url を初期値にする（http/https のみ）。
+    // 応答前にユーザーが入力していた場合は上書きしない。
+    if (isHttpUrl(defn.source_url) && fetchUrlInput.value === "") {
+      fetchUrlInput.value = defn.source_url.trim();
+    }
     document.getElementById("um-official-url").textContent =
       defn.official_source_url ||
       (defn.downloader_name ? `一括取得スクリプト: ${defn.downloader_name}` : "—");
@@ -588,6 +607,39 @@ function openUpdateModal(datasetId) {
   });
 
   document.getElementById("update-modal").classList.add("open");
+}
+
+// http:// / https:// の絶対URLのみ true（javascript:, data: 等は false）
+function isHttpUrl(value) {
+  if (typeof value !== "string" || !value.trim()) return false;
+  try {
+    const u = new URL(value.trim());
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch (_) {
+    return false;
+  }
+}
+
+// 取得元URLを表示する。innerHTML は使わず DOM API で組み立てる。
+function renderSourceUrl(el, url) {
+  el.textContent = "";
+  el.classList.remove("is-unset");
+  if (typeof url !== "string" || !url.trim()) {
+    el.classList.add("is-unset");
+    el.textContent = "未設定";
+    return;
+  }
+  const text = url.trim();
+  if (!isHttpUrl(text)) {
+    el.textContent = text;  // http/https 以外はリンク化しない
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = text;
+  a.textContent = text;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  el.appendChild(a);
 }
 
 function buildInputTabs(modes, sourceType) {
@@ -825,16 +877,82 @@ async function executeUpdate() {
 }
 
 // ── 反映モーダル ──────────────────────────────────────
+// 管理画面の反映が正式 atomic publish（deploy_to_runtime_atomic.sh）を通る layer_type
+// （backend/app/services/admin_atomic_publish.py の ATOMIC_PUBLISH_LAYER_TYPES と一致させる）
+const ATOMIC_PUBLISH_LAYER_TYPES = ["flood", "storm_surge", "pseudo_inland_flood"];
+const _APPROVAL_REF_RE = /^[A-Za-z0-9][A-Za-z0-9._:@/+()\- ]{2,199}$/;
+let _deployPublishStatus = null;
+
 function openDeployModal(datasetId) {
   const d = _allDatasets.find(x => x.dataset_id === datasetId);
   if (!d) return;
   _deployModalDataset = d;
+  _deployPublishStatus = null;
   document.getElementById("dm-name").textContent = d.display_name;
   document.getElementById("dm-artifact").textContent = d.current_file_name || "—";
   document.getElementById("dm-validation").innerHTML =
     badgeHtml(validationBadgeClass(d.validation_status), validationLabel(d.validation_status));
   document.getElementById("dm-runtime").textContent = "実行環境 (data_runtime)";
+  document.getElementById("dm-backup").textContent = "✅ 自動作成されます（1世代前に戻すことが可能）";
+  document.getElementById("dm-migration").hidden = true;
+  document.getElementById("dm-approval-ref").value = "";
+  document.getElementById("dm-approval-confirm").checked = false;
+  document.getElementById("dm-btn-deploy").hidden = false;
+  document.getElementById("dm-btn-deploy").disabled = ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type);
+  document.getElementById("dm-btn-migrate").hidden = true;
   document.getElementById("deploy-modal").classList.add("open");
+
+  if (!ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type)) return;
+  // atomic publish 対象: 反映方式と初回移行の要否を確認してからボタンを有効化する
+  fetchJSON(`${API}/datasets/${datasetId}/publish-status`).then(st => {
+    if (_deployModalDataset !== d) return;
+    _deployPublishStatus = st;
+    document.getElementById("dm-runtime").textContent =
+      `実行環境 version ${st.current_version || "（未公開）"}（atomic publish・全 region を一括検証して切替）`;
+    document.getElementById("dm-backup").textContent =
+      "version 単位で保持されます（戻す場合は operator が version を切り替えます）";
+    if (st.flood_routing_migration_required) {
+      const box = document.getElementById("dm-migration");
+      const list = document.getElementById("dm-migration-files");
+      list.textContent = "";
+      (st.legacy_flood_files || []).forEach(f => {
+        const li = document.createElement("li");
+        li.textContent = f;
+        list.appendChild(li);
+      });
+      box.hidden = false;
+      document.getElementById("dm-btn-deploy").hidden = true;
+      if (st.migration_allowed_for_dataset) {
+        document.getElementById("dm-migration-title").textContent = "洪水 routing 形式への初回移行が必要です";
+        document.getElementById("dm-migration-desc").textContent =
+          "実行環境に旧形式の洪水データが残っているため、通常の反映はできません。OWNER の承認を得たうえで初回移行として反映してください（一度だけ）。";
+        document.getElementById("dm-migration-form").hidden = false;
+        document.getElementById("dm-btn-migrate").hidden = false;
+      } else {
+        document.getElementById("dm-migration-title").textContent = "洪水データの初回移行が完了するまで反映できません";
+        document.getElementById("dm-migration-desc").textContent =
+          "実行環境に旧形式の洪水データが残っています。先に洪水データ（TOKYO-RIVER-001 など）の初回移行を実行してください。";
+        document.getElementById("dm-migration-form").hidden = true;
+      }
+    }
+    updateDeployButtons();
+  }).catch(err => {
+    showNotice("error", "反映状態の取得に失敗しました: " + err.message);
+  });
+}
+
+function updateDeployButtons() {
+  const d = _deployModalDataset;
+  const st = _deployPublishStatus;
+  if (!d) return;
+  if (!ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type)) return;
+  const ready = !!st;
+  document.getElementById("dm-btn-deploy").disabled = !ready || st.flood_routing_migration_required;
+  const ref = document.getElementById("dm-approval-ref").value.trim();
+  const confirmed = document.getElementById("dm-approval-confirm").checked;
+  document.getElementById("dm-btn-migrate").disabled =
+    !ready || !st.flood_routing_migration_required || !st.migration_allowed_for_dataset
+    || !_APPROVAL_REF_RE.test(ref) || !confirmed;
 }
 
 function closeDeployModal() {
@@ -842,14 +960,19 @@ function closeDeployModal() {
   _deployModalDataset = null;
 }
 
-async function executeDeploy() {
+async function executeDeploy(asMigration) {
   const d = _deployModalDataset;
   if (!d) return;
+  // 通常反映では migration flag を付けない（暗黙の移行許可はしない）
+  const body = asMigration
+    ? { allow_flood_routing_migration: true,
+        owner_approval_ref: document.getElementById("dm-approval-ref").value.trim() }
+    : {};
   try {
-    const json = await postJSON(`${API}/datasets/${d.dataset_id}/deploy`, {});
-    if (!json.accepted) throw new Error(json.user_message || "反映に失敗しました");
+    const json = await postJSON(`${API}/datasets/${d.dataset_id}/deploy`, body);
+    if (!json.accepted) throw new Error([json.user_message, json.detail].filter(Boolean).join(" ") || "反映に失敗しました");
     closeDeployModal();
-    showNotice("success", "実行環境への反映を開始しました。");
+    showNotice("success", json.message || "実行環境への反映を開始しました。");
     await loadDatasets();
     openLogModal(json.job_id);
   } catch (err) {
@@ -2292,7 +2415,9 @@ function jobTypeLabel(t) {
 function stepLabel(s) {
   const map = {
     accepted: "受付済み", download: "取得中", upload_store: "保管中",
-    normalize: "整形中", validate: "確認中", backup: "バックアップ中",
+    normalize: "整形中", validate: "確認中",
+    derive_routing: "判定用データ生成中", validate_routing: "判定用データ確認中",
+    backup: "バックアップ中",
     deploy: "反映中", rollback: "ロールバック中",
     osrm_extract: "データ展開中", osrm_partition: "ルート最適化中", osrm_customize: "インデックス構築中",
     completed: "完了", failed: "失敗"

@@ -12,6 +12,13 @@
 #
 # 使い方:
 #   scripts/publish/deploy_to_runtime_atomic.sh [--region tokyo] [--region kanagawa] [--skip-frontend]
+#       [--allow-flood-routing-migration <OWNER承認の参照>]
+#
+# --allow-flood-routing-migration は初回 flood routing migration 専用（legacy flood path
+# backend/hazard/flood/<region>/<dataset>.geojson → <dataset>.routing.geojson）。
+# OWNER の明示承認の参照文字列を必須とし、activate_version.py がそれを manifest に記録する。
+# 前 version に legacy flood が無い（移行済み）場合は validator が拒否するため、通常 publish では
+# 使用できない（docs/architecture/flood_canonical_routing_split.md）。
 #
 # --region は複数回指定できる（例: --region tokyo --region kanagawa）。
 # 同一staging directoryへ region 分だけ deploy_to_runtime.sh を順に実行してから
@@ -60,10 +67,17 @@ source "${PROJECT_ROOT}/scripts/common/log.sh"
 
 REGIONS=()
 SKIP_FRONTEND_ARG=""
+FLOOD_MIGRATION_APPROVAL_REF=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --region)        REGIONS+=("$2"); shift 2 ;;
         --skip-frontend) SKIP_FRONTEND_ARG="--skip-frontend"; shift ;;
+        --allow-flood-routing-migration)
+            if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
+                log_error "--allow-flood-routing-migration には OWNER 承認の参照文字列が必須です"
+                exit 1
+            fi
+            FLOOD_MIGRATION_APPROVAL_REF="$2"; shift 2 ;;
         *) log_error "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -152,10 +166,16 @@ log_info "activating version via activate_version.py ..."
 # ケースを、通常のexit 1（真の公開失敗）と区別して扱う必要がある。
 # `set -e`の下では非0 exitで即座にscriptが終了してしまうため、この
 # 呼び出しだけ一時的に無効化し、exit codeを明示的に分岐させる。
+ACTIVATE_EXTRA_ARGS=()
+if [[ -n "${FLOOD_MIGRATION_APPROVAL_REF}" ]]; then
+    log_warn "flood routing migration を OWNER 承認参照付きで実行します: ${FLOOD_MIGRATION_APPROVAL_REF}"
+    ACTIVATE_EXTRA_ARGS=(--allow-flood-routing-migration --owner-approval-ref "${FLOOD_MIGRATION_APPROVAL_REF}")
+fi
 set +e
 python3 "${SCRIPT_DIR}/activate_version.py" \
     --data-runtime-root "${DATA_RUNTIME}" \
-    --version-id "${VERSION_ID}"
+    --version-id "${VERSION_ID}" \
+    "${ACTIVATE_EXTRA_ARGS[@]+"${ACTIVATE_EXTRA_ARGS[@]}"}"
 ACTIVATE_EXIT_CODE=$?
 set -e
 

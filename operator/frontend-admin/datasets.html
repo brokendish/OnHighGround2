@@ -238,6 +238,10 @@
         <div class="modal-info-label">対応形式</div>
         <div class="modal-info-value" id="um-exts">—</div>
       </div>
+      <div class="modal-info-row">
+        <div class="modal-info-label">取得元URL</div>
+        <div class="modal-info-value um-source-url" id="um-source-url">—</div>
+      </div>
       <hr class="modal-divider">
 
       <!-- ブラウザアップロード非対応の場合の通知（タブ外・常時表示位置） -->
@@ -376,12 +380,28 @@
         <dt>反映対象ファイル</dt><dd id="dm-artifact">—</dd>
         <dt>内容確認結果</dt><dd id="dm-validation">—</dd>
         <dt>現在の反映先</dt><dd id="dm-runtime">—</dd>
-        <dt>バックアップ</dt><dd>✅ 自動作成されます（1世代前に戻すことが可能）</dd>
+        <dt>バックアップ</dt><dd id="dm-backup">✅ 自動作成されます（1世代前に戻すことが可能）</dd>
       </dl>
+      <!-- 洪水 routing 形式への初回移行（OWNER 承認参照が必要）。通常反映とは別操作。 -->
+      <div class="warning-box dm-migration" id="dm-migration" hidden>
+        <strong id="dm-migration-title">洪水 routing 形式への初回移行が必要です</strong>
+        <p id="dm-migration-desc">実行環境に旧形式の洪水データが残っているため、通常の反映はできません。</p>
+        <ul class="dm-migration-files" id="dm-migration-files"></ul>
+        <div id="dm-migration-form">
+          <label class="dm-migration-label" for="dm-approval-ref">OWNER 承認参照</label>
+          <input type="text" id="dm-approval-ref" maxlength="200" autocomplete="off"
+                 placeholder="例: LOCAL-FLOOD-ROUTING-MIGRATION-20261006" oninput="updateDeployButtons()">
+          <label class="dm-migration-confirm">
+            <input type="checkbox" id="dm-approval-confirm" onchange="updateDeployButtons()">
+            OWNER の承認を得て、初回移行として反映することを確認しました
+          </label>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeDeployModal()">キャンセル</button>
-      <button class="btn btn-success" onclick="executeDeploy()">反映する</button>
+      <button class="btn btn-success" id="dm-btn-deploy" onclick="executeDeploy(false)">反映する</button>
+      <button class="btn btn-danger" id="dm-btn-migrate" onclick="executeDeploy(true)" hidden disabled>初回移行として反映</button>
     </div>
   </div>
 </div>

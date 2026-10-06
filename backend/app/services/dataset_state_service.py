@@ -23,6 +23,11 @@ from app.models.admin_dataset import (
     ValidationStatus,
 )
 from app.services.admin_metadata_fs import chmod_quiet
+from app.services.admin_atomic_publish import (
+    ATOMIC_PUBLISH_LAYER_TYPES,
+    data_runtime_root,
+    find_artifact_in_current,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +104,19 @@ class DatasetStateService:
         for attr in ("current_raw_path", "current_normalized_path",
                      "current_validated_path", "current_runtime_path"):
             val = getattr(state, attr, None)
-            if val and not Path(val).exists():
+            if val and not self._exists_or_inaccessible(Path(val)):
                 return True
         return False
+
+    @staticmethod
+    def _exists_or_inaccessible(path: Path) -> bool:
+        """存在すれば True。このプロセスから stat できない（PermissionError）場合も、
+        「存在しない」とは断定できないため True（stale として state を破棄しない）。
+        例: backend-public（gid 20001）は operator 専用 dir（10002:10002 0770）を traverse できない。"""
+        try:
+            return path.exists()
+        except PermissionError:
+            return True
 
     def save(self, state: DatasetState) -> None:
         path = self._state_path(state.dataset_id)
@@ -262,7 +277,16 @@ class DatasetStateService:
                 state.validation_status = ValidationStatus.passed
             # deploy_status は runtime の有無で判定
             runtime_path = (_PROJECT_ROOT / defn.runtime_path).resolve()
-            if defn.deploy_mode == "copy_file":
+            if defn.layer_type in ATOMIC_PUBLISH_LAYER_TYPES:
+                # 管理画面反映が atomic publish の dataset は、flat path ではなく
+                # current version に当該 artifact があるかで判定する（表示と実 runtime の乖離防止）。
+                published = find_artifact_in_current(defn.layer_type, defn.region, validated_file.name)
+                if published is not None:
+                    state.deploy_status = DeployStatus.deployed
+                    state.current_runtime_path = str(published)
+                else:
+                    state.deploy_status = DeployStatus.deployable
+            elif defn.deploy_mode == "copy_file":
                 # copy_file モード: 同じ runtime_path を複数データセットが共有する場合があるため
                 # ディレクトリ存在だけでは deployed と判定しない。
                 # validated ファイルと同名のファイルが runtime 内にあれば deployed とみなす。
@@ -324,6 +348,15 @@ class DatasetStateService:
         """
         if not state.current_runtime_path:
             return False
+        if defn.layer_type in ATOMIC_PUBLISH_LAYER_TYPES:
+            # atomic publish 管理の dataset は、activate された version 内の artifact を指す場合のみ有効。
+            # 旧来の flat copy による deployed（backend-public は読まない）は stale として再推定する。
+            try:
+                actual = Path(state.current_runtime_path).resolve()
+            except (OSError, ValueError):
+                return False
+            versions_dir = (data_runtime_root() / "versions").resolve()
+            return versions_dir in actual.parents and actual.exists()
         expected_dir = (_PROJECT_ROOT / defn.runtime_path).resolve()
         try:
             actual_path = Path(state.current_runtime_path).resolve()
@@ -331,7 +364,7 @@ class DatasetStateService:
             return False
         if actual_path != expected_dir and expected_dir not in actual_path.parents:
             return False
-        return actual_path.exists()
+        return self._exists_or_inaccessible(actual_path)
 
     def _find_representative_file(
         self, storage_path: Optional[str], defn: DatasetDefinition

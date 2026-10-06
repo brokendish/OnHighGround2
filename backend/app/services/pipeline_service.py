@@ -40,6 +40,12 @@ from app.models.admin_dataset import (
 from app.services.config_definition_service import get_config_definition_service
 from app.services.config_state_service import get_config_state_service
 from app.services.dataset_state_service import DatasetStateService
+from app.services.flood_routing_contract import (
+    FloodRoutingContractError,
+    routing_paths_for_canonical,
+    verify_routing_for_canonical,
+)
+from app.services import admin_atomic_publish as aap
 from app.services.docker_operation_gateway import DockerOperationError, execute_operation
 from app.services.job_manager import JobManager
 
@@ -526,7 +532,7 @@ async def _run_post_ingest_pipeline(
     jm: JobManager,
     ss: DatasetStateService,
 ) -> None:
-    """ingest後に normalize → validate を順次実行する。"""
+    """ingest後に normalize → validate（flood は → derive routing → validate routing）を順次実行する。"""
 
     if defn.requires_normalize and defn.transformer_name:
         ok = await _do_normalize(job, defn, state, jm, ss)
@@ -535,6 +541,16 @@ async def _run_post_ingest_pipeline(
 
     if defn.requires_validation and defn.validator_name:
         ok = await _do_validate(job, defn, state, jm, ss)
+        if not ok:
+            return
+
+    # flood: canonical / routing artifact 分離（docs/architecture/flood_canonical_routing_split.md）。
+    # routing の生成・検証に失敗した場合は deployable にしない（publish 禁止）。
+    if defn.layer_type == "flood":
+        ok = await _do_derive_flood_routing(job, defn, state, jm, ss)
+        if not ok:
+            return
+        ok = await _do_validate_flood_routing(job, defn, state, jm, ss)
         if not ok:
             return
 
@@ -714,6 +730,109 @@ async def _do_validate(
     return True
 
 
+# ── flood routing artifact（derive / validate） ───────────────────────────────
+
+def _flood_canonical_path(defn: DatasetDefinition, state: DatasetState) -> Optional[Path]:
+    """flood の canonical（validated GeoJSON 単一 file）を返す。無ければ None。"""
+    candidates = []
+    if state.current_validated_path:
+        candidates.append(Path(state.current_validated_path))
+    if defn.validated_storage_path:
+        candidates.append((_PROJECT_ROOT / defn.validated_storage_path).resolve()
+                          / f"{defn.dataset_id.lower()}.geojson")
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def _block_flood_publish(state: DatasetState, ss: DatasetStateService) -> None:
+    state.is_deployable = False
+    if state.deploy_status == DeployStatus.deployable:
+        state.deploy_status = DeployStatus.not_deployed
+    ss.save(state)
+
+
+async def _do_derive_flood_routing(
+    job: Job,
+    defn: DatasetDefinition,
+    state: DatasetState,
+    jm: JobManager,
+    ss: DatasetStateService,
+) -> bool:
+    jm.update(job, step=JobStep.derive_routing, progress_message="経路判定用データを生成中...")
+    jm.log(job, "--- derive: build_flood_routing_artifact ---")
+
+    canonical = _flood_canonical_path(defn, state)
+    script_path = _SCRIPTS_DIR / "derive" / "build_flood_routing_artifact.py"
+    try:
+        if canonical is None:
+            raise FloodRoutingContractError("validated canonical flood GeoJSON が見つかりません")
+        routing_path, _meta_path = routing_paths_for_canonical(canonical)
+    except FloodRoutingContractError as exc:
+        jm.log(job, f"routing derive 不可: {exc}")
+        _fail(job, jm, "ROUTING_DERIVE_FAILED",
+              "経路判定用データを生成できませんでした。",
+              "検証済みデータの配置を確認してください。詳細はログを参照してください。")
+        _block_flood_publish(state, ss)
+        return False
+    if not script_path.exists():
+        _fail(job, jm, "ROUTING_DERIVE_FAILED",
+              "経路判定用データの生成スクリプトが見つかりませんでした。",
+              "scripts/derive/build_flood_routing_artifact.py が存在するか確認してください。")
+        _block_flood_publish(state, ss)
+        return False
+
+    _ensure_dir(routing_path.parent)
+    cmd = ["python3", "-u", str(script_path),
+           "--input", str(canonical),
+           "--output", str(routing_path),
+           "--dataset-id", defn.dataset_id]
+    ret = await _run_subprocess(cmd, job, jm, timeout=3600)
+    if ret != 0:
+        _fail(job, jm, "ROUTING_DERIVE_FAILED",
+              "経路判定用データの生成に失敗しました。",
+              "既存の判定用データは変更されていません。詳細はログを参照してください。",
+              exit_code=ret)
+        _block_flood_publish(state, ss)
+        return False
+    jm.log(job, f"routing derive success: {routing_path}")
+    return True
+
+
+async def _do_validate_flood_routing(
+    job: Job,
+    defn: DatasetDefinition,
+    state: DatasetState,
+    jm: JobManager,
+    ss: DatasetStateService,
+) -> bool:
+    jm.update(job, step=JobStep.validate_routing, progress_message="経路判定用データを確認中...")
+    jm.log(job, "--- validate: validate_flood_routing_artifact ---")
+
+    canonical = _flood_canonical_path(defn, state)
+    script_path = _SCRIPTS_DIR / "validate" / "validate_flood_routing_artifact.py"
+    if canonical is None or not script_path.exists():
+        _fail(job, jm, "ROUTING_VALIDATION_FAILED",
+              "経路判定用データを確認できませんでした。",
+              "検証済みデータと確認スクリプトの配置を確認してください。")
+        _block_flood_publish(state, ss)
+        return False
+    cmd = ["python3", "-u", str(script_path),
+           "--canonical", str(canonical),
+           "--dataset-id", defn.dataset_id]
+    ret = await _run_subprocess(cmd, job, jm, timeout=3600)
+    if ret != 0:
+        _fail(job, jm, "ROUTING_VALIDATION_FAILED",
+              "経路判定用データの確認に失敗しました。反映できません。",
+              "判定用データが検証済みデータと一致していない可能性があります。詳細はログを参照してください。",
+              exit_code=ret)
+        _block_flood_publish(state, ss)
+        return False
+    jm.log(job, "routing validation success")
+    return True
+
+
 # ── generate（source_type="generated" 専用） ──────────────────────────────────
 
 async def run_generate(
@@ -843,10 +962,26 @@ async def run_deploy(
     state: DatasetState,
     jm: JobManager,
     ss: DatasetStateService,
+    flood_routing_migration_ref: Optional[str] = None,
 ) -> None:
+    """管理画面の「反映」。
+
+    ATOMIC_PUBLISH_LAYER_TYPES（flood / storm_surge / pseudo_inland_flood）は正式 atomic publish
+    （deploy_to_runtime_atomic.sh）を通し、activation 成功まで deployed にしない。
+    flood_routing_migration_ref は初回 flood routing migration の OWNER 承認参照（API で検証済み）。
+    それ以外の dataset は従来どおりの経路（OSM / tide / shelter 等の挙動は変更しない）。
+    """
     jm.update(job, status=JobStatus.running, step=JobStep.backup,
                progress_message="現在のデータをバックアップ中...")
     jm.log(job, f"=== deploy start: {defn.dataset_id} ===")
+
+    if flood_routing_migration_ref is not None and defn.layer_type not in aap.ATOMIC_PUBLISH_LAYER_TYPES:
+        state.deploy_status = DeployStatus.failed
+        ss.save(state)
+        _fail(job, jm, "FLOOD_ROUTING_MIGRATION_NOT_APPLICABLE",
+              "このデータセットでは洪水 routing 移行を指定できません。",
+              "通常の反映を実行してください。")
+        return
 
     runtime_dir = (_PROJECT_ROOT / defn.runtime_path).resolve()
 
@@ -873,6 +1008,31 @@ async def run_deploy(
         return
 
     src_path = Path(src_path_str)
+
+    # flood: runtime には canonical を置かず routing artifact だけを反映する。
+    # routing が無い／canonical sha256 と meta の source sha256 が不一致なら反映禁止。
+    if defn.layer_type == "flood":
+        try:
+            canonical = _flood_canonical_path(defn, state)
+            if canonical is None:
+                raise FloodRoutingContractError("validated canonical flood GeoJSON が見つかりません")
+            src_path, _routing_meta = await asyncio.to_thread(
+                verify_routing_for_canonical, canonical, defn.dataset_id
+            )
+        except FloodRoutingContractError as exc:
+            jm.log(job, f"routing artifact 契約違反のため反映を中止: {exc}")
+            state.deploy_status = DeployStatus.failed
+            state.is_deployable = False
+            ss.save(state)
+            _fail(job, jm, "DEPLOY_BLOCKED_ROUTING_CONTRACT",
+                  "経路判定用データが検証済みデータと一致しないため反映できません。",
+                  "データを再取り込みして判定用データを再生成してください。")
+            return
+        jm.log(job, f"flood routing artifact を反映対象にします: {src_path}")
+
+    if defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES:
+        await _run_atomic_publish_deploy(job, defn, state, jm, ss, src_path, flood_routing_migration_ref)
+        return
 
     if defn.deploy_mode == "copy_file":
         # ── copy_file モード: ディレクトリ内に単一ファイルをコピー（他ファイル保持）─
@@ -1105,6 +1265,130 @@ async def run_deploy(
     jm.log(job, "=== deploy completed ===")
 
 
+# ── atomic publish（管理画面反映 → deploy_to_runtime_atomic.sh） ──────────────
+
+async def _run_atomic_publish_deploy(
+    job: Job,
+    defn: DatasetDefinition,
+    state: DatasetState,
+    jm: JobManager,
+    ss: DatasetStateService,
+    src_path: Path,
+    migration_ref: Optional[str],
+) -> None:
+    """
+    正式 atomic publish 経路で反映する。data_runtime の flat path へは書かない。
+
+    成功条件: wrapper exit 0（または 4 = tile mirror 警告）かつ current が新 version を指し、
+    manifest が存在し（migration 時は manifest.migrations に承認参照が記録され）、
+    当該 dataset の artifact が新 version に含まれること。これを満たすまで deployed にしない。
+    """
+    def _fail_deploy(code: str, user_message: str, action_message: str, exit_code: int = 1) -> None:
+        state.deploy_status = DeployStatus.failed
+        state.is_deployable = False
+        ss.save(state)
+        _fail(job, jm, code, user_message, action_message, exit_code=exit_code)
+
+    root = aap.data_runtime_root()
+    wrapper = _SCRIPTS_DIR / "publish" / "deploy_to_runtime_atomic.sh"
+    try:
+        before = aap.current_version_id(root)
+        legacy = aap.legacy_flood_files_in_current(root)
+        if migration_ref is not None and not legacy:
+            raise aap.AtomicPublishError(
+                "FLOOD_ROUTING_MIGRATION_NOT_APPLICABLE",
+                "現在の実行環境は洪水 routing 形式へ移行済みのため、移行指定は使用できません",
+            )
+        if migration_ref is None and legacy:
+            raise aap.AtomicPublishError(
+                "FLOOD_ROUTING_MIGRATION_REQUIRED",
+                f"洪水 routing 形式への初回移行が必要です（旧形式: {legacy[:3]}）",
+            )
+        regions = aap.publish_regions()
+        if not wrapper.exists():
+            raise aap.AtomicPublishError("ATOMIC_PUBLISH_FAILED", f"publish wrapper が見つかりません: {wrapper}")
+    except aap.AtomicPublishError as exc:
+        jm.log(job, f"atomic publish 前提条件エラー: {exc}")
+        _fail_deploy(exc.code, str(exc), "管理者に確認してください。詳細はログを参照してください。")
+        return
+
+    mode = "洪水 routing 初回移行" if migration_ref is not None else "通常反映"
+    jm.update(job, step=JobStep.deploy,
+              progress_message=f"実行環境へ公開中（atomic publish・{mode}）...")
+    jm.log(job, f"atomic publish: mode={mode} regions={regions} current(before)={before} source={src_path}")
+    if migration_ref is not None:
+        jm.log(job, f"flood routing migration OWNER approval ref: {migration_ref}")
+    # 表示用 tile は publish 前に生成して data_lake/tiles（atomic publish の frontend tile 正本）へ置く。
+    # これにより同じ publish の version に表示用 tile も含まれる（tile 失敗は publish を止めない）。
+    if defn.requires_tile_build:
+        await _do_tile_build(job, defn, state, jm, ss)
+        jm.update(job, step=JobStep.deploy,
+                  progress_message=f"実行環境へ公開中（atomic publish・{mode}）...")
+
+    state.deploy_status = DeployStatus.deploying
+    ss.save(state)
+
+    ret = await _run_subprocess(aap.build_wrapper_command(wrapper, regions, migration_ref), job, jm, timeout=3600)
+    after = aap.current_version_id(root)
+
+    if ret == aap.EXIT_DURABILITY_UNKNOWN:
+        _fail_deploy("ATOMIC_PUBLISH_DURABILITY_UNKNOWN",
+                     f"公開の切替は行われましたが、耐久性を確認できませんでした（current={after}）。",
+                     "実行環境の状態を確認し、再公開またはロールバックを判断してください。", exit_code=ret)
+        return
+    if ret not in (aap.EXIT_OK, aap.EXIT_MIRROR_CONTRACT):
+        unchanged = after == before
+        jm.log(job, f"atomic publish failed exit={ret} current(after)={after} "
+                    f"{'current は変更されていません' if unchanged else '警告: current が変化しています'}")
+        _fail_deploy("ATOMIC_PUBLISH_FAILED",
+                     "実行環境への公開に失敗しました。実行環境は変更されていません。" if unchanged
+                     else "実行環境への公開に失敗しました（current の状態を確認してください）。",
+                     "ログの検証エラーを確認してください。", exit_code=ret)
+        return
+
+    try:
+        version_id = aap.verify_activation(before, migration_ref, root)
+        artifact = aap.dataset_artifact_in_version(
+            version_id, defn.layer_type, defn.region, None if src_path.is_dir() else src_path.name, root
+        )
+        if defn.layer_type == "flood":
+            # 公開された routing が、反映前に契約検証した derived routing と同一であること
+            from app.services.flood_routing_contract import sha256_file
+            canonical = _flood_canonical_path(defn, state)
+            if canonical is None:
+                raise FloodRoutingContractError("validated canonical flood GeoJSON が見つかりません")
+            _routing, routing_meta = await asyncio.to_thread(
+                verify_routing_for_canonical, canonical, defn.dataset_id
+            )
+            if await asyncio.to_thread(sha256_file, artifact) != routing_meta["routing_artifact_sha256"]:
+                raise aap.AtomicPublishError("ATOMIC_PUBLISH_ARTIFACT_MISMATCH",
+                                             f"公開された routing artifact が derived と一致しません: {artifact}")
+    except (aap.AtomicPublishError, FloodRoutingContractError, OSError) as exc:
+        code = getattr(exc, "code", "ATOMIC_PUBLISH_VERIFY_FAILED")
+        jm.log(job, f"atomic publish 事後検証エラー: {exc}")
+        _fail_deploy(code, f"公開後の確認に失敗しました: {exc}", "実行環境の current と manifest を確認してください。")
+        return
+
+    state.deploy_status = DeployStatus.deployed
+    state.current_runtime_path = str(artifact)
+    state.deployed_at = datetime.utcnow()
+    state.is_deployable = False
+    state.last_job_id = job.job_id
+    ss.save(state)
+    _append_history(ss, defn.dataset_id, OperationType.deploy, job, artifact_path=str(artifact))
+    jm.log(job, f"atomic publish succeeded: current -> versions/{version_id} artifact={artifact}")
+
+    if defn.layer_type in _HAZARD_BACKEND_MIRROR_TYPES:
+        _reload_hazard_backend_mirror(job, defn, state, jm)
+
+    message = f"実行環境への公開が完了しました（version {version_id}・{mode}）。"
+    if ret == aap.EXIT_MIRROR_CONTRACT:
+        message += " ただしタイル配信用 mirror の権限に警告があります（ログ参照）。"
+    jm.update(job, status=JobStatus.success, step=JobStep.completed,
+              progress_message=message, exit_code=0)
+    jm.log(job, "=== deploy completed (atomic publish) ===")
+
+
 # ── backend hazard mirror反映（copy_file deploy_modeの解決契約を満たす） ──────────
 # Residual Finding Remediation 02: HazardDatasetService._resolve_active_dataset()の
 # copy_file deploy_mode解決は `runtime_path / validated_file.name`（＝validated
@@ -1187,13 +1471,19 @@ async def _do_tile_build(
     ss: DatasetStateService,
 ) -> None:
     """
-    validated GeoJSON から vector tile（.mbtiles）を生成する。
+    validated GeoJSON（canonical）から vector tile（.mbtiles）を生成し、配信用に配置する。
 
-    出力先: data_runtime/frontend/tiles/{region}/{layer_type}/{dataset_id_snake}.mbtiles
-    Martin がこのディレクトリをスキャンし *.mbtiles を自動認識する。
-
-    失敗しても deploy ジョブは成功扱いにする（GeoJSON API が引き続き有効）。
+    - 生成は Martin の監視外（data_lake/tiles/.build/<job-id>/）で行う。tippecanoe の
+      `<out>.tmp.mbtiles` を Martin が source として掴む（SQLITE_BUSY）ことを防ぐ。
+    - 完成品は quick_check 後に data_lake/tiles/{region}/{layer_type}/{dataset_id_snake}.mbtiles へ
+      atomic rename する（atomic publish の frontend tile の正本。次回 publish で version に入る）。
+    - Martin 用 flat mirror（data_runtime/frontend/tiles/...）へは mbtiles_install.install_mbtiles で
+      一時名 → fsync → mode/group → quick_check → atomic rename の順に配置する（途中状態を見せない）。
+    - build / 配置に失敗しても既存の正常な mbtiles は変更しない。deploy ジョブは失敗扱いにしない
+      （GeoJSON API が引き続き有効）。
     """
+    from app.services.mbtiles_install import MbtilesInstallError, install_mbtiles, quick_check
+
     jm.update(job, step=JobStep.tile_build,
                progress_message="ベクタータイルをビルド中（完了まで数分かかります）...")
     jm.log(job, "--- tile_build start ---")
@@ -1201,31 +1491,33 @@ async def _do_tile_build(
     state.tile_build_status = TileBuildStatus.running
     ss.save(state)
 
+    def _fail_tile(message: str) -> None:
+        jm.log(job, f"WARN: {message}（既存の mbtiles は変更していません）")
+        state.tile_build_status = TileBuildStatus.failed
+        ss.save(state)
+
     # 入力: validated → normalized の順で解決
     src_geojson = state.current_validated_path or state.current_normalized_path
     if not src_geojson or not Path(src_geojson).is_file():
-        jm.log(job, "WARN: tile build をスキップ — validated/normalized GeoJSON が存在しません")
-        state.tile_build_status = TileBuildStatus.failed
-        ss.save(state)
+        _fail_tile("tile build をスキップ — validated/normalized GeoJSON が存在しません")
         return
 
-    # 出力パス: data_runtime/frontend/tiles/{region}/{layer_type}/{snake_id}.mbtiles
     tile_stem = defn.dataset_id.lower().replace("-", "_")
-    tile_dir  = (_PROJECT_ROOT / "data_runtime" / "frontend" / "tiles"
-                 / defn.region / defn.layer_type)
-    tile_dir.mkdir(parents=True, exist_ok=True)
-    tile_path = tile_dir / f"{tile_stem}.mbtiles"
+    tiles_root = _PROJECT_ROOT / "data_lake" / "tiles"
+    lake_tile = tiles_root / defn.region / defn.layer_type / f"{tile_stem}.mbtiles"
+    mirror_tile = (_PROJECT_ROOT / "data_runtime" / "frontend" / "tiles"
+                   / defn.region / defn.layer_type / f"{tile_stem}.mbtiles")
+    leases_gid = int(os.environ.get("OHG2_LEASES_GID", "20001"))
 
-    # すでに最新の mbtiles が存在する場合はスキップ（ホスト上で手動生成した場合も含む）
-    # ただし build スクリプトが要求する maxzoom と MBTiles 内の maxzoom が一致しない場合は再ビルドする。
-    # （スクリプトの zoom 設定変更が GeoJSON 変更なしに行われた場合の対策）
+    # すでに最新の mbtiles が存在する場合はスキップ。ただし build スクリプトが要求する maxzoom と
+    # MBTiles 内の maxzoom が一致しない、または SQLite として壊れている場合は再ビルドする。
     _EXPECTED_MAXZOOM = 16  # build_tiles_flood.sh の --maximum-zoom と合わせること
 
     def _mbtiles_maxzoom(path: Path) -> int | None:
         """SQLite で MBTiles の maxzoom を読む。失敗時は None を返す。"""
         try:
             import sqlite3 as _sqlite3
-            with _sqlite3.connect(str(path)) as con:
+            with _sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as con:
                 row = con.execute(
                     "SELECT value FROM metadata WHERE name='maxzoom'"
                 ).fetchone()
@@ -1233,40 +1525,62 @@ async def _do_tile_build(
         except Exception:
             return None
 
-    if tile_path.exists() and tile_path.stat().st_mtime >= Path(src_geojson).stat().st_mtime:
-        current_maxzoom = _mbtiles_maxzoom(tile_path)
-        if current_maxzoom is not None and current_maxzoom < _EXPECTED_MAXZOOM:
-            jm.log(job, f"tile build 強制実行 — maxzoom 不一致 ({current_maxzoom} < {_EXPECTED_MAXZOOM}): {tile_path}")
-        else:
-            jm.log(job, f"tile build スキップ — 既存 mbtiles が最新かつ maxzoom={current_maxzoom} (期待値={_EXPECTED_MAXZOOM}): {tile_path}")
-            state.tile_build_status = TileBuildStatus.success
-            state.current_tile_path = str(tile_path)
-            ss.save(state)
+    need_build = True
+    if lake_tile.exists() and lake_tile.stat().st_mtime >= Path(src_geojson).stat().st_mtime:
+        current_maxzoom = _mbtiles_maxzoom(lake_tile)
+        try:
+            await asyncio.to_thread(quick_check, lake_tile)
+            healthy = True
+        except MbtilesInstallError as exc:
+            jm.log(job, f"既存 mbtiles が不正なため再ビルドします: {exc}")
+            healthy = False
+        if healthy and (current_maxzoom is None or current_maxzoom >= _EXPECTED_MAXZOOM):
+            jm.log(job, f"tile build スキップ — 既存 mbtiles が最新かつ maxzoom={current_maxzoom}: {lake_tile}")
+            need_build = False
+        elif healthy:
+            jm.log(job, f"tile build 強制実行 — maxzoom 不一致 ({current_maxzoom} < {_EXPECTED_MAXZOOM}): {lake_tile}")
+
+    if need_build:
+        build_script = _SCRIPTS_DIR / "tiles" / "build_tiles_flood.sh"
+        if not build_script.exists():
+            _fail_tile(f"tile build スクリプトが見つかりません: {build_script}")
             return
+        work_dir = tiles_root / ".build" / job.job_id
+        work_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            built = work_dir / f"{tile_stem}.mbtiles"
+            ret = await _run_subprocess(
+                ["bash", str(build_script), src_geojson, str(built), defn.layer_type],
+                job, jm,
+                timeout=3600,
+            )
+            if ret != 0:
+                _fail_tile(f"tile build が失敗しました (exit={ret})")
+                return
+            try:
+                await asyncio.to_thread(quick_check, built)
+            except MbtilesInstallError as exc:
+                _fail_tile(f"生成した mbtiles が不正です: {exc}")
+                return
+            lake_tile.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(built, lake_tile)  # 同一 filesystem（data_lake/tiles 配下）内の atomic rename
+            jm.log(job, f"tile build 完了: {lake_tile}")
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
-    build_script = _SCRIPTS_DIR / "tiles" / "build_tiles_flood.sh"
-    if not build_script.exists():
-        jm.log(job, f"WARN: tile build スクリプトが見つかりません: {build_script}")
-        state.tile_build_status = TileBuildStatus.failed
-        ss.save(state)
-        return
-
-    ret = await _run_subprocess(
-        ["bash", str(build_script), src_geojson, str(tile_path), defn.layer_type],
-        job, jm,
-        timeout=3600,
-    )
-
-    if ret != 0:
-        jm.log(job, f"WARN: tile build が失敗しました (exit={ret})。GeoJSON API は引き続き有効です。")
-        state.tile_build_status = TileBuildStatus.failed
-        ss.save(state)
+    try:
+        installed = await asyncio.to_thread(install_mbtiles, lake_tile, mirror_tile, leases_gid)
+    except (MbtilesInstallError, OSError) as exc:
+        _fail_tile(f"配信用 mbtiles の配置に失敗しました: {exc}")
         return
 
     state.tile_build_status = TileBuildStatus.success
-    state.current_tile_path = str(tile_path)
+    state.current_tile_path = str(mirror_tile)
     ss.save(state)
-    jm.log(job, f"tile build 完了: {tile_path}")
+    if not installed:
+        jm.log(job, f"配信用 mbtiles は最新のため配置を省略: {mirror_tile}")
+        return
+    jm.log(job, f"配信用 mbtiles を atomic に配置: {mirror_tile}")
 
     # 新 MBTiles を Martin に認識させるためコンテナを再起動する
     jm.log(job, f"--- Martin コンテナを再起動中: {_MARTIN_CONTAINER_NAME} ---")
@@ -1290,6 +1604,14 @@ async def run_rollback(
     jm.update(job, status=JobStatus.running, step=JobStep.rollback,
                progress_message="1世代前のデータに戻しています...")
     jm.log(job, f"=== rollback start: {defn.dataset_id} ===")
+
+    if defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES:
+        # atomic publish 管理の dataset は flat backup を戻しても backend-public の判定に反映されず、
+        # 表示と実 runtime が乖離する。version 単位の rollback（operator CLI）だけを正式手段とする。
+        _fail(job, jm, "ROLLBACK_ATOMIC_PUBLISH_MANAGED",
+              "このデータは実行環境の version 単位で管理されているため、ここからは戻せません。",
+              "operator が activate_version.py --rollback <version-id> で version を戻してください。")
+        return
 
     if not state.backup_path:
         _fail(job, jm, "ROLLBACK_NOT_AVAILABLE",

@@ -38,15 +38,18 @@ _LAYER_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "name": "洪水浸水想定（想定最大規模）",
         "type": "polygon",
         "region": "tokyo",
-        "tileset_id": "tokyo_flood_max",
+        # 表示 tile は canonical（TOKYO-RIVER-001、validated）から管理画面 tile build で生成する
+        # tokyo_river_001。旧 pipeline の tokyo_flood_max（normalized/tokyo_flood_max.geojson、
+        # 666,833 件・穴あき欠落）は legacy（docs/architecture/flood_canonical_routing_split.md）。
+        "tileset_id": "tokyo_river_001",
         "api_url": "/api/hazards/flood/tokyo",
         "severity": True,
         "notes": (
             "drop-densest-as-needed applied. "
-            "coalesce not applicable (convergence failure at 660K features)."
+            "built from canonical TOKYO-RIVER-001 (validated, holes preserved)."
         ),
-        "source_path": "data_lake/normalized/tokyo/flood/tokyo_flood_max.geojson",
-        "runtime_tiles_path": "data_runtime/frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles",
+        "source_path": "data_lake/validated/tokyo/flood/tokyo-river-001.geojson",
+        "runtime_tiles_path": "data_runtime/frontend/tiles/tokyo/flood/tokyo_river_001.mbtiles",
         "docs": [
             "QUICKSTART.md",
             "docs/hazard_layers.md",

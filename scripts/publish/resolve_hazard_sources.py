@@ -28,6 +28,13 @@ shelter resolverとの違い:
     fail-closedで即座に失敗する（今回のremediationの根本原因が
     「サイレントスキップ」であるため、再発させない）。
 
+flood（canonical / routing artifact 分離、docs/architecture/flood_canonical_routing_split.md）:
+  flood だけは validated canonical ではなく、対応する routing artifact
+  （data_lake/derived/{region}/flood/{dataset}.routing.geojson）を解決する。
+  routing / meta が無い、meta の source sha256 が現行 canonical と不一致、
+  meta の routing sha256 が実体と不一致のいずれも fail-closed（publish 禁止）。
+  HazardEngine に canonical が渡る経路をここで断つ。他 hazard type の契約は変更しない。
+
 出力（全件解決に成功した場合のみ、成功前に部分出力しない）:
     <layer_type>\t<dataset_id>\t<resolved_path>
 
@@ -49,6 +56,10 @@ from app.services.dataset_definition_service import get_definition_service  # no
 from app.services.dataset_state_service import (  # noqa: E402
     _PROJECT_ROOT as BACKEND_PROJECT_ROOT,
     get_state_service,
+)
+from app.services.flood_routing_contract import (  # noqa: E402
+    FloodRoutingContractError,
+    verify_routing_for_canonical,
 )
 
 
@@ -117,6 +128,18 @@ def main() -> int:
                 f"defn.validated_storage_path={defn.validated_storage_path!r}）"
             )
             continue
+
+        if layer_type == "flood":
+            if not candidate.is_file():
+                failures.append(
+                    f"{dataset_id} (flood:{args.region}) の canonical が単一 file ではありません: {candidate}"
+                )
+                continue
+            try:
+                candidate, _meta = verify_routing_for_canonical(candidate, dataset_id)
+            except FloodRoutingContractError as exc:
+                failures.append(f"{dataset_id} (flood:{args.region}) routing artifact 契約違反: {exc}")
+                continue
 
         resolved.append((layer_type, dataset_id, candidate))
 

@@ -148,13 +148,15 @@ def test_C_unknown_hazard_type_still_rejected(tmp_path):
 )
 def test_D_existing_wired_type_regression(tmp_path, layer_type, min_count, props_fn):
     staging = tmp_path / "staging"
-    target = staging / f"backend/hazard/{layer_type}/tokyo/x.geojson"
+    # flood は canonical / routing 分離契約により *.routing.geojson のみ許可される
+    name = "x.routing.geojson" if layer_type == "flood" else "x.geojson"
+    target = staging / f"backend/hazard/{layer_type}/tokyo/{name}"
     _write_feature_collection(target, min_count, props_fn=props_fn)
 
     with _no_tsunami_requirement():
         manifest, feature_counts = rdv.validate_and_manifest_staging(staging, previous_version_path=None)
 
-    rel = f"backend/hazard/{layer_type}/tokyo/x.geojson"
+    rel = f"backend/hazard/{layer_type}/tokyo/{name}"
     assert rel in manifest
     assert feature_counts[rel] == min_count
 
@@ -174,7 +176,7 @@ def test_D_existing_tsunami_type_regression(tmp_path):
 
 def test_E_full_7type_staging_tree_passes(tmp_path):
     staging = tmp_path / "staging"
-    _write_feature_collection(staging / "backend/hazard/flood/tokyo/x.geojson", 100, _flood_props)
+    _write_feature_collection(staging / "backend/hazard/flood/tokyo/x.routing.geojson", 100, _flood_props)
     _write_feature_collection(staging / "backend/hazard/storm_surge/tokyo/x.geojson", 100, _storm_surge_props)
     _write_feature_collection(staging / "backend/hazard/landslide/tokyo/x.geojson", 100, _landslide_props)
     _write_feature_collection(staging / "backend/hazard/inland_flood/tokyo/x.geojson", 50, _inland_flood_props)
@@ -189,7 +191,7 @@ def test_E_full_7type_staging_tree_passes(tmp_path):
         manifest, feature_counts = rdv.validate_and_manifest_staging(staging, previous_version_path=None)
 
     expected_files = {
-        "backend/hazard/flood/tokyo/x.geojson",
+        "backend/hazard/flood/tokyo/x.routing.geojson",
         "backend/hazard/storm_surge/tokyo/x.geojson",
         "backend/hazard/landslide/tokyo/x.geojson",
         "backend/hazard/inland_flood/tokyo/x.geojson",

@@ -115,7 +115,12 @@ def test_A_flood_storm_surge_landslide_runtime_discovery_unchanged():
     for hazard_type in ("flood", "storm_surge", "landslide"):
         block = _block(hazard_type)
         assert "_HAZARD_BACKEND_ROOT /" in block
-        assert ".rglob(\"*.geojson" in block
+        if hazard_type == "flood":
+            # canonical / routing 分離契約: flood は routing artifact（*.routing.geojson）のみ探索する
+            assert "discover_flood_routing_files(_HAZARD_BACKEND_ROOT / \"flood\")" in block
+            assert ".rglob(\"*.geojson" not in block
+        else:
+            assert ".rglob(\"*.geojson" in block
         assert "hazard_service.load" in block  # still called in the "found" branch
 
 

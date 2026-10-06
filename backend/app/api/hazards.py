@@ -37,7 +37,7 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent  # backend/
 _TILE_ROOT = _BACKEND_DIR.parent / "data_runtime" / "frontend" / "tiles"
 
 
-def _find_tileset_for_region(hazard_type: str, region: str) -> Optional[dict]:
+def _find_tileset_for_region(hazard_type: str, region: str, dataset_id: Optional[str] = None) -> Optional[dict]:
     """`data_runtime/frontend/tiles/<region>/<hazard_type>/*.mbtiles` から
     実際に配信可能な1件を選び、Martin source ID（filename stem）と、
     mbtiles自身のmetadataテーブルに記録されたvector layer名（tippecanoeの
@@ -72,14 +72,25 @@ def _find_tileset_for_region(hazard_type: str, region: str) -> Optional[dict]:
     tile_dir = _TILE_ROOT / region / hazard_type
     if not tile_dir.is_dir():
         return None
-    all_candidates = sorted(tile_dir.glob("*.mbtiles"))
+    # 生成途中の一時 file（tippecanoe の `<out>.tmp.mbtiles`、隠し file）は候補にしない
+    all_candidates = sorted(
+        p for p in tile_dir.glob("*.mbtiles")
+        if not p.name.startswith(".") and ".tmp." not in p.name
+    )
     candidates = [
         p for p in all_candidates
         if p.stem == region or p.stem.startswith(f"{region}_") or p.stem.startswith(f"{region}-")
     ]
     if not candidates:
         return None
-    chosen = max(candidates, key=lambda p: p.stat().st_size)
+    # FLOOD-DISPLAY-LEGACY-TILESET-SELECTION: active dataset の tile（管理画面 tile build が
+    # dataset_id から生成する `<dataset_id小文字・_区切り>.mbtiles`）があれば最優先する。
+    # 「最大サイズ」だけで選ぶと、同じ directory に残る旧世代 tile（例: 旧 pipeline の
+    # tokyo_flood_max.mbtiles 666,833 件）が現行 canonical の tile（tokyo_river_001.mbtiles
+    # 947,590 件）より大きいために選ばれ、表示が旧データへ戻っていた。
+    preferred_stem = dataset_id.lower().replace("-", "_") if dataset_id else None
+    preferred = [p for p in candidates if p.stem == preferred_stem]
+    chosen = preferred[0] if preferred else max(candidates, key=lambda p: p.stat().st_size)
 
     source_layer: Optional[str] = None
     try:
@@ -392,7 +403,7 @@ async def get_active_hazard_meta(hazard_type: str, region_code: str):
     # （route全体は囲まない。tileset不存在自体は例外ではなくNone戻り値
     # のため、既存のnullable semanticsはこのtry/exceptの影響を受けない）。
     try:
-        tileset = _find_tileset_for_region(hazard_type, region_code)
+        tileset = _find_tileset_for_region(hazard_type, region_code, meta.get("dataset_id"))
     except Exception as exc:
         logger.exception(
             "hazard tileset lookup error: hazard_type=%s region_code=%s operation=tileset_lookup",

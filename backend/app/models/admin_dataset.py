@@ -95,6 +95,8 @@ class JobStep(str, Enum):
     upload_store = "upload_store"
     normalize = "normalize"
     validate = "validate"
+    derive_routing = "derive_routing"        # flood: canonical → routing artifact
+    validate_routing = "validate_routing"    # flood: routing artifact 契約・被覆検証
     backup = "backup"
     deploy = "deploy"
     tile_build = "tile_build"

@@ -421,10 +421,19 @@ if FLOOD_ENABLED:
     # （実測524MB/325MB）を発見できず、実ナビゲーション判定からflood自体が
     # 完全に欠落していた（is_available()時はdata_lakeへもfallbackしない
     # ため、silent omissionとなっていた）。
-    _flood_runtime_dir = _HAZARD_BACKEND_ROOT / "flood"
-    _flood_geojson_files: list[Path] = []
-    if _flood_runtime_dir.is_dir():
-        _flood_geojson_files = sorted(_flood_runtime_dir.rglob("*.geojson"))
+    #
+    # canonical / routing artifact 分離（docs/architecture/flood_canonical_routing_split.md）:
+    # HazardEngine の flood 判定は外環 bbox 専用のため、canonical（穴を保持した公式形状）を
+    # 読むと巨大 bbox による false positive が生じる。routing artifact（*.routing.geojson）
+    # だけをロードし、canonical / legacy *_flood_check.geojsonl 等は誤配置として読まない。
+    from app.services.flood_routing_contract import discover_flood_routing_files
+
+    _flood_geojson_files, _flood_ignored_files = discover_flood_routing_files(_HAZARD_BACKEND_ROOT / "flood")
+    for _f in _flood_ignored_files:
+        logger.error(
+            "Flood: routing artifact 以外の file を検出したためロードしない"
+            "（canonical / legacy の誤配置、二重ロード防止）: %s", _f,
+        )
 
     if _flood_geojson_files:
         for _f in _flood_geojson_files:

@@ -88,6 +88,10 @@ def test_dry_run_produces_expected_staging_layout_for_all_three_gap_types(tmp_pa
         src_file = validated_dir / basename
         src_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
         src_paths[(layer_type, region)] = src_file
+        if layer_type == "flood":
+            # flood は canonical / routing 分離契約により routing artifact が publish 対象
+            from test_resolve_hazard_sources import write_flood_routing_fixture
+            write_flood_routing_fixture(src_file, dataset_id)
 
         definitions.append(_base_defn(
             dataset_id=dataset_id, region=region, layer_type=layer_type,
@@ -144,6 +148,12 @@ def test_dry_run_produces_expected_staging_layout_for_all_three_gap_types(tmp_pa
 
     # pseudo_inland_flood:kanagawaは強制生成されていないこと
     assert not (runtime_backend / "hazard" / "pseudo_inland_flood" / "kanagawa").exists()
+
+    # flood は routing artifact（*.routing.geojson）のみが staging され、canonical は載らない
+    for layer_type, region, src_path, dest in staged:
+        if layer_type == "flood":
+            assert dest.name.endswith(".routing.geojson")
+            assert "derived" in src_path.parts
 
     # 各stagingファイルが期待する versioned 構造（hazard/{type}/{region}/{file}）と
     # 内容一致であること

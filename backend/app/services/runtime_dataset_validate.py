@@ -649,6 +649,108 @@ def _validate_sqlite_file(path: Path) -> None:
 # から期待値を導出する」に対応）。前回件数の50%未満への急減を、データ
 # 欠損・誤配置・切り詰めの疑いとしてfail-closedで拒否する。前回manifestが
 # ない（初回publish）場合は比較対象がなく、この検証はskipされる。
+# ── flood: canonical / routing artifact 分離契約 ─────────────────────────────
+# docs/architecture/flood_canonical_routing_split.md。HazardEngine は flood を外環 bbox で
+# 判定するため、runtime の backend/hazard/flood/ には routing artifact（*.routing.geojson）
+# だけを置く。canonical（穴を保持した公式形状）・legacy *_flood_check.geojsonl・その他の
+# geometry が混入すると二重ロード／巨大 bbox による false positive が生じるため拒否する。
+_FLOOD_ROUTING_SUFFIX = ".routing.geojson"  # flood_routing_contract.ROUTING_SUFFIX と同値
+
+
+def _is_flood_rel(rel: str) -> bool:
+    return rel.replace("\\", "/").startswith("backend/hazard/flood/")
+
+
+def _is_legacy_flood_rel(rel: str) -> bool:
+    """routing 分離前の flood runtime file（canonical *.geojson / *_flood_check.geojsonl 等）。"""
+    return _is_flood_rel(rel) and not rel.endswith(_FLOOD_ROUTING_SUFFIX)
+
+
+def _validate_flood_runtime_layout(staging_path: Path) -> None:
+    flood_root = staging_path / "backend" / "hazard" / "flood"
+    if not flood_root.exists():
+        return
+    if not flood_root.is_dir():
+        raise RuntimeAtomicError("flood runtime 契約違反: backend/hazard/flood が directory ではない")
+    regions = sorted(flood_root.iterdir())
+    if not regions:
+        raise RuntimeAtomicError("flood runtime 契約違反: backend/hazard/flood が空（routing artifact 0件）")
+    for region_dir in regions:
+        if not region_dir.is_dir():
+            raise RuntimeAtomicError(
+                f"flood runtime 契約違反: backend/hazard/flood 直下に file がある: {region_dir.name}"
+                f"（許可は backend/hazard/flood/<region>/*{_FLOOD_ROUTING_SUFFIX} のみ）"
+            )
+        routing, others = [], []
+        for p in sorted(region_dir.iterdir()):
+            (routing if p.is_file() and p.name.endswith(_FLOOD_ROUTING_SUFFIX) else others).append(p)
+        if others:
+            raise RuntimeAtomicError(
+                f"flood runtime 契約違反: routing artifact 以外が配置されている"
+                f"（canonical / legacy *_flood_check.geojsonl / その他は禁止、二重ロード防止）: "
+                f"{[f'backend/hazard/flood/{region_dir.name}/{p.name}' for p in others][:5]}"
+            )
+        if not routing:
+            raise RuntimeAtomicError(
+                f"flood runtime 契約違反: backend/hazard/flood/{region_dir.name} に routing artifact が 0 件"
+            )
+
+
+def _plan_flood_routing_migration(
+    staging_path: Path,
+    previous_version_path: Optional[Path],
+    previous_feature_counts: Dict[str, int],
+    owner_approval_ref: Optional[str],
+) -> "tuple[set, Dict[str, Any]]":
+    """
+    初回 flood routing migration（legacy flood path → *.routing.geojson）専用の例外を計画する。
+
+    通常の件数／path 消失 guard は変更しない。例外にできるのは「前 version に存在した legacy
+    flood rel」の消失だけで、かつ同じ region の routing artifact が staging に存在する場合に限る。
+    明示フラグ + OWNER 承認参照を要求し、前 version に legacy flood が無い（移行済み）場合や
+    初回 publish の場合はフラグ自体を拒否する（通常 publish で使えない = 一度きり）。
+    """
+    if not owner_approval_ref or not owner_approval_ref.strip():
+        raise RuntimeAtomicError(
+            "flood routing migration には OWNER 承認参照（owner approval ref）が必須"
+        )
+    if previous_version_path is None:
+        raise RuntimeAtomicError(
+            "flood routing migration フラグは初回 migration 専用: 前 version が無い publish では使用できない"
+        )
+    legacy_prev = sorted(rel for rel in previous_feature_counts if _is_legacy_flood_rel(rel))
+    if not legacy_prev:
+        raise RuntimeAtomicError(
+            "flood routing migration フラグは初回 migration 専用: 前 version に legacy flood file が無い"
+            "（移行済み）。通常 publish では使用できない"
+        )
+    exempt: set = set()
+    mapping: Dict[str, List[str]] = {}
+    for rel in legacy_prev:
+        parts = rel.replace("\\", "/").split("/")
+        # backend/hazard/flood/<region>/<file> の region。flat 配置の legacy は region 不明のため
+        # staging に routing artifact が 1 件以上あることを要求する。
+        region_dir = staging_path / "backend" / "hazard" / "flood"
+        if len(parts) >= 5:
+            region_dir = region_dir / parts[3]
+        targets = sorted(
+            str(p.relative_to(staging_path)) for p in region_dir.rglob(f"*{_FLOOD_ROUTING_SUFFIX}")
+        ) if region_dir.is_dir() else []
+        if not targets:
+            raise RuntimeAtomicError(
+                f"flood routing migration 違反: legacy {rel} に対応する routing artifact が staging に無い"
+            )
+        exempt.add(rel)
+        mapping[rel] = targets
+    record = {
+        "type": "flood_routing_migration",
+        "owner_approval_ref": owner_approval_ref.strip(),
+        "previous_version": previous_version_path.name,
+        "legacy_to_routing": mapping,
+    }
+    return exempt, record
+
+
 _COUNT_DROP_THRESHOLD = 0.5
 _COUNT_DROP_MIN_BASELINE = 10
 
@@ -706,7 +808,12 @@ def _derive_actual_feature_counts(version_path: Path) -> Dict[str, int]:
 
 
 def validate_and_manifest_staging(
-    staging_path: Path, previous_version_path: Optional[Path] = None
+    staging_path: Path,
+    previous_version_path: Optional[Path] = None,
+    *,
+    allow_flood_routing_migration: bool = False,
+    owner_approval_ref: Optional[str] = None,
+    migration_records: Optional[List[Dict[str, Any]]] = None,
 ) -> "tuple[Dict[str, str], Dict[str, int]]":
     """staging directory配下を検証し、(checksum manifest, feature件数)を
     構築して返す（呼び出し側がmanifestをfileへ書き出す）。検証失敗時は
@@ -715,6 +822,10 @@ def validate_and_manifest_staging(
     `previous_version_path`が与えられ、そのversionに`_manifest.json`が
     存在する場合、同一相対pathのfileについて件数整合性を検証する
     （CODEX P2B5-CX-003第8ラウンド対応）。
+
+    `allow_flood_routing_migration=True`（OWNER 承認参照 `owner_approval_ref` 必須）は
+    初回 flood routing migration 専用。前 version の legacy flood path の消失だけを
+    例外にし、適用内容を `migration_records` へ追記する（manifest に記録する用途）。
     """
     if not staging_path.is_dir():
         raise RuntimeAtomicError(f"staging directoryが存在しない: {staging_path}")
@@ -729,6 +840,7 @@ def validate_and_manifest_staging(
     # 配線されていないhazard type名のdirectoryがあれば、そのdataはどの
     # consumerからも読まれずに孤立する。staging段階で拒否する。
     hazard_root = staging_path / "backend" / "hazard"
+    _validate_flood_runtime_layout(staging_path)
     if hazard_root.is_dir():
         for child in sorted(hazard_root.iterdir()):
             if child.is_dir() and child.name not in _WIRED_HAZARD_TYPES:
@@ -886,6 +998,14 @@ def validate_and_manifest_staging(
         _derive_actual_feature_counts(previous_version_path) if previous_version_path is not None else {}
     )
 
+    migration_exempt: set = set()
+    if allow_flood_routing_migration:
+        migration_exempt, migration_record = _plan_flood_routing_migration(
+            staging_path, previous_version_path, previous_feature_counts, owner_approval_ref
+        )
+        if migration_records is not None:
+            migration_records.append(migration_record)
+
     manifest: Dict[str, str] = {}
     feature_counts: Dict[str, int] = {}
     invalid: List[str] = []
@@ -962,11 +1082,18 @@ def validate_and_manifest_staging(
     disappeared = [
         rel for rel, prev_count in previous_feature_counts.items()
         if prev_count >= _COUNT_DROP_MIN_BASELINE and rel not in feature_counts
+        and rel not in migration_exempt
     ]
     if disappeared:
+        hint = ""
+        if any(_is_legacy_flood_rel(rel) for rel in disappeared):
+            hint = (
+                "（legacy flood → *.routing.geojson の初回移行は、OWNER 承認のうえ "
+                "--allow-flood-routing-migration を指定した publish でのみ許可される）"
+            )
         raise RuntimeAtomicError(
             f"dataset固有件数整合性違反（前versionに存在したdatasetが新staging側から消失）: "
-            f"{sorted(disappeared)[:5]}"
+            f"{sorted(disappeared)[:5]}{hint}"
         )
 
     return manifest, feature_counts
@@ -987,7 +1114,11 @@ def _check_count_consistency(
 
 
 def write_manifest(
-    staging_path: Path, manifest: Dict[str, str], mode: int, feature_counts: Optional[Dict[str, int]] = None
+    staging_path: Path,
+    manifest: Dict[str, str],
+    mode: int,
+    feature_counts: Optional[Dict[str, int]] = None,
+    migrations: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     import os
 
@@ -1000,6 +1131,8 @@ def write_manifest(
             # 検証（_check_count_consistency）が参照する、当版の各fileの
             # Feature件数。
             "feature_counts": feature_counts or {},
+            # 初回 flood routing migration 等、通常 guard の例外を適用した記録（監査用）。
+            **({"migrations": migrations} if migrations else {}),
         },
         sort_keys=True, indent=2,
     )

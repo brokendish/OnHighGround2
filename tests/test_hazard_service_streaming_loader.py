@@ -484,7 +484,12 @@ def test_missing_file_warns_and_stays_unloaded(tmp_path, caplog):
 # ── A-D. region配下layout discovery（app_public.pyのrglobパターンを再現） ─────
 
 def _discover(root: Path, hazard_type: str) -> list[Path]:
-    """app_public.pyが使うのと同じdiscoveryパターン: {type}配下をrglobする。"""
+    """app_public.pyが使うのと同じdiscoveryパターン: {type}配下をrglobする。
+    flood は canonical / routing 分離契約により routing artifact（*.routing.geojson）のみ
+    （app_public.py と同じ flood_routing_contract.discover_flood_routing_files を使う）。"""
+    if hazard_type == "flood":
+        from app.services.flood_routing_contract import discover_flood_routing_files
+        return discover_flood_routing_files(root / "flood")[0]
     type_dir = root / hazard_type
     if not type_dir.is_dir():
         return []
@@ -493,17 +498,28 @@ def _discover(root: Path, hazard_type: str) -> list[Path]:
 
 def test_A_flood_tokyo_region_layout_discovered(tmp_path):
     root = tmp_path / "backend" / "hazard"
-    target = root / "flood" / "tokyo" / "tokyo-river-001.geojson"
+    target = root / "flood" / "tokyo" / "tokyo-river-001.routing.geojson"
     _write_feature_collection(target, _flood_features(10))
 
     found = _discover(root, "flood")
     assert found == [target]
 
 
+def test_A2_flood_canonical_is_not_loaded(tmp_path):
+    """canonical（*.geojson）は flood 判定に読まない（routing のみ）。"""
+    root = tmp_path / "backend" / "hazard"
+    canonical = root / "flood" / "tokyo" / "tokyo-river-001.geojson"
+    routing = root / "flood" / "tokyo" / "tokyo-river-001.routing.geojson"
+    _write_feature_collection(canonical, _flood_features(10))
+    _write_feature_collection(routing, _flood_features(10))
+
+    assert _discover(root, "flood") == [routing]
+
+
 def test_B_flood_kanagawa_region_layout_discovered(tmp_path):
     root = tmp_path / "backend" / "hazard"
-    tokyo = root / "flood" / "tokyo" / "tokyo-river-001.geojson"
-    kanagawa = root / "flood" / "kanagawa" / "kanagawa-river-001.geojson"
+    tokyo = root / "flood" / "tokyo" / "tokyo-river-001.routing.geojson"
+    kanagawa = root / "flood" / "kanagawa" / "kanagawa-river-001.routing.geojson"
     _write_feature_collection(tokyo, _flood_features(10))
     _write_feature_collection(kanagawa, _flood_features(10))
 
@@ -543,7 +559,7 @@ def test_old_flat_root_geojsonl_not_picked_up_by_new_pattern(tmp_path):
 
 def test_unsupported_region_absent_is_not_an_error(tmp_path):
     root = tmp_path / "backend" / "hazard"
-    tokyo = root / "flood" / "tokyo" / "tokyo-river-001.geojson"
+    tokyo = root / "flood" / "tokyo" / "tokyo-river-001.routing.geojson"
     _write_feature_collection(tokyo, _flood_features(10))
     # kanagawaディレクトリは意図的に作らない
 
