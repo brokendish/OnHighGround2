@@ -86,7 +86,7 @@
       ".xml",
       ".zip"
     ],
-    "max_browser_upload_mb": 100,
+    "max_browser_upload_mb": 200,
     "requires_normalize": true,
     "requires_validation": true,
     "requires_deploy": true,
@@ -154,7 +154,7 @@
       ".json",
       ".zip"
     ],
-    "max_browser_upload_mb": 100,
+    "max_browser_upload_mb": 200,
     "requires_normalize": true,
     "requires_validation": true,
     "requires_deploy": true,
@@ -531,7 +531,7 @@
       ".json",
       ".zip"
     ],
-    "max_browser_upload_mb": 100,
+    "max_browser_upload_mb": 200,
     "requires_normalize": true,
     "requires_validation": true,
     "requires_deploy": true,
