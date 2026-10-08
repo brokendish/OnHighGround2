@@ -42,8 +42,7 @@
     "impact_scope": "洪水リスク表示・避難ルートの危険判定",
     "accepted_input_modes": [
       "upload",
-      "fetch_url",
-      "fetch_official"
+      "fetch_url"
     ],
     "accepted_extensions": [
       ".geojson",
@@ -55,8 +54,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://disaportal.gsi.go.jp/",
-    "official_source_url": "https://disaportal.gsi.go.jp/",
+    "source_url": null,
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A31.html",
     "raw_storage_path": "data_lake/raw/tokyo/flood",
     "normalized_storage_path": "data_lake/normalized/tokyo/flood",
     "validated_storage_path": "data_lake/validated/tokyo/flood",
@@ -64,7 +63,33 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_river_flood",
     "validator_name": "validate_geometry",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "洪水浸水想定区域 A31a/A31b",
+    "source_group_mode": "all_required",
+    "ingest_mode": "single_batch",
+    "required_source_count": 4,
+    "source_file_patterns": [
+      "A31a-*_13_10_GML.zip",
+      "A31a-*_13_20_GML.zip",
+      "A31b-*_10_5339_GML.zip",
+      "A31b-*_20_5339_GML.zip"
+    ],
+    "expected_source_files": [
+      "A31a-25_13_10_GML.zip",
+      "A31a-25_13_20_GML.zip",
+      "A31b-25_10_5339_GML.zip",
+      "A31b-25_20_5339_GML.zip"
+    ],
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "4ファイルを同一取込処理で投入すること",
+      "個別投入すると前回canonicalを置き換えるため禁止",
+      "2025版はA31a/A31b両方必要",
+      "publish前にrouting validation必須"
+    ],
+    "expected_source_region_code": "13",
+    "source_region_code_regex": "^A31a-\\d+_(\\d{2})_"
   },
   {
     "dataset_id": "TOKYO-TSUNAMI-001",
@@ -454,8 +479,7 @@
     "impact_scope": "洪水リスク表示・避難ルートの危険判定（神奈川県）",
     "accepted_input_modes": [
       "upload",
-      "fetch_url",
-      "fetch_official"
+      "fetch_url"
     ],
     "accepted_extensions": [
       ".geojson",
@@ -467,8 +491,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://disaportal.gsi.go.jp/",
-    "official_source_url": "https://disaportal.gsi.go.jp/",
+    "source_url": null,
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A31.html",
     "raw_storage_path": "data_lake/raw/kanagawa/flood",
     "normalized_storage_path": "data_lake/normalized/kanagawa/flood",
     "validated_storage_path": "data_lake/validated/kanagawa/flood",
@@ -476,7 +500,58 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_river_flood",
     "validator_name": "validate_geometry",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "expected_source_region_code": "14",
+    "source_region_code_regex": "^A31a-\\d+_(\\d{2})_",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "洪水浸水想定区域 A31a/A31b",
+    "source_group_mode": "all_required",
+    "ingest_mode": "single_batch",
+    "required_source_count": 10,
+    "source_file_patterns": [
+      "A31a-*_14_10_GML.zip",
+      "A31a-*_14_20_GML.zip",
+      "A31b-*_10_5238_GML.zip",
+      "A31b-*_20_5238_GML.zip",
+      "A31b-*_10_5239_GML.zip",
+      "A31b-*_20_5239_GML.zip",
+      "A31b-*_10_5338_GML.zip",
+      "A31b-*_20_5338_GML.zip",
+      "A31b-*_10_5339_GML.zip",
+      "A31b-*_20_5339_GML.zip"
+    ],
+    "expected_source_files": [
+      "A31a-25_14_10_GML.zip",
+      "A31a-25_14_20_GML.zip",
+      "A31b-25_10_5238_GML.zip",
+      "A31b-25_20_5238_GML.zip",
+      "A31b-25_10_5239_GML.zip",
+      "A31b-25_20_5239_GML.zip",
+      "A31b-25_10_5338_GML.zip",
+      "A31b-25_20_5338_GML.zip",
+      "A31b-25_10_5339_GML.zip",
+      "A31b-25_20_5339_GML.zip"
+    ],
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "10原本を1回の取込処理で投入すること",
+      "個別投入禁止",
+      "東京コード13のA31aは投入禁止",
+      "publish前にregion coverage確認必須",
+      "routing validation FN=0必須"
+    ],
+    "coverage_required_meshes": [
+      "5238",
+      "5239",
+      "5338",
+      "5339"
+    ],
+    "coverage_allow_empty_meshes": [
+      "5338"
+    ],
+    "coverage_notes": [
+      "Mesh 5338 intersects Kanagawa administrative area (山北町, 1.824% of prefecture area), but no official 2025 flood features intersect Kanagawa within this mesh (verified 2026-10-08 by geometry intersection against the complete 10-file source set, canonical sha256 e0adcb8f…)."
+    ]
   },
   {
     "dataset_id": "KANAGAWA-SURGE-001",

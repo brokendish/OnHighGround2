@@ -10,6 +10,11 @@
  *   // result: { job_id, message }
  *
  *   mgr.cancel();  // アップロード中断
+ *
+ * 複数原本を 1 件の取得として投入（利用者に zip を作らせない）:
+ *   const result = await mgr.uploadGroup(files, datasetId, { onProgress });
+ *   // group/start で原本セットをサーバーが判定（不足なら送信前に 422）→ 各 file を chunk 送信
+ *   // → group/finish でサーバーが bundle を組み立て取込 job を 1 件起動
  */
 class UploadManager {
   constructor({ api = '/admin/api/admin/upload' } = {}) {
@@ -92,6 +97,72 @@ class UploadManager {
     }
   }
 
+  // ── public: uploadGroup ───────────────────────────────────────────────────
+
+  async uploadGroup(files, datasetId, { onProgress, onError } = {}) {
+    this._cancelled = false;
+    this._datasetId = datasetId;
+    this._groupId = null;
+    let start;
+    try {
+      start = await this._post('/group/start', {
+        dataset_id: datasetId,
+        files: files.map(f => ({ filename: f.name, size: f.size })),
+      });
+    } catch (err) {
+      onError && onError(err);
+      throw err;
+    }
+    this._groupId = start.group_id;
+    this._chunkSize = start.chunk_size || this._chunkSize;
+    const totalBytes = files.reduce((s, f) => s + f.size, 0);
+    const startTime = Date.now();
+    let doneBytes = 0;
+    const finishFiles = [];
+
+    try {
+      for (let fi = 0; fi < files.length; fi++) {
+        const file = files[fi];
+        // group/start の uploads は送信した files と同じ順序（サーバーが名前を sanitize するため名前では引かない）
+        const entry = start.uploads[fi];
+        if (!entry || entry.size !== file.size) throw new Error(`upload 対応付けに失敗しました: ${file.name}`);
+        this._uploadId = entry.upload_id;
+        const chunks = Math.ceil(file.size / this._chunkSize);
+        for (let i = 0; i < chunks; i++) {
+          if (this._cancelled) {
+            const err = new Error('アップロードがキャンセルされました');
+            err.cancelled = true;
+            throw err;
+          }
+          const offset = i * this._chunkSize;
+          await this._sendChunk(file.slice(offset, offset + this._chunkSize), i, offset);
+          const sent = doneBytes + Math.min(offset + this._chunkSize, file.size);
+          if (onProgress) {
+            const elapsedMs = Date.now() - startTime;
+            const speed = elapsedMs > 0 ? (sent / elapsedMs) * 1000 : 0;
+            onProgress({
+              percent: Math.round((sent / totalBytes) * 100), speed,
+              etaSec: speed > 0 ? (totalBytes - sent) / speed : null,
+              receivedBytes: sent, totalBytes, fileIndex: fi, fileCount: files.length, fileName: file.name,
+            });
+          }
+        }
+        doneBytes += file.size;
+        finishFiles.push({ upload_id: this._uploadId, total_size: file.size });
+      }
+      const result = await this._post('/group/finish', {
+        group_id: this._groupId, dataset_id: datasetId, files: finishFiles,
+      });
+      this._groupId = null;
+      this._uploadId = null;
+      return result;
+    } catch (err) {
+      await this._cancelGroup();
+      onError && onError(err);
+      throw err;
+    }
+  }
+
   // ── public: cancel ────────────────────────────────────────────────────────
 
   cancel() {
@@ -137,9 +208,23 @@ class UploadManager {
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(json.detail || json.user_message || `HTTP ${res.status}`);
+      // 原本セット guard（422）は detail が {error_code, message, source_set} の object
+      const detail = (json.detail && typeof json.detail === 'object') ? json.detail.message : json.detail;
+      throw new Error(detail || json.user_message || `HTTP ${res.status}`);
     }
     return json;
+  }
+
+  async _cancelGroup() {
+    if (!this._groupId) return;
+    try {
+      await fetch(`${this._api}/group/cancel`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_id: this._groupId }),
+      });
+    } catch (_) { /* best effort */ }
+    this._groupId = null;
   }
 
   async _cancelSession() {

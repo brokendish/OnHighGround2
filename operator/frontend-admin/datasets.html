@@ -15,6 +15,7 @@
     <div class="subtitle">外部データの更新・整形・確認・反映を管理します</div>
   </div>
   <div class="header-links">
+    <a href="/admin/data-ops.html">データ運用コンソール</a>
     <a href="/admin/hazards.html">ハザードレイヤー状態</a>
     <a href="/admin/">← 管理コンソールへ</a>
   </div>
@@ -239,6 +240,10 @@
         <div class="modal-info-value" id="um-exts">—</div>
       </div>
       <div class="modal-info-row">
+        <div class="modal-info-label">公式配布ページ</div>
+        <div class="modal-info-value um-source-url" id="um-official-page">—</div>
+      </div>
+      <div class="modal-info-row">
         <div class="modal-info-label">取得元URL</div>
         <div class="modal-info-value um-source-url" id="um-source-url">—</div>
       </div>
@@ -250,6 +255,12 @@
         このデータセットはファイルが大きすぎるためブラウザからのアップロードはできません。
         「URL指定取得」または「公式サイトから取得」を利用してください。
       </div>
+
+      <!-- provenance 不整合の警告（現在の実行データの原本が dataset 定義と一致しない等） -->
+      <div class="warning-box provenance-warning" id="um-provenance-warning" style="display:none;margin-bottom:12px"></div>
+
+      <!-- 運用注意事項（dataset definition の ingest_notes / operator_notes） -->
+      <div class="warning-box ingest-notes" id="um-ingest-notes" style="display:none;margin-bottom:12px"></div>
 
       <!-- 投入方式タブ -->
       <div class="input-tabs" id="input-tabs"></div>
@@ -272,6 +283,8 @@
           <span id="upload-file-size" style="margin-left:auto;color:#64748b;font-size:11px"></span>
         </div>
         <div class="upload-file-list" id="upload-file-list"></div>
+        <!-- 取得原本セット（source_group_mode）の判定結果。判定はサーバー（source-set/check）が行う -->
+        <div class="source-set-panel" id="um-source-set" style="display:none"></div>
 
         <!-- チャンクアップロード進捗 UI (アップロード中のみ表示) -->
         <div class="chunk-progress" id="chunk-progress" style="display:none">
@@ -382,6 +395,8 @@
         <dt>現在の反映先</dt><dd id="dm-runtime">—</dd>
         <dt>バックアップ</dt><dd id="dm-backup">✅ 自動作成されます（1世代前に戻すことが可能）</dd>
       </dl>
+      <!-- provenance 不整合の警告（反映は止めない。atomic publish は全 region を再公開する） -->
+      <div class="warning-box provenance-warning" id="dm-provenance-warning" hidden></div>
       <!-- 洪水 routing 形式への初回移行（OWNER 承認参照が必要）。通常反映とは別操作。 -->
       <div class="warning-box dm-migration" id="dm-migration" hidden>
         <strong id="dm-migration-title">洪水 routing 形式への初回移行が必要です</strong>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Operations Console — OnHighGround2 Admin</title>
+  <link rel="stylesheet" href="/admin/data-ops.css">
+</head>
+<body>
+
+<header class="admin-header">
+  <div>
+    <h1>データ運用コンソール</h1>
+    <div class="subtitle">取得 → 変換 → 公開 → 稼働 → 整合性（read-only。取込は「データ運用管理」から）</div>
+  </div>
+  <div class="header-links">
+    <a href="/admin/datasets.html">データ運用管理</a>
+    <a href="/admin/">← 管理コンソールへ</a>
+  </div>
+</header>
+
+<main class="admin-body">
+  <div id="error-bar" class="error-bar" role="alert"></div>
+
+  <section class="runtime-bar" aria-label="実行環境">
+    <div><span class="k">current version</span><span class="v mono" id="rt-version">—</span></div>
+    <div><span class="k">公開日時（manifest）</span><span class="v" id="rt-published">—</span></div>
+    <div><span class="k">Martin catalog</span><span class="v" id="rt-martin">—</span></div>
+    <div><span class="k">backend 読込状態</span><span class="v">UNOBSERVED（operator から観測不可・loader 契約で判定）</span></div>
+    <button class="btn" id="reload-btn" type="button">再読込</button>
+  </section>
+
+  <section class="summary" id="summary" aria-label="整合性サマリー"></section>
+
+  <section>
+    <h2>Dataset</h2>
+    <div class="filter-row">
+      <label><input type="checkbox" id="filter-problems"> 問題のある dataset のみ</label>
+    </div>
+    <div class="table-wrap">
+      <table class="ops-table" id="ops-table">
+        <thead>
+          <tr>
+            <th>Dataset</th><th>Region</th><th>Source</th><th>Acquisition</th><th>Canonical</th>
+            <th>Derived</th><th>Published</th><th>Loaded</th><th>Tile</th><th>Integrity</th>
+          </tr>
+        </thead>
+        <tbody id="ops-tbody"><tr><td colspan="10" class="muted">読み込み中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="detail" class="detail" hidden aria-live="polite"></section>
+
+  <section>
+    <h2>未登録 runtime artifact <span class="muted small">（registry のどの dataset にも対応しない current 内 hazard file。削除はしない）</span></h2>
+    <div class="table-wrap">
+      <table class="ops-table">
+        <thead>
+          <tr><th>状態</th><th>runtime path</th><th>features</th><th>backend loader</th><th>provenance</th></tr>
+        </thead>
+        <tbody id="unreg-tbody"><tr><td colspan="5" class="muted">読み込み中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="/admin/js/admin-shell.js"></script>
+<script src="/admin/data-ops.js"></script>
+</body>
+</html>

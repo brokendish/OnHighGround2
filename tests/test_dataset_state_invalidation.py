@@ -69,17 +69,18 @@ def test_matching_state_is_reused_without_rescan(tmp_path):
 
     validated_dir = tmp_path / "validated"
     validated_dir.mkdir()
-    # flat runtime_path 契約の汎用検証には非 atomic type を使う
-    # （storm_surge / flood / pseudo_inland_flood は管理画面反映が atomic publish 管理）
-    validated_file = validated_dir / "landslide.geojson"
+    # flat runtime_path 契約の汎用検証には非 atomic type（tsunami）を使う
+    # （flood / storm_surge / pseudo_inland_flood / inland_flood / landslide / lowland_poor_drainage は
+    #  管理画面反映が atomic publish 管理で、current version の artifact で判定する）
+    validated_file = validated_dir / "tsunami_a.geojson"
     validated_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "landslide"
+    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "tsunami"
     runtime_dir.mkdir(parents=True)
     deployed_file = runtime_dir / validated_file.name
     deployed_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    defn = _make_defn(tmp_path, "landslide", "tokyo", runtime_dir, validated_dir)
+    defn = _make_defn(tmp_path, "tsunami", "tokyo", runtime_dir, validated_dir)
     service = _make_service(tmp_path)
 
     _write_state_json(tmp_path / "state", defn.dataset_id, {
@@ -96,7 +97,7 @@ def test_matching_state_is_reused_without_rescan(tmp_path):
     # mtimeが新しい方（decoy）を選んでしまうはず。既存stateがそのまま
     # 再利用されるなら、current_validated_pathは元のfileのままである。
     time.sleep(0.01)
-    decoy_file = validated_dir / "landslide_decoy.geojson"
+    decoy_file = validated_dir / "tsunami_decoy.geojson"
     decoy_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
     state = service.init_from_definition(defn)
@@ -127,7 +128,9 @@ def test_stale_state_with_old_runtime_path_is_reresolved(tmp_path):
     new_deployed_file.write_text('{"type": "FeatureCollection", "features": [1]}', encoding="utf-8")
 
     # definitionは新runtime_pathを指す（registry是正後の状態）
-    defn = _make_defn(tmp_path, "lowland_poor_drainage", "tokyo", new_runtime_dir, validated_dir)
+    # 汎用の stale 再解決ロジックの検証。lowland_poor_drainage は管理画面反映が atomic publish
+    # 管理になったため（current version 基準）、flat runtime_path 契約が残る非 atomic type で検証する。
+    defn = _make_defn(tmp_path, "tsunami", "tokyo", new_runtime_dir, validated_dir)
     service = _make_service(tmp_path)
 
     # persisted stateは旧runtime_pathを指したまま（是正前のstale cache）
@@ -224,9 +227,15 @@ def test_stale_state_lowland_kanagawa_scenario(tmp_path):
         "updated_at": "2020-01-01T00:00:00",
     })
 
-    state = service.init_from_definition(defn)
+    # lowland_poor_drainage は管理画面反映が atomic publish 管理になったため、flat path の artifact
+    # では deployed と見なさない。current version に artifact が無い → deployable（未反映）。
+    with patch("app.services.dataset_state_service.data_runtime_root", return_value=tmp_path / "no_runtime"), \
+         patch("app.services.admin_atomic_publish.data_runtime_root", return_value=tmp_path / "no_runtime"):
+        state = service.init_from_definition(defn)
 
-    assert state.current_runtime_path == str(new_deployed_file)
+    assert state.deploy_status == DeployStatus.deployable
+    assert state.current_runtime_path is None
+    assert new_deployed_file.exists()
 
 
 # ── E. state file不存在 → 従来どおり自動検出 ──────────────────────────────────
@@ -234,15 +243,15 @@ def test_stale_state_lowland_kanagawa_scenario(tmp_path):
 def test_missing_state_file_falls_back_to_filesystem_inference(tmp_path):
     validated_dir = tmp_path / "validated"
     validated_dir.mkdir()
-    validated_file = validated_dir / "inland_flood.geojson"
+    validated_file = validated_dir / "tsunami_b.geojson"
     validated_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "inland_flood"
+    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "tsunami"
     runtime_dir.mkdir(parents=True)
     deployed_file = runtime_dir / validated_file.name
     deployed_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    defn = _make_defn(tmp_path, "inland_flood", "tokyo", runtime_dir, validated_dir)
+    defn = _make_defn(tmp_path, "tsunami", "tokyo", runtime_dir, validated_dir)
     service = _make_service(tmp_path)
 
     # state fileは一切作らない（初回起動相当）

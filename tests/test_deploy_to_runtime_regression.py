@@ -22,6 +22,19 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "publish" / "deploy_to_runtime.sh"
 TSUNAMI_MARKER = "# ─── backend: hazard / tsunami"
+# HAZARD-ADMIN-ATOMIC-PUBLISH Phase 1 で意図的に追加した registry overlay block（既存 block の
+# 後ろへ追加のみ）。既存 4type / shelter / frontend の各 block が 1 行も変わっていないことを
+# 引き続き検証するため、この追加 block だけを比較対象から除く。
+OVERLAY_MARKER = "# ─── backend: inland_flood / landslide / lowland_poor_drainage（registry overlay）"
+SHELTER_MARKER = "# ─── backend: shelters"
+
+
+def _without_overlay_block(lines: list[str]) -> list[str]:
+    if OVERLAY_MARKER not in "\n".join(lines):
+        return lines
+    start = next(i for i, l in enumerate(lines) if l.startswith(OVERLAY_MARKER))
+    end = next(i for i, l in enumerate(lines) if i > start and l.startswith(SHELTER_MARKER))
+    return lines[:start] + lines[end:]
 
 
 def _lines_from(text: str, marker: str) -> list[str]:
@@ -45,8 +58,8 @@ def test_existing_4type_and_shelter_blocks_are_byte_identical_to_head():
     head_text = _git_show_head()
     working_text = SCRIPT_PATH.read_text(encoding="utf-8")
 
-    head_tail = _lines_from(head_text, TSUNAMI_MARKER)
-    working_tail = _lines_from(working_text, TSUNAMI_MARKER)
+    head_tail = _without_overlay_block(_lines_from(head_text, TSUNAMI_MARKER))
+    working_tail = _without_overlay_block(_lines_from(working_text, TSUNAMI_MARKER))
 
     assert working_tail == head_tail, (
         "tsunami以降（tsunami/inland_flood/landslide/lowland_poor_drainage/"

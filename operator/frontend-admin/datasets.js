@@ -112,6 +112,8 @@ let _rollbackModalDataset = null;// ロールバック確認対象
 let _osrmModalDataset = null;    // OSRM再構築確認対象
 let _logModalJobId = null;       // ジョブログモーダル対象
 let _selectedFiles = [];         // アップロード選択ファイル（複数対応）
+let _sourceSetEval = null;       // 取得原本セットの判定結果（サーバー source-set/check の応答）
+let _sourceSetSeq = 0;
 let _activeInputTab = null;      // 現在の投入方式タブ
 let _chunkUploadMgr = null;      // チャンクアップロードマネージャ
 
@@ -306,7 +308,8 @@ function renderDatasetRow(d) {
   const isRailwayPmtiles = d.source_type === "railway_pmtiles";
   const canDeploy = d.is_deployable && !isRunning && !isRailwayPmtiles;
   // atomic publish 管理の dataset は flat backup の「戻す」を使わない（version 単位で operator が戻す）
-  const isAtomicPublish = ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type);
+  const isAtomicPublish = ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type)
+    || ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES.includes(d.layer_type);
   const canRollback = d.deploy_status === "deployed" && d.has_backup && !isRunning && !isRailwayPmtiles && !isAtomicPublish;
   const canOsrm = d.requires_osrm_rebuild && d.deploy_status === "deployed" && !isRunning;
   const canActivate = d.layer_type && d.deploy_status === "deployed" && !d.is_active && !isRunning;
@@ -383,6 +386,7 @@ function renderDatasetRow(d) {
 
 function deployBlockReason(d) {
   if (d.has_running_job) return "処理が実行中です";
+  if (!d.is_deployable && d.deploy_status === "deployed") return "反映済み（実行環境と一致）";
   if (!d.is_deployable) {
     if (d.validation_status !== "pass" && d.validation_status !== "not_required") {
       return "内容確認が完了していません";
@@ -532,6 +536,13 @@ function openUpdateModal(datasetId) {
   if (!d) return;
   _updateModalDataset = d;
   _selectedFiles = [];
+  _sourceSetEval = null;
+  document.getElementById("um-source-set").style.display = "none";
+  renderProvenanceWarning(document.getElementById("um-provenance-warning"), null);
+  fetchJSON(`${API}/data-ops/${encodeURIComponent(datasetId)}/provenance`).then(p => {
+    if (_updateModalDataset === d) renderProvenanceWarning(document.getElementById("um-provenance-warning"), p);
+  }).catch(() => {});
+  document.getElementById("um-ingest-notes").style.display = "none";
   document.getElementById("upload-selected").classList.remove("visible");
   document.getElementById("upload-file-list").classList.remove("visible");
   document.getElementById("upload-file-list").innerHTML = "";
@@ -550,6 +561,9 @@ function openUpdateModal(datasetId) {
   const sourceUrlEl = document.getElementById("um-source-url");
   sourceUrlEl.classList.remove("is-unset");
   sourceUrlEl.textContent = "—";
+  const officialPageEl = document.getElementById("um-official-page");
+  officialPageEl.classList.remove("is-unset");
+  officialPageEl.textContent = "—";
   const fetchUrlInput = document.getElementById("fetch-url-input");
   fetchUrlInput.value = "";
 
@@ -560,6 +574,8 @@ function openUpdateModal(datasetId) {
     const defn = detail.definition;
     document.getElementById("um-exts").textContent = defn.accepted_extensions.join(", ");
     renderSourceUrl(sourceUrlEl, defn.source_url);
+    // 公式配布ページ（人が開いて原本を取得するページ）。実取得 URL（source_url）とは別
+    renderSourceUrl(document.getElementById("um-official-page"), defn.official_source_url);
     // dataset definition の source_url を初期値にする（http/https のみ）。
     // 応答前にユーザーが入力していた場合は上書きしない。
     if (isHttpUrl(defn.source_url) && fetchUrlInput.value === "") {
@@ -570,7 +586,7 @@ function openUpdateModal(datasetId) {
       (defn.downloader_name ? `一括取得スクリプト: ${defn.downloader_name}` : "—");
     document.getElementById("um-size-limit").textContent =
       defn.max_browser_upload_mb > 0
-        ? `最大ファイルサイズ: ${defn.max_browser_upload_mb} MB`
+        ? `最大ファイルサイズ: 1 ファイルあたり ${defn.max_browser_upload_mb} MB（複数原本はまとめて選択できます）`
         : "このデータはブラウザアップロード非対応です";
 
     // アップロード無効表示
@@ -600,8 +616,11 @@ function openUpdateModal(datasetId) {
       pipelineNotice.style.display = "none";
     }
 
+    renderIngestNotes(defn);
+
     // タブ構築
     buildInputTabs(defn.accepted_input_modes, defn.source_type);
+    refreshSourceSet();
   }).catch(err => {
     showNotice("error", "定義情報の取得に失敗しました");
   });
@@ -686,6 +705,7 @@ function buildInputTabs(modes, sourceType) {
 
 function switchInputTab(mode) {
   _activeInputTab = mode;
+  applyExecuteGuard();
   ["upload", "fetch_url", "fetch_official", "generate", "railway_pmtiles"].forEach(m => {
     const btn = document.getElementById(`tab-btn-${m}`);
     const panel = document.getElementById(`tab-${m}`);
@@ -721,6 +741,7 @@ function handleDrop(event) {
 
 function setSelectedFiles(files) {
   _selectedFiles = files;
+  refreshSourceSet();
   const totalBytes = files.reduce((s, f) => s + f.size, 0);
   const summaryEl = document.getElementById("upload-selected");
   const listEl    = document.getElementById("upload-file-list");
@@ -742,6 +763,158 @@ function setSelectedFiles(files) {
     listEl.classList.add("visible");
   }
   summaryEl.classList.add("visible");
+}
+
+// ── provenance 不整合の警告（Data Ops: provenance_validity）────────────
+// 警告のみで操作は止めない。文言は API の validity_reason（確認できた事実）をそのまま出す。
+function renderProvenanceWarning(el, prov) {
+  el.textContent = "";
+  const v = prov && prov.validity;
+  if (v !== "provenance_mismatch" && v !== "provenance_suspect") {
+    el.style.display = "none";
+    return;
+  }
+  const strong = document.createElement("strong");
+  strong.textContent = v === "provenance_mismatch"
+    ? "⚠ 現在の実行データは、このデータセットに対応しない原本から生成されています（PROVENANCE MISMATCH）"
+    : "⚠ 原本の対応に疑いがあります（PROVENANCE SUSPECT）";
+  el.appendChild(strong);
+  const reason = document.createElement("p");
+  reason.textContent = prov.validity_reason || "";
+  el.appendChild(reason);
+  const action = document.createElement("p");
+  action.textContent = v === "provenance_mismatch"
+    ? "正しい原本を公式配布ページから取得し、再取込してください（データ運用コンソールで原本を確認できます）。"
+    : "原本が正しいか確認してください。";
+  el.appendChild(action);
+  el.style.display = "block";
+}
+
+function renderDeployProvenanceWarning(st) {
+  const el = document.getElementById("dm-provenance-warning");
+  el.textContent = "";
+  const scope = (st && st.provenance_mismatch_in_publish_scope) || [];
+  if (!scope.length) {
+    el.hidden = true;
+    return;
+  }
+  const strong = document.createElement("strong");
+  strong.textContent = "⚠ 原本が一致しないデータが反映範囲に含まれています（PROVENANCE MISMATCH）";
+  el.appendChild(strong);
+  const p = document.createElement("p");
+  p.textContent = "反映（atomic publish）は全地域のデータを積み直すため、以下のデータもそのまま再公開されます。";
+  el.appendChild(p);
+  const ul = document.createElement("ul");
+  scope.forEach(m => {
+    const li = document.createElement("li");
+    li.textContent = `${m.dataset_id}: ${m.reason || ""}`;
+    ul.appendChild(li);
+  });
+  el.appendChild(ul);
+  el.hidden = false;
+}
+
+// ── 取得原本セット（source_group_mode）─────────────────
+// 判定は UI に持たず、サーバーの source-set/check（upload API・pipeline と同じ source_group）に委ねる。
+async function refreshSourceSet() {
+  const d = _updateModalDataset;
+  if (!d) return;
+  const seq = ++_sourceSetSeq;
+  const names = _selectedFiles.map(f => f.name);
+  let ev = null;
+  try {
+    ev = await postJSON(`${API}/data-ops/${encodeURIComponent(d.dataset_id)}/source-set/check`,
+                        { filenames: names, single_upload: names.length === 1 });
+  } catch (_) {
+    ev = null;  // 判定不能は fail-closed（ファイル選択時は実行不可）
+  }
+  if (seq !== _sourceSetSeq || _updateModalDataset !== d) return;
+  _sourceSetEval = ev;
+  renderSourceSet(ev, names.length);
+  applyExecuteGuard();
+}
+
+function applyExecuteGuard() {
+  const btn = document.getElementById("um-execute-btn");
+  if (!btn || btn.textContent !== "処理を開始する") return;  // 送信中は触らない
+  const blocked = _activeInputTab === "upload" && _selectedFiles.length > 0
+    && (!_sourceSetEval || !_sourceSetEval.ok);
+  btn.disabled = blocked;
+  btn.title = blocked ? "必要な原本が揃っていないため取り込めません" : "";
+}
+
+function _ssLine(parent, cls, text) {
+  const div = document.createElement("div");
+  div.className = cls;
+  div.textContent = text;
+  parent.appendChild(div);
+  return div;
+}
+
+// DOM API（textContent）で組み立てる（ファイル名は利用者入力のため innerHTML に入れない）
+function renderSourceSet(ev, selectedCount) {
+  const el = document.getElementById("um-source-set");
+  el.textContent = "";
+  if (!ev) {
+    if (selectedCount > 0) {
+      _ssLine(el, "ss-block", "原本構成をサーバーで確認できませんでした。取り込みは実行できません。");
+      el.style.display = "";
+    } else {
+      el.style.display = "none";
+    }
+    return;
+  }
+  if (!ev.enforced) {
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "";
+  const required = ev.required_count;
+  const matched = Object.values(ev.matched || {}).filter(v => v.length > 0).length;
+  _ssLine(el, "ss-title", `必要原本: ${required ?? "—"}（${ev.source_group_mode}${ev.ingest_mode ? " / " + ev.ingest_mode : ""}）`);
+  if (ev.bundle_name) {
+    _ssLine(el, "ss-count", `bundle: ${ev.bundle_name}`);
+  } else {
+    _ssLine(el, `ss-count ${ev.ok ? "ok" : "ng"}`, `現在選択: ${matched} / ${required ?? "—"}`);
+  }
+  const list = document.createElement("ul");
+  list.className = "ss-patterns";
+  Object.entries(ev.matched || {}).forEach(([pattern, files]) => {
+    const li = document.createElement("li");
+    li.className = files.length === 1 ? "ok" : (files.length === 0 ? "missing" : "dup");
+    li.textContent = `${files.length === 1 ? "✓" : (files.length === 0 ? "不足" : "重複")}  ${pattern}`
+      + (files.length ? ` → ${files.join(", ")}` : "");
+    list.appendChild(li);
+  });
+  el.appendChild(list);
+  (ev.unexpected_files || []).length && _ssLine(el, "ss-block", `想定外: ${ev.unexpected_files.join(", ")}`);
+  (ev.blocking_reasons || []).forEach(r => selectedCount > 0 && _ssLine(el, "ss-block", r));
+  (ev.warnings || []).forEach(w => _ssLine(el, "ss-warn", w));
+  if (selectedCount > 0) {
+    _ssLine(el, ev.ok ? "ss-ok" : "ss-block", ev.ok ? "取込可能" : "取込不可");
+  }
+  if (ev.confirm_message) _ssLine(el, "ss-warn", ev.confirm_message);
+}
+
+function renderIngestNotes(defn) {
+  const el = document.getElementById("um-ingest-notes");
+  el.textContent = "";
+  const notes = [...(defn.ingest_notes || []), ...(defn.operator_notes || [])];
+  if (!notes.length) {
+    el.style.display = "none";
+    return;
+  }
+  const strong = document.createElement("strong");
+  strong.textContent = "運用注意事項";
+  el.appendChild(strong);
+  const ul = document.createElement("ul");
+  notes.forEach(n => {
+    const li = document.createElement("li");
+    li.textContent = n;
+    ul.appendChild(li);
+  });
+  el.appendChild(ul);
+  el.style.display = "block";
 }
 
 // ── チャンクアップロード進捗表示 ─────────────────────
@@ -802,6 +975,20 @@ async function executeUpdate() {
   if (!d) return;
 
   const btn = document.getElementById("um-execute-btn");
+
+  // 取得原本セットの guard（サーバー判定）。不足・不正なら送信しない（API / pipeline でも拒否される）
+  if (_activeInputTab === "upload") {
+    if (_selectedFiles.length && (!_sourceSetEval || !_sourceSetEval.ok)) {
+      showNotice("error", (_sourceSetEval && _sourceSetEval.blocking_reasons.join(" / ")) || "原本構成を確認できません");
+      return;
+    }
+    if (_sourceSetEval && _sourceSetEval.confirm_message && !window.confirm(_sourceSetEval.confirm_message)) return;
+  } else if (_sourceSetEval && _sourceSetEval.enforced && _sourceSetEval.confirm_message
+             && (_activeInputTab === "fetch_url" || _activeInputTab === "fetch_official")
+             && !window.confirm(`${_sourceSetEval.confirm_message}\n取得したファイルの原本構成はサーバーで検証され、不足していれば取り込みを中止します。`)) {
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = "送信中...";
 
@@ -831,13 +1018,30 @@ async function executeUpdate() {
         }
         _hideChunkProgress();
       } else {
-        // 複数ファイル → 従来の FormData（サーバー側で bundle.zip に梱包）
-        const formData = new FormData();
-        for (const f of _selectedFiles) formData.append("files", f);
-        const res = await fetch(`${API}/datasets/${d.dataset_id}/upload`, { method: "POST", body: formData });
-        const json = await res.json();
-        if (!res.ok || !json.accepted) throw new Error(json.user_message || json.detail || "アップロードに失敗しました");
-        job_id = json.job_id;
+        // 複数原本 → 1 件の取得として chunk upload（group）。原本セットはサーバーが送信前に判定し、
+        // 全 file 受信後にサーバーが bundle を組み立てる（利用者が zip を作る必要はない）
+        const files = _selectedFiles;
+        const total = files.reduce((s, f) => s + f.size, 0);
+        _chunkUploadMgr = new UploadManager({ api: '/admin/api/admin/upload' });
+        _showChunkProgress({ name: `${files.length} ファイル（1 件の取得として送信）`, size: total });
+        btn.textContent = "アップロード中...";
+        try {
+          const result = await _chunkUploadMgr.uploadGroup(files, d.dataset_id, {
+            onProgress: (p) => {
+              _updateChunkProgress(p);
+              document.getElementById("cp-filename").textContent =
+                `${p.fileIndex + 1} / ${p.fileCount}: ${p.fileName}`;
+            },
+          });
+          _chunkUploadMgr = null;
+          job_id = result.job_id;
+        } catch (err) {
+          _chunkUploadMgr = null;
+          _hideChunkProgress();
+          if (err.cancelled) { btn.disabled = false; btn.textContent = "処理を開始する"; return; }
+          throw err;
+        }
+        _hideChunkProgress();
       }
 
     } else if (_activeInputTab === "fetch_url") {
@@ -873,13 +1077,27 @@ async function executeUpdate() {
   } finally {
     btn.disabled = false;
     btn.textContent = "処理を開始する";
+    applyExecuteGuard();
   }
 }
 
 // ── 反映モーダル ──────────────────────────────────────
 // 管理画面の反映が正式 atomic publish（deploy_to_runtime_atomic.sh）を通る layer_type
 // （backend/app/services/admin_atomic_publish.py の ATOMIC_PUBLISH_LAYER_TYPES と一致させる）
-const ATOMIC_PUBLISH_LAYER_TYPES = ["flood", "storm_surge", "pseudo_inland_flood"];
+const ATOMIC_PUBLISH_LAYER_TYPES = [
+  "flood", "storm_surge", "pseudo_inland_flood", "inland_flood", "landslide", "lowland_poor_drainage",
+];
+// 管理画面から反映できない hazard type（ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES と一致させる）
+const ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES = ["tsunami"];
+// 実 runtime（current + manifest）基準の状態表示（dataset_runtime_reconcile.py の runtime_status）
+const RUNTIME_STATUS_LABELS = {
+  published: "このデータは公開中（実行環境と一致）",
+  mismatch: "実行環境と不一致（公開中の内容が反映元と異なる）",
+  not_published: "このデータは現在の実行環境に未反映",
+  stale: "このデータは現在の実行環境に未反映（記録上は反映済みでした）",
+  unsupported: "管理画面からの反映には未対応",
+  unknown: "実行環境の状態を判定できません",
+};
 const _APPROVAL_REF_RE = /^[A-Za-z0-9][A-Za-z0-9._:@/+()\- ]{2,199}$/;
 let _deployPublishStatus = null;
 
@@ -895,6 +1113,7 @@ function openDeployModal(datasetId) {
   document.getElementById("dm-runtime").textContent = "実行環境 (data_runtime)";
   document.getElementById("dm-backup").textContent = "✅ 自動作成されます（1世代前に戻すことが可能）";
   document.getElementById("dm-migration").hidden = true;
+  renderDeployProvenanceWarning(null);
   document.getElementById("dm-approval-ref").value = "";
   document.getElementById("dm-approval-confirm").checked = false;
   document.getElementById("dm-btn-deploy").hidden = false;
@@ -902,13 +1121,27 @@ function openDeployModal(datasetId) {
   document.getElementById("dm-btn-migrate").hidden = true;
   document.getElementById("deploy-modal").classList.add("open");
 
-  if (!ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type)) return;
+  const unsupported = ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES.includes(d.layer_type);
+  if (unsupported) document.getElementById("dm-btn-deploy").disabled = true;
+  if (!ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type) && !unsupported) return;
   // atomic publish 対象: 反映方式と初回移行の要否を確認してからボタンを有効化する
   fetchJSON(`${API}/datasets/${datasetId}/publish-status`).then(st => {
     if (_deployModalDataset !== d) return;
     _deployPublishStatus = st;
+    renderDeployProvenanceWarning(st);
+    if (st.publish_mode === "unsupported") {
+      document.getElementById("dm-migration-title").textContent = "このデータ種別は管理画面から反映できません";
+      document.getElementById("dm-migration-desc").textContent =
+        "正式な公開経路（atomic publish）へ未統合です。津波データはどの版を判定に使うかの決定後に対応します。";
+      document.getElementById("dm-migration-files").textContent = "";
+      document.getElementById("dm-migration-form").hidden = true;
+      document.getElementById("dm-migration").hidden = false;
+      document.getElementById("dm-btn-deploy").hidden = true;
+      return;
+    }
+    const presence = RUNTIME_STATUS_LABELS[st.runtime_status] || "実行環境の状態を判定できません";
     document.getElementById("dm-runtime").textContent =
-      `実行環境 version ${st.current_version || "（未公開）"}（atomic publish・全 region を一括検証して切替）`;
+      `実行環境 version ${st.current_version || "（未公開）"}（${presence}・atomic publish で全 region を一括検証して切替）`;
     document.getElementById("dm-backup").textContent =
       "version 単位で保持されます（戻す場合は operator が version を切り替えます）";
     if (st.flood_routing_migration_required) {
@@ -946,6 +1179,7 @@ function updateDeployButtons() {
   const st = _deployPublishStatus;
   if (!d) return;
   if (!ATOMIC_PUBLISH_LAYER_TYPES.includes(d.layer_type)) return;
+  if (st && st.publish_mode !== "atomic") return;
   const ready = !!st;
   document.getElementById("dm-btn-deploy").disabled = !ready || st.flood_routing_migration_required;
   const ref = document.getElementById("dm-approval-ref").value.trim();

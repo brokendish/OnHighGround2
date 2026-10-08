@@ -7,6 +7,7 @@ dataset_state_service.py — データセット状態の永続管理サービス
 from __future__ import annotations
 
 import json
+import os
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -32,8 +33,15 @@ from app.services.admin_atomic_publish import (
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_ADMIN_STATE_DIR = _PROJECT_ROOT / "data_lake" / "admin" / "state"
-_ADMIN_HISTORY_DIR = _PROJECT_ROOT / "data_lake" / "admin" / "history"
+
+PATH_PRESENT = "present"
+PATH_MISSING = "missing"
+PATH_UNOBSERVABLE = "unobservable"
+# data_lake/admin の root。テストは OHG2_ADMIN_DIR で tmp に隔離する（tests/admin_isolation.py）。
+# 未設定時は従来どおり <project>/data_lake/admin（本番 container では /data_lake/admin）。
+_ADMIN_DIR = Path(os.environ.get("OHG2_ADMIN_DIR") or (_PROJECT_ROOT / "data_lake" / "admin"))
+_ADMIN_STATE_DIR = _ADMIN_DIR / "state"
+_ADMIN_HISTORY_DIR = _ADMIN_DIR / "history"
 
 _MAX_HISTORY_LINES = 200
 _OSRM_REQUIRED_SUFFIXES = (
@@ -79,34 +87,64 @@ class DatasetStateService:
         return self._state_dir / f"{dataset_id}.json"
 
     def load(self, dataset_id: str) -> DatasetState:
+        """state file を読むだけ。削除・再推定・保存はしない（読み込みは非破壊）。
+
+        STATE-DESTRUCTIVE-LOAD 修正: 旧実装は記録 path が現在の process から見えないと
+        「別マシンの stale」として state file を削除し再推定していた。host（/Users/...）と
+        container（/data_lake, /data_runtime）の namespace 差異だけで operator の state が
+        消える実害があった（2026-10-07）。path の可視性は path_status() で報告し、
+        runtime 側の正否は dataset_runtime_reconcile に委ねる。"""
         path = self._state_path(dataset_id)
         if not path.exists():
             return self._default_state(dataset_id)
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        # 古い状態ファイルが別マシンの絶対パスを持っている場合は無効化して再推定させる
         state = DatasetState(**data)
-        if self._has_stale_paths(state):
-            logger.info("Stale absolute paths detected in state for %s, will re-infer.", dataset_id)
-            try:
-                path.unlink()
-            except OSError as exc:
-                # data_lakeがread-only mountの環境（隔離test container等）では
-                # 自己修復のための削除自体が失敗しうる。stateはどのみち
-                # _default_state()で再推定するため、削除失敗はここで
-                # crashさせず警告のみとする。
-                logger.warning("Failed to remove stale state file %s: %s", path, exc)
-            return self._default_state(dataset_id)
+        report = self.path_status(state)
+        if any(v != PATH_PRESENT for v in report.values()):
+            logger.info("state %s: recorded paths not all visible from this process (kept as-is): %s",
+                        dataset_id, {k: v for k, v in report.items() if v != PATH_PRESENT})
         return state
 
-    def _has_stale_paths(self, state: DatasetState) -> bool:
-        """状態ファイルのパスが現在のマシンに存在しない場合 True を返す。"""
-        for attr in ("current_raw_path", "current_normalized_path",
-                     "current_validated_path", "current_runtime_path"):
-            val = getattr(state, attr, None)
-            if val and not self._exists_or_inaccessible(Path(val)):
-                return True
-        return False
+    @staticmethod
+    def path_visibility(path_str: Optional[str]) -> Optional[str]:
+        """記録 path の可視性。present / missing / unobservable（namespace 外・権限なし）。
+
+        path の最上位 2 要素（例: /data_runtime, /data_lake, /Users）が この process に存在しない
+        場合は「別 namespace の path」であり、存在しないとは断定できない（unobservable）。"""
+        if not path_str:
+            return None
+        p = Path(path_str)
+        if p.is_absolute() and len(p.parts) >= 2:
+            anchor = Path(p.parts[0]) / p.parts[1]
+            try:
+                if not anchor.exists():
+                    return PATH_UNOBSERVABLE
+            except PermissionError:
+                return PATH_UNOBSERVABLE
+        try:
+            return PATH_PRESENT if p.exists() else PATH_MISSING
+        except PermissionError:
+            return PATH_UNOBSERVABLE
+
+    @staticmethod
+    def _outside_namespace(path_str: Optional[str]) -> bool:
+        """記録 path の最上位 2 要素がこの process に存在しない（別 namespace の path）。"""
+        if not path_str:
+            return False
+        p = Path(path_str)
+        if not p.is_absolute() or len(p.parts) < 2:
+            return False
+        try:
+            return not (Path(p.parts[0]) / p.parts[1]).exists()
+        except PermissionError:
+            return True
+
+    def path_status(self, state: DatasetState) -> Dict[str, Optional[str]]:
+        return {attr: self.path_visibility(getattr(state, attr, None))
+                for attr in ("current_raw_path", "current_normalized_path",
+                             "current_validated_path", "current_runtime_path")
+                if getattr(state, attr, None)}
 
     @staticmethod
     def _exists_or_inaccessible(path: Path) -> bool:
@@ -187,8 +225,15 @@ class DatasetStateService:
             # stateとしてfilesystemから再解決する。既存の正常なstate（definition
             # と矛盾しない大多数）はこの分岐に入らず従来どおり即座にloadされる
             # ため、高速load/checkpoint semanticsは維持される。
+            #
+            # STATE-DESTRUCTIVE-LOAD 修正: 記録 path が この process の namespace 外（host から見た
+            # /data_runtime、container から見た /Users 等）の場合は判定不能であり、state を作り直さない。
+            # atomic publish 対象で versions 内 artifact が見えないだけの場合も作り直さず、
+            # dataset_runtime_reconcile（current + manifest）に判定を委ねる。
             if (
                 state.deploy_status == DeployStatus.deployed
+                and not self._outside_namespace(state.current_runtime_path)
+                and not self._defer_to_runtime_reconcile(state, defn)
                 and not self._is_current_runtime_path_valid(state, defn)
             ):
                 logger.warning(
@@ -335,6 +380,18 @@ class DatasetStateService:
             )
 
         return state
+
+    @staticmethod
+    def _defer_to_runtime_reconcile(state: DatasetState, defn: DatasetDefinition) -> bool:
+        """atomic publish 対象で記録 path が versions 配下（契約どおり）なら、artifact の有無は
+        reconcile が current + manifest から判定する（ここでは作り直さない）。"""
+        if defn.layer_type not in ATOMIC_PUBLISH_LAYER_TYPES or not state.current_runtime_path:
+            return False
+        try:
+            versions_dir = (data_runtime_root() / "versions").resolve()
+            return versions_dir in Path(state.current_runtime_path).resolve().parents
+        except (OSError, ValueError):
+            return False
 
     def _is_current_runtime_path_valid(self, state: DatasetState, defn: DatasetDefinition) -> bool:
         """

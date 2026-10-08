@@ -197,6 +197,15 @@ fi
 
 log_info "publish succeeded: current -> versions/${VERSION_ID}"
 
+# RUNTIME-STATE-RECONCILE: CLI publish でも管理画面の DatasetState を実 runtime（current + manifest）へ
+# 同期する。publish 自体は成功済みのため、同期の失敗は warning に留め exit code を変えない
+# （次回 operator 起動・publish-status / dataset detail 参照時に再同期される）。
+if python3 "${SCRIPT_DIR}/reconcile_dataset_state.py" --data-runtime-root "${DATA_RUNTIME}"; then
+    log_info "DatasetState を実 runtime へ同期しました（current -> versions/${VERSION_ID}）"
+else
+    log_warn "DatasetState の同期に失敗または一部判定不能（publish は成功済み。operator 再起動・管理画面参照時に再同期されます）"
+fi
+
 if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
     # Finding 9（VPS in-place再構築 2026-09-06）: LAYERS post-publish flat mirror
     # syncは今回いったん無効化する。GeoJSON fallbackの実readerはnginxが配信する

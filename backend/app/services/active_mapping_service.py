@@ -9,6 +9,7 @@ active_mapping_service.py — アクティブデータセットマッピング�
 from __future__ import annotations
 
 import json
+import os
 import logging
 import threading
 from pathlib import Path
@@ -19,7 +20,9 @@ from app.services.admin_metadata_fs import chmod_quiet
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_MAPPINGS_PATH = _PROJECT_ROOT / "data_lake" / "admin" / "active_mappings.json"
+# data_lake/admin の root。テストは OHG2_ADMIN_DIR で tmp に隔離する（tests/admin_isolation.py）。
+# 未設定時は従来どおり <project>/data_lake/admin（本番 container では /data_lake/admin）。
+_MAPPINGS_PATH = Path(os.environ.get("OHG2_ADMIN_DIR") or (_PROJECT_ROOT / "data_lake" / "admin")) / "active_mappings.json"
 
 
 class ActiveMappingService:

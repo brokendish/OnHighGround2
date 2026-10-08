@@ -10,11 +10,17 @@ path へ直接コピーして成功扱いにしてはならない。本モジュ
 activation 後の事後検証（current が新 version を指し manifest が存在すること）を担う。
 
 atomic publish 対象（ATOMIC_PUBLISH_LAYER_TYPES）は、wrapper が registry
-（active_mappings + dataset_definitions + DatasetState）から当該 dataset の artifact を解決する
-type に限る（resolve_hazard_sources.py: flood / storm_surge / pseudo_inland_flood）。
-tsunami / inland_flood / landslide / lowland_poor_drainage は wrapper が registry ではなく固定
-path から publish する（lowland は publish 処理自体が無い）ため、管理画面の dataset を wrapper
-に通しても当該 artifact が publish される保証が無く、今回は対象外（後続課題）。
+（active_mappings + dataset_definitions + DatasetState）から当該 dataset の artifact を解決して
+version に配置する type に限る（resolve_hazard_sources.py）:
+  - flood / storm_surge / pseudo_inland_flood: registry 解決のみで配置
+  - inland_flood / landslide / lowland_poor_drainage: normalized dir の一括配置（登録外 legacy
+    companion を維持）の後に registry 解決した validated artifact を上書き配置（registry overlay）
+tsunami は runtime 契約が flat の `tsunami_<target>.geojson` 固定名で、deploy_to_runtime.sh は
+registry ではなく固定名の legacy file を優先して publish する（Local 実測: current の
+tsunami_kanagawa.geojson は A40-16_14 + A40-20_14 を結合した legacy 133,930 件、登録 dataset
+KANAGAWA-TSUNAMI-001 は A40-20_14 の 66,965 件）。登録 dataset へ切り替えると判定内容が変わるため
+OWNER 判断が必要で、管理画面の反映は ATOMIC_PUBLISH_UNSUPPORTED として明示的に止める
+（従来の「flat copy で成功表示・current には未反映」を許さない）。
 """
 from __future__ import annotations
 
@@ -26,7 +32,11 @@ from typing import List, Optional
 
 from app.services.flood_routing_contract import is_routing_artifact_name
 
-ATOMIC_PUBLISH_LAYER_TYPES = frozenset({"flood", "storm_surge", "pseudo_inland_flood"})
+ATOMIC_PUBLISH_LAYER_TYPES = frozenset({
+    "flood", "storm_surge", "pseudo_inland_flood", "inland_flood", "landslide", "lowland_poor_drainage",
+})
+# 管理画面の反映を受け付けない hazard type（atomic publish 未統合・runtime 契約の再設計が必要）
+ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES = frozenset({"tsunami"})
 
 # wrapper の終了コード（deploy_to_runtime_atomic.sh 冒頭のコメントと一致）
 EXIT_OK = 0

@@ -428,6 +428,43 @@ else
     log_warn "lowland_poor_drainage normalized data not found (skip backend deploy)"
 fi
 
+# ─── backend: inland_flood / landslide / lowland_poor_drainage（registry overlay） ─
+# HAZARD-ADMIN-ATOMIC-PUBLISH Phase 1: 上の3 sectionは data_lake/normalized/<region>/<type>/
+# の全 *.geojson を region directory へ一括 publish する（registry 非連動。登録外の legacy
+# companion — 例 tokyo_inland_flood_A51 / tokyo_landslide_A33 — も HazardEngine が読むため維持する）。
+# 管理画面の反映が atomic publish を通るよう、active mapping の dataset については registry が
+# 解決する validated artifact を同じ basename で上書き配置し、「validate 済みの当該 dataset」が
+# version に入ることを保証する。active なのに解決できない場合は fail-closed。
+log_info "--- inland_flood / landslide / lowland_poor_drainage (registry overlay) ---"
+_hz_overlay_output="$(mktemp)"
+trap 'rm -f "${_hz_overlay_output}"' RETURN EXIT
+if ! python3 "${SCRIPT_DIR}/resolve_hazard_sources.py" \
+        --region "${REGION}" \
+        --layer-type inland_flood \
+        --layer-type landslide \
+        --layer-type lowland_poor_drainage \
+        > "${_hz_overlay_output}"; then
+    log_error "hazard source resolver (inland_flood/landslide/lowland_poor_drainage) が失敗しました（region=${REGION}）"
+    exit 1
+fi
+_hz_overlay_count=0
+while IFS=$'\t' read -r _hz_layer_type _hz_dataset_id _hz_src_path; do
+    [[ -z "${_hz_layer_type:-}" ]] && continue
+    _hz_dst_dir="${RUNTIME_BACKEND}/hazard/${_hz_layer_type}/${REGION}"
+    if [[ -f "${_hz_src_path}" ]]; then
+        deploy_file "${_hz_src_path}" "${_hz_dst_dir}/$(basename "${_hz_src_path}")" "backend"
+    elif [[ -d "${_hz_src_path}" ]]; then
+        deploy_dir "${_hz_src_path}" "${_hz_dst_dir}" "*.geojson" "backend"
+    else
+        log_error "hazard dataset ${_hz_dataset_id} (${_hz_layer_type}): resolved pathが存在しません: ${_hz_src_path}"
+        exit 1
+    fi
+    _hz_overlay_count=$((_hz_overlay_count + 1))
+done < "${_hz_overlay_output}"
+rm -f "${_hz_overlay_output}"
+trap - RETURN EXIT
+log_info "inland_flood/landslide/lowland_poor_drainage: registryから${_hz_overlay_count}件のactive datasetを上書き配置（region=${REGION}）"
+
 # ─── backend: shelters ────────────────────────────────────────────────────────
 # shelter_atomic_publish修復: 従来は`${VALIDATED}/shelter`というハードコードされた
 # 単一directory名だけをcopyしており、active_mappings.json登録済みの避難所系

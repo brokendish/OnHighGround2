@@ -118,6 +118,20 @@ class OperationType(str, Enum):
     osrm_rebuild = "osrm_rebuild"
 
 
+class SourceGroupMode(str, Enum):
+    """取得原本の構成（Data Operations Console / app.services.source_group）。"""
+    single = "single"                    # 1 ファイルで完結
+    all_required = "all_required"        # 定義された全原本が必要（1 つでも欠ければ取込不可）
+    any_of = "any_of"                    # 候補のうち 1 つ
+    optional_addons = "optional_addons"  # 本体（先頭 required_source_count 件）+ 任意追加
+    multi_batch = "multi_batch"          # 複数ファイルだが個別処理可能
+
+
+class IngestMode(str, Enum):
+    single_batch = "single_batch"  # 全原本を 1 回の取込処理で投入する（個別投入禁止）
+    per_file = "per_file"          # 原本ごとに個別投入してよい
+
+
 # ── DatasetDefinition ────────────────────────────────────────────────────────
 
 class DatasetDefinition(BaseModel):
@@ -186,6 +200,34 @@ class DatasetDefinition(BaseModel):
 
     # 追加属性（year など、スクリプトへ渡す任意パラメータ）
     extra_attrs: Optional[dict] = None
+
+    # ── 取得元・取込規約（Data Operations Console）────────────────────────────
+    # 「このデータは何で、どこから取得し、どう取り込むべきか」の静的定義。実際の取得履歴は
+    # data_lake/admin/acquisitions/<dataset_id>.json（acquisition_history.py）に分離する。
+    # 未設定は「未定義」であり推測で補わない（source_group_mode=None は取込制約なし＝従来動作）。
+    source_provider: Optional[str] = None       # 例: 国土交通省 国土数値情報
+    source_dataset_name: Optional[str] = None   # 例: 洪水浸水想定区域 A31a/A31b
+    source_year: Optional[str] = None
+    source_version: Optional[str] = None
+    source_group_mode: Optional[SourceGroupMode] = None
+    ingest_mode: Optional[IngestMode] = None
+    required_source_count: Optional[int] = Field(default=None, ge=1)
+    # 原本ファイル名の glob（fnmatchcase）。"re:" 接頭辞は正規表現（fullmatch）。
+    source_file_patterns: List[str] = Field(default_factory=list)
+    expected_source_files: List[str] = Field(default_factory=list)  # 参考表示用の現行原本名
+    # True: 取込で既存 canonical を置き換える（部分投入は canonical を壊すため hard guard 対象）
+    ingest_replaces_canonical: bool = False
+    ingest_notes: List[str] = Field(default_factory=list)
+    operator_notes: List[str] = Field(default_factory=list)
+    # 原本ファイル名に含まれる地域コード（都道府県コード等）の照合（provenance_validity）。
+    # 両方定義された dataset だけ判定する。regex の第 1 group が地域コード。抽出できない原本は判定しない。
+    expected_source_region_code: Optional[str] = None
+    source_region_code_regex: Optional[str] = None
+    # 地域 coverage 受入（scripts/validate/check_flood_region_coverage.py --from-definition）。
+    # allow_empty は「公式原本上、境界内 feature 0 件を確認済み」のメッシュだけを明示登録する（自動追加しない）。
+    coverage_required_meshes: List[str] = Field(default_factory=list)
+    coverage_allow_empty_meshes: List[str] = Field(default_factory=list)
+    coverage_notes: List[str] = Field(default_factory=list)
 
     @property
     def browser_upload_enabled(self) -> bool:

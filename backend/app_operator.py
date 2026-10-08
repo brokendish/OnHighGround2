@@ -31,6 +31,7 @@ from fastapi import Depends, FastAPI
 from app.api.admin import router as admin_router
 from app.api.admin_config import router as admin_config_router
 from app.api.admin_datasets import router as admin_datasets_router
+from app.api.admin_data_ops import router as admin_data_ops_router
 from app.api.admin_datasets import jobs_router as admin_jobs_router
 from app.api.admin_session import router as admin_session_router
 from app.api.admin_upload import router as admin_upload_router
@@ -108,6 +109,7 @@ OPERATOR_ROUTERS = [
     admin_router,
     admin_config_router,
     admin_datasets_router,
+    admin_data_ops_router,
     admin_jobs_router,
     admin_upload_router,
     layer_types_router,
@@ -135,6 +137,33 @@ async def _startup():
     except Exception:
         pass
     get_job_manager().cleanup_stale_running()
+    _start_runtime_state_reconcile()
+
+
+def _start_runtime_state_reconcile() -> None:
+    """起動時に実 runtime（current + manifest）と DatasetState を照合する（CLI publish 後の同期）。
+
+    反映元の sha256 計算（数百 MB 級）を伴うため別 thread で実行し、起動・health を遅らせない。
+    失敗しても operator の起動は止めない（次回の API 参照時に再同期される）。
+    """
+    import threading
+
+    def _run():
+        try:
+            from app.services.dataset_runtime_reconcile import reconcile_all
+            report = reconcile_all(allow_hash=True, persist=True)
+            counts = {}
+            for r in report["results"]:
+                counts[r["runtime_status"]] = counts.get(r["runtime_status"], 0) + 1
+            logger.info(
+                "runtime state reconcile: current=%s statuses=%s unregistered=%d errors=%d",
+                report["current_version"], counts, len(report["unregistered_runtime_artifacts"]),
+                len(report["errors"]),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("runtime state reconcile failed at startup: %s", exc)
+
+    threading.Thread(target=_run, name="runtime-state-reconcile", daemon=True).start()
 
 
 @app.on_event("shutdown")

@@ -263,12 +263,55 @@ def test_artifact_missing_in_new_version_is_not_success(env):
     assert state.deploy_status == DeployStatus.failed
 
 
-def test_non_atomic_hazard_keeps_existing_flat_path(env):
-    src = _write_fc(env["tmp"] / "data_lake/validated/tokyo/inland_flood/tokyo-urban-001.geojson")
-    state, jm = _deploy(env, _must_not_run_wrapper(), defn=_defn("inland_flood", "TOKYO-URBAN-001"),
+def test_tsunami_admin_deploy_is_blocked_without_flat_copy(env):
+    """tsunami は atomic publish 未統合: wrapper も flat copy も行わず、明示エラーで止める。"""
+    src = _write_fc(env["tmp"] / "data_lake/validated/tokyo/tsunami/tokyo-tsunami-001.geojson")
+    state, jm = _deploy(env, _must_not_run_wrapper(), defn=_defn("tsunami", "TOKYO-TSUNAMI-001"),
                         state=_state(src))
+    assert _failed_code(jm) == "ATOMIC_PUBLISH_UNSUPPORTED"
+    assert state.deploy_status == DeployStatus.failed
+    assert not (env["tmp"] / "data_runtime").exists()
+    assert _current(env) == f"versions/{V0}"
+
+
+@pytest.mark.parametrize("layer_type,dataset_id,name", [
+    ("inland_flood", "TOKYO-URBAN-001", "tokyo-urban-001.geojson"),
+    ("landslide", "TOKYO-LANDSLIDE-001", "tokyo-landslide-001.geojson"),
+    ("lowland_poor_drainage", "TOKYO-LOWLAND-POOR-DRAINAGE-001", "lowland_poor_drainage.geojson"),
+])
+def test_phase1_hazards_use_atomic_wrapper(env, layer_type, dataset_id, name):
+    _deploy(env, FakeWrapper(env), migration_ref="LOCAL-FLOOD-ROUTING-MIGRATION-20261006")  # flood 移行済みに
+    shutil.move(str(env["rt"] / "versions/20261006T000000Z-deadbeef"),
+                str(env["rt"] / "versions/20261006T000000Z-00000001"))
+    os.remove(env["rt"] / "current")
+    os.symlink("versions/20261006T000000Z-00000001", env["rt"] / "current")
+
+    src = _write_fc(env["tmp"] / f"data_lake/validated/tokyo/{layer_type}/{name}")
+    w = FakeWrapper(env, place=(src, f"backend/hazard/{layer_type}/tokyo/{name}"))
+    state, jm = _deploy(env, w, defn=_defn(layer_type, dataset_id), state=_state(src))
     assert _failed_code(jm) is None
-    assert (env["tmp"] / "data_runtime/backend/hazard/inland_flood/tokyo-urban-001.geojson").is_file()
+    assert w.calls and w.calls[0][1].endswith("deploy_to_runtime_atomic.sh")
+    assert "--allow-flood-routing-migration" not in w.calls[0]
+    assert w.state_during == [DeployStatus.deploying]
+    assert state.deploy_status == DeployStatus.deployed
+    assert state.current_runtime_path == str(
+        env["rt"] / f"versions/20261006T000000Z-deadbeef/backend/hazard/{layer_type}/tokyo/{name}")
+    assert not (env["tmp"] / "data_runtime").exists()
+
+
+def test_published_artifact_must_match_validated(env):
+    """新 version に同名 artifact があっても内容が反映元と違えば成功にしない。"""
+    _deploy(env, FakeWrapper(env), migration_ref="LOCAL-FLOOD-ROUTING-MIGRATION-20261006")
+    shutil.move(str(env["rt"] / "versions/20261006T000000Z-deadbeef"),
+                str(env["rt"] / "versions/20261006T000000Z-00000001"))
+    os.remove(env["rt"] / "current")
+    os.symlink("versions/20261006T000000Z-00000001", env["rt"] / "current")
+    src = _write_fc(env["tmp"] / "data_lake/validated/tokyo/landslide/tokyo-landslide-001.geojson")
+    stale = _write_fc(env["tmp"] / "stale/tokyo-landslide-001.geojson", rank_key="old")
+    w = FakeWrapper(env, place=(stale, "backend/hazard/landslide/tokyo/tokyo-landslide-001.geojson"))
+    state, jm = _deploy(env, w, defn=_defn("landslide", "TOKYO-LANDSLIDE-001"), state=_state(src))
+    assert _failed_code(jm) == "ATOMIC_PUBLISH_ARTIFACT_MISMATCH"
+    assert state.deploy_status == DeployStatus.failed
 
 
 def test_non_hazard_dataset_keeps_existing_flat_path(env):
@@ -282,9 +325,10 @@ def test_non_hazard_dataset_keeps_existing_flat_path(env):
 
 
 def test_migration_ref_rejected_for_non_atomic_dataset(env):
-    src = _write_fc(env["tmp"] / "data_lake/validated/tokyo/inland_flood/x.geojson")
-    state, jm = _deploy(env, _must_not_run_wrapper(), defn=_defn("inland_flood", "TOKYO-URBAN-001"),
-                        state=_state(src), migration_ref="LOCAL-REF")
+    src = _write_fc(env["tmp"] / "data_lake/validated/japan/tide/tide.geojson")
+    defn = _defn(None, "TIDE-TEST-001", category="tide", runtime_path="data_runtime/backend/tide",
+                 validated_storage_path="data_lake/validated/japan/tide")
+    state, jm = _deploy(env, _must_not_run_wrapper(), defn=defn, state=_state(src), migration_ref="LOCAL-REF")
     assert _failed_code(jm) == "FLOOD_ROUTING_MIGRATION_NOT_APPLICABLE"
 
 
@@ -404,9 +448,12 @@ def test_api_deploy_request_forbids_unknown_fields():
 
 def test_api_publish_status_reports_migration_requirement(env):
     from app.api import admin_datasets as api
-    ds = Mock()
+    ds, ss = Mock(), Mock()
     ds.get.return_value = _defn()
-    with patch.object(api, "get_definition_service", return_value=ds):
+    # 実 data_lake/admin/state を読まない・書かない（host 実行で state file を削除・再推定させない）
+    ss.init_from_definition.return_value = DatasetState(dataset_id="TOKYO-RIVER-001")
+    with patch.object(api, "get_definition_service", return_value=ds), \
+         patch.object(api, "get_state_service", return_value=ss):
         st = asyncio.run(api.get_publish_status("TOKYO-RIVER-001"))
     assert st["publish_mode"] == "atomic"
     assert st["current_version"] == V0

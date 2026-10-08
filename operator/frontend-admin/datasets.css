@@ -715,3 +715,17 @@ table.dataset-table {
 .dm-migration-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
 .dm-migration input[type="text"] { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 13px; }
 .dm-migration-confirm { display: flex; gap: 6px; align-items: flex-start; margin-top: 8px; font-size: 12px; }
+
+/* 更新モーダル: 運用注意事項・取得原本セット（Data Operations Console） */
+.ingest-notes ul { margin: 4px 0 0 18px; padding: 0; font-size: 12px; }
+.source-set-panel { margin-top: 10px; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; font-size: 12px; text-align: left; }
+.source-set-panel .ss-title { font-weight: 600; }
+.source-set-panel .ss-count { margin-top: 2px; font-weight: 600; }
+.source-set-panel .ss-count.ng { color: #b91c1c; }
+.source-set-panel .ss-count.ok { color: #15803d; }
+.source-set-panel .ss-patterns { margin: 6px 0; padding-left: 0; list-style: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
+.source-set-panel .ss-patterns li.ok { color: #15803d; }
+.source-set-panel .ss-patterns li.missing, .source-set-panel .ss-patterns li.dup { color: #b91c1c; font-weight: 600; }
+.source-set-panel .ss-block { color: #b91c1c; font-weight: 600; margin-top: 4px; }
+.source-set-panel .ss-warn { color: #92400e; margin-top: 4px; }
+.source-set-panel .ss-ok { color: #15803d; font-weight: 600; margin-top: 4px; }

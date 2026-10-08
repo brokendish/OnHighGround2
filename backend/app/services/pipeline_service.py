@@ -46,6 +46,14 @@ from app.services.flood_routing_contract import (
     verify_routing_for_canonical,
 )
 from app.services import admin_atomic_publish as aap
+from app.services import source_group
+from app.services.acquisition_history import (
+    AcquisitionMethod,
+    AcquisitionRecord,
+    AcquisitionStatus,
+    describe_source_files,
+    get_acquisition_store,
+)
 from app.services.docker_operation_gateway import DockerOperationError, execute_operation
 from app.services.job_manager import JobManager
 
@@ -303,6 +311,93 @@ def _append_history(
     ss.append_history(h)
 
 
+# ── 取得原本セット guard / acquisition history ────────────────────────────────
+
+def _source_set_guard(job: Job, jm: JobManager, defn: DatasetDefinition, path: Path,
+                      display_name: Optional[str] = None) -> bool:
+    """source_group_mode に対し原本構成が不足・不正なら job を失敗させ False（pipeline 側 hard guard）。
+    UI / API と同じ判定（source_group.evaluate_stored_file）を使い、canonical には一切触れない。"""
+    try:
+        ev = source_group.evaluate_stored_file(defn, path, display_name)
+    except Exception as exc:  # noqa: BLE001 — 判定不能は fail-closed
+        jm.log(job, f"ERROR: 原本構成を判定できません: {exc}")
+        _fail(job, jm, source_group.SOURCE_SET_UNEXPECTED,
+              "取得原本の構成を判定できないため取り込みを中止しました。既存の canonical は変更していません。",
+              "投入ファイルを確認してください。")
+        return False
+    for w in ev.warnings:
+        jm.log(job, f"WARN: {w}")
+    if ev.ok:
+        if ev.enforced:
+            jm.log(job, f"原本構成 OK（{ev.source_group_mode}）: {', '.join(ev.selected_files)}")
+        return True
+    for r in ev.blocking_reasons:
+        jm.log(job, f"ERROR: {r}")
+    _fail(job, jm, ev.error_code or source_group.SOURCE_SET_INCOMPLETE,
+          "取得原本の構成が不足または不正なため取り込みを中止しました。既存の canonical は変更していません。",
+          "必要な原本を全て揃えて 1 回の処理で投入してください（個別投入は canonical を置き換えるため禁止）。")
+    return False
+
+
+def _record_acquisition(job: Job, defn: DatasetDefinition, raw_path: Path,
+                        acquisition: Optional[dict]) -> Optional[str]:
+    """raw 保存直後に取得事実を記録する（原本名・サイズ・sha256、bundle 内原本まで）。
+    記録失敗は取込を止めない（provenance が欠けたことは Data Operations Console に INCOMPLETE で出る）。"""
+    acq = dict(acquisition or {})
+    try:
+        original = [n for n in acq.get("original_files") or [] if n]
+        if defn.source_file_patterns and source_group.matches_any_pattern(defn, raw_path.name):
+            member_filter = None  # raw 自体が原本
+        elif len(original) > 1:
+            names = set(original)
+            member_filter = lambda n: n in names  # noqa: E731 — 管理画面が梱包した bundle
+        elif defn.source_file_patterns:
+            member_filter = lambda n: source_group.matches_any_pattern(defn, n)  # noqa: E731
+        else:
+            member_filter = None
+        from app.services.provenance_validity import with_region_members
+        member_filter = with_region_members(defn, raw_path.name, member_filter)
+        files, bundle = describe_source_files(raw_path, member_filter=member_filter)
+        rec = AcquisitionRecord(
+            dataset_id=defn.dataset_id,
+            acquisition_method=AcquisitionMethod(acq.get("method", AcquisitionMethod.upload.value)),
+            source_url=acq.get("source_url"),
+            final_url=acq.get("final_url"),
+            source_files=files,
+            bundle=bundle,
+            ingest_job_id=job.job_id,
+            raw_path=str(raw_path),
+            actor_id=getattr(job, "actor_id", None),
+            status=AcquisitionStatus.received,
+        )
+        store = get_acquisition_store()
+        from app.services import provenance_validity
+        provenance_validity.apply(defn, rec, store.all_active())
+        if rec.validity.value != "valid":
+            logger.warning("acquisition recorded with validity=%s: %s (%s)",
+                           rec.validity.value, defn.dataset_id, rec.validity_reason)
+        store.add(rec)
+        return rec.acquisition_id
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("acquisition record failed: %s: %s", defn.dataset_id, exc)
+        return None
+
+
+def _finalize_acquisition(job: Job, defn: DatasetDefinition, acquisition_id: Optional[str]) -> None:
+    """canonical 生成まで成功した取得だけを active にする（失敗した取得は active にしない）。"""
+    if not acquisition_id:
+        return
+    try:
+        if job.status == JobStatus.failed:
+            get_acquisition_store().update(defn.dataset_id, acquisition_id, status=AcquisitionStatus.failed,
+                                           note=f"job failed: {job.error_code}")
+        else:
+            get_acquisition_store().update(defn.dataset_id, acquisition_id, status=AcquisitionStatus.processed,
+                                           activate=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("acquisition finalize failed: %s: %s", defn.dataset_id, exc)
+
+
 # ── ingest_upload ─────────────────────────────────────────────────────────────
 
 async def run_ingest_upload(
@@ -312,14 +407,22 @@ async def run_ingest_upload(
     jm: JobManager,
     ss: DatasetStateService,
     tmp_path: Path,
+    acquisition: Optional[dict] = None,
 ) -> None:
     """
     アップロード済みファイルをraw格納場所に保存する。
     normalize/validate が必要な場合は続けて実行する。
+
+    acquisition: 取得事実（method / original_files / source_url）。raw 保存後に acquisition
+    history へ記録する。原本セットが不足・不正なら raw 保存前に拒否する（state・canonical 不変）。
     """
     jm.update(job, status=JobStatus.running, step=JobStep.upload_store,
                progress_message="元データを保管中...")
     jm.log(job, f"=== ingest_upload start: {defn.dataset_id} ===")
+
+    if not _source_set_guard(job, jm, defn, tmp_path):
+        Path(tmp_path).unlink(missing_ok=True)
+        return
 
     try:
         dest_dir = (_PROJECT_ROOT / defn.raw_storage_path).resolve()
@@ -354,8 +457,11 @@ async def run_ingest_upload(
               "ディスク容量または権限を確認してください。")
         return
 
+    acquisition_id = _record_acquisition(job, defn, dest_path, acquisition or {"method": "upload"})
+
     # 後続パイプライン実行
     await _run_post_ingest_pipeline(job, defn, state, jm, ss)
+    _finalize_acquisition(job, defn, acquisition_id)
 
 
 # ── ingest_fetch_url / ingest_fetch_official ──────────────────────────────────
@@ -394,7 +500,8 @@ async def run_ingest_fetch_url(
               exit_code=ret)
         return
 
-    await _store_downloaded(job, defn, state, jm, ss, dest_path)
+    await _store_downloaded(job, defn, state, jm, ss, dest_path,
+                            acquisition={"method": "url", "source_url": fetch_url})
 
 
 async def run_ingest_fetch_official(
@@ -456,7 +563,20 @@ async def run_ingest_fetch_official(
         _append_history(ss, defn.dataset_id, OperationType.ingest, job,
                         source_file_name=raw_dir.name, artifact_path=str(raw_dir))
 
+        acquisition_id = None
+        try:
+            rec = AcquisitionRecord(
+                dataset_id=defn.dataset_id, acquisition_method=AcquisitionMethod.api,
+                source_url=defn.official_source_url, ingest_job_id=job.job_id, raw_path=str(raw_dir),
+                actor_id=getattr(job, "actor_id", None),
+                notes=[f"batch downloader: {defn.downloader_name}（{file_count} files、個別原本は raw_dir 参照）"],
+            )
+            acquisition_id = get_acquisition_store().add(rec).acquisition_id
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("acquisition record failed: %s: %s", defn.dataset_id, exc)
+
         await _run_post_ingest_pipeline(job, defn, state, jm, ss)
+        _finalize_acquisition(job, defn, acquisition_id)
         return
 
     # 通常の単一 URL ダウンロード
@@ -488,7 +608,8 @@ async def run_ingest_fetch_official(
               exit_code=ret)
         return
 
-    await _store_downloaded(job, defn, state, jm, ss, dest_path)
+    await _store_downloaded(job, defn, state, jm, ss, dest_path,
+                            acquisition={"method": "url", "source_url": defn.official_source_url})
 
 
 async def _store_downloaded(
@@ -498,8 +619,14 @@ async def _store_downloaded(
     jm: JobManager,
     ss: DatasetStateService,
     dest_path: Path,
+    acquisition: Optional[dict] = None,
 ) -> None:
     jm.update(job, step=JobStep.upload_store, progress_message="元データを保管中...")
+
+    # URL 取得は raw dir へ直接ダウンロード済み。原本構成が不足・不正なら state を更新せず中止する
+    # （ダウンロード済み file は削除しない・current_raw_path / canonical は変更しない）。
+    if not _source_set_guard(job, jm, defn, dest_path):
+        return
 
     file_size = dest_path.stat().st_size if dest_path.exists() else 0
     jm.log(job, f"Stored: {dest_path} ({file_size} bytes)")
@@ -520,7 +647,10 @@ async def _store_downloaded(
     _append_history(ss, defn.dataset_id, OperationType.ingest, job,
                     source_file_name=dest_path.name, artifact_path=str(dest_path))
 
+    acquisition_id = _record_acquisition(job, defn, dest_path, acquisition)
+
     await _run_post_ingest_pipeline(job, defn, state, jm, ss)
+    _finalize_acquisition(job, defn, acquisition_id)
 
 
 # ── normalize / validate パイプライン ─────────────────────────────────────────
@@ -533,6 +663,12 @@ async def _run_post_ingest_pipeline(
     ss: DatasetStateService,
 ) -> None:
     """ingest後に normalize → validate（flood は → derive routing → validate routing）を順次実行する。"""
+
+    # 原本構成の最終 guard（normalize で canonical を置き換える前）。current_raw_path が部分投入の
+    # 原本なら canonical を再生成しない。
+    if defn.source_group_mode is not None and state.current_raw_path and Path(state.current_raw_path).is_file():
+        if not _source_set_guard(job, jm, defn, Path(state.current_raw_path)):
+            return
 
     if defn.requires_normalize and defn.transformer_name:
         ok = await _do_normalize(job, defn, state, jm, ss)
@@ -975,6 +1111,15 @@ async def run_deploy(
                progress_message="現在のデータをバックアップ中...")
     jm.log(job, f"=== deploy start: {defn.dataset_id} ===")
 
+    if defn.layer_type in aap.ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES:
+        # tsunami: atomic publish 未統合。flat copy だけで「反映完了」にしない（current に入らないため）。
+        state.deploy_status = DeployStatus.failed
+        ss.save(state)
+        _fail(job, jm, "ATOMIC_PUBLISH_UNSUPPORTED",
+              "このデータ種別は管理画面から実行環境へ反映できません（正式公開経路へ未統合）。",
+              "津波データの公開方式（どの版を判定に使うか）の決定後に対応します。管理者に連絡してください。")
+        return
+
     if flood_routing_migration_ref is not None and defn.layer_type not in aap.ATOMIC_PUBLISH_LAYER_TYPES:
         state.deploy_status = DeployStatus.failed
         ss.save(state)
@@ -1363,6 +1508,13 @@ async def _run_atomic_publish_deploy(
             if await asyncio.to_thread(sha256_file, artifact) != routing_meta["routing_artifact_sha256"]:
                 raise aap.AtomicPublishError("ATOMIC_PUBLISH_ARTIFACT_MISMATCH",
                                              f"公開された routing artifact が derived と一致しません: {artifact}")
+        elif src_path.is_file():
+            # 公開された artifact が反映元の validated と同一であること（normalized の旧内容や
+            # 別 dataset の file が同名で入っていないこと）
+            from app.services.flood_routing_contract import sha256_file
+            if await asyncio.to_thread(sha256_file, artifact) != await asyncio.to_thread(sha256_file, src_path):
+                raise aap.AtomicPublishError("ATOMIC_PUBLISH_ARTIFACT_MISMATCH",
+                                             f"公開された artifact が反映元と一致しません: {artifact}")
     except (aap.AtomicPublishError, FloodRoutingContractError, OSError) as exc:
         code = getattr(exc, "code", "ATOMIC_PUBLISH_VERIFY_FAILED")
         jm.log(job, f"atomic publish 事後検証エラー: {exc}")
@@ -1377,9 +1529,8 @@ async def _run_atomic_publish_deploy(
     ss.save(state)
     _append_history(ss, defn.dataset_id, OperationType.deploy, job, artifact_path=str(artifact))
     jm.log(job, f"atomic publish succeeded: current -> versions/{version_id} artifact={artifact}")
-
-    if defn.layer_type in _HAZARD_BACKEND_MIRROR_TYPES:
-        _reload_hazard_backend_mirror(job, defn, state, jm)
+    # 正式経路は versioned runtime（backend-public は current を lease して読む）。flat mirror
+    # （_reload_hazard_backend_mirror）は atomic publish 未導入環境向けの旧経路のため、ここでは書かない。
 
     message = f"実行環境への公開が完了しました（version {version_id}・{mode}）。"
     if ret == aap.EXIT_MIRROR_CONTRACT:
@@ -1605,7 +1756,7 @@ async def run_rollback(
                progress_message="1世代前のデータに戻しています...")
     jm.log(job, f"=== rollback start: {defn.dataset_id} ===")
 
-    if defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES:
+    if defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES | aap.ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES:
         # atomic publish 管理の dataset は flat backup を戻しても backend-public の判定に反映されず、
         # 表示と実 runtime が乖離する。version 単位の rollback（operator CLI）だけを正式手段とする。
         _fail(job, jm, "ROLLBACK_ATOMIC_PUBLISH_MANAGED",

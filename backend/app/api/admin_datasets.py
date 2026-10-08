@@ -55,6 +55,8 @@ from app.services.active_mapping_service import get_active_mapping_service
 from app.services.admin_log_service import write_app_log
 from app.services import pipeline_service
 from app.services import admin_atomic_publish as aap
+from app.services import dataset_runtime_reconcile as drr
+from app.services import source_group
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,27 @@ _ERROR_MESSAGES: Dict[str, Dict[str, str]] = {
     "UPLOAD_FILE_TOO_LARGE": {
         "user_message": "ファイルサイズが大きすぎるため、アップロードできませんでした。",
         "action_message": "URL取得または公式サイトから取得を利用してください。",
+    },
+    # Data Operations Console: 取得原本セット（source_group_mode）の hard guard
+    "SOURCE_SET_INCOMPLETE": {
+        "user_message": "必須の原本ファイルが揃っていないため取り込めません。",
+        "action_message": "必要な原本を全て選択し、1 回の処理で投入してください（個別投入は canonical を置き換えるため禁止）。",
+    },
+    "SOURCE_SET_DUPLICATE": {
+        "user_message": "同じ種類の原本ファイルが複数選択されています。",
+        "action_message": "年度・版が混在していないか確認し、各原本を 1 ファイルずつ選択してください。",
+    },
+    "SOURCE_SET_UNEXPECTED_FILE": {
+        "user_message": "想定外のファイルが含まれています。",
+        "action_message": "データセットの原本ファイル名規約を確認してください。",
+    },
+    "SOURCE_SET_TOO_MANY_FILES": {
+        "user_message": "このデータセットに投入できるファイル数を超えています。",
+        "action_message": "原本を 1 ファイルだけ選択してください。",
+    },
+    "SOURCE_SET_EMPTY": {
+        "user_message": "ファイルが選択されていません。",
+        "action_message": "原本ファイルを選択してください。",
     },
     "UPLOAD_EXTENSION_NOT_ALLOWED": {
         "user_message": "このファイル形式は受け付けられません。",
@@ -101,6 +124,10 @@ _ERROR_MESSAGES: Dict[str, Dict[str, str]] = {
     "FLOOD_ROUTING_MIGRATION_APPROVAL_REQUIRED": {
         "user_message": "初回移行には OWNER の承認参照が必要です。",
         "action_message": "3〜200 文字の英数字と . _ : @ / + ( ) - 空白で承認参照を入力してください。",
+    },
+    "ATOMIC_PUBLISH_UNSUPPORTED": {
+        "user_message": "このデータ種別は管理画面から実行環境へ反映できません（正式公開経路へ未統合）。",
+        "action_message": "津波データの公開方式（どの版を判定に使うか）の決定後に対応します。管理者に連絡してください。",
     },
     "ROLLBACK_ATOMIC_PUBLISH_MANAGED": {
         "user_message": "このデータは実行環境の version 単位で管理されているため、ここからは戻せません。",
@@ -166,6 +193,9 @@ def _build_summary(dataset_id: str) -> Optional[DatasetSummary]:
 
     state = ss.init_from_definition(defn)
     ss.update_deployable(state, defn)
+    # 実 runtime（current + manifest）と照合して表示を同期する。一覧は 5 秒周期で呼ばれるため、
+    # 反映元 sha256 がキャッシュに無ければ計算しない（判定不能なら state を変更しない）。
+    _reconcile_quietly(defn, state, ss, allow_hash=False)
 
     is_active = am.is_active(defn.layer_type, defn.region, dataset_id)
     has_backup = bool(state.backup_path)
@@ -201,6 +231,15 @@ def _build_summary(dataset_id: str) -> Optional[DatasetSummary]:
     )
 
 
+def _reconcile_quietly(defn, state, ss, allow_hash: bool):
+    """runtime 照合の失敗で API 自体を失敗させない（state はそのまま返す）。"""
+    try:
+        return drr.reconcile_one(defn, state, ss, allow_hash=allow_hash, persist=True)
+    except Exception as exc:  # noqa: BLE001 — 表示用の同期であり API の成否に影響させない
+        logger.warning("runtime reconcile failed: dataset_id=%s: %s", defn.dataset_id, exc)
+        return None
+
+
 # ── GET /datasets ─────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[DatasetSummary])
@@ -222,6 +261,13 @@ async def list_datasets(
 
 # ── GET /datasets/{dataset_id} ────────────────────────────────────────────────
 
+@router.get("/runtime-reconcile")
+async def get_runtime_reconcile_report():
+    """全 dataset の runtime 照合結果と registry 外 runtime artifact（整合性ダッシュボード用の素材）。
+    反映元 sha256 はキャッシュのみ使用し、ここでは計算しない（state も変更しない）。"""
+    return drr.reconcile_all(allow_hash=False, persist=False)
+
+
 @router.get("/{dataset_id}", response_model=DatasetDetail)
 async def get_dataset(dataset_id: str):
     ds_svc = get_definition_service()
@@ -234,6 +280,7 @@ async def get_dataset(dataset_id: str):
 
     state = ss.init_from_definition(defn)
     ss.update_deployable(state, defn)
+    _reconcile_quietly(defn, state, ss, allow_hash=True)
 
     last_job: Optional[Job] = None
     if state.last_job_id:
@@ -282,6 +329,15 @@ async def upload_dataset(
     if not files:
         return _error_response("UPLOAD_NO_FILE", detail="ファイルが選択されていません")
 
+    # 取得原本セットの hard guard（UI の判定と同じ source_group.evaluate_source_set）。
+    # 複数ファイルは原本名の集合で判定する（内容を読む前に拒否）。単一ファイルは bundle zip の
+    # 可能性があるため一時保存後に zip 内を判定する（下記）。
+    if len(files) > 1:
+        ev = source_group.evaluate_source_set(defn, [_sanitize_filename(f.filename or "") for f in files])
+        if not ev.ok:
+            return _error_response(ev.error_code, 422, detail=" / ".join(ev.blocking_reasons),
+                                   source_set=ev.as_dict())
+
     # 全ファイルの内容を読み込み（拡張子チェック・サイズ集計も同時に行う）
     contents: List[tuple[str, bytes]] = []
     total_bytes = 0
@@ -322,6 +378,11 @@ async def upload_dataset(
             final_tmp = Path(tmp.name)
         final_tmp = final_tmp.parent / filename
         Path(tmp.name).rename(final_tmp)
+        ev = source_group.evaluate_stored_file(defn, final_tmp)
+        if not ev.ok:
+            final_tmp.unlink(missing_ok=True)
+            return _error_response(ev.error_code, 422, detail=" / ".join(ev.blocking_reasons),
+                                   source_set=ev.as_dict())
     else:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -346,7 +407,10 @@ async def upload_dataset(
     state.last_job_id = job.job_id
     ss.save(state)
 
-    jm.submit(job, pipeline_service.run_ingest_upload(job, defn, state, jm, ss, final_tmp))
+    jm.submit(job, pipeline_service.run_ingest_upload(
+        job, defn, state, jm, ss, final_tmp,
+        acquisition={"method": "upload", "original_files": [name for name, _ in contents]},
+    ))
     _safe_write_app_log(
         f"dataset request accepted action=ingest_upload dataset_id={dataset_id} job_id={job.job_id}"
     )
@@ -537,22 +601,79 @@ async def railway_pmtiles_update(
 
 @router.get("/{dataset_id}/publish-status")
 async def get_publish_status(dataset_id: str):
-    """反映方式と、洪水 routing 初回移行の要否（UI の通常反映／移行反映の出し分け用）。"""
+    """実行環境（current + manifest + artifact）を正とした反映状態。DatasetState もここで同期する。
+
+    publish_mode: atomic / unsupported（管理画面から反映不可）/ legacy（従来経路）
+    runtime_status: published / not_published / stale / mismatch / unsupported / legacy / unknown
+    （定義は app/services/dataset_runtime_reconcile.py）
+    """
     defn = get_definition_service().get(dataset_id)
     if defn is None:
         return _not_found(dataset_id)
-    if defn.layer_type not in aap.ATOMIC_PUBLISH_LAYER_TYPES:
-        return {"dataset_id": dataset_id, "publish_mode": "legacy",
-                "current_version": None, "flood_routing_migration_required": False, "legacy_flood_files": []}
-    legacy = aap.legacy_flood_files_in_current()
+    ss = get_state_service()
+    state = ss.init_from_definition(defn)
+    ss.update_deployable(state, defn)
+    view = drr.load_runtime_view()
+    try:
+        res = drr.reconcile_one(defn, state, ss, allow_hash=True, persist=True, view=view)
+        reconciled = res.runtime_status != drr.UNKNOWN
+    except Exception as exc:  # noqa: BLE001 — 判定不能は unknown として返す（fail-open にしない）
+        logger.warning("publish-status reconcile failed: dataset_id=%s: %s", dataset_id, exc)
+        res = drr.ReconcileResult(dataset_id=dataset_id, layer_type=defn.layer_type, region=defn.region,
+                                  publish_mode="unknown", runtime_status=drr.UNKNOWN,
+                                  current_version=view.version_id, reason=str(exc))
+        reconciled = False
+    legacy = aap.legacy_flood_files_in_current() if res.publish_mode == "atomic" else []
+    unregistered = [a for a in drr.unregistered_runtime_artifacts(view, {res.runtime_rel} if res.runtime_rel else set())
+                    if a["hazard_type"] == defn.layer_type and a["region"] == defn.region]
     return {
         "dataset_id": dataset_id,
-        "publish_mode": "atomic",
-        "current_version": aap.current_version_id(),
+        "current_version": res.current_version,
+        "publish_mode": res.publish_mode,
+        "runtime_status": res.runtime_status,
+        "artifact_present": res.artifact_present,
+        "runtime_path": res.runtime_path,
+        "runtime_sha256": res.runtime_sha256,
+        "source_sha256": res.source_sha256,
+        "matches_source": res.matches_source,
+        "state_reconciled": reconciled,
+        "reason": res.reason,
+        "deployable": bool(state.is_deployable),
+        "deploy_status": state.deploy_status,
+        "provenance": res.provenance,
         "flood_routing_migration_required": bool(legacy),
-        "migration_allowed_for_dataset": defn.layer_type == "flood",
+        "migration_allowed_for_dataset": res.publish_mode == "atomic" and defn.layer_type == "flood",
         "legacy_flood_files": legacy,
+        # 同じ layer_type / region に存在する registry 外の runtime artifact（削除はしない）
+        "unregistered_runtime_artifacts": unregistered,
+        # provenance 健全性（警告のみ・反映は止めない）。atomic publish は current を種に全 region を
+        # 積み直すため、他 dataset の不整合データも同じ publish で再公開される → 範囲内の mismatch を列挙する
+        **_provenance_warnings(defn, state, res.publish_mode),
     }
+
+
+def _provenance_warnings(defn, state, publish_mode) -> dict:
+    from app.services import data_ops_service
+    out = {"provenance_validity": None, "provenance_reason": None, "provenance_mismatch_in_publish_scope": []}
+    try:
+        own = data_ops_service.acquisition_section(defn, state=state)
+        out["provenance_validity"], out["provenance_reason"] = own["validity"], own["validity_reason"]
+        if publish_mode != "atomic":
+            return out
+        regions = set(aap.publish_regions())
+        ss = get_state_service()
+        for other in get_definition_service().list_all():
+            if other.layer_type not in aap.HAZARD_PUBLISH_LAYER_TYPES or other.region not in regions:
+                continue
+            acq = own if other.dataset_id == defn.dataset_id else data_ops_service.acquisition_section(
+                other, state=ss.init_from_definition(other))
+            if acq["validity"] == "provenance_mismatch":
+                out["provenance_mismatch_in_publish_scope"].append(
+                    {"dataset_id": other.dataset_id, "reason": acq["validity_reason"]})
+    except Exception as exc:  # noqa: BLE001 — 警告情報の取得失敗で publish-status 全体を失敗させない
+        logger.warning("provenance warning lookup failed: %s: %s", defn.dataset_id, exc)
+        out["provenance_error"] = f"{type(exc).__name__}: {exc}"
+    return out
 
 
 # ── POST /datasets/{dataset_id}/deploy ───────────────────────────────────────
@@ -594,6 +715,9 @@ async def deploy_dataset(
             return _error_response("DEPLOY_BLOCKED_VALIDATION_FAILED")
         return _error_response("DEPLOY_BLOCKED_VALIDATION_FAILED",
                                 detail="deploy conditions not met")
+
+    if defn.layer_type in aap.ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES:
+        return _error_response("ATOMIC_PUBLISH_UNSUPPORTED", detail=f"layer_type={defn.layer_type}")
 
     # 洪水 routing 初回移行の指定を検証する（暗黙の migration 許可はしない）
     body = body or DeployRequest()
@@ -658,7 +782,7 @@ async def rollback_dataset(
     if jm.has_running_job(dataset_id):
         return _error_response("DEPLOY_BLOCKED_RUNNING_JOB")
 
-    if defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES:
+    if defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES | aap.ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES:
         return _error_response("ROLLBACK_ATOMIC_PUBLISH_MANAGED")
 
     if not state.backup_path:

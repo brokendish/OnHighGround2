@@ -25,9 +25,12 @@ from app.services.operator_audit_log import AuditSinkError, log_operator_interna
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_ADMIN_JOBS_DIR = _PROJECT_ROOT / "data_lake" / "admin" / "jobs"
-_ADMIN_LOGS_DIR = _PROJECT_ROOT / "data_lake" / "admin" / "logs"
-_BOOT_STATE_PATH = _PROJECT_ROOT / "data_lake" / "admin" / "boot_state.json"
+# data_lake/admin の root。テストは OHG2_ADMIN_DIR で tmp に隔離する（tests/admin_isolation.py）。
+# 未設定時は従来どおり <project>/data_lake/admin（本番 container では /data_lake/admin）。
+_ADMIN_DIR = Path(os.environ.get("OHG2_ADMIN_DIR") or (_PROJECT_ROOT / "data_lake" / "admin"))
+_ADMIN_JOBS_DIR = _ADMIN_DIR / "jobs"
+_ADMIN_LOGS_DIR = _ADMIN_DIR / "logs"
+_BOOT_STATE_PATH = _ADMIN_DIR / "boot_state.json"
 _LOG_TAIL_LINES = 200
 
 
