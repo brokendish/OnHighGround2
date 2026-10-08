@@ -334,7 +334,8 @@ def test_registry_region_codes_for_flood_only():
     ds = get_definition_service()
     assert ds.get("TOKYO-RIVER-001").expected_source_region_code == "13"
     assert ds.get("KANAGAWA-RIVER-001").expected_source_region_code == "14"
-    assert {d.dataset_id for d in ds.list_all() if d.expected_source_region_code} == {"TOKYO-RIVER-001", "KANAGAWA-RIVER-001"}
+    assert {d.dataset_id for d in ds.list_all() if d.expected_source_region_code} == {
+        "TOKYO-RIVER-001", "KANAGAWA-RIVER-001", "TOKYO-BOUNDARY-001", "KANAGAWA-BOUNDARY-001"}
     tr = ds.get("TOKYO-RIVER-001")
     files = [ah.SourceFile(name=n) for n in A31]
     assert pv.extract_region_codes(tr, files) == [("A31a-25_13_10_GML.zip", "13"), ("A31a-25_13_20_GML.zip", "13")]

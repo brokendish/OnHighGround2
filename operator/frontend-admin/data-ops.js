@@ -369,6 +369,12 @@
         stageRows("Canonical", tr.canonical, [
           ["features", tr.canonical.feature_count != null ? `${fmtNum(tr.canonical.feature_count)}（${tr.canonical.feature_count_source}）` : "UNKNOWN"],
           ["validation", tr.canonical.validation_status],
+          ["metadata", (() => {
+            const md = tr.canonical.metadata;
+            if (!md) return "—";
+            return withSub(badge(md.consistent ? "OK" : "WARNING", md.consistent ? "CONSISTENT" : "METADATA MISMATCH"),
+              `source_dataset=${md.source_dataset ?? "—"} / region=${md.region_code ?? "—"}` + (md.mismatches.length ? ` / ${md.mismatches.join("; ")}` : ""));
+          })()],
           ["coverage", (() => {
             const cp = tr.coverage_policy;
             if (!cp) return "—";

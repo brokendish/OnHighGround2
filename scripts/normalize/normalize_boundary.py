@@ -10,21 +10,24 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 
-DATASET_ID = "TOKYO-BOUNDARY-001"
-REGION_CODE = "13"
-DEFAULT_OUTPUT = "data_lake/normalized/tokyo/boundary/tokyo_boundary.geojson"
+# provenance metadata（source_dataset / normalized_region_code）は呼び出し側（pipeline は dataset
+# definition の dataset_id / expected_source_region_code）から受け取る。以前は東京固定値で、神奈川の
+# 境界にも TOKYO-BOUNDARY-001 / 13 が付与されていた。geometry と N03 属性は変更しない。
 GEOJSON_EXTENSIONS = {".geojson", ".json"}
+METADATA_FIELDS = ("source_dataset", "normalized_region_code", "feature_index")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Normalize Tokyo boundary data to GeoJSON.")
+    parser = argparse.ArgumentParser(description="Normalize administrative boundary data (N03) to GeoJSON.")
     parser.add_argument("--input", required=True, help="Input dataset path.")
-    parser.add_argument(
-        "--output",
-        default=DEFAULT_OUTPUT,
-        help="Output GeoJSON path.",
-    )
-    return parser.parse_args()
+    parser.add_argument("--output", required=True, help="Output GeoJSON path.")
+    parser.add_argument("--dataset-id", required=True, help="source_dataset に記録する dataset ID")
+    parser.add_argument("--region-code", required=True,
+                        help="normalized_region_code（都道府県コード 2 桁）。N03_007 の先頭 2 桁と照合する")
+    args = parser.parse_args()
+    if not (len(args.region_code) == 2 and args.region_code.isdigit()):
+        parser.error("--region-code は 2 桁の数字（例: 13, 14）")
+    return args
 
 
 def _repo_root() -> Path:
@@ -79,14 +82,15 @@ def _load_geojson(input_path: Path) -> dict:
     return data
 
 
-def _normalize_feature(feature: dict, index: int) -> Optional[dict]:
+def _normalize_feature(feature: dict, index: int, dataset_id: str, region_code: str) -> Optional[dict]:
     geometry = feature.get("geometry")
     if not geometry:
         return None
     properties = dict(feature.get("properties") or {})
-    properties.setdefault("source_dataset", DATASET_ID)
-    properties.setdefault("normalized_region_code", REGION_CODE)
-    properties.setdefault("feature_index", index)
+    # normalizer が付与する metadata は常に上書きする（入力に旧値が残っていても引き継がない）
+    properties["source_dataset"] = dataset_id
+    properties["normalized_region_code"] = region_code
+    properties["feature_index"] = index
     return {
         "type": "Feature",
         "geometry": geometry,
@@ -94,14 +98,24 @@ def _normalize_feature(feature: dict, index: int) -> Optional[dict]:
     }
 
 
-def _build_normalized_collection(source_data: dict, source_name: str) -> dict:
+def _check_region_codes(features: list, region_code: str) -> None:
+    """N03_007（全国地方公共団体コード）の先頭 2 桁が region_code と異なる feature があれば拒否する
+    （別都道府県の原本を取り込んで metadata だけ付け替える事故を防ぐ）。N03_007 が無い feature は対象外。"""
+    bad = sorted({str(f["properties"].get("N03_007"))[:2] for f in features
+                  if f["properties"].get("N03_007") and str(f["properties"]["N03_007"])[:2] != region_code})
+    if bad:
+        raise ValueError(f"N03_007 の都道府県コード {bad} が --region-code {region_code} と一致しません")
+
+
+def _build_normalized_collection(source_data: dict, source_name: str, dataset_id: str, region_code: str) -> dict:
     normalized_features = []
     for index, feature in enumerate(source_data.get("features", [])):
-        normalized = _normalize_feature(feature, index)
+        normalized = _normalize_feature(feature, index, dataset_id, region_code)
         if normalized is not None:
             normalized_features.append(normalized)
     if not normalized_features:
         raise ValueError("Normalized boundary data contains no usable features.")
+    _check_region_codes(normalized_features, region_code)
     return {
         "type": "FeatureCollection",
         "name": f"{source_name}_normalized",
@@ -174,7 +188,7 @@ def main() -> int:
 
     try:
         source_data, source_name = _convert_input_to_geojson(input_path)
-        normalized = _build_normalized_collection(source_data, source_name)
+        normalized = _build_normalized_collection(source_data, source_name, args.dataset_id, args.region_code)
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 1

@@ -778,6 +778,16 @@ async def _do_normalize(
         cmd.extend(["--dataset-id", defn.dataset_id])
     if defn.transformer_name == "normalize_lowland_poor_drainage":
         cmd.extend(["--region", defn.region])
+    if defn.transformer_name == "normalize_boundary":
+        # provenance metadata は dataset definition から渡す（normalizer に地域固定値を持たせない）
+        if not defn.expected_source_region_code:
+            _fail(job, jm, "NORMALIZE_FAILED",
+                  "境界データの地域コードが定義されていません。",
+                  "dataset definition に expected_source_region_code を設定してください。")
+            state.normalize_status = NormalizeStatus.failed
+            ss.save(state)
+            return False
+        cmd.extend(["--dataset-id", defn.dataset_id, "--region-code", defn.expected_source_region_code])
     # 避難場所データは layer_type に応じた designation を付与する
     if defn.transformer_name == "normalize_shelter":
         _DESIGNATION_MAP = {

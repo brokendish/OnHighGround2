@@ -447,9 +447,13 @@ def transform_section(defn: DatasetDefinition, state: DatasetState, view: drr.Ru
             canonical["feature_count"] = fc
             canonical["feature_count_source"] = "current manifest（sha256 一致）"
 
+    canonical["metadata"] = _canonical_metadata(defn, state.current_validated_path) if canonical["exists"] else None
     if not canonical["exists"]:
         cstatus = WARNING if defn.requires_validation or defn.requires_normalize else NOT_APPLICABLE
         creason = "canonical（validated）がありません"
+    elif canonical["metadata"] and canonical["metadata"]["consistent"] is False:
+        cstatus = WARNING
+        creason = "canonical の provenance metadata が dataset 定義と不一致: " + "; ".join(canonical["metadata"]["mismatches"])
     elif state.validation_status == ValidationStatus.failed or state.normalize_status == NormalizeStatus.failed:
         cstatus, creason = ERROR, "変換または検証が失敗しています"
     else:
@@ -498,6 +502,32 @@ def routing_validation_from_logs(job_ids: List[Optional[str]], routing_name: str
                 return {"coverage_false_negatives": obj["coverage_false_negatives"], "feature_count": obj["feature_count"],
                         "source": f"job log {job_id}"}
     return None
+
+
+def _canonical_metadata(defn: DatasetDefinition, path: Optional[str]) -> Optional[Dict[str, Any]]:
+    """normalizer が付与した provenance metadata（source_dataset / normalized_region_code）を先頭 feature
+    から読み、dataset 定義と照合する（先頭 1 件だけを stream で読む。metadata を持たない dataset は None）。"""
+    if not path:
+        return None
+    try:
+        import ijson
+        with open(path, "rb") as f:
+            first = next(ijson.items(f, "features.item"), None)
+    except Exception:  # noqa: BLE001 — 読めなければ照合しない
+        return None
+    props = (first or {}).get("properties") or {}
+    if "source_dataset" not in props and "normalized_region_code" not in props:
+        return None
+    mismatches = []
+    if props.get("source_dataset") not in (None, defn.dataset_id):
+        mismatches.append(f"source_dataset={props.get('source_dataset')}（期待 {defn.dataset_id}）")
+    if defn.expected_source_region_code and props.get("normalized_region_code") not in (
+            None, defn.expected_source_region_code):
+        mismatches.append(f"normalized_region_code={props.get('normalized_region_code')}"
+                          f"（期待 {defn.expected_source_region_code}）")
+    return {"source_dataset": props.get("source_dataset"), "region_code": props.get("normalized_region_code"),
+            "expected_region_code": defn.expected_source_region_code, "consistent": not mismatches,
+            "mismatches": mismatches, "checked": "first feature"}
 
 
 _fc_cache: Dict[str, Any] = {}

@@ -293,7 +293,9 @@
     "validated_storage_path": "data_lake/validated/tokyo/boundary",
     "runtime_path": "data_runtime/frontend/layers/tokyo/boundary",
     "transformer_name": "normalize_boundary",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "expected_source_region_code": "13",
+    "source_region_code_regex": "^N03-\\d+_(\\d{2})"
   },
   {
     "dataset_id": "TOKYO-LANDSLIDE-001",
@@ -686,7 +688,9 @@
     "validated_storage_path": "data_lake/validated/kanagawa/boundary",
     "runtime_path": "data_runtime/frontend/layers/kanagawa/boundary",
     "transformer_name": "normalize_boundary",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "expected_source_region_code": "14",
+    "source_region_code_regex": "^N03-\\d+_(\\d{2})"
   },
   {
     "dataset_id": "TOKYO-PSEUDO-INLAND-FLOOD-001",
