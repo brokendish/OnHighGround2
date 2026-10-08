@@ -448,6 +448,15 @@ def transform_section(defn: DatasetDefinition, state: DatasetState, view: drr.Ru
             canonical["feature_count_source"] = "current manifest（sha256 一致）"
 
     canonical["metadata"] = _canonical_metadata(defn, state.current_validated_path) if canonical["exists"] else None
+    artifact_mode = getattr(defn, "publish_verification_mode", None) == "artifact_record"
+    if not canonical["exists"] and artifact_mode and defn.layer_type == "flood":
+        # runtime node（artifact_record 方式）: canonical 本体は置かない。build node で検証済みの record と
+        # routing meta の連鎖で derived を判定する
+        canonical.update(status=NOT_APPLICABLE, reason="artifact_record 方式: canonical 本体はこの node に置かない（build node で検証済み）")
+        derived = _artifact_record_derived(defn, state)
+        return {"raw": raw, "normalized": normalized, "canonical": canonical, "derived": derived,
+                "normalize_status": state.normalize_status.value, "coverage_policy": _coverage_policy(defn),
+                "verification": "artifact_record"}
     if not canonical["exists"]:
         cstatus = WARNING if defn.requires_validation or defn.requires_normalize else NOT_APPLICABLE
         creason = "canonical（validated）がありません"
@@ -459,6 +468,13 @@ def transform_section(defn: DatasetDefinition, state: DatasetState, view: drr.Ru
     else:
         cstatus, creason = OK, None
     canonical.update(status=cstatus, reason=creason)
+    coverage_policy = _coverage_policy(defn)
+    return {"raw": raw, "normalized": normalized, "canonical": canonical, "derived": derived,
+            "normalize_status": state.normalize_status.value, "coverage_policy": coverage_policy,
+            "verification": "artifact_record" if artifact_mode else "canonical_file"}
+
+
+def _coverage_policy(defn: DatasetDefinition) -> Optional[Dict[str, Any]]:
     coverage_policy = None
     if defn.coverage_required_meshes:
         coverage_policy = {
@@ -469,8 +485,41 @@ def transform_section(defn: DatasetDefinition, state: DatasetState, view: drr.Ru
             "exceptions": [f"{m}: OFFICIAL SOURCE CONTAINS NO {defn.region.upper()} FEATURES"
                            for m in defn.coverage_allow_empty_meshes],
         }
-    return {"raw": raw, "normalized": normalized, "canonical": canonical, "derived": derived,
-            "normalize_status": state.normalize_status.value, "coverage_policy": coverage_policy}
+    return coverage_policy
+
+
+def _artifact_record_derived(defn: DatasetDefinition, state: DatasetState) -> Dict[str, Any]:
+    from app.services import build_provenance, runtime_provenance as rp
+    if not state.current_validated_path:
+        return {"status": UNKNOWN, "reason": "canonical の参照 path が無い"}
+    try:
+        routing, meta_path = routing_paths_for_canonical(Path(state.current_validated_path))
+        meta = load_meta(meta_path)
+    except FloodRoutingContractError as exc:
+        return {"status": ERROR, "reason": f"routing meta 不正: {exc}"}
+    out = _file_info(str(routing))
+    out.update(meta_path=str(meta_path), feature_count=meta["feature_count"], sha256=meta["routing_artifact_sha256"],
+               source_canonical_sha256=meta["source_canonical_sha256"], builder_version=meta.get("builder_version"),
+               generated_at=meta.get("generated_at"), routing_validation=None)
+    try:
+        record = json.loads(rp.build_path(build_provenance._data_lake_root(), defn.region, "flood",
+                                          defn.dataset_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        out.update(status=ERROR, reason="artifact_record 方式だが build provenance record が無い")
+        return out
+    ok = ((record.get("runtime_artifact") or {}).get("sha256") == meta["routing_artifact_sha256"]
+          and (record.get("canonical") or {}).get("sha256") == meta["source_canonical_sha256"])
+    fn = (record.get("validation") or {}).get("routing_coverage_false_negatives")
+    out["routing_validation"] = {"coverage_false_negatives": fn,
+                                 "source": (record.get("validation") or {}).get("routing_validation_source")} \
+        if fn is not None else None
+    if not out["exists"]:
+        out.update(status=ERROR, reason="routing artifact がありません")
+    elif not ok:
+        out.update(status=ERROR, reason="routing meta と build provenance record の連鎖が不一致")
+    else:
+        out.update(status=OK, reason=None)
+    return out
 
 
 _ROUTING_RESULT_KEYS = ("routing", "feature_count", "coverage_false_negatives")

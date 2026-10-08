@@ -58,9 +58,28 @@ from app.services.dataset_state_service import (  # noqa: E402
     get_state_service,
 )
 from app.services.flood_routing_contract import (  # noqa: E402
+    VERIFY_ARTIFACT_RECORD,
     FloodRoutingContractError,
     verify_routing_for_canonical,
+    verify_routing_with_record,
 )
+from app.services import runtime_provenance as rp  # noqa: E402
+
+
+def _data_lake_root() -> Path:
+    p = Path("/data_lake")
+    return p if p.is_dir() else (BACKEND_PROJECT_ROOT / "data_lake")
+
+
+def _load_build_record(region: str, dataset_id: str, data_lake: "Path | None" = None):
+    import json
+    path = rp.build_path(data_lake or _data_lake_root(), region, "flood", dataset_id)
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"schema": "unreadable"}
 
 
 def _resolve_validated_path(defn, state) -> "Path | None":
@@ -116,6 +135,23 @@ def main() -> int:
             continue
 
         state = ss_svc.init_from_definition(defn)
+        if layer_type == "flood" and getattr(defn, "publish_verification_mode", None) == VERIFY_ARTIFACT_RECORD:
+            # artifact_record 方式: canonical 本体の有無に依らず provenance record で連鎖を検証する
+            # （canonical が無いことを理由に skip しない。record 欠落・不一致は fail-closed）
+            canonical_ref = state.current_validated_path or (
+                str(BACKEND_PROJECT_ROOT / defn.validated_storage_path / f"{dataset_id.lower()}.geojson")
+                if defn.validated_storage_path else None)
+            if not canonical_ref:
+                failures.append(f"{dataset_id} (flood:{args.region}) canonical の参照 path を決められません")
+                continue
+            try:
+                candidate, _meta = verify_routing_with_record(
+                    Path(canonical_ref), dataset_id, args.region, _load_build_record(args.region, dataset_id))
+            except FloodRoutingContractError as exc:
+                failures.append(f"{dataset_id} (flood:{args.region}) artifact_record 検証違反: {exc}")
+                continue
+            resolved.append((layer_type, dataset_id, candidate))
+            continue
         candidate = _resolve_validated_path(defn, state)
         if candidate is None:
             # Dual Storage Remediation Phase C1: 「activeなのにsourceが

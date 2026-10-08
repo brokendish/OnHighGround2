@@ -40,6 +40,8 @@ def main() -> int:
     from app.services import admin_atomic_publish as aap
     from app.services import runtime_provenance as rp
     from app.services.active_mapping_service import get_active_mapping_service
+    from app.services.dataset_definition_service import get_definition_service
+    from datetime import datetime, timezone
 
     staging = Path(a.staging)
     data_lake = Path(a.data_lake) if a.data_lake else (Path("/data_lake") if Path("/data_lake").is_dir()
@@ -61,10 +63,18 @@ def main() -> int:
         if errs:
             skipped.append(f"{m['dataset_id']}: {'; '.join(errs)}")
             continue
+        defn = get_definition_service().get(m["dataset_id"])
+        # この publish がどの検証方式で routing を受け入れたか（resolver は方式どおりに検証済みでなければ
+        # publish 自体が fail-closed で止まる）を runtime record に残す
+        record["publish_verification"] = {
+            "method": (getattr(defn, "publish_verification_mode", None) or "canonical_file")
+            if m["layer_type"] == "flood" else "validated_copy",
+            "staged_at": datetime.now(timezone.utc).isoformat(),
+        }
         dst = staging / rp.runtime_rel(m["dataset_id"])
         dst.parent.mkdir(parents=True, exist_ok=True)
         tmp = dst.with_name(f".{dst.name}.staging-{os.getpid()}")
-        shutil.copyfile(src, tmp)
+        tmp.write_text(json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         os.replace(tmp, dst)
         staged.append(m["dataset_id"])
     print(f"[INFO] runtime provenance staged: {sorted(staged)}")

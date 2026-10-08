@@ -199,6 +199,11 @@ def _source_sha(defn: DatasetDefinition, state: DatasetState, cache: SourceShaCa
     """反映元（flood は derived routing、他は validated）の sha256 と provenance 断片。"""
     validated = _validated_path(defn, state)
     prov: Dict[str, Any] = {"canonical_path": str(validated) if validated else None, "derived_path": None}
+    if validated is None and defn.layer_type == "flood" and \
+            getattr(defn, "publish_verification_mode", None) == "artifact_record" and state.current_validated_path:
+        # runtime node（artifact_record 方式）: canonical 本体は置かない。build node の provenance record と
+        # routing meta が整合する場合だけ、record の routing sha256 を反映元とする（不整合は判定不能）。
+        return _artifact_record_source_sha(defn, state, prov)
     if validated is None:
         return None, prov
     if defn.layer_type == "flood":
@@ -216,6 +221,24 @@ def _source_sha(defn: DatasetDefinition, state: DatasetState, cache: SourceShaCa
             return f"stale-derived:{canonical_sha}", prov
         return meta["routing_artifact_sha256"], prov
     return cache.get(validated, allow_hash), prov
+
+
+def _artifact_record_source_sha(defn: DatasetDefinition, state: DatasetState,
+                                prov: Dict[str, Any]) -> "tuple[Optional[str], Dict[str, Any]]":
+    from app.services import build_provenance, runtime_provenance as rp
+    try:
+        routing, meta_path = routing_paths_for_canonical(Path(state.current_validated_path))
+        meta = load_meta(meta_path)
+        rec_path = rp.build_path(build_provenance._data_lake_root(), defn.region, "flood", defn.dataset_id)
+        record = json.loads(rec_path.read_text(encoding="utf-8"))
+    except (FloodRoutingContractError, OSError, ValueError):
+        return None, prov
+    prov["derived_path"] = str(routing)
+    prov["verification"] = "artifact_record"
+    if (record.get("runtime_artifact") or {}).get("sha256") != meta["routing_artifact_sha256"] or \
+            (record.get("canonical") or {}).get("sha256") != meta["source_canonical_sha256"]:
+        return None, prov
+    return meta["routing_artifact_sha256"], prov
 
 
 @dataclass

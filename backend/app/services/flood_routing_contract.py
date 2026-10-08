@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple
 
 ROUTING_SUFFIX = ".routing.geojson"
 META_SUFFIX = ".routing.meta.json"
@@ -135,6 +135,84 @@ def verify_routing_for_canonical(canonical_path: Path, dataset_id: str) -> Tuple
         raise FloodRoutingContractError(
             f"routing artifact sha256 が meta と不一致: actual={routing_sha} meta={meta['routing_artifact_sha256']}"
         )
+    return routing_path, meta
+
+
+# publish 時の検証方式（dataset definition の publish_verification_mode）
+VERIFY_CANONICAL_FILE = "canonical_file"     # 既定: canonical 本体を読んで sha256 を照合
+VERIFY_ARTIFACT_RECORD = "artifact_record"   # build node の provenance record で連鎖を照合（canonical 本体不要）
+
+
+def verify_routing_with_record(canonical_path: Path, dataset_id: str, region: str,
+                               record: Optional[dict]) -> Tuple[Path, dict]:
+    """
+    artifact_record 方式: build node（trusted）で生成した provenance record を検証根拠として、
+    canonical 本体なしに routing artifact が publish 可能かを検証し、(routing パス, meta) を返す。
+
+    canonical_file 方式の「sha256(canonical) == meta.source_canonical_sha256」を、
+    「record.canonical.sha256 == meta.source_canonical_sha256」と、routing 実体の再計算
+    sha256 が meta / record の双方と一致することの連鎖で置き換える。fail-closed:
+      - record が無い・形式不正・dataset / layer_type / region 不一致
+      - routing / meta が無い、meta.dataset_id 不一致
+      - record.canonical.sha256 ≠ meta.source_canonical_sha256
+      - record.runtime_artifact.sha256 ≠ meta.routing_artifact_sha256 ≠ sha256(routing 実体)
+      - record.runtime_artifact.feature_count ≠ meta.feature_count、canonical 件数の不一致
+      - routing validation（coverage false negatives = 0）の記録が無い
+    canonical 本体がこの node にあれば、その sha256 も record と照合する（省略はしない）。
+    canonical が無いことを理由に検証を skip しない。
+    """
+    from app.services import runtime_provenance as rp
+
+    if record is None:
+        raise FloodRoutingContractError(f"{dataset_id}: artifact_record 方式だが provenance record がありません")
+    shape = rp.validate_record_shape(record, dataset_id)
+    if shape:
+        raise FloodRoutingContractError(f"{dataset_id}: provenance record 不正: {'; '.join(shape)}")
+    if record.get("layer_type") != "flood" or record.get("region") != region:
+        raise FloodRoutingContractError(
+            f"{dataset_id}: record の layer_type/region 不一致: {record.get('layer_type')}/{record.get('region')}"
+            f"（期待 flood/{region}）")
+    canonical_path = Path(canonical_path)
+    routing_path, meta_path = routing_paths_for_canonical(canonical_path)
+    if not routing_path.is_file():
+        raise FloodRoutingContractError(f"routing artifact が存在しません: {routing_path}")
+    meta = load_meta(meta_path)
+    if meta["dataset_id"] != dataset_id:
+        raise FloodRoutingContractError(
+            f"routing meta の dataset_id 不一致: meta={meta['dataset_id']!r} expected={dataset_id!r}")
+    rec_canonical = (record.get("canonical") or {}).get("sha256")
+    ra = record["runtime_artifact"]
+    if not rec_canonical:
+        raise FloodRoutingContractError(f"{dataset_id}: record に canonical.sha256 がありません")
+    if rec_canonical != meta["source_canonical_sha256"]:
+        raise FloodRoutingContractError(
+            f"record の canonical sha256 と routing meta の source sha256 が不一致: "
+            f"record={rec_canonical} meta={meta['source_canonical_sha256']}")
+    if ra["sha256"] != meta["routing_artifact_sha256"]:
+        raise FloodRoutingContractError(
+            f"record の routing sha256 と routing meta が不一致: record={ra['sha256']} meta={meta['routing_artifact_sha256']}")
+    if Path(ra["rel"]).name != routing_path.name or f"/flood/{region}/" not in f"/{ra['rel']}":
+        raise FloodRoutingContractError(f"record の runtime_artifact.rel が routing と対応しません: {ra['rel']}")
+    if ra.get("feature_count") is None or ra["feature_count"] != meta["feature_count"]:
+        raise FloodRoutingContractError(
+            f"routing feature_count 不一致: record={ra.get('feature_count')} meta={meta['feature_count']}")
+    rec_cfc = (record.get("canonical") or {}).get("feature_count")
+    if rec_cfc is not None and meta.get("source_feature_count") is not None and rec_cfc != meta["source_feature_count"]:
+        raise FloodRoutingContractError(
+            f"canonical feature_count 不一致: record={rec_cfc} meta={meta['source_feature_count']}")
+    fn = ((record.get("validation") or {}).get("routing_coverage_false_negatives"))
+    if fn != 0:
+        raise FloodRoutingContractError(
+            f"{dataset_id}: record に routing validation（coverage false negatives = 0）の記録がありません: {fn!r}")
+    routing_sha = sha256_file(routing_path)
+    if routing_sha != meta["routing_artifact_sha256"]:
+        raise FloodRoutingContractError(
+            f"routing artifact sha256 が meta / record と不一致: actual={routing_sha} meta={meta['routing_artifact_sha256']}")
+    if canonical_path.is_file():
+        canonical_sha = sha256_file(canonical_path)
+        if canonical_sha != rec_canonical:
+            raise FloodRoutingContractError(
+                f"この node の canonical sha256 が record と不一致: canonical={canonical_sha} record={rec_canonical}")
     return routing_path, meta
 
 

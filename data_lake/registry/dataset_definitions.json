@@ -89,7 +89,8 @@
       "publish前にrouting validation必須"
     ],
     "expected_source_region_code": "13",
-    "source_region_code_regex": "^A31a-\\d+_(\\d{2})_"
+    "source_region_code_regex": "^A31a-\\d+_(\\d{2})_",
+    "publish_verification_mode": "artifact_record"
   },
   {
     "dataset_id": "TOKYO-TSUNAMI-001",
@@ -553,7 +554,8 @@
     ],
     "coverage_notes": [
       "Mesh 5338 intersects Kanagawa administrative area (山北町, 1.824% of prefecture area), but no official 2025 flood features intersect Kanagawa within this mesh (verified 2026-10-08 by geometry intersection against the complete 10-file source set, canonical sha256 e0adcb8f…)."
-    ]
+    ],
+    "publish_verification_mode": "artifact_record"
   },
   {
     "dataset_id": "KANAGAWA-SURGE-001",

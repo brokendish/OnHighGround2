@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ── Enum 定義 ────────────────────────────────────────────────────────────────
@@ -228,6 +228,17 @@ class DatasetDefinition(BaseModel):
     coverage_required_meshes: List[str] = Field(default_factory=list)
     coverage_allow_empty_meshes: List[str] = Field(default_factory=list)
     coverage_notes: List[str] = Field(default_factory=list)
+    # flood publish 時の検証方式（flood_routing_contract.VERIFY_*）。未設定は canonical_file（従来:
+    # canonical 本体の sha256 を照合）。artifact_record は build node の provenance record で連鎖を照合し、
+    # runtime node に canonical 本体を置かなくてよい（record 欠落・不一致は fail-closed）。
+    publish_verification_mode: Optional[Literal["canonical_file", "artifact_record"]] = None
+
+    @model_validator(mode="after")
+    def _artifact_record_is_flood_only(self):
+        if self.publish_verification_mode == "artifact_record" and self.layer_type != "flood":
+            raise ValueError(f"{self.dataset_id}: publish_verification_mode=artifact_record は flood 専用です"
+                             f"（layer_type={self.layer_type}）")
+        return self
 
     @property
     def browser_upload_enabled(self) -> bool:

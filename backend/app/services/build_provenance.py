@@ -66,9 +66,19 @@ def generate(defn, state, *, store=None, cache=None, allow_hash: bool = True,
     if trel:
         cand = data_lake / "tiles" / defn.region / defn.layer_type / Path(trel).name
         tile_path = cand if cand.is_file() else None
-    return rp.build_record(defn, state, acquisition=acquisition, canonical_sha256=canonical_sha,
-                           runtime_rel_path=rel, runtime_sha256=runtime_sha, runtime_feature_count=runtime_fc,
-                           canonical_feature_count=canonical_fc, tile_path=tile_path, tile_rel_path=trel)
+    record = rp.build_record(defn, state, acquisition=acquisition, canonical_sha256=canonical_sha,
+                             runtime_rel_path=rel, runtime_sha256=runtime_sha, runtime_feature_count=runtime_fc,
+                             canonical_feature_count=canonical_fc, tile_path=tile_path, tile_rel_path=trel)
+    # 検証結果（artifact_record 方式の publish が要求する）。確認できた事実だけを入れる。
+    validation: Dict[str, Any] = {"canonical_validation_status": state.validation_status.value}
+    if defn.layer_type == "flood":
+        from app.services.data_ops_service import routing_validation_from_logs
+        rv = routing_validation_from_logs([acquisition.ingest_job_id if acquisition else None, state.last_job_id],
+                                          Path(rel).name, runtime_fc)
+        validation["routing_coverage_false_negatives"] = rv["coverage_false_negatives"] if rv else None
+        validation["routing_validation_source"] = rv["source"] if rv else None
+    record["validation"] = validation
+    return record
 
 
 def export(defn, state, **kw) -> Path:

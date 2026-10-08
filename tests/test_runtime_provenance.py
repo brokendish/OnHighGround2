@@ -294,7 +294,9 @@ def test_stage_script_places_records_into_staging(w, tmp_path, monkeypatch):
                                       "--data-lake", str(w.lake)])
     with patch("app.services.active_mapping_service.get_active_mapping_service", return_value=mapping):
         assert mod.main() == 0
-    assert json.loads((staging / "provenance/KANAGAWA-RIVER-001.json").read_text()) == rec
+    staged = json.loads((staging / "provenance/KANAGAWA-RIVER-001.json").read_text())
+    method = staged.pop("publish_verification")
+    assert staged == rec and method["method"] in ("canonical_file", "artifact_record")
     assert not (staging / "provenance/TOKYO-RIVER-001.json").exists()
 
 
