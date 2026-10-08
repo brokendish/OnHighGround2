@@ -383,6 +383,21 @@ def _record_acquisition(job: Job, defn: DatasetDefinition, raw_path: Path,
         return None
 
 
+def _export_build_provenance(job: Job, defn: DatasetDefinition, state: DatasetState, jm: JobManager) -> None:
+    """build node（この node に採用中の取得履歴がある）だけ、publish 直前に runtime provenance record を
+    書き直す（tile 生成後なので tile sha256 も含む）。runtime node では build node から転送された record を
+    上書きしない。失敗しても publish は止めない（Data Ops で LEGACY / MISMATCH と表示される）。"""
+    try:
+        if get_acquisition_store().active(defn.dataset_id) is None:
+            jm.log(job, "runtime provenance: この node に採用中の取得履歴が無いため record を生成しない（転送済み record を使用）")
+            return
+        from app.services import build_provenance
+        path = build_provenance.export(defn, state)
+        jm.log(job, f"runtime provenance record を更新: {path}")
+    except Exception as exc:  # noqa: BLE001
+        jm.log(job, f"WARN: runtime provenance record を生成できません: {exc}")
+
+
 def _finalize_acquisition(job: Job, defn: DatasetDefinition, acquisition_id: Optional[str]) -> None:
     """canonical 生成まで成功した取得だけを active にする（失敗した取得は active にしない）。"""
     if not acquisition_id:
@@ -1469,6 +1484,8 @@ async def _run_atomic_publish_deploy(
         await _do_tile_build(job, defn, state, jm, ss)
         jm.update(job, step=JobStep.deploy,
                   progress_message=f"実行環境へ公開中（atomic publish・{mode}）...")
+
+    _export_build_provenance(job, defn, state, jm)
 
     state.deploy_status = DeployStatus.deploying
     ss.save(state)

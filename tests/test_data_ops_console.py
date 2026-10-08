@@ -489,9 +489,13 @@ def test_24_river_reference_dataset_all_layers(ops, store):
     assert t["metadata"]["vector_layers"] == ["flood"] and t["metadata"]["maxzoom"] == "14"
     assert t["integrity"]["tile_count"] == 5 and t["integrity"]["quick_check"] == "ok"
     integ = r["integrity"]
-    assert integ["overall"] == dos.OK and integ["unobserved"] == ["backend"]
+    # この fixture の runtime version には provenance record が無い（record 導入前の version 相当）
+    # → runtime_provenance は LEGACY（UNKNOWN）。推測で VALID にしないため overall も UNKNOWN。
+    assert r["runtime_provenance"]["status"] == "LEGACY_RUNTIME_PROVENANCE"
+    assert integ["overall"] == dos.UNKNOWN and integ["unobserved"] == ["backend"]
     assert {k: v["status"] for k, v in integ["components"].items()} == {
-        "source": "OK", "canonical": "OK", "derived": "OK", "runtime": "OK", "backend": "UNOBSERVED", "tile": "OK"}
+        "source": "OK", "canonical": "OK", "derived": "OK", "runtime": "OK", "backend": "UNOBSERVED", "tile": "OK",
+        "runtime_provenance": "UNKNOWN"}
 
 
 def test_11_provenance_unknown_is_shown_not_filled(ops, store):

@@ -131,6 +131,15 @@ for _region in "${REGIONS[@]}"; do
         "${SCRIPT_DIR}/deploy_to_runtime.sh" --region "${_region}" ${SKIP_FRONTEND_ARG}
 done
 
+# RUNTIME-PROVENANCE: build node が書いた provenance record（data_lake/provenance/）を staging の
+# provenance/<dataset_id>.json へ配置する（activate で _manifest.json に sha256 が載り、rollback と整合する）。
+# record の有無は publish の成否に影響させない（無ければ Data Ops が LEGACY と表示する）。
+_prov_regions=()
+for _region in "${REGIONS[@]}"; do _prov_regions+=(--region "${_region}"); done
+if ! python3 "${SCRIPT_DIR}/stage_runtime_provenance.py" --staging "${STAGING_DIR}" "${_prov_regions[@]}"; then
+    log_warn "runtime provenance の配置に失敗（publish は続行。Data Ops では LEGACY_RUNTIME_PROVENANCE と表示される）"
+fi
+
 # Claude自己検証で発見した実バグ（macOS Docker Desktop named volume、
 # virtiofs/gRPC-FUSE経由での実機確認）: `.staging`自身がsetgid（0o2750、
 # init_lease_volume.py STAGING_DIR_MODE）のため、その配下に新規作成される

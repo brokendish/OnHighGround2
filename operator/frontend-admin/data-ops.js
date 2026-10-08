@@ -101,9 +101,24 @@
   }
 
   // ── 一覧 ──
+  const RTPROV = {
+    VERIFIED: ["OK", "RUNTIME VERIFIED"], MISMATCH: ["ERROR", "RUNTIME PROVENANCE MISMATCH"],
+    INVALID: ["ERROR", "RUNTIME PROVENANCE INVALID"], LEGACY_RUNTIME_PROVENANCE: ["UNKNOWN", "LEGACY RUNTIME PROVENANCE"],
+  };
+  function rtProvBadge(rp) {
+    if (!rp || rp.status === "N/A") return null;
+    const [st, label] = RTPROV[rp.status] || ["UNKNOWN", rp.status];
+    return badge(st, label);
+  }
   function acquisitionCell(acq) {
     const a = acq.active;
     const span = el("span");
+    if (!a && acq.acquisition_history === "NOT PRESENT ON THIS NODE") {
+      // runtime node: 取得履歴は build node にあり、current の provenance record で検証済み
+      span.appendChild(validityBadge(acq.validity));
+      span.appendChild(el("span", "sub", "SOURCE VALIDATED ON BUILD NODE / ACQUISITION HISTORY NOT SYNCED"));
+      return span;
+    }
     if (!a) {
       span.appendChild(badge("WARNING", "NO ACQUISITION HISTORY"));
       span.appendChild(document.createTextNode(" "));
@@ -171,7 +186,10 @@
       tr.appendChild(td(acquisitionCell(acq)));
       tr.appendChild(td(withSub(badge(r.transform.canonical.status), r.transform.canonical.feature_count != null ? `${fmtNum(r.transform.canonical.feature_count)} features` : null)));
       tr.appendChild(td(withSub(badge(r.transform.derived.status), r.transform.derived.feature_count != null ? `${fmtNum(r.transform.derived.feature_count)} features` : null)));
-      tr.appendChild(td(withSub(badge(rt.status, RUNTIME_LABELS[rt.runtime_status] || rt.runtime_status), rt.reason)));
+      const pubCell = withSub(badge(rt.status, RUNTIME_LABELS[rt.runtime_status] || rt.runtime_status), rt.reason);
+      const rpb = rtProvBadge(r.runtime_provenance);
+      if (rpb) { pubCell.appendChild(document.createTextNode(" ")); pubCell.appendChild(rpb); }
+      tr.appendChild(td(pubCell));
       tr.appendChild(td(loadedCell(rt.backend)));
       tr.appendChild(td(withSub(badge(r.tile.status), r.tile.tileset_id || null)));
       tr.appendChild(td(withSub(badge(integ.overall), integ.unobserved.length ? `未観測: ${integ.unobserved.join(", ")}` : null)));
@@ -317,6 +335,12 @@
           return box;
         })()],
         ["Reason", acq.validity_reason || "—"],
+        ["判定の根拠", acq.validity_source === "runtime_provenance" ? `runtime provenance record（build node: ${acq.source_validated_on || "?"}）`
+          : acq.validity_source === "acquisition_history" ? "この node の取得履歴" : acq.validity_source || "—"],
+        ["取得履歴（この node）", acq.acquisition_history],
+        ["Raw cache", acq.raw_cache ? withSub(badge(acq.raw_cache.status === "CURRENT" ? "OK" : acq.raw_cache.status === "STALE" ? "WARNING" : "UNKNOWN",
+          acq.raw_cache.status === "STALE" ? "STALE / NOT CURRENT SOURCE" : acq.raw_cache.status),
+          [acq.raw_cache.path, acq.raw_cache.reason, acq.raw_cache.region_check].filter(Boolean).join(" / ") || null) : "—"],
         ["取得元組織", acq.source_provider || "UNKNOWN"],
         ["取得データ名", acq.source_dataset_name || "UNKNOWN"],
         ["公式URL", link(acq.official_source_url)],
@@ -389,6 +413,27 @@
         ["runtime artifact", rt.runtime_path ? el("span", "mono", rt.runtime_path) : (rt.runtime_rel ? `${rt.runtime_rel}（current に無し）` : "—")],
         ["features", fmtNum(rt.feature_count)],
         ["manifest sha256 一致", rt.manifest_match === true ? "一致" : rt.manifest_match === false ? "不一致" : "判定不能"],
+        ["Runtime provenance", (() => {
+          const rp = d.runtime_provenance || {};
+          const b = rtProvBadge(rp);
+          if (!b) return "—";
+          const box = el("span");
+          box.appendChild(b);
+          (rp.reasons || []).forEach(x => box.appendChild(el("span", "sub", x)));
+          const rec = rp.record;
+          if (rec) {
+            const ra = rec.runtime_artifact || {};
+            box.appendChild(el("span", "sub mono", `record: ${rp.rel}（version ${rp.version}）`));
+            box.appendChild(el("span", "sub mono", `runtime artifact: ${ra.sha256 || "—"} / ${ra.feature_count ?? "—"} features`));
+            box.appendChild(el("span", "sub mono", `canonical source: ${(rec.canonical || {}).sha256 || "—"}`));
+            if (rec.tile) box.appendChild(el("span", "sub mono", `tile: ${rec.tile.sha256}`));
+            const src = rec.source;
+            box.appendChild(el("span", "sub", src ? `source: ${src.validity}（acquisition ${src.acquisition_id}、${(src.source_files || []).length} files）`
+              : "source: 取得履歴なし（build node で未記録）"));
+            box.appendChild(el("span", "sub", `built: ${rec.built_at || "—"} on ${rec.build_node || "—"}`));
+          }
+          return box;
+        })()],
         ["backend loader", be.loader_target === true ? "対象" : be.loader_target === false ? "対象外" : "—"],
         ["backend loaded", withSub(badge("UNOBSERVED"), be.loaded_reason || null)],
       ].concat(tileRows)),

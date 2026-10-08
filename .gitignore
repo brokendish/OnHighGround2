@@ -217,3 +217,4 @@ reports/mobile-bottom-panel-compact/
 reports/storm-surge-legend-color-match/
 
 data_lake/_backup/
+data_lake/provenance/

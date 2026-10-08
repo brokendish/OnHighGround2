@@ -279,7 +279,36 @@ def tile_section(defn: DatasetDefinition, view: drr.RuntimeView, allow_heavy: bo
 
 # ── 取得 ────────────────────────────────────────────────────────────────────────
 
-def acquisition_section(defn: DatasetDefinition, store=None, state: Optional[DatasetState] = None) -> Dict[str, Any]:
+def _raw_cache_status(state: Optional[DatasetState], active, runtime_record) -> Dict[str, Any]:
+    """この node の raw（DatasetState.current_raw_path）が現在の source と一致するか（情報表示のみ）。
+    runtime node の raw は source of truth ではない（build node で取得・検証済み）。"""
+    raw = state.current_raw_path if state else None
+    if not raw:
+        return {"status": "ABSENT", "path": None}
+    name = Path(raw).name
+    if not Path(raw).exists():
+        return {"status": "ABSENT", "path": raw}
+    if not os.access(raw, os.R_OK):
+        return {"status": "UNREADABLE", "path": raw, "reason": "この process から読めない（権限）"}
+    current_names = set()
+    if active is not None:
+        current_names = {Path(active.raw_path).name} if active.raw_path else set()
+        if active.bundle:
+            current_names.add(active.bundle.name)
+    elif runtime_record and runtime_record.get("source"):
+        src = runtime_record["source"]
+        if src.get("bundle"):
+            current_names.add(src["bundle"].get("name"))
+        current_names |= {f.get("name") for f in src.get("source_files") or []}
+    if not current_names:
+        return {"status": "UNKNOWN", "path": raw}
+    if name in current_names:
+        return {"status": "CURRENT", "path": raw}
+    return {"status": "STALE", "path": raw, "reason": "現在の source（runtime / 取得履歴）と一致しない raw（NOT CURRENT SOURCE）"}
+
+
+def acquisition_section(defn: DatasetDefinition, store=None, state: Optional[DatasetState] = None,
+                        runtime_prov: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     store = store or get_acquisition_store()
     try:
         records = store.list(defn.dataset_id)
@@ -287,29 +316,49 @@ def acquisition_section(defn: DatasetDefinition, store=None, state: Optional[Dat
     except Exception as exc:  # noqa: BLE001
         records, error = [], f"取得履歴を読めません: {exc}"
     active = next((r for r in records if r.active), None)
+    # runtime node: 取得履歴が無くても、current version の provenance record が manifest と照合済み
+    # （VERIFIED）なら、build node で検証された source provenance を採用する（推測ではなく記録）。
+    from app.services import runtime_provenance as rp
+    rt_record = (runtime_prov or {}).get("record") if (runtime_prov or {}).get("status") == rp.VERIFIED else None
+    rt_source = (rt_record or {}).get("source")
     missing = []
     if not defn.source_provider:
         missing.append("取得元組織（source_provider）")
     if not defn.source_dataset_name:
         missing.append("取得データ名（source_dataset_name）")
-    if active is None:
+    if active is None and rt_source is None:
         missing.append("採用中の取得履歴（acquisition history）")
+    elif active is None:
+        pass
     else:
         if active.acquisition_method == AcquisitionMethod.legacy_unknown:
             missing.append("取得方法")
         if not active.source_files:
             missing.append("DL 原本")
     # source component: provenance_mismatch → ERROR、suspect / unknown / 欠落 → WARNING、valid かつ欠落なし → OK
-    validity = active.validity.value if active else AcquisitionValidity.unknown.value
-    validity_reason = active.validity_reason if active else "no acquisition history"
-    validity_flags = list(active.validity_flags) if active else []
-    validity_source = "acquisition_history" if active else None
-    # 現在の raw の地域コード照合（取得履歴が無くても事実として判定できる）。不一致なら最優先で反映する
+    if active is not None:
+        validity, validity_reason = active.validity.value, active.validity_reason
+        validity_flags, validity_source = list(active.validity_flags), "acquisition_history"
+    elif rt_source is not None:
+        validity, validity_reason = rt_source.get("validity") or AcquisitionValidity.unknown.value, rt_source.get("validity_reason")
+        validity_flags, validity_source = list(rt_source.get("validity_flags") or []), "runtime_provenance"
+    else:
+        validity, validity_reason = AcquisitionValidity.unknown.value, "no acquisition history"
+        validity_flags, validity_source = [], None
+    raw_cache = _raw_cache_status(state, active, rt_record)
+    # 現在の raw の地域コード照合: 取得履歴も検証済み runtime record も無い場合だけ source 判定に使う
+    # （runtime node の旧 raw cache で、正しい runtime を MISMATCH にしない）。
     from app.services import provenance_validity
     raw_check = provenance_validity.assess_raw_region(defn, state.current_raw_path if state else None)
     if raw_check and raw_check[0] == AcquisitionValidity.provenance_mismatch:
-        validity, validity_reason, validity_flags = raw_check[0].value, raw_check[1], raw_check[2]
-        validity_source = "current_raw_check"
+        if raw_cache.get("status") == "STALE":
+            # 現在の source（取得履歴 / 検証済み runtime record）と一致しない旧 raw cache の不一致は、
+            # runtime の provenance ではない（情報として表示するだけ）
+            raw_cache["region_check"] = raw_check[1]
+        else:
+            # 取得履歴・record が無い、または raw が現在の source そのもの / 判別不能なら安全側で反映する
+            validity, validity_reason, validity_flags = raw_check[0].value, raw_check[1], raw_check[2]
+            validity_source = "current_raw_check"
     if validity == AcquisitionValidity.provenance_mismatch.value:
         status = ERROR
     elif missing or error or validity != AcquisitionValidity.valid.value:
@@ -341,6 +390,11 @@ def acquisition_section(defn: DatasetDefinition, store=None, state: Optional[Dat
         "validity_reason": validity_reason,
         "validity_flags": validity_flags,
         "validity_source": validity_source,
+        # この node に取得履歴があるか（runtime node では NOT PRESENT が正常）
+        "acquisition_history": "PRESENT" if active is not None else (
+            "NOT PRESENT ON THIS NODE" if rt_source is not None else "ABSENT"),
+        "source_validated_on": (rt_record or {}).get("build_node") if active is None and rt_source else None,
+        "raw_cache": raw_cache,
         "error": error,
         "status": status,
     }
@@ -498,13 +552,44 @@ def runtime_section(res: drr.ReconcileResult, view: drr.RuntimeView, props: Dict
     return sec
 
 
+# ── runtime provenance ─────────────────────────────────────────────────────────
+
+def runtime_provenance_section(defn: DatasetDefinition, res: drr.ReconcileResult,
+                               view: drr.RuntimeView) -> Dict[str, Any]:
+    """current → _manifest.json → provenance/<dataset_id>.json を manifest と照合する。"""
+    from app.services import runtime_provenance as rp
+    if res.publish_mode != "atomic" or not res.artifact_present or not view.ok:
+        return {"status": "N/A", "component_status": NOT_APPLICABLE, "reasons": [], "record": None}
+    out = rp.verify_runtime(view, defn.dataset_id, res.runtime_rel, view_feature_counts(view))
+    rec = out.get("record")
+    if out["status"] == rp.VERIFIED and rec and defn.layer_type == "flood" and res.provenance.get("canonical_path"):
+        # この node の routing meta が runtime と同じ routing を記述しているなら、その生成元 canonical は
+        # record の canonical と一致しなければならない（record 内部の連鎖の整合）。
+        try:
+            from app.services.flood_routing_contract import load_meta, routing_paths_for_canonical
+            _r, meta_path = routing_paths_for_canonical(Path(res.provenance["canonical_path"]))
+            meta = load_meta(meta_path)
+            if meta["routing_artifact_sha256"] == rec["runtime_artifact"]["sha256"]:
+                ok = meta["source_canonical_sha256"] == (rec.get("canonical") or {}).get("sha256")
+                out["checks"].append({"check": "canonical.sha256 (routing meta)", "ok": ok,
+                                      "meta": meta["source_canonical_sha256"], "record": (rec.get("canonical") or {}).get("sha256")})
+                if not ok:
+                    out["status"] = rp.MISMATCH
+                    out["reasons"].append("routing meta の source_canonical_sha256 が record の canonical と不一致")
+        except Exception:  # noqa: BLE001 — meta が無い / 読めない node では照合しない
+            pass
+    out["component_status"] = {rp.VERIFIED: OK, rp.MISMATCH: ERROR, rp.INVALID: ERROR}.get(out["status"], UNKNOWN)
+    return out
+
+
 # ── 組み立て ────────────────────────────────────────────────────────────────────
 
 def build_dataset(defn: DatasetDefinition, state: DatasetState, view: drr.RuntimeView, *, allow_hash: bool,
                   allow_heavy: bool, props: Dict[str, str], catalog: Optional[List[str]] = None,
                   store=None) -> Dict[str, Any]:
     res = drr.reconcile_dataset(defn, state, view, None, allow_hash)
-    acq = acquisition_section(defn, store, state)
+    rt_prov = runtime_provenance_section(defn, res, view)
+    acq = acquisition_section(defn, store, state, rt_prov)
     job_ids = [(acq["active"] or {}).get("ingest_job_id"), state.last_job_id] if allow_heavy else None
     tr = transform_section(defn, state, view, res, allow_hash, job_ids)
     rt = runtime_section(res, view, props)
@@ -519,6 +604,8 @@ def build_dataset(defn: DatasetDefinition, state: DatasetState, view: drr.Runtim
         "runtime": {"status": rt["status"], "reason": rt.get("reason") or rt["runtime_status"]},
         "backend": {"status": rt["backend"]["status"], "reason": rt["backend"].get("loader_reason")},
         "tile": {"status": tile["status"], "reason": tile.get("reason")},
+        "runtime_provenance": {"status": rt_prov["component_status"], "reason": "; ".join(rt_prov.get("reasons") or [])
+                               or rt_prov["status"]},
     }
     return {
         "dataset_id": defn.dataset_id,
@@ -530,6 +617,7 @@ def build_dataset(defn: DatasetDefinition, state: DatasetState, view: drr.Runtim
         "transform": tr,
         "runtime": rt,
         "tile": tile,
+        "runtime_provenance": rt_prov,
         "integrity": {
             "overall": _overall(components),
             "components": components,
