@@ -312,19 +312,38 @@ def test_legacy_layer_untouched(env):
     assert res.runtime_status == drr.LEGACY and state.model_dump() == before
 
 
-# ── 12. tsunami は unsupported のまま（存在だけ報告・state 不変）─────────────────
+# ── 12. tsunami は registry 型: runtime を反映元（validated canonical）と照合する ──────────────
+# （2026-10-11 TSUNAMI-PROVENANCE。以前は unsupported で存在だけ報告していた。管理画面の反映は引き続き非対応）
 
-def test_tsunami_stays_unsupported(env):
+TSUNAMI_REL = "backend/hazard/tsunami/tsunami_kanagawa.geojson"
+
+
+def test_tsunami_registry_runtime_published(env):
     defn = _defn("tsunami", "KANAGAWA-TSUNAMI-001", region="kanagawa")
     src = env.validated("tsunami", "kanagawa-tsunami-001.geojson", b"T", region="kanagawa")
-    env.version(V1, {"backend/hazard/tsunami/tsunami_kanagawa.geojson": b"LEGACY"})
+    env.version(V1, {TSUNAMI_REL: b"T"})
     state = _state(defn, src, deploy_status=DeployStatus.deployable, is_deployable=True)
-    before = state.model_dump()
-    with patch.object(drr, "sha256_file", side_effect=AssertionError("tsunami 反映元はハッシュしない")):
-        res = drr.reconcile_one(defn, state, persist=False, view=env.view())
-    assert res.runtime_status == drr.UNSUPPORTED and res.publish_mode == "unsupported"
-    assert res.artifact_present is True and res.matches_source is None
-    assert state.model_dump() == before
+    res = drr.reconcile_one(defn, state, persist=False, view=env.view())
+    assert res.publish_mode == "registry" and res.runtime_status == drr.PUBLISHED and res.matches_source is True
+    assert state.deploy_status == DeployStatus.deployed and state.current_runtime_path.endswith(TSUNAMI_REL)
+
+
+def test_tsunami_registry_runtime_mismatch(env):
+    defn = _defn("tsunami", "KANAGAWA-TSUNAMI-001", region="kanagawa")
+    src = env.validated("tsunami", "kanagawa-tsunami-001.geojson", b"NEW", region="kanagawa")
+    env.version(V1, {TSUNAMI_REL: b"OLD"})
+    res = drr.reconcile_one(defn, _state(defn, src), persist=False, view=env.view())
+    assert res.runtime_status == drr.MISMATCH and res.matches_source is False
+
+
+def test_tsunami_superseded_canonical_is_never_current(env):
+    old = _sha(b"OLD")
+    defn = _defn("tsunami", "KANAGAWA-TSUNAMI-001", region="kanagawa",
+                 superseded_canonicals=[{"sha256": old, "status": "SUPERSEDED"}])
+    src = env.validated("tsunami", "kanagawa-tsunami-001.geojson", b"OLD", region="kanagawa")
+    env.version(V1, {TSUNAMI_REL: b"OLD"})  # 反映元と runtime が一致していても旧版
+    res = drr.reconcile_one(defn, _state(defn, src), persist=False, view=env.view())
+    assert res.runtime_status == drr.MISMATCH and res.reason.startswith(drr.SUPERSEDED_REASON)
 
 
 # ── 13. 再ハッシュしない ─────────────────────────────────────────────────────────

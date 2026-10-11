@@ -27,13 +27,33 @@ def _data_lake_root() -> Path:
     return p if p.is_dir() else Path(_PROJECT_ROOT) / "data_lake"
 
 
+def _check_registry_canonical(path: Path, dataset_id: str) -> int:
+    """publish（scripts/publish/resolve_tsunami_source.py）と同じ canonical 検証。feature 数を返す。"""
+    import importlib.util
+    here = Path(__file__).resolve()
+    for base in (Path("/scripts"), here.parents[3] / "scripts"):
+        script = base / "publish" / "resolve_tsunami_source.py"
+        if script.is_file():
+            break
+    else:
+        raise ValueError("resolve_tsunami_source.py が見つからない（canonical を検証できない）")
+    mods = {}
+    for name, rel in (("resolve_tsunami_source", "publish/resolve_tsunami_source.py"),
+                      ("normalize_tsunami", "normalize/normalize_tsunami.py")):
+        spec = importlib.util.spec_from_file_location(f"_bp_{name}", script.parents[1] / rel)
+        mods[name] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mods[name])
+    return mods["resolve_tsunami_source"].check_canonical(path, dataset_id, mods["normalize_tsunami"]._extract_depth_value)
+
+
 def generate(defn, state, *, store=None, cache=None, allow_hash: bool = True,
              data_lake: Optional[Path] = None) -> Dict[str, Any]:
     from app.services import dataset_runtime_reconcile as drr
     from app.services.acquisition_history import get_acquisition_store
     from app.services.flood_routing_contract import load_meta, routing_paths_for_canonical
 
-    if defn.layer_type not in aap.ATOMIC_PUBLISH_LAYER_TYPES:
+    registry_type = defn.layer_type in drr.REGISTRY_RUNTIME_LAYER_TYPES
+    if defn.layer_type not in aap.ATOMIC_PUBLISH_LAYER_TYPES and not registry_type:
         raise ValueError(f"{defn.dataset_id}: atomic publish 対象外の layer_type（{defn.layer_type}）")
     validated = Path(state.current_validated_path) if state.current_validated_path else None
     if validated is None or not validated.is_file():
@@ -42,6 +62,8 @@ def generate(defn, state, *, store=None, cache=None, allow_hash: bool = True,
     canonical_sha = cache.get(validated, allow_hash)
     if canonical_sha is None:
         raise ValueError(f"{defn.dataset_id}: canonical sha256 が未計算です（allow_hash=False）")
+    if canonical_sha in drr.superseded_shas(defn):
+        raise ValueError(f"{defn.dataset_id}: canonical {canonical_sha[:12]}… は置き換え済みの旧版（superseded_canonicals）")
     rel = drr.expected_runtime_rel(defn, state)
     canonical_fc = None
     if defn.layer_type == "flood":
@@ -52,6 +74,11 @@ def generate(defn, state, *, store=None, cache=None, allow_hash: bool = True,
                              "（routing を再生成してください）")
         runtime_sha, runtime_fc = meta["routing_artifact_sha256"], meta["feature_count"]
         canonical_fc = meta.get("source_feature_count")
+    elif registry_type:
+        # validated canonical をそのまま runtime に置く（resolve_tsunami_source.py）。publish と同じ検証
+        # （全 feature の dataset_id・depth の解釈）を通した canonical だけを記録する
+        runtime_sha = canonical_sha
+        runtime_fc = canonical_fc = _check_registry_canonical(validated, defn.dataset_id)
     else:
         runtime_sha, runtime_fc = canonical_sha, None
     store = store or get_acquisition_store()
@@ -61,7 +88,11 @@ def generate(defn, state, *, store=None, cache=None, allow_hash: bool = True,
         logger.warning("acquisition history を読めません: %s: %s", defn.dataset_id, exc)
         acquisition = None
     data_lake = Path(data_lake) if data_lake else _data_lake_root()
-    trel = rp.tile_rel(defn.dataset_id, defn.region, defn.layer_type) if defn.requires_tile_build else None
+    if registry_type:
+        from app.services import data_ops_service as dos
+        trel = dos.tile_rel(defn) if dos.tile_requirement(defn) in ("required", "optional") else None
+    else:
+        trel = rp.tile_rel(defn.dataset_id, defn.region, defn.layer_type) if defn.requires_tile_build else None
     tile_path = None
     if trel:
         cand = data_lake / "tiles" / defn.region / defn.layer_type / Path(trel).name
@@ -71,6 +102,8 @@ def generate(defn, state, *, store=None, cache=None, allow_hash: bool = True,
                              canonical_feature_count=canonical_fc, tile_path=tile_path, tile_rel_path=trel)
     # 検証結果（artifact_record 方式の publish が要求する）。確認できた事実だけを入れる。
     validation: Dict[str, Any] = {"canonical_validation_status": state.validation_status.value}
+    if registry_type:
+        validation["registry_canonical_check"] = "passed"  # dataset_id 全件一致・depth 解釈一致（resolve_tsunami_source）
     if defn.layer_type == "flood":
         from app.services.data_ops_service import routing_validation_from_logs
         rv = routing_validation_from_logs([acquisition.ingest_job_id if acquisition else None, state.last_job_id],

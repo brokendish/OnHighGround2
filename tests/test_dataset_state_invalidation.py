@@ -69,18 +69,19 @@ def test_matching_state_is_reused_without_rescan(tmp_path):
 
     validated_dir = tmp_path / "validated"
     validated_dir.mkdir()
-    # flat runtime_path 契約の汎用検証には非 atomic type（tsunami）を使う
+    # flat runtime_path 契約の汎用検証には非 atomic type（admin_boundary）を使う
+    # （tsunami は 2026-10-11 から registry 型で current version の artifact として管理される）
     # （flood / storm_surge / pseudo_inland_flood / inland_flood / landslide / lowland_poor_drainage は
     #  管理画面反映が atomic publish 管理で、current version の artifact で判定する）
     validated_file = validated_dir / "tsunami_a.geojson"
     validated_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "tsunami"
+    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "admin_boundary"
     runtime_dir.mkdir(parents=True)
     deployed_file = runtime_dir / validated_file.name
     deployed_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    defn = _make_defn(tmp_path, "tsunami", "tokyo", runtime_dir, validated_dir)
+    defn = _make_defn(tmp_path, "admin_boundary", "tokyo", runtime_dir, validated_dir)
     service = _make_service(tmp_path)
 
     _write_state_json(tmp_path / "state", defn.dataset_id, {
@@ -130,7 +131,7 @@ def test_stale_state_with_old_runtime_path_is_reresolved(tmp_path):
     # definitionは新runtime_pathを指す（registry是正後の状態）
     # 汎用の stale 再解決ロジックの検証。lowland_poor_drainage は管理画面反映が atomic publish
     # 管理になったため（current version 基準）、flat runtime_path 契約が残る非 atomic type で検証する。
-    defn = _make_defn(tmp_path, "tsunami", "tokyo", new_runtime_dir, validated_dir)
+    defn = _make_defn(tmp_path, "admin_boundary", "tokyo", new_runtime_dir, validated_dir)
     service = _make_service(tmp_path)
 
     # persisted stateは旧runtime_pathを指したまま（是正前のstale cache）
@@ -246,12 +247,12 @@ def test_missing_state_file_falls_back_to_filesystem_inference(tmp_path):
     validated_file = validated_dir / "tsunami_b.geojson"
     validated_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "tsunami"
+    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "admin_boundary"
     runtime_dir.mkdir(parents=True)
     deployed_file = runtime_dir / validated_file.name
     deployed_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    defn = _make_defn(tmp_path, "tsunami", "tokyo", runtime_dir, validated_dir)
+    defn = _make_defn(tmp_path, "admin_boundary", "tokyo", runtime_dir, validated_dir)
     service = _make_service(tmp_path)
 
     # state fileは一切作らない（初回起動相当）
@@ -272,12 +273,12 @@ def test_valid_state_does_not_trigger_reinfer_save(tmp_path):
     validated_file = validated_dir / "tsunami.geojson"
     validated_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "tsunami"
+    runtime_dir = tmp_path / "data_runtime" / "backend" / "hazard" / "admin_boundary"
     runtime_dir.mkdir(parents=True)
     deployed_file = runtime_dir / validated_file.name
     deployed_file.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
 
-    defn = _make_defn(tmp_path, "tsunami", "tokyo", runtime_dir, validated_dir)
+    defn = _make_defn(tmp_path, "admin_boundary", "tokyo", runtime_dir, validated_dir)
     service = _make_service(tmp_path)
 
     _write_state_json(tmp_path / "state", defn.dataset_id, {

@@ -149,10 +149,11 @@ def test_publish_status_atomic_not_in_current(runtime):
     assert st["artifact_present"] is False and st["runtime_status"] == "not_published"
 
 
-def test_publish_status_tsunami_unsupported(runtime):
+def test_publish_status_tsunami_registry(runtime):
+    """tsunami は registry 型（2026-10-11）: current に artifact が無ければ not_published（unsupported ではない）。"""
     st = _publish_status(_defn("tsunami", "TOKYO-TSUNAMI-001"),
                          "/data_lake/validated/tokyo/tsunami/tokyo-tsunami-001.geojson")
-    assert st["publish_mode"] == "unsupported" and st["runtime_status"] == "unsupported"
+    assert st["publish_mode"] == "registry" and st["runtime_status"] == "not_published"
     assert st["artifact_present"] is False
 
 

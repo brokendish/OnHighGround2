@@ -37,6 +37,10 @@ ATOMIC_PUBLISH_LAYER_TYPES = frozenset({
 })
 # 管理画面の反映を受け付けない hazard type（atomic publish 未統合・runtime 契約の再設計が必要）
 ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES = frozenset({"tsunami"})
+# 管理画面の反映は非対応だが、CLI publish が registry の validated canonical をそのまま runtime に置く type
+# （TSUNAMI-REGION-OWNERSHIP: scripts/publish/resolve_tsunami_source.py）。runtime は current version 内の
+# artifact として管理され、反映元 sha256 の照合と runtime provenance record の同梱を行う。
+REGISTRY_RUNTIME_LAYER_TYPES = frozenset({"tsunami"})
 
 # wrapper の終了コード（deploy_to_runtime_atomic.sh 冒頭のコメントと一致）
 EXIT_OK = 0

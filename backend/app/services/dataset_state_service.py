@@ -26,6 +26,7 @@ from app.models.admin_dataset import (
 from app.services.admin_metadata_fs import chmod_quiet
 from app.services.admin_atomic_publish import (
     ATOMIC_PUBLISH_LAYER_TYPES,
+    REGISTRY_RUNTIME_LAYER_TYPES,
     data_runtime_root,
     find_artifact_in_current,
 )
@@ -385,7 +386,8 @@ class DatasetStateService:
     def _defer_to_runtime_reconcile(state: DatasetState, defn: DatasetDefinition) -> bool:
         """atomic publish 対象で記録 path が versions 配下（契約どおり）なら、artifact の有無は
         reconcile が current + manifest から判定する（ここでは作り直さない）。"""
-        if defn.layer_type not in ATOMIC_PUBLISH_LAYER_TYPES or not state.current_runtime_path:
+        if defn.layer_type not in ATOMIC_PUBLISH_LAYER_TYPES | REGISTRY_RUNTIME_LAYER_TYPES \
+                or not state.current_runtime_path:
             return False
         try:
             versions_dir = (data_runtime_root() / "versions").resolve()
@@ -405,8 +407,9 @@ class DatasetStateService:
         """
         if not state.current_runtime_path:
             return False
-        if defn.layer_type in ATOMIC_PUBLISH_LAYER_TYPES:
-            # atomic publish 管理の dataset は、activate された version 内の artifact を指す場合のみ有効。
+        if defn.layer_type in ATOMIC_PUBLISH_LAYER_TYPES | REGISTRY_RUNTIME_LAYER_TYPES:
+            # atomic publish 管理の dataset（registry 型の tsunami を含む）は、activate された version 内の
+            # artifact を指す場合のみ有効。
             # 旧来の flat copy による deployed（backend-public は読まない）は stale として再推定する。
             try:
                 actual = Path(state.current_runtime_path).resolve()

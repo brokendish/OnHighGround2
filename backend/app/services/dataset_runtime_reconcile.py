@@ -16,7 +16,7 @@ runtime_status:
   not_published        登録 dataset だが current に artifact が無い
   stale                DatasetState は deployed だが current に artifact が無い
   mismatch             artifact はあるが反映元（validated / derived）と sha256 が異なる
-  unsupported          管理画面 publish 非対応（tsunami）。runtime 存在だけは判定する
+  unsupported          runtime 契約を持たない管理画面 publish 非対応 type（現在は該当なし）
   legacy               atomic publish 管理外の dataset（OSM / tide / shelter 等）
   unknown              判定不能（current / manifest 欠落・破損、反映元未確定、hash 未計算）
   unregistered_runtime current に artifact があるが registry 上のどの dataset にも対応しない
@@ -58,6 +58,14 @@ UNKNOWN = "unknown"
 UNREGISTERED_RUNTIME = "unregistered_runtime"
 
 HAZARD_RUNTIME_TYPES = aap.ATOMIC_PUBLISH_LAYER_TYPES | aap.ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES
+# publish_mode="registry"（tsunami）: admin_atomic_publish.REGISTRY_RUNTIME_LAYER_TYPES 参照
+REGISTRY_RUNTIME_LAYER_TYPES = aap.REGISTRY_RUNTIME_LAYER_TYPES
+SUPERSEDED_REASON = "superseded canonical"
+
+
+def superseded_shas(defn: DatasetDefinition) -> Dict[str, Dict[str, Any]]:
+    """dataset 定義の superseded_canonicals（置き換えた旧 canonical）を sha256 → 記録 で返す。"""
+    return {c["sha256"]: c for c in (getattr(defn, "superseded_canonicals", None) or []) if c.get("sha256")}
 
 
 # ── current / manifest ──────────────────────────────────────────────────────────
@@ -280,7 +288,9 @@ def _provenance(defn: DatasetDefinition, prov: Dict[str, Any], runtime_path: Opt
 def reconcile_dataset(defn: DatasetDefinition, state: DatasetState, view: RuntimeView,
                       cache: Optional[SourceShaCache] = None, allow_hash: bool = True) -> ReconcileResult:
     cache = cache or get_source_sha_cache()
-    if defn.layer_type in aap.ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES:
+    if defn.layer_type in REGISTRY_RUNTIME_LAYER_TYPES:
+        mode = "registry"
+    elif defn.layer_type in aap.ATOMIC_PUBLISH_UNSUPPORTED_LAYER_TYPES:
         mode = "unsupported"
     elif defn.layer_type in aap.ATOMIC_PUBLISH_LAYER_TYPES:
         mode = "atomic"
@@ -304,11 +314,22 @@ def reconcile_dataset(defn: DatasetDefinition, state: DatasetState, view: Runtim
     if res.artifact_present:
         res.runtime_path = str(view.version_path(rel))
         res.runtime_sha256 = runtime_sha
-    source_sha, prov = _source_sha(defn, state, cache, allow_hash) if mode == "atomic" else (None, {})
+    source_sha, prov = _source_sha(defn, state, cache, allow_hash) if mode in ("atomic", "registry") else (None, {})
     res.provenance = _provenance(defn, prov, res.runtime_path, state)
 
     if mode == "unsupported":
         res.runtime_status = UNSUPPORTED  # runtime 存在（artifact_present）だけ報告する
+        return res
+    old = superseded_shas(defn)
+    if res.artifact_present and runtime_sha in old:
+        # 置き換えた旧 canonical が runtime にある（rollback・誤反映）。反映元との一致に関係なく不一致扱い
+        res.runtime_status = MISMATCH
+        res.matches_source = False
+        res.source_sha256 = source_sha
+        res.reason = f"{SUPERSEDED_REASON}: runtime が置き換え済みの旧 canonical（{old[runtime_sha].get('status')}）"
+        return res
+    if source_sha in old:
+        res.reason = f"{SUPERSEDED_REASON}: 反映元の canonical が置き換え済みの旧版（{old[source_sha].get('status')}）"
         return res
     if not res.artifact_present:
         res.runtime_status = STALE if state.deploy_status == DeployStatus.deployed else NOT_PUBLISHED

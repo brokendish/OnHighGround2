@@ -121,8 +121,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://www.bousai.metro.tokyo.lg.jp/",
-    "official_source_url": "https://www.bousai.metro.tokyo.lg.jp/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A40/A40-23/A40-23_13_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A40-2024.html",
     "raw_storage_path": "data_lake/raw/tokyo/tsunami",
     "normalized_storage_path": "data_lake/normalized/tokyo/tsunami",
     "validated_storage_path": "data_lake/validated/tokyo/tsunami",
@@ -136,7 +136,43 @@
       "frontend は静的 tileset ID（VECTOR_TILE_SOURCES.tsunami_tokyo）で tile を優先表示し、tile が無ければ /api/hazards/tsunami/tokyo（200、2026-10-11 VPS 確認）の GeoJSON で表示する",
       "tile の build 入力 data/processed/hazard/tokyo_tsunami_A40-23_13.geojson は canonical と geometry 全 33,124 件一致（2026-10-11 確認。tile には canonical が付加した dataset_id/depth 等の property は無い）"
     ],
-    "api_exposure": "enabled"
+    "api_exposure": "enabled",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "津波浸水想定 A40（東京都 A40-23_13）",
+    "source_year": "2023",
+    "source_version": null,
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A40-23_13_GML.zip"
+    ],
+    "expected_source_files": [
+      "A40-23_13_GML.zip"
+    ],
+    "expected_source_region_code": "13",
+    "source_region_code_regex": "^A40-\\d+_(\\d{2})_",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報 A40 の掲載表（2024 年度版ページ）で東京は A40-23_13（2023 年（令和5年）、8.31MB）が最新（2026-10-11 確認）",
+      "公式 zip の sha256 = b8e24973e5f9b885d481c28211f107587d14597cb3d9674d26c1aa591dacdc5c（2026-10-11 取得、raw と一致）",
+      "KS-META: 国土数値情報 津波浸水想定 東京都 A40-23_13、citation 日付 2024-03-25。データの版は記載なし（version 3.2.1 は GML 配布形式の版）",
+      "現行 canonical d952540d…（2026-10-11、深さ表記の解釈修正後に公式 pipeline で再取込）。旧 canonical a93df109… は superseded_canonicals",
+      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む"
+    ],
+    "superseded_canonicals": [
+      {
+        "sha256": "a93df109980375e36ada56072afa2c3aeca50ca112be076086c06d1a71e49d54",
+        "status": "SUPERSEDED",
+        "superseded_by": "d952540d2ca161a3108cf01028a6c62bf040bfecd267a5c2436a6c63194c4c6e",
+        "superseded_at": "2026-10-11",
+        "reason": "旧 normalizer が「0.5m以上 ～ 1m未満」を depth=5.0 と誤変換（3,603 件。正しくは 0.75）。geometry・件数は同一",
+        "backup": [
+          "build node: data_lake/_backup/tokyo_tsunami_pre_repair_20261011/",
+          "runtime node: ~/backups/tokyo-tsunami-pre-repair-20261011/"
+        ]
+      }
+    ]
   },
   {
     "dataset_id": "TOKYO-SURGE-001",
@@ -483,8 +519,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://nlftp.mlit.go.jp/ksj/",
-    "official_source_url": "https://nlftp.mlit.go.jp/ksj/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A40/A40-20/A40-20_14_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A40-2024.html",
     "raw_storage_path": "data_lake/raw/kanagawa/tsunami",
     "normalized_storage_path": "data_lake/normalized/kanagawa/tsunami",
     "validated_storage_path": "data_lake/validated/kanagawa/tsunami",
@@ -499,7 +535,31 @@
       "tile の build 入力 data/processed/hazard/kanagawa_tsunami_A40-20_14.geojson は canonical と geometry 全 66,965 件一致（2026-10-11 確認）",
       "tile は 2026-10-11 に tokyo/tsunami から kanagawa/tsunami へ移動した（tileset_id・内容は不変、sha256 8c0c2cf3…。旧 path は tile_dispositions.json の MIGRATED）。旧版 kanagawa_tsunami_A40-16_14 は退役済み"
     ],
-    "api_exposure": "enabled"
+    "api_exposure": "enabled",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "津波浸水想定 A40（神奈川県 A40-20_14）",
+    "source_year": "2020",
+    "source_version": "1.0",
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A40-20_14_GML.zip"
+    ],
+    "expected_source_files": [
+      "A40-20_14_GML.zip"
+    ],
+    "expected_source_region_code": "14",
+    "source_region_code_regex": "^A40-\\d+_(\\d{2})_",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報 A40 の掲載表（2024 年度版ページ）で神奈川は A40-20_14（2020 年（令和2年）、28.4MB）が最新（2026-10-11 確認）",
+      "公式 zip の sha256 = 6b3192e4ed4f8f28d057e4738ecc0d2e7bef232d6adc3022f2d6aec8375f7479（2026-10-11 取得、raw と一致）",
+      "KS-META: 国土数値情報 津波浸水想定 神奈川県 A40-20_14、令和2年4月時点、version 1.0、2021-03-26",
+      "canonical f3890b67… は raw を現行 normalizer で再正規化した結果とバイト一致（2026-10-11 確認）",
+      "A40-16_14（2016 年）も掲載されているが旧版。current source として扱わない（tile は tile_dispositions.json で RETIRED）",
+      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む"
+    ]
   },
   {
     "dataset_id": "CHIBA-TSUNAMI-001",
@@ -550,7 +610,7 @@
     "ingest_mode": "single_batch",
     "required_source_count": 1,
     "source_file_patterns": [
-      "A40-*_12_GML.zip"
+      "A40-18_12_GML.zip"
     ],
     "expected_source_files": [
       "A40-18_12_GML.zip"
@@ -560,7 +620,8 @@
     "ingest_replaces_canonical": true,
     "ingest_notes": [
       "国土数値情報の最新版ページ（2024 年度版、2025-05 更新）でも千葉県は A40-18_12（2018 年、v1.0）が最新（2026-10-11 確認）",
-      "千葉県の津波浸水想定は 2018-11-13 公表のものが現行（県 web で確認）"
+      "千葉県の津波浸水想定は 2018-11-13 公表のものが現行（県 web で確認）",
+      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む"
     ],
     "api_exposure": "disabled"
   },

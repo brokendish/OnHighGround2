@@ -15,6 +15,7 @@ dataset（region が一致する tsunami dataset）だけを正本にする。
   - region の tsunami dataset は registry に 0 件か 1 件（2 件以上は曖昧）
   - canonical は data_lake/validated/<region>/tsunami/ 配下の単一 file
   - 全 feature の properties.dataset_id が dataset_id と一致（別 region の artifact の混入を拒否）
+  - canonical が dataset 定義の superseded_canonicals（置き換え済みの旧版）ではない
   - 全 feature の depth が現在の normalizer で depth_text を解釈した値と一致
     （normalizer 修正前に作った canonical を配信しない。例: TOKYO の「0.5m以上 ～ 1m未満」= 5.0 の誤変換）
 
@@ -101,6 +102,16 @@ def resolve(region: str, targets: list, definitions: list, data_lake: Path, extr
     src = (expected_dir / f"{d.dataset_id.lower()}.geojson").resolve()
     if src.parent != expected_dir or not src.is_file():
         raise ValueError(f"{d.dataset_id}: canonical が無い: {src}")
+    old = {c.get("sha256"): c for c in (getattr(d, "superseded_canonicals", None) or []) if c.get("sha256")}
+    if old:
+        import hashlib
+        h = hashlib.sha256()
+        with src.open("rb") as f:
+            for b in iter(lambda: f.read(1 << 20), b""):
+                h.update(b)
+        if h.hexdigest() in old:
+            raise ValueError(f"{d.dataset_id}: canonical {h.hexdigest()[:12]}… は置き換え済みの旧版"
+                             f"（superseded_canonicals: {old[h.hexdigest()].get('status')}）。publish しない")
     check_canonical(src, d.dataset_id, extract_depth)
     return [(k, d.dataset_id, src) for k in kinds]
 

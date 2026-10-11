@@ -531,6 +531,7 @@ def acquisition_section(defn: DatasetDefinition, store=None, state: Optional[Dat
         "ingest_replaces_canonical": defn.ingest_replaces_canonical,
         "single_batch_required": bool(defn.ingest_mode and defn.ingest_mode.value == "single_batch"),
         "ingest_notes": defn.ingest_notes,
+        "superseded_canonicals": list(getattr(defn, "superseded_canonicals", None) or []),
         "operator_notes": defn.operator_notes,
         "active": active.model_dump(mode="json") if active else None,
         "history_count": len(records),
@@ -766,6 +767,8 @@ def runtime_section(res: drr.ReconcileResult, view: drr.RuntimeView, props: Dict
     sec.pop("provenance", None)
     sec.update(feature_count=fc, manifest_match=res.matches_source,
                status=_RUNTIME_COMPONENT.get(res.runtime_status, UNKNOWN))
+    if (res.reason or "").startswith(drr.SUPERSEDED_REASON):
+        sec["status"] = ERROR  # 置き換え済みの旧 canonical を runtime / 反映元として扱わない
     if res.artifact_present and res.runtime_rel:
         lc = loader_contract(res.runtime_rel, props)
         backend = {"loader_target": lc["loader_target"], "loader_reason": lc["reason"], "loaded": UNOBSERVED,
@@ -788,10 +791,22 @@ def runtime_provenance_section(defn: DatasetDefinition, res: drr.ReconcileResult
                                view: drr.RuntimeView) -> Dict[str, Any]:
     """current → _manifest.json → provenance/<dataset_id>.json を manifest と照合する。"""
     from app.services import runtime_provenance as rp
-    if res.publish_mode != "atomic" or not res.artifact_present or not view.ok:
+    if res.publish_mode not in ("atomic", "registry") or not res.artifact_present or not view.ok:
         return {"status": "N/A", "component_status": NOT_APPLICABLE, "reasons": [], "record": None}
     out = rp.verify_runtime(view, defn.dataset_id, res.runtime_rel, view_feature_counts(view))
     rec = out.get("record")
+    if out["status"] == rp.VERIFIED and rec and res.publish_mode == "registry":
+        # registry 型（tsunami）は validated canonical をそのまま runtime に置く契約: record の canonical と
+        # runtime artifact は同一 sha256 でなければならず、置き換え済みの旧 canonical であってはならない。
+        canon = (rec.get("canonical") or {}).get("sha256")
+        ok = canon is not None and canon == rec["runtime_artifact"]["sha256"]
+        out["checks"].append({"check": "canonical.sha256 == runtime_artifact.sha256 (validated copy)", "ok": ok,
+                              "canonical": canon, "runtime": rec["runtime_artifact"]["sha256"]})
+        old = drr.superseded_shas(defn)
+        out["checks"].append({"check": "canonical not superseded", "ok": canon not in old, "record": canon})
+        if not ok or canon in old:
+            out["status"] = rp.MISMATCH
+            out["reasons"].append("record の canonical と runtime artifact の関係が契約（validated copy・現行 canonical）と一致しない")
     if out["status"] == rp.VERIFIED and rec and defn.layer_type == "flood" and res.provenance.get("canonical_path"):
         # この node の routing meta が runtime と同じ routing を記述しているなら、その生成元 canonical は
         # record の canonical と一致しなければならない（record 内部の連鎖の整合）。

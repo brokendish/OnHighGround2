@@ -536,13 +536,15 @@ def test_14b_stale_derived_is_error(ops, store):
     assert r["integrity"]["overall"] == dos.ERROR
 
 
-def test_15_unsupported_tsunami(ops, store):
-    """tsunami は UNSUPPORTED 表示、管理画面の反映 API も拒否（既存 test_hazard_atomic_phase1 と同一契約）。"""
+def test_15_registry_tsunami(ops, store):
+    """tsunami は registry 型（2026-10-11）: runtime を反映元と照合する（反映元が無ければ判定不能、OK にしない）。
+    管理画面の反映 API は引き続き拒否（既存 test_hazard_atomic_phase1 と同一契約）。"""
     ops.publish({"backend/hazard/tsunami/tsunami_tokyo.geojson": b"T"})
     defn = _defn("tsunami", "TOKYO-TSUNAMI-001")
     state = DatasetState(dataset_id=defn.dataset_id)
     r = _console([(defn, state)])["datasets"][0]
-    assert r["runtime"]["runtime_status"] == "unsupported" and r["runtime"]["status"] == dos.WARNING
+    assert r["runtime"]["publish_mode"] == "registry" and r["runtime"]["runtime_status"] == "unknown"
+    assert r["runtime"]["status"] == dos.UNKNOWN
     from app.api import admin_datasets as api
     ds, ss, jm = Mock(), Mock(), Mock()
     ds.get.return_value = defn
@@ -669,8 +671,10 @@ def test_registry_river_definition_and_consistency():
     # 他 dataset は推測で取得元を補っていない
     # 取得元は公式原本と照合済みの証拠がある dataset だけ（flood 2 件: KSJ A31、CHIBA-TSUNAMI-001: KSJ A40-18_12 の
     # zip sha256 一致、2026-10-11）。他は推測で補っていない
+    # tsunami 3 件: KSJ A40 の公式 zip と raw の sha256 一致・canonical の再生成一致を確認（2026-10-11）
     assert {d.dataset_id for d in ds.list_all() if d.source_provider} == {"TOKYO-RIVER-001", "KANAGAWA-RIVER-001",
-                                                                       "CHIBA-TSUNAMI-001"}
+                                                                       "CHIBA-TSUNAMI-001", "TOKYO-TSUNAMI-001",
+                                                                       "KANAGAWA-TSUNAMI-001"}
 
 
 def test_ui_uses_server_judgement_and_text_status():

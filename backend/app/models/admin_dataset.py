@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -247,6 +247,10 @@ class DatasetDefinition(BaseModel):
     #   enabled  : frontend の apiUrl fallback 等で全量配信する（サイズ・用途を確認済みの dataset だけ）
     #   disabled : 配信しない（404）。tile や backend 判定には影響しない
     api_exposure: Optional[Literal["enabled", "disabled"]] = None
+    # 置き換えた旧 canonical（TSUNAMI-PROVENANCE）。履歴として残し、current として扱わない:
+    # [{"sha256", "status": "SUPERSEDED" | "INVALIDATED", "superseded_by", "superseded_at", "reason", "backup"}]
+    # publish（resolve_tsunami_source）・provenance record 生成・Data Ops は、この sha256 の canonical / runtime を拒否する。
+    superseded_canonicals: List[Dict[str, Any]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _artifact_record_is_flood_only(self):

@@ -3,8 +3,9 @@
 stage_runtime_provenance.py — publish 中の staging へ runtime provenance record を配置する。
 
 deploy_to_runtime_atomic.sh が region ごとの deploy_to_runtime.sh の後・activate の前に呼ぶ。
-active mapping の atomic publish 対象 dataset について、data_lake/provenance/<region>/<type>/<id>.json
-があれば staging/provenance/<id>.json へ配置する（activate で _manifest.json に sha256 が載る）。
+active mapping の atomic publish 対象 dataset（publish region）と、staging に runtime がある registry 型
+（tsunami）の dataset について、data_lake/provenance/<region>/<type>/<id>.json があれば
+staging/provenance/<id>.json へ配置する（activate で _manifest.json に sha256 が載る）。
 record が無い dataset は何もしない（current から seed された旧 record があればそのまま残り、Data Ops が
 manifest と照合して不一致なら MISMATCH と表示する）。
 
@@ -48,9 +49,20 @@ def main() -> int:
                                                         else Path(__file__).resolve().parents[2] / "data_lake")
     regions = set(a.region)
     staged, skipped = [], []
-    for m in get_active_mapping_service().list_all():
-        if m["layer_type"] not in aap.ATOMIC_PUBLISH_LAYER_TYPES or m["region"] not in regions:
+    targets = [m for m in get_active_mapping_service().list_all()
+               if m["layer_type"] in aap.ATOMIC_PUBLISH_LAYER_TYPES and m["region"] in regions]
+    # registry 型（tsunami）は active mapping ではなく registry の region 所有で配置され（CHIBA は mapping 無し）、
+    # current を種にした staging に全 target の runtime が載る。publish region に関係なく、staging に runtime
+    # artifact がある dataset の record を同梱する（record が runtime と食い違えば Data Ops が MISMATCH を出す）。
+    for d in get_definition_service().list_all():
+        if d.layer_type in aap.REGISTRY_RUNTIME_LAYER_TYPES and \
+                (staging / f"backend/hazard/{d.layer_type}/{d.layer_type}_{d.region}.geojson").is_file():
+            targets.append({"layer_type": d.layer_type, "region": d.region, "dataset_id": d.dataset_id})
+    seen = set()
+    for m in targets:
+        if m["dataset_id"] in seen:
             continue
+        seen.add(m["dataset_id"])
         src = rp.build_path(data_lake, m["region"], m["layer_type"], m["dataset_id"])
         if not src.is_file():
             continue
@@ -68,7 +80,7 @@ def main() -> int:
         # publish 自体が fail-closed で止まる）を runtime record に残す
         record["publish_verification"] = {
             "method": (getattr(defn, "publish_verification_mode", None) or "canonical_file")
-            if m["layer_type"] == "flood" else "validated_copy",
+            if m["layer_type"] == "flood" else "validated_copy",  # tsunami も validated canonical をそのまま配置
             "staged_at": datetime.now(timezone.utc).isoformat(),
         }
         dst = staging / rp.runtime_rel(m["dataset_id"])
