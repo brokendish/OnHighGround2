@@ -1,0 +1,38 @@
+[
+  {
+    "rel_path": "frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles",
+    "disposition": "RETIRE_CANDIDATE",
+    "consumer": "なし（frontend の tile 参照なし。frontend/backend の tokyo_flood_max は GeoJSON path 名のみ）",
+    "superseded_by": "tokyo_river_001（TOKYO-RIVER-001）",
+    "notes": [
+      "旧 pipeline（normalized/tokyo/flood/tokyo_flood_max.geojson、666,833 件・穴あき欠落）の tile。admin_hazard_service も tokyo_river_001 を参照（2026-10-11 確認）"
+    ]
+  },
+  {
+    "rel_path": "frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles",
+    "disposition": "RETIRE_CANDIDATE",
+    "consumer": "frontend なし。admin_hazard_service._LAYER_DEFINITIONS の storm_surge_tokyo が旧 tileset_id として参照（管理画面の要約表示のみ）",
+    "superseded_by": "tokyo_surge_001（TOKYO-SURGE-001）",
+    "notes": [
+      "旧 pipeline（normalized/tokyo/storm_surge/tokyo_storm_surge.geojson）の tile。feature 59,039 件は tokyo_surge_001 と同数。退役前に admin_hazard_service の参照を tokyo_surge_001 へ更新する必要がある（2026-10-11 確認）"
+    ]
+  },
+  {
+    "rel_path": "frontend/tiles/tokyo/tsunami/kanagawa_tsunami_A40-16_14.mbtiles",
+    "disposition": "KEEP_LEGACY",
+    "consumer": "frontend VECTOR_TILE_SOURCES.tsunami_kanagawa（A40-20_14 と重ねて表示）",
+    "superseded_by": "kanagawa_tsunami_A40-20_14（KANAGAWA-TSUNAMI-001）",
+    "notes": [
+      "A40 2016 年版。2020 年版 A40-20_14 と同数 66,965 件・bbox 1 m 丸めで 99.98% 一致の実質重複。frontend が参照しているため退役には frontend 変更が必要（hazard-layers.js は改変禁止、別 Phase）（2026-10-11 確認）"
+    ]
+  },
+  {
+    "rel_path": "frontend/tiles/tokyo/tsunami/chiba_tsunami_A40-18_12.mbtiles",
+    "disposition": "UNKNOWN_CONTRACT",
+    "consumer": "frontend VECTOR_TILE_SOURCES.tsunami_chiba（tile のみで表示、/api/hazards/tsunami/chiba は 404）",
+    "superseded_by": null,
+    "notes": [
+      "対応する dataset 定義が無い（tsunami:chiba 未登録）。新 dataset の登録判断は OWNER（推測で作らない）（2026-10-11 確認）"
+    ]
+  }
+]

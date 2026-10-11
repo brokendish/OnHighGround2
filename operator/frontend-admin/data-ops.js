@@ -241,7 +241,9 @@
     }
     items.forEach(u => {
       const tr = el("tr");
-      tr.appendChild(td(withSub(badge("WARNING", u.label), u.dataset_id || null), "wrap"));
+      const sub = [u.dataset_id, u.superseded_by ? `後継: ${u.superseded_by}` : null, u.consumer ? `consumer: ${u.consumer}` : null,
+        ...(u.notes || [])].filter(Boolean).join(" / ");
+      tr.appendChild(td(withSub(badge(u.disposition === "UNKNOWN_CONTRACT" ? "UNKNOWN" : "WARNING", u.label), sub || null), "wrap"));
       tr.appendChild(td(el("span", "mono", u.rel_path), "wrap"));
       tr.appendChild(td(u.in_current ? "あり" : "なし"));
       tr.appendChild(td(u.in_mirror ? "あり" : "なし"));

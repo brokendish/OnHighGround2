@@ -156,8 +156,8 @@ def test_legacy_tile_listing(tmp_path):
     assert _rel(river) not in items  # 管理下
     assert items[_rel(surge)]["dataset_id"] == SURGE and items[_rel(surge)]["in_current"] is False
     assert items[_rel(surge)]["martin_registered"] == dos.OK and items[_rel(surge)]["label"].startswith("LEGACY TILE")
-    assert items["frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles"]["label"].startswith("UNREGISTERED TILE（current 内・dataset の tile 契約なし")
-    assert items["frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles"]["label"] == "UNREGISTERED TILE（mirror のみ）"
+    assert items["frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles"]["disposition"] == "RETIRE_CANDIDATE"
+    assert items["frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles"]["label"].startswith("RETIRE CANDIDATE")
 
 
 # ── registry: 事実確認できた dataset だけに契約を設定 ─────────────────────────────
@@ -168,6 +168,7 @@ EXPECTED = {
     "TOKYO-LOWLAND-POOR-DRAINAGE-001": "required", "KANAGAWA-LOWLAND-POOR-DRAINAGE-001": "required",
     "TOKYO-SURGE-001": "optional", "KANAGAWA-SURGE-001": "optional",
     "TOKYO-URBAN-001": "optional", "KANAGAWA-URBAN-001": "optional",
+    "TOKYO-TSUNAMI-001": "optional", "KANAGAWA-TSUNAMI-001": "optional",
 }
 
 
@@ -176,7 +177,8 @@ def test_registry_tile_requirements_are_pinned():
     assert got == EXPECTED
     for d in get_definition_service().list_all():
         if d.dataset_id in EXPECTED:
-            assert d.requires_tile_build and d.tile_notes, d.dataset_id
+            # tsunami は管理画面 tile build の対象外（既存 tile を tile_rel_path で契約に結びつけた）
+            assert (d.requires_tile_build or d.tile_rel_path) and d.tile_notes, d.dataset_id
 
 
 def test_frontend_contract_matches_requirement():

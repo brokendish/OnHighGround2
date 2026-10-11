@@ -250,8 +250,15 @@ TILE_STATES = {
 }
 
 
+def tile_rel(defn: DatasetDefinition) -> str:
+    """dataset の管理 tile の current 内相対 path。tile_rel_path があればそれ（既存 tile の明示登録）。"""
+    if defn.tile_rel_path:
+        return defn.tile_rel_path
+    return f"frontend/tiles/{defn.region}/{defn.layer_type}/{defn.dataset_id.lower().replace('-', '_')}.mbtiles"
+
+
 def tile_tileset_id(defn: DatasetDefinition) -> str:
-    return defn.dataset_id.lower().replace("-", "_")
+    return Path(tile_rel(defn)).stem
 
 
 def tile_requirement(defn: DatasetDefinition) -> str:
@@ -276,7 +283,7 @@ def tile_section(defn: DatasetDefinition, view: drr.RuntimeView, allow_heavy: bo
                 "state": "TILE_NOT_APPLICABLE", "label": TILE_STATES["TILE_NOT_APPLICABLE"],
                 "notes": list(defn.tile_notes)}
     stem = tile_tileset_id(defn)
-    rel = f"frontend/tiles/{defn.region}/{defn.layer_type}/{stem}.mbtiles"
+    rel = tile_rel(defn)
     sec: Dict[str, Any] = {"required": req == "required", "requirement": req, "notes": list(defn.tile_notes),
                            "tileset_id": stem, "rel_path": rel, "in_current": False,
                            "current_sha256": None, "mirror": None, "martin_registered": UNOBSERVED,
@@ -330,8 +337,8 @@ def legacy_tile_section(view: drr.RuntimeView, defs: List[DatasetDefinition],
     current 内の未登録 tile と、current に無く mirror だけにある tile（publish・rollback の管理外）。削除はしない。"""
     if not view.ok:
         return []
-    managed = {f"frontend/tiles/{d.region}/{d.layer_type}/{tile_tileset_id(d)}.mbtiles": d.dataset_id
-               for d in defs if d.layer_type and tile_requirement(d) != "not_applicable"}
+    managed = {tile_rel(d): d.dataset_id for d in defs if d.layer_type and tile_requirement(d) != "not_applicable"}
+    dispositions = load_tile_dispositions()
     current_tiles = {r for r in view.files if r.startswith("frontend/tiles/") and r.endswith(".mbtiles")}
     mirror_root = view.root / "frontend" / "tiles"
     mirror_tiles = set()
@@ -344,15 +351,47 @@ def legacy_tile_section(view: drr.RuntimeView, defs: List[DatasetDefinition],
         if owner and in_current:
             continue  # 管理下（tile_section が判定する）
         stem = Path(rel).stem
+        disp = dispositions.get(rel) if not owner else None
+        if owner:
+            label = "LEGACY TILE（dataset の tile、current 管理外）"
+        elif disp:
+            label = TILE_DISPOSITION_LABELS[disp["disposition"]]
+        else:
+            label = ("UNREGISTERED CURRENT TILE（分類未定）" if in_current else "UNREGISTERED TILE（mirror のみ・分類未定）")
         out.append({
             "rel_path": rel, "tileset_id": stem, "in_current": in_current, "in_mirror": in_mirror,
             "dataset_id": owner,  # dataset の tile 名と一致するが current に無い（mirror だけ）
             "martin_registered": UNOBSERVED if catalog is None else (OK if stem in catalog else ERROR),
-            "label": "LEGACY TILE（dataset の tile、current 管理外）" if owner else
-                     ("UNREGISTERED TILE（current 内・dataset の tile 契約なし）" if in_current
-                      else "UNREGISTERED TILE（mirror のみ）"),
+            "disposition": disp["disposition"] if disp else None,
+            "consumer": disp.get("consumer") if disp else None,
+            "superseded_by": disp.get("superseded_by") if disp else None,
+            "notes": list(disp.get("notes", [])) if disp else [],
+            "label": label,
         })
     return out
+
+
+# 契約を持たない tile の棚卸し結果（data_lake/registry/tile_dispositions.json）。削除・登録の判断材料として表示するだけで、
+# 自動削除はしない。dataset の tile 契約より優先しない（契約がある tile は tile_section が判定する）。
+TILE_DISPOSITIONS = ("RETIRE_CANDIDATE", "KEEP_LEGACY", "UNKNOWN_CONTRACT")
+TILE_DISPOSITION_LABELS = {
+    "RETIRE_CANDIDATE": "RETIRE CANDIDATE（未使用・後継 tile あり。削除は別 Phase）",
+    "KEEP_LEGACY": "KEEP LEGACY（frontend が参照中。dataset 契約なし）",
+    "UNKNOWN_CONTRACT": "UNKNOWN CONTRACT（使用中だが対応 dataset なし）",
+}
+
+
+def _tile_dispositions_path() -> Path:
+    from app.services.dataset_definition_service import _DEFINITIONS_PATH
+    return Path(_DEFINITIONS_PATH).parent / "tile_dispositions.json"
+
+
+def load_tile_dispositions() -> Dict[str, Dict[str, Any]]:
+    try:
+        items = json.loads(_tile_dispositions_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {i["rel_path"]: i for i in items if i.get("disposition") in TILE_DISPOSITIONS}
 
 
 # ── 取得 ────────────────────────────────────────────────────────────────────────

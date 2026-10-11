@@ -239,6 +239,9 @@ class DatasetDefinition(BaseModel):
     # 未設定で requires_tile_build=true の dataset は契約不明（UNKNOWN）として扱う。
     tile_requirement: Optional[Literal["required", "optional", "not_applicable"]] = None
     tile_notes: List[str] = Field(default_factory=list)
+    # current version 内の tile の相対 path（既定の frontend/tiles/<region>/<layer_type>/<dataset_id_snake>.mbtiles
+    # と異なる既存 tile を契約に結びつける場合だけ設定する。tileset_id は file 名の stem）。
+    tile_rel_path: Optional[str] = None
 
     @model_validator(mode="after")
     def _artifact_record_is_flood_only(self):
