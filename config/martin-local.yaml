@@ -38,3 +38,8 @@ mbtiles:
     - /data_runtime/frontend/tiles/kanagawa/storm_surge
     - /data_runtime/frontend/tiles/kanagawa/inland_flood
     - /data_runtime/frontend/tiles/kanagawa/lowland_poor_drainage
+    # KANAGAWA-TSUNAMI-001 / CHIBA-TSUNAMI-001: Local publish（20261011T144434Z-eeabfde9）で mirror に
+    # directory ができた後に追加（Martin 1.14.0 は設定 path が無いと起動しない）
+    - /data_runtime/frontend/tiles/kanagawa/tsunami
+    # ── 千葉 ────────────────────────────────────────────────────────────────
+    - /data_runtime/frontend/tiles/chiba/tsunami

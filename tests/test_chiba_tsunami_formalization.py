@@ -186,7 +186,7 @@ def test_martin_config_serves_chiba_regional_dir():
     local = (ROOT / "config" / "martin-local.yaml").read_text(encoding="utf-8")
     prefix = "/data_runtime/frontend/tiles/"
     lpaths = [l.strip()[2:] for l in local.splitlines() if l.strip().startswith(f"- {prefix}")]
-    assert f"{prefix}tokyo/tsunami" in lpaths
+    assert {f"{prefix}tokyo/tsunami", f"{prefix}kanagawa/tsunami", f"{prefix}chiba/tsunami"} <= set(lpaths)
 
 
 # ── Data Ops / rollback guard ──────────────────────────────────────────────────
