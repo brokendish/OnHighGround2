@@ -99,6 +99,16 @@ log_info "version_id = ${VERSION_ID}"
 log_info "staging    = ${STAGING_DIR}"
 log_info "regions    = ${REGIONS[*]}"
 
+# 工程別の経過秒（ATOMIC-PUBLISH-TIMING）。publish 時間・I/O の内訳を log から追えるようにする。
+_STEP_T0="$(date +%s.%N)"
+_STEP_PREV="${_STEP_T0}"
+log_step() {
+    local now; now="$(date +%s.%N)"
+    log_info "[timing] $1: $(awk -v a="${_STEP_PREV}" -v b="${now}" 'BEGIN{printf "%.2f", b-a}')s" \
+             "(total $(awk -v a="${_STEP_T0}" -v b="${now}" 'BEGIN{printf "%.2f", b-a}')s)"
+    _STEP_PREV="${now}"
+}
+
 mkdir -p "${STAGING_ROOT_BASE}"
 if [[ -e "${STAGING_DIR}" ]]; then
     log_error "staging directoryが既に存在する（version ID衝突）: ${STAGING_DIR}"
@@ -115,11 +125,16 @@ if [[ -L "${CURRENT_LINK}" ]]; then
     CURRENT_REAL="${DATA_RUNTIME}/${CURRENT_TARGET}"
     if [[ -d "${CURRENT_REAL}" ]]; then
         log_info "seeding staging from current: ${CURRENT_REAL}"
-        cp -a "${CURRENT_REAL}/." "${STAGING_DIR}/"
+        # --reflink=auto: reflink 対応 filesystem（VPS: XFS reflink=1）では data block を共有する
+        # copy-on-write clone になり、物理 write はほぼ発生しない。非対応 fs では通常 copy に縮退する。
+        # GNU coreutils 9.0 以降の既定値と同じ（明示して意図を固定する）。hardlink は使わない
+        # （version tree は link count 1 が契約: runtime_publish._verify_permissions）。
+        cp -a --reflink=auto "${CURRENT_REAL}/." "${STAGING_DIR}/"
     fi
 else
     log_info "current未設定（初回publish）。staging を空から生成する。"
 fi
+log_step "seed staging from current"
 
 # 既存 deploy_to_runtime.sh を region ごとにstaging modeで実行する（同一
 # staging directoryへ積み重ねる）。各regionのdataset出力先はregion名を含む
@@ -129,6 +144,7 @@ for _region in "${REGIONS[@]}"; do
     log_info "--- region: ${_region} ---"
     OHG2_STAGING_ROOT="${STAGING_DIR}" \
         "${SCRIPT_DIR}/deploy_to_runtime.sh" --region "${_region}" ${SKIP_FRONTEND_ARG}
+    log_step "deploy region ${_region}"
 done
 
 # RUNTIME-PROVENANCE: build node が書いた provenance record（data_lake/provenance/）を staging の
@@ -139,6 +155,7 @@ for _region in "${REGIONS[@]}"; do _prov_regions+=(--region "${_region}"); done
 if ! python3 "${SCRIPT_DIR}/stage_runtime_provenance.py" --staging "${STAGING_DIR}" "${_prov_regions[@]}"; then
     log_warn "runtime provenance の配置に失敗（publish は続行。Data Ops では LEGACY_RUNTIME_PROVENANCE と表示される）"
 fi
+log_step "stage runtime provenance"
 
 # Claude自己検証で発見した実バグ（macOS Docker Desktop named volume、
 # virtiofs/gRPC-FUSE経由での実機確認）: `.staging`自身がsetgid（0o2750、
@@ -168,6 +185,7 @@ find "${STAGING_DIR}" -type f -exec chmod 0640 {} \; 2>/dev/null || true
 # chgrpし、実際にpublicから読めるようにする。
 STAGING_LEASES_GID="${OHG2_LEASES_GID:-20001}"
 chgrp -R "${STAGING_LEASES_GID}" "${STAGING_DIR}" 2>/dev/null || true
+log_step "normalize staging permission"
 
 log_info "activating version via activate_version.py ..."
 # CODEX P2B5-CX-006（第4ラウンド）対応: activate_version.pyがexit 3
@@ -179,6 +197,10 @@ ACTIVATE_EXTRA_ARGS=()
 if [[ -n "${FLOOD_MIGRATION_APPROVAL_REF}" ]]; then
     log_warn "flood routing migration を OWNER 承認参照付きで実行します: ${FLOOD_MIGRATION_APPROVAL_REF}"
     ACTIVATE_EXTRA_ARGS=(--allow-flood-routing-migration --owner-approval-ref "${FLOOD_MIGRATION_APPROVAL_REF}")
+elif [[ "${OHG2_PUBLISH_REUSE_VALIDATION:-0}" == "1" ]]; then
+    # VALIDATED-CONTENT-REUSE（opt-in）: 前 version と sha256・検証契約が同一の file は再検証しない。
+    log_info "validated-content reuse: enabled（OHG2_PUBLISH_REUSE_VALIDATION=1）"
+    ACTIVATE_EXTRA_ARGS=(--reuse-validated-content)
 fi
 set +e
 python3 "${SCRIPT_DIR}/activate_version.py" \
@@ -187,6 +209,7 @@ python3 "${SCRIPT_DIR}/activate_version.py" \
     "${ACTIVATE_EXTRA_ARGS[@]+"${ACTIVATE_EXTRA_ARGS[@]}"}"
 ACTIVATE_EXIT_CODE=$?
 set -e
+log_step "activate_version.py (validate + manifest + swap)"
 
 if [[ "${ACTIVATE_EXIT_CODE}" -eq 3 ]]; then
     log_error "=================================================================="
@@ -214,6 +237,7 @@ if python3 "${SCRIPT_DIR}/reconcile_dataset_state.py" --data-runtime-root "${DAT
 else
     log_warn "DatasetState の同期に失敗または一部判定不能（publish は成功済み。operator 再起動・管理画面参照時に再同期されます）"
 fi
+log_step "reconcile dataset state"
 
 if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
     # Finding 9（VPS in-place再構築 2026-09-06）: LAYERS post-publish flat mirror
@@ -262,4 +286,5 @@ if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
     fi
 fi
 
+log_step "frontend tile mirror sync"
 log_info "=== deploy_to_runtime_atomic.sh done ==="

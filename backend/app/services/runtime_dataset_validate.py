@@ -19,6 +19,14 @@ publishが成功していた。本moduleは以下を検証する。
     （publish後、任意時点で内容の完全性を再検証できるようにする）
   - 既存manifest（再publish・再検証時）と実fileのcontentが一致し、disk上に
     manifest未記録の追加fileが存在しないことを検証する
+
+VALIDATED-CONTENT-REUSE（opt-in、`reuse_previous_validation=True`）:
+  staging の file の sha256 が「この publish で disk と再照合済みの前 version manifest」の
+  同一 path の sha256 と一致し、かつ前 manifest の `validation_contract`（本 module の source と
+  ijson の sha256）が現在と同一なら、その file は前回 publish で同じ規則の検証を通過した
+  byte 列と同一である。schema 再検証と件数 re-parse を省き、件数は前 manifest から引き継ぐ。
+  sha256 は全 file について毎回計算する（不一致・契約変更・記録欠落は従来どおり全検証）。
+  前 version 側の件数 re-parse（CX-003 第11ラウンド）は、内容が変わった／消えた path に限って行う。
 """
 from __future__ import annotations
 
@@ -548,6 +556,16 @@ MANIFEST_BASENAME = "_manifest.json"
 REQUIRED_TOP_LEVEL_ENTRIES = ("backend",)
 
 
+def _drop_page_cache(f) -> None:
+    """読み終えた file の page cache を手放す（publish の全量読みで backend の page が swap へ
+    押し出されるのを抑える）。clean page だけが対象で、内容・正否には影響しない。Linux 以外は no-op。"""
+    if hasattr(os, "posix_fadvise"):
+        try:
+            os.posix_fadvise(f.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+        except OSError:
+            pass
+
+
 def _sha256_of(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -556,7 +574,21 @@ def _sha256_of(path: Path) -> str:
             if not chunk:
                 break
             h.update(chunk)
+        _drop_page_cache(f)
     return h.hexdigest()
+
+
+def _compute_validation_contract() -> str:
+    """検証規則の識別子。本 module の source と ijson（version / backend）の sha256。
+    規則・parser が少しでも変われば値が変わり、前回の検証結果は再利用されない。"""
+    import ijson
+
+    h = hashlib.sha256(Path(__file__).read_bytes())
+    h.update(f"\0ijson={ijson.__version__}/{ijson.backend}".encode())
+    return h.hexdigest()
+
+
+VALIDATION_CONTRACT = _compute_validation_contract()
 
 
 # RUNTIME-VALIDATE-STREAMING: staging 検証と前 version の件数導出は、従来すべての GeoJSON を
@@ -622,6 +654,7 @@ def _validate_feature_collection_streaming(
                     required_property_ranges,
                 )
                 n += 1
+            _drop_page_cache(f)
     except ijson.common.JSONError as exc:
         raise RuntimeAtomicError(f"不正なJSON構文: {path}: {exc}") from exc
     except OSError as exc:
@@ -875,7 +908,7 @@ def _count_features_in_file(path: Path) -> int:
     return 0
 
 
-def _derive_actual_feature_counts(version_path: Path) -> Dict[str, int]:
+def _derive_actual_feature_counts(version_path: Path, only: Optional[set] = None) -> Dict[str, int]:
     """`version_path`配下の実fileを直接re-parseし、相対path→Feature件数の
     辞書を構築する。manifestの`feature_counts`フィールドは一切参照しない
     （CODEX P2B5-CX-003第11ラウンド対応: manifest上の記録値改ざんによる
@@ -890,6 +923,8 @@ def _derive_actual_feature_counts(version_path: Path) -> Dict[str, int]:
         if suffix not in GEOJSON_SUFFIXES and suffix not in JSONL_SUFFIXES:
             continue
         rel = str(p.relative_to(version_path))
+        if only is not None and rel not in only:
+            continue
         counts[rel] = _count_features_in_file(p)
     return counts
 
@@ -901,6 +936,8 @@ def validate_and_manifest_staging(
     allow_flood_routing_migration: bool = False,
     owner_approval_ref: Optional[str] = None,
     migration_records: Optional[List[Dict[str, Any]]] = None,
+    reuse_previous_validation: bool = False,
+    stats: Optional[Dict[str, Any]] = None,
 ) -> "tuple[Dict[str, str], Dict[str, int]]":
     """staging directory配下を検証し、(checksum manifest, feature件数)を
     構築して返す（呼び出し側がmanifestをfileへ書き出す）。検証失敗時は
@@ -913,7 +950,15 @@ def validate_and_manifest_staging(
     `allow_flood_routing_migration=True`（OWNER 承認参照 `owner_approval_ref` 必須）は
     初回 flood routing migration 専用。前 version の legacy flood path の消失だけを
     例外にし、適用内容を `migration_records` へ追記する（manifest に記録する用途）。
+
+    `reuse_previous_validation=True` は VALIDATED-CONTENT-REUSE（module docstring 参照）。
+    migration 時は使わない（常に全検証）。`stats` を渡すと工程別の件数・byte・秒を書き込む。
     """
+    import time as _time
+
+    _t0 = _time.monotonic()
+    st: Dict[str, Any] = stats if stats is not None else {}
+    prev_manifest_obj: Dict[str, Any] = {}
     if not staging_path.is_dir():
         raise RuntimeAtomicError(f"staging directoryが存在しない: {staging_path}")
     entries = [p for p in staging_path.iterdir() if p.name != MANIFEST_BASENAME]
@@ -1027,7 +1072,7 @@ def validate_and_manifest_staging(
                 f"{prev_manifest_path}"
             )
         try:
-            json.loads(prev_manifest_path.read_text(encoding="utf-8"))
+            prev_manifest_obj = json.loads(prev_manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeAtomicError(
                 f"件数整合性検証違反（前versionのmanifestが読み取れない、改ざん／破損の疑い）: "
@@ -1072,6 +1117,7 @@ def validate_and_manifest_staging(
     # version全体のchecksum整合性を確認する。読取不能・破損・改ざんの
     # いずれも、この関数がRuntimeAtomicErrorとして検出しfail-closedで
     # 新規publish自体を拒否する。
+    _t = _time.monotonic()
     if previous_version_path is not None:
         try:
             verify_manifest_matches_disk(previous_version_path)
@@ -1080,10 +1126,52 @@ def validate_and_manifest_staging(
                 f"件数整合性検証違反（前versionの実fileがmanifestのchecksumと不一致、"
                 f"改ざん／破損の疑い）: {previous_version_path}: {exc}"
             ) from exc
+    st["previous_verify_s"] = round(_time.monotonic() - _t, 3)
 
+    # VALIDATED-CONTENT-REUSE: 前 manifest の sha256 は直前の verify_manifest_matches_disk で
+    # disk と一致済み。同一 path・同一 sha256・同一 validation_contract の file だけを再利用する。
+    # 件数整合性の判断は byte 同一性（sha256）に基づく（記録された件数は判断根拠に使わない）。
+    staging_files = [p for p in sorted(staging_path.rglob("*"))
+                     if p.is_file() and p.name != MANIFEST_BASENAME]
+    reusable: set = set()
+    reuse_reason = "disabled"
+    _t = _time.monotonic()
+    if reuse_previous_validation:
+        prev_files = prev_manifest_obj.get("files")
+        prev_counts = prev_manifest_obj.get("feature_counts")
+        if previous_version_path is None:
+            reuse_reason = "no_previous_version"
+        elif allow_flood_routing_migration:
+            reuse_reason = "migration"
+        elif prev_manifest_obj.get("validation_contract") != VALIDATION_CONTRACT:
+            reuse_reason = "validation_contract_changed"
+        elif not isinstance(prev_files, dict) or not isinstance(prev_counts, dict):
+            reuse_reason = "previous_manifest_incomplete"
+        else:
+            reuse_reason = "enabled"
+            for p in staging_files:
+                rel = str(p.relative_to(staging_path))
+                if prev_files.get(rel) != _sha256_of(p):
+                    continue
+                if p.suffix.lower() in GEOJSON_SUFFIXES or p.suffix.lower() in JSONL_SUFFIXES:
+                    c = prev_counts.get(rel)
+                    if not isinstance(c, int) or isinstance(c, bool):
+                        continue  # 件数記録が無い・不正 → この file は全検証
+                reusable.add(rel)
+    st["reuse"] = reuse_reason
+    st["reuse_hash_s"] = round(_time.monotonic() - _t, 3)
+
+    # 前 version の実 file re-parse（CX-003 第11ラウンド）は、内容が変わった／staging から消えた path に
+    # 限る（再利用 path は byte 同一のため件数比較は自明に一致する）。
+    _t = _time.monotonic()
     previous_feature_counts: Dict[str, int] = (
-        _derive_actual_feature_counts(previous_version_path) if previous_version_path is not None else {}
+        _derive_actual_feature_counts(
+            previous_version_path,
+            only=None if reuse_reason != "enabled" else {r for r in prev_manifest_obj["files"] if r not in reusable},
+        ) if previous_version_path is not None else {}
     )
+    st["previous_count_s"] = round(_time.monotonic() - _t, 3)
+    st["previous_parsed_files"] = len(previous_feature_counts)
 
     migration_exempt: set = set()
     if allow_flood_routing_migration:
@@ -1097,13 +1185,18 @@ def validate_and_manifest_staging(
     feature_counts: Dict[str, int] = {}
     invalid: List[str] = []
     file_count = 0
-    for p in sorted(staging_path.rglob("*")):
-        if not p.is_file():
-            continue
-        if p.name == MANIFEST_BASENAME:
-            continue
+    reused_bytes = validated_bytes = 0
+    _t = _time.monotonic()
+    for p in staging_files:
         file_count += 1
         rel = str(p.relative_to(staging_path))
+        if rel in reusable:
+            if p.suffix.lower() in GEOJSON_SUFFIXES or p.suffix.lower() in JSONL_SUFFIXES:
+                feature_counts[rel] = prev_manifest_obj["feature_counts"][rel]
+            manifest[rel] = prev_manifest_obj["files"][rel]
+            reused_bytes += p.stat().st_size
+            continue
+        validated_bytes += p.stat().st_size
         suffix = p.suffix.lower()
         required_keys = _required_property_keys_for_staging_path(rel)
         required_types = _required_property_types_for_staging_path(rel)
@@ -1150,6 +1243,9 @@ def validate_and_manifest_staging(
             invalid.append(str(exc))
             continue
         manifest[rel] = _sha256_of(p)
+    st.update(validate_s=round(_time.monotonic() - _t, 3), files=file_count, reused_files=len(reusable),
+              reused_bytes=reused_bytes, validated_files=file_count - len(reusable),
+              validated_bytes=validated_bytes, total_s=round(_time.monotonic() - _t0, 3))
 
     if invalid:
         raise RuntimeAtomicError(
@@ -1206,6 +1302,7 @@ def write_manifest(
     mode: int,
     feature_counts: Optional[Dict[str, int]] = None,
     migrations: Optional[List[Dict[str, Any]]] = None,
+    validation_reuse: Optional[Dict[str, Any]] = None,
 ) -> None:
     import os
 
@@ -1220,6 +1317,10 @@ def write_manifest(
             "feature_counts": feature_counts or {},
             # 初回 flood routing migration 等、通常 guard の例外を適用した記録（監査用）。
             **({"migrations": migrations} if migrations else {}),
+            # 次回 publish の VALIDATED-CONTENT-REUSE はこの値が現在の検証規則と一致する場合だけ有効
+            "validation_contract": VALIDATION_CONTRACT,
+            # この publish で再利用した／検証した件数（監査用）
+            **({"validation_reuse": validation_reuse} if validation_reuse else {}),
         },
         sort_keys=True, indent=2,
     )

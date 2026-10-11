@@ -52,6 +52,8 @@ def _validate_staging(
     *,
     allow_flood_routing_migration: bool = False,
     owner_approval_ref=None,
+    reuse_validated_content: bool = False,
+    stats=None,
 ) -> None:
     """CODEX P2B5-CX-003対応: 「空でない」「backendが存在する」だけでなく、
     JSON/GeoJSON/GeoJSONLの構文検証、mbtilesのSQLite健全性検証、
@@ -63,14 +65,18 @@ def _validate_staging(
     Feature件数減少の検出）を有効にする。
     """
     migrations: list = []
+    st = stats if stats is not None else {}
     manifest, feature_counts = validate_and_manifest_staging(
         staging_path,
         previous_version_path,
         allow_flood_routing_migration=allow_flood_routing_migration,
         owner_approval_ref=owner_approval_ref,
         migration_records=migrations,
+        reuse_previous_validation=reuse_validated_content,
+        stats=st,
     )
-    write_manifest(staging_path, manifest, VERSION_FILE_MODE, feature_counts, migrations=migrations)
+    write_manifest(staging_path, manifest, VERSION_FILE_MODE, feature_counts, migrations=migrations,
+                   validation_reuse={k: st[k] for k in ("reuse", "reused_files", "validated_files") if k in st})
 
 
 def main() -> int:
@@ -84,6 +90,12 @@ def main() -> int:
         action="store_true",
         help="初回 flood routing migration 専用（legacy flood path の消失を一度だけ許可）。"
              "--owner-approval-ref 必須。通常 publish では使用しない",
+    )
+    parser.add_argument(
+        "--reuse-validated-content",
+        action="store_true",
+        help="VALIDATED-CONTENT-REUSE: 前 version と sha256・検証契約が同一の file は再検証しない"
+             "（runtime_dataset_validate 参照。migration とは併用しない）",
     )
     parser.add_argument("--owner-approval-ref", default=None,
                         help="--allow-flood-routing-migration 時の OWNER 承認参照（manifest に記録）")
@@ -120,6 +132,7 @@ def main() -> int:
         return 1
 
     root = Path(args.data_runtime_root)
+    validation_stats: dict = {}
     publisher = AtomicPublisher(root, expect_uid=EXPECTED_OPERATOR_UID, expect_gid=EXPECTED_OPERATOR_GID)
     audit_dir = Path(args.audit_dir) if args.audit_dir else (root / "manifests" / "phase2b5_audit")
 
@@ -132,6 +145,8 @@ def main() -> int:
                 _validate_staging,
                 allow_flood_routing_migration=args.allow_flood_routing_migration,
                 owner_approval_ref=args.owner_approval_ref,
+                reuse_validated_content=args.reuse_validated_content,
+                stats=validation_stats,
             )
             result = publisher.publish(args.version_id, validator, audit_dir=audit_dir)
             action = "publish"
@@ -168,6 +183,7 @@ def main() -> int:
                 "previous_version_id": result.previous_version_id,
                 "duration_s": round(result.finished_at - result.started_at, 3),
                 "audit_path": str(result.audit_path) if result.audit_path else None,
+                **({"validation": validation_stats} if validation_stats else {}),
             },
             ensure_ascii=False,
         )
