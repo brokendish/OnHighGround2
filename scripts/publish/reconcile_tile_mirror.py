@@ -112,6 +112,8 @@ def known_shas(root: Path, registry: Path | None) -> dict:
             b = d.get("backup") or {}
             if d.get("disposition") == "RETIRED" and d.get("rel_path") and b.get("sha256"):
                 known.setdefault(d["rel_path"], set()).add(b["sha256"])
+            if d.get("disposition") == "MIGRATED" and d.get("rel_path") and d.get("sha256"):
+                known.setdefault(d["rel_path"], set()).add(d["sha256"])
     return known
 
 

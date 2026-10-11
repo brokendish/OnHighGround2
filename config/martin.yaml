@@ -45,9 +45,11 @@ mbtiles:
     - /tiles/tokyo/lowland_poor_drainage
     # ── 神奈川 ──────────────────────────────────────────────────────────────
     # deploy_to_runtime.sh --region kanagawa 実行後にタイルが配備される。
-    # ディレクトリが存在しない場合は Martin が起動時に警告を出すが動作継続する。
+    # 注意: Martin 1.14.0 は列挙した path が存在しないと起動に失敗する（exit 1、2026-10-11 実測）。
+    # 空 directory なら起動する。path を追加したら、先に publish で mirror に directory を作ってから再起動する。
     - /tiles/kanagawa/flood
     - /tiles/kanagawa/storm_surge
     - /tiles/kanagawa/inland_flood
     - /tiles/kanagawa/lowland_poor_drainage
-    # kanagawa/tsunami: MBTiles 未生成のため省略（生成後に追加する）
+    # KANAGAWA-TSUNAMI-001（kanagawa_tsunami_A40-20_14）。2026-10-11 に tokyo/tsunami から移動（tileset_id は不変）
+    - /tiles/kanagawa/tsunami

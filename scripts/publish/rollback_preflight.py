@@ -84,6 +84,9 @@ def preflight(version: Path, registry: Path) -> dict:
         if req == "not_applicable" or not d.layer_type:
             continue
         rel = dos.tile_rel(d)
+        # TILE-PATH-MIGRATION: 移動前の version では旧 path（tile_dispositions の MIGRATED）にある tile を同じ tile とみなす
+        candidates = [c for c in dos.tile_rel_candidates(d) if c in files] or [rel]
+        rel = candidates[0]
         sha = files.get(rel)
         if sha is None:
             state, detail = "missing", "rollback 先 version の manifest に tile が無い"

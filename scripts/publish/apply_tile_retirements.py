@@ -13,6 +13,10 @@ mirror 同期も追加専用のため、使われなくなった tile が curren
                     activate 後、current に無い対象 file を mirror から除く。mirror の file が
                     record の backup sha256 と一致する場合だけ消す（一致しなければ残して警告）。
 
+TILE-PATH-MIGRATION（disposition=MIGRATED）: 同じ tileset を別 path へ移した旧 path。staging では移動先
+（migrated_to）が staging にある場合だけ旧 path を除く（移動先が無ければ publish を止める）。mirror では
+current に無く、record の sha256 と一致する旧 path だけを除く。tileset_id は変えない。
+
 前 version（versions/<id>）は一切触らない。rollback すると前 version には tile が残っているが、
 mirror は rollback で同期されないため、退役 tile は配信されない（backup から戻す。docs 参照）。
 """
@@ -52,6 +56,61 @@ def load_retirements(path: Path) -> list:
             raise ValueError(f"RETIRED tileset_id と rel_path が不一致: {rel} / {i['tileset_id']}")
         out.append(i)
     return out
+
+
+MIGRATION_REQUIRED = ("rel_path", "tileset_id", "migrated_to", "sha256", "migrated_at", "reason")
+
+
+def _check_rel(rel: str) -> None:
+    if not (rel.startswith("frontend/tiles/") and rel.endswith(".mbtiles")) or ".." in rel.split("/") or "*" in rel:
+        raise ValueError(f"tile path が不正: {rel}")
+
+
+def load_migrations(path: Path) -> list:
+    items = json.loads(path.read_text(encoding="utf-8"))
+    out = []
+    for i in items:
+        if i.get("disposition") != "MIGRATED":
+            continue
+        missing = [k for k in MIGRATION_REQUIRED if not i.get(k)]
+        if missing:
+            raise ValueError(f"MIGRATED record が不完全: {i.get('rel_path')} missing={missing}")
+        _check_rel(i["rel_path"])
+        _check_rel(i["migrated_to"])
+        if i["rel_path"] == i["migrated_to"] or not (Path(i["rel_path"]).stem == Path(i["migrated_to"]).stem == i["tileset_id"]):
+            raise ValueError(f"MIGRATED は同じ tileset_id の別 path への移動に限る: {i['rel_path']} -> {i['migrated_to']}")
+        out.append(i)
+    return out
+
+
+def apply_staging_migrations(staging: Path, items: list) -> list:
+    removed = []
+    for i in items:
+        old, new = staging / i["rel_path"], staging / i["migrated_to"]
+        if not old.is_file() or old.is_symlink():
+            continue
+        if not new.is_file():
+            raise ValueError(f"移動先の tile が staging に無いため旧 path を除けない: {i['migrated_to']}")
+        old.unlink()
+        removed.append(i["rel_path"])
+    return removed
+
+
+def apply_mirror_migrations(mirror_root: Path, current: Path, items: list) -> "tuple[list, list]":
+    removed, kept = [], []
+    for i in items:
+        target = mirror_root / i["rel_path"]
+        if not target.is_file():
+            continue
+        if (current / i["rel_path"]).exists():
+            kept.append(f"{i['rel_path']}: current にまだ存在するため mirror から消さない")
+            continue
+        if _sha256(target) != i["sha256"]:
+            kept.append(f"{i['rel_path']}: mirror の sha256 が移動 record と一致しないため消さない")
+            continue
+        target.unlink()
+        removed.append(i["rel_path"])
+    return removed, kept
 
 
 def apply_staging(staging: Path, items: list) -> list:
@@ -99,18 +158,23 @@ def main() -> int:
         reg = _tile_dispositions_path()
     try:
         items = load_retirements(reg) if reg.is_file() else []
+        migrations = load_migrations(reg) if reg.is_file() else []
+        if args.staging:
+            removed = apply_staging(Path(args.staging), items)
+            moved = apply_staging_migrations(Path(args.staging), migrations)
+            print(f"[tile-retirement] staging: removed={removed} retired_records={len(items)} "
+                  f"migrated_old_paths_removed={moved} migration_records={len(migrations)}")
     except (OSError, ValueError) as exc:
         print(f"[tile-retirement] ERROR {exc}", file=sys.stderr)
         return 1
-    if args.staging:
-        removed = apply_staging(Path(args.staging), items)
-        print(f"[tile-retirement] staging: removed={removed} retired_records={len(items)}")
     if args.mirror:
         if not args.current:
             print("[tile-retirement] ERROR --mirror には --current が必要", file=sys.stderr)
             return 1
         removed, kept = apply_mirror(Path(args.mirror), Path(args.current), items)
-        print(f"[tile-retirement] mirror: removed={removed}")
+        moved, kept2 = apply_mirror_migrations(Path(args.mirror), Path(args.current), migrations)
+        kept += kept2
+        print(f"[tile-retirement] mirror: removed={removed} migrated_old_paths_removed={moved}")
         for k in kept:
             print(f"[tile-retirement] WARN {k}", file=sys.stderr)
     return 0

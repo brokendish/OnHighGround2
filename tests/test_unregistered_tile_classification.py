@@ -58,7 +58,8 @@ def test_used_frontend_tiles_are_never_retire_candidates():
     for d in DISPOSITIONS:
         stem = Path(d["rel_path"]).stem
         if stem in used:
-            assert d["disposition"] in ("KEEP_LEGACY", "UNKNOWN_CONTRACT"), stem
+            # MIGRATED は同じ tileset の旧 path（使用中の tile は新 path にある）
+            assert d["disposition"] in ("KEEP_LEGACY", "UNKNOWN_CONTRACT", "MIGRATED"), stem
     # frontend が静的 ID で参照する tile は、dataset 契約か分類のどちらかに必ず載っている
     classified = {Path(d["rel_path"]).stem for d in DISPOSITIONS}
     assert used <= managed | classified, used - managed - classified
@@ -67,10 +68,11 @@ def test_used_frontend_tiles_are_never_retire_candidates():
 def test_tsunami_static_ids_are_registered_to_existing_datasets():
     ds = get_definition_service()
     used = _frontend_tileset_ids()
-    for did, stem in (("TOKYO-TSUNAMI-001", "tokyo_tsunami_A40-23_13"), ("KANAGAWA-TSUNAMI-001", "kanagawa_tsunami_A40-20_14")):
+    for did, region, stem in (("TOKYO-TSUNAMI-001", "tokyo", "tokyo_tsunami_A40-23_13"),
+                              ("KANAGAWA-TSUNAMI-001", "kanagawa", "kanagawa_tsunami_A40-20_14")):
         d = ds.get(did)
         assert d.tile_requirement == "optional" and dos.tile_tileset_id(d) == stem and stem in used
-        assert d.tile_rel_path == f"frontend/tiles/tokyo/tsunami/{stem}.mbtiles"
+        assert d.tile_rel_path == f"frontend/tiles/{region}/tsunami/{stem}.mbtiles"  # 2026-10-11 に kanagawa を地域 path へ移動
     assert not any(d.dataset_id.startswith("CHIBA") for d in ds.list_all())  # chiba は推測登録しない
 
 
@@ -95,12 +97,15 @@ def test_registered_tsunami_tile_missing_is_optional_warning(tmp_path):
 def test_legacy_listing_shows_dispositions_and_excludes_registered(tmp_path):
     rels = [d["rel_path"] for d in DISPOSITIONS] + [
         "frontend/tiles/tokyo/tsunami/tokyo_tsunami_A40-23_13.mbtiles",
-        "frontend/tiles/tokyo/tsunami/kanagawa_tsunami_A40-20_14.mbtiles",
+        "frontend/tiles/kanagawa/tsunami/kanagawa_tsunami_A40-20_14.mbtiles",
         "frontend/tiles/tokyo/flood/some_new_unknown.mbtiles"]
     items = {u["rel_path"]: u for u in dos.legacy_tile_section(_view_with(tmp_path, rels), get_definition_service().list_all())}
     assert "frontend/tiles/tokyo/tsunami/tokyo_tsunami_A40-23_13.mbtiles" not in items  # 契約で管理下
-    assert "frontend/tiles/tokyo/tsunami/kanagawa_tsunami_A40-20_14.mbtiles" not in items
+    assert "frontend/tiles/kanagawa/tsunami/kanagawa_tsunami_A40-20_14.mbtiles" not in items
     for d in DISPOSITIONS:
+        if d["disposition"] == "MIGRATED":
+            assert d["rel_path"] not in items  # 移動前の旧 path は dataset の tile（管理下）として扱う
+            continue
         u = items[d["rel_path"]]
         assert u["disposition"] == d["disposition"] and u["label"] == dos.TILE_DISPOSITION_LABELS[d["disposition"]]
     assert items["frontend/tiles/tokyo/flood/some_new_unknown.mbtiles"]["label"] == "UNREGISTERED CURRENT TILE（分類未定）"

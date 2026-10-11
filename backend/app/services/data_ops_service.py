@@ -261,6 +261,15 @@ def tile_tileset_id(defn: DatasetDefinition) -> str:
     return Path(tile_rel(defn)).stem
 
 
+def tile_rel_candidates(defn: DatasetDefinition) -> List[str]:
+    """dataset の tile として扱う path。現行の tile_rel と、TILE-PATH-MIGRATION で移動する前の旧 path
+    （tile_dispositions.json の disposition=MIGRATED、migrated_to が現行 path）。rollback 先が移動前の
+    version でも同じ tile として判定する。"""
+    rel = tile_rel(defn)
+    return [rel] + [r for r, d in sorted(load_tile_dispositions().items())
+                    if d.get("disposition") == "MIGRATED" and d.get("migrated_to") == rel]
+
+
 def tile_requirement(defn: DatasetDefinition) -> str:
     """required / optional / not_applicable / unknown（未設定で requires_tile_build=true）。"""
     if defn.tile_requirement:
@@ -284,6 +293,9 @@ def tile_section(defn: DatasetDefinition, view: drr.RuntimeView, allow_heavy: bo
                 "notes": list(defn.tile_notes)}
     stem = tile_tileset_id(defn)
     rel = tile_rel(defn)
+    if view.ok and rel not in view.files:
+        # 移動前の version（rollback 中など）では旧 path にある tile を同じ tile として扱う
+        rel = next((c for c in tile_rel_candidates(defn) if c in view.files), rel)
     sec: Dict[str, Any] = {"required": req == "required", "requirement": req, "notes": list(defn.tile_notes),
                            "tileset_id": stem, "rel_path": rel, "in_current": False,
                            "current_sha256": None, "mirror": None, "martin_registered": UNOBSERVED,
@@ -337,7 +349,8 @@ def legacy_tile_section(view: drr.RuntimeView, defs: List[DatasetDefinition],
     current 内の未登録 tile と、current に無く mirror だけにある tile（publish・rollback の管理外）。削除はしない。"""
     if not view.ok:
         return []
-    managed = {tile_rel(d): d.dataset_id for d in defs if d.layer_type and tile_requirement(d) != "not_applicable"}
+    managed = {c: d.dataset_id for d in defs if d.layer_type and tile_requirement(d) != "not_applicable"
+               for c in tile_rel_candidates(d)}
     dispositions = load_tile_dispositions()
     current_tiles = {r for r in view.files if r.startswith("frontend/tiles/") and r.endswith(".mbtiles")}
     mirror_root = view.root / "frontend" / "tiles"
@@ -373,9 +386,10 @@ def legacy_tile_section(view: drr.RuntimeView, defs: List[DatasetDefinition],
 
 # 契約を持たない tile の棚卸し結果（data_lake/registry/tile_dispositions.json）。削除・登録の判断材料として表示するだけで、
 # 自動削除はしない。dataset の tile 契約より優先しない（契約がある tile は tile_section が判定する）。
-TILE_DISPOSITIONS = ("RETIRE_CANDIDATE", "KEEP_LEGACY", "UNKNOWN_CONTRACT", "RETIRED")
+TILE_DISPOSITIONS = ("RETIRE_CANDIDATE", "KEEP_LEGACY", "UNKNOWN_CONTRACT", "RETIRED", "MIGRATED")
 TILE_DISPOSITION_LABELS = {
     "RETIRED": "RETIRED（退役済みのはずが current / mirror に残存）",
+    "MIGRATED": "MIGRATED（移動前の旧 path）",
     "RETIRE_CANDIDATE": "RETIRE CANDIDATE（未使用・後継 tile あり。削除は別 Phase）",
     "KEEP_LEGACY": "KEEP LEGACY（frontend が参照中。dataset 契約なし）",
     "UNKNOWN_CONTRACT": "UNKNOWN CONTRACT（使用中だが対応 dataset なし）",

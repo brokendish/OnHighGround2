@@ -489,11 +489,11 @@
     "transformer_name": "normalize_tsunami",
     "validator_name": "validate_geometry",
     "tile_requirement": "optional",
-    "tile_rel_path": "frontend/tiles/tokyo/tsunami/kanagawa_tsunami_A40-20_14.mbtiles",
+    "tile_rel_path": "frontend/tiles/kanagawa/tsunami/kanagawa_tsunami_A40-20_14.mbtiles",
     "tile_notes": [
       "frontend は静的 tileset ID（VECTOR_TILE_SOURCES.tsunami_kanagawa）で tile を優先表示し、tile が無ければ /api/hazards/tsunami/kanagawa（200、2026-10-11 VPS 確認）の GeoJSON で表示する",
       "tile の build 入力 data/processed/hazard/kanagawa_tsunami_A40-20_14.geojson は canonical と geometry 全 66,965 件一致（2026-10-11 確認）",
-      "tile は歴史的経緯で tokyo/tsunami directory にある（Martin config に kanagawa/tsunami が無い）。同じ directory の kanagawa_tsunami_A40-16_14 は旧版（2016）の重複で、2026-10-11 に frontend の参照を外した（tile_dispositions.json で退役候補）"
+      "tile は 2026-10-11 に tokyo/tsunami から kanagawa/tsunami へ移動した（tileset_id・内容は不変、sha256 8c0c2cf3…。旧 path は tile_dispositions.json の MIGRATED）。旧版 kanagawa_tsunami_A40-16_14 は退役済み"
     ]
   },
   {
