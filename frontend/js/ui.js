@@ -396,10 +396,32 @@ function displayHazardStatus(hazardStatus) {
     const hazards    = hazardStatus?.hazards || [];
     const isDanger   = hazardStatus?.is_danger === true;
     const assessment = hazardStatus?.assessment || {};
+    // is_danger=false は「検出なし」で安全の確定ではない。未評価（unknown / SOURCE_UNAVAILABLE）の
+    // ハザードがあれば「区域外」と表示しない（TSUNAMI-UNLOADED-REGION-SAFETY）。
+    const unknownHazards = Object.entries(assessment)
+        .filter(([, v]) => v === 'unknown' || (v && typeof v === 'object' && v.status === 'unknown'))
+        .map(([h]) => h);
+    const notEvaluated = unknownHazards.length > 0 || hazardStatus?.aggregate_status === SOURCE_UNAVAILABLE;
+    const unknownLabels = unknownHazards
+        .map(h => ({ flood: '洪水', tsunami: '津波', storm_surge: '高潮', inland_flood: '内水氾濫',
+                     landslide: '土砂災害', urban_flood: '内水氾濫' }[h] || getHazardDisplayName(h)));
+    const unknownNote = notEvaluated
+        ? `${unknownLabels.length ? unknownLabels.join('・') + 'の' : ''}${SOURCE_UNAVAILABLE_TEXT}（区域外とは限りません）`
+        : '';
 
-    panel.className = `danger-status-panel ${isDanger ? 'danger' : 'safe'}`;
+    panel.className = `danger-status-panel ${isDanger ? 'danger' : (notEvaluated ? 'unknown' : 'safe')}`;
+    // 未評価の配色だけをこの 3 プロパティで切り替える（他のコードが付けた inline style は消さない）
+    const unknownLook = !isDanger && notEvaluated;
+    panel.style.background      = unknownLook ? '#fff8e1' : '';
+    panel.style.borderLeftColor = unknownLook ? '#f9a825' : '';
+    panel.style.color           = unknownLook ? '#5d4037' : '';
 
-    if (!isDanger || hazards.length === 0) {
+    if ((!isDanger || hazards.length === 0) && notEvaluated) {
+        panel.innerHTML = `
+            <div class="danger-title">❓ ${unknownNote}</div>
+            <div style="font-size:12px;">自治体のハザードマップや周囲の状況も確認し、念のため避難先を確認しておきましょう</div>
+        `;
+    } else if (!isDanger || hazards.length === 0) {
         panel.innerHTML = `
             <div class="danger-title">✅ 現在地はハザード区域外です</div>
             <div style="font-size:12px;">念のため避難先を確認しておきましょう</div>
@@ -445,6 +467,7 @@ function displayHazardStatus(hazardStatus) {
             <div class="danger-title">⚠️ ${mainMessage}</div>
             <div style="margin-top:4px;">${hazardTags}</div>
             <div style="margin-top:6px;font-size:12px;">直ちに避難先へ移動してください</div>
+            ${notEvaluated ? `<div style="margin-top:4px;font-size:12px;">❓ ${unknownNote}</div>` : ''}
         `;
     }
     panel.style.display = 'block';

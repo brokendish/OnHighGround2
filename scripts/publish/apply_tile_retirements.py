@@ -83,6 +83,34 @@ def load_migrations(path: Path) -> list:
     return out
 
 
+def _region_of(rel: str) -> str:
+    return rel.split("/")[2]  # frontend/tiles/<region>/<hazard>/<file>
+
+
+def pending_migration_regions(current: Path, items: list, definitions: list) -> list:
+    """移動が未完了（current に旧 path があり移動先が無い）の MIGRATED record の移動先 region。
+
+    publish がこの region を含まないと staging で移動先が揃わず中止になるため、wrapper が自動で含める
+    （admin UI の publish region は active mapping 由来で、tile だけの region を含まない）。自動で含めてよいのは
+    移動先が registry の dataset の tile 契約（tile_rel_path）そのもので、その dataset の region と一致する
+    場合だけ。未知の region・契約に無い移動先は ValueError（fail closed）。"""
+    by_tile = {getattr(d, "tile_rel_path", None): d for d in definitions if getattr(d, "tile_rel_path", None)}
+    known_regions = {d.region for d in definitions if getattr(d, "region", None)}
+    regions = set()
+    for i in items:
+        if not (current / i["rel_path"]).is_file() or (current / i["migrated_to"]).exists():
+            continue
+        region = _region_of(i["migrated_to"])
+        d = by_tile.get(i["migrated_to"])
+        if d is None:
+            raise ValueError(f"MIGRATED の移動先が registry の tile 契約に無い: {i['migrated_to']}")
+        if region not in known_regions or d.region != region:
+            raise ValueError(f"MIGRATED の移動先 region が dataset と一致しない・未知: {i['migrated_to']} "
+                             f"(dataset {d.dataset_id} region={d.region})")
+        regions.add(region)
+    return sorted(regions)
+
+
 def apply_staging_migrations(staging: Path, items: list) -> list:
     removed = []
     for i in items:
@@ -90,7 +118,9 @@ def apply_staging_migrations(staging: Path, items: list) -> list:
         if not old.is_file() or old.is_symlink():
             continue
         if not new.is_file():
-            raise ValueError(f"移動先の tile が staging に無いため旧 path を除けない: {i['migrated_to']}")
+            raise ValueError(f"移動先の tile が staging に無いため旧 path を除けない: {i['migrated_to']}"
+                             f"（data_lake/tiles/{i['migrated_to'].split('/', 2)[2]} を用意する。publish region は"
+                             f" wrapper が自動で含める）")
         old.unlink()
         removed.append(i["rel_path"])
     return removed
@@ -148,17 +178,26 @@ def main() -> int:
     ap.add_argument("--staging")
     ap.add_argument("--mirror", help="data_runtime root（mirror は <root>/frontend/tiles）")
     ap.add_argument("--current")
+    ap.add_argument("--pending-migration-regions", action="store_true",
+                    help="--current の version で移動が未完了の MIGRATED record の移動先 region を 1 行ずつ出力")
     args = ap.parse_args()
+    sys.path.insert(0, "/app")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
     if args.registry:
         reg = Path(args.registry)
     else:
-        sys.path.insert(0, "/app")
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
         from app.services.data_ops_service import _tile_dispositions_path
         reg = _tile_dispositions_path()
     try:
         items = load_retirements(reg) if reg.is_file() else []
         migrations = load_migrations(reg) if reg.is_file() else []
+        if args.pending_migration_regions:
+            if not args.current:
+                raise ValueError("--pending-migration-regions には --current が必要")
+            from app.services.dataset_definition_service import get_definition_service
+            for r in pending_migration_regions(Path(args.current), migrations, get_definition_service().list_all()):
+                print(r)
+            return 0
         if args.staging:
             removed = apply_staging(Path(args.staging), items)
             moved = apply_staging_migrations(Path(args.staging), migrations)

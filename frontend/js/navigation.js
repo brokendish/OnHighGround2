@@ -1549,7 +1549,14 @@ function _updateHazardRow(isDanger, assessment) {
     if (!el) return;
     el.className = 'mbc-status-cell mbc-status-hazard';
     if (!isDanger) {
-        el.innerHTML = '<span class="mbc-hazard-safe">✅ 安全</span>';
+        // is_danger=false は「検出なし」。未評価（unknown）のハザードがあれば安全と表示しない
+        // （TSUNAMI-UNLOADED-REGION-SAFETY、2026-10-11 OWNER 承認：この分岐のみ変更）
+        const notEvaluated = assessment && typeof assessment === 'object' &&
+            Object.values(assessment).some(v => v === 'unknown' ||
+                (v && typeof v === 'object' && v.status === 'unknown'));
+        el.innerHTML = notEvaluated
+            ? '<span class="mbc-hazard-unknown" style="color:#8d6e00">❓ 判定不可</span>'
+            : '<span class="mbc-hazard-safe">✅ 安全</span>';
         return;
     }
     const dangerLabels = [];

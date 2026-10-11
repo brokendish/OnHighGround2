@@ -169,6 +169,7 @@ EXPECTED = {
     "TOKYO-SURGE-001": "optional", "KANAGAWA-SURGE-001": "optional",
     "TOKYO-URBAN-001": "optional", "KANAGAWA-URBAN-001": "optional",
     "TOKYO-TSUNAMI-001": "optional", "KANAGAWA-TSUNAMI-001": "optional",
+    "CHIBA-TSUNAMI-001": "required",
 }
 
 

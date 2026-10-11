@@ -16,8 +16,11 @@ HazardService の詳細（どのハザードが何の形式か）を main.py が
 import logging
 from typing import Dict, List, Optional
 
-from hazard_service import HazardService, HazardResult, derive_hazard_safe
+from hazard_service import (
+    HazardService, HazardResult, derive_hazard_safe, compute_hazard_coverage_status, compute_aggregate_status,
+)
 from hazard_definitions import (
+    HAZARD_DEFINITIONS,
     get_definition,
     get_backend_enabled_definitions,
     get_rsa_supporting_definitions,
@@ -105,14 +108,23 @@ class HazardEngine:
                 "is_danger": bool,
                 "hazards": List[str],             # 危険判定されたハザード名リスト
                 "hazard_assessment": Dict[str, str],  # {"flood": "outside", ...}
+                "hazard_coverage_status": Dict[str, str],  # {"tsunami": "SOURCE_UNAVAILABLE", ...}
+                "aggregate_status": str,  # HAZARD_DETECTED | SOURCE_UNAVAILABLE | NO_HAZARD_RECORD
             }
+
+        is_danger=False は「検出したハザードが無い」だけで安全の確定ではない。未評価の
+        ハザード（assessment "unknown"）があると aggregate_status は SOURCE_UNAVAILABLE になる
+        （避難先の hazard_coverage_status / aggregate_status と同じ語彙・規則）。
         """
         basic = self._service.check_hazards(lat, lon)
         assessment = self._service.assess_candidate(lat, lon)
+        coverage = compute_hazard_coverage_status(assessment, [d.name for d in HAZARD_DEFINITIONS])
         return {
             "is_danger": basic["is_danger"],
             "hazards": basic["hazards"],
             "hazard_assessment": assessment,
+            "hazard_coverage_status": coverage,
+            "aggregate_status": compute_aggregate_status(coverage),
         }
 
     def evaluate_destination(self, lat: float, lon: float) -> Dict:

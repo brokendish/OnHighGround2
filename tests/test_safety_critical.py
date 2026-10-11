@@ -12,6 +12,7 @@
   - hazard.tsunami.targets=tokyo のみで chiba 沿岸が outside 判定
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -178,45 +179,77 @@ class TestTsunamiTargetConsistency(unittest.TestCase):
         return props
 
     def _frontend_tsunami_prefectures(self):
-        """frontend/hazard/ に存在する tsunami_*.geojson から prefecture 名を抽出"""
-        return {
-            p.stem.replace("tsunami_", "")
-            for p in self.FRONTEND_TSUNAMI_DIR.glob("tsunami_*.geojson")
-        }
+        """frontend が津波を表示する prefecture。
+
+        正本は hazard-layers.js の tsunami_<pref> layer 定義（git 管理）。frontend/hazard/ の
+        tsunami_*.geojson（gitignore の legacy file、環境により有無が変わる）も、存在すれば加える。"""
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "frontend" / "js" / "hazard-layers.js").read_text(encoding="utf-8")
+        prefs = set(re.findall(r"^\s{4}tsunami_([a-z]+): \{", js, re.M))
+        prefs |= {p.stem.replace("tsunami_", "") for p in self.FRONTEND_TSUNAMI_DIR.glob("tsunami_*.geojson")}
+        return prefs
+
+    def _unevaluated_coverage(self, backend_targets):
+        """targets で読まない registry 上の tsunami region について backend が使う coverage index
+        （範囲内の地点を outside ではなく unknown にする）と、範囲を特定できない region。"""
+        root = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(root / "backend"))
+        import tsunami_coverage as tc
+        reg = root / "data_lake" / "registry" / "dataset_definitions.json"
+        return tc.resolve_unevaluated(reg, tc.coverage_dir_for(reg), backend_targets)
 
     def test_backend_targets_cover_all_frontend_tsunami_prefectures(self):
         """
-        backend の hazard.tsunami.targets が
-        frontend の tsunami_*.geojson に対応する全 prefecture を含むこと。
-        含まない場合は false safe（フロントで危険表示 ≠ バックエンド判定）になる。
+        フロントで津波を表示している全 prefecture について、backend が false safe を返さないこと。
+
+        TSUNAMI-UNLOADED-REGION-SAFETY（2026-10-11）で正式な契約にした: prefecture ごとに
+          (a) hazard.tsunami.targets に含まれる（dataset を読んで inside/outside を評価する）、または
+          (b) registry に tsunami dataset があり、その coverage index で範囲内の地点を "unknown"
+              （hazard_coverage_status=SOURCE_UNAVAILABLE）にする
+        のどちらかを満たす。どちらでもない prefecture は「表示しているのに backend が outside と返す」
+        false safe になるため失敗させる。範囲を特定できない region が 1 つでもあれば失敗。
         """
         props = self._load_props()
         raw_targets = props.get("hazard.tsunami.targets", "tokyo")
         backend_targets = {t.strip() for t in raw_targets.split(",") if t.strip()}
 
         frontend_prefectures = self._frontend_tsunami_prefectures()
+        self.assertTrue({"tokyo", "kanagawa", "chiba"} <= frontend_prefectures, frontend_prefectures)
+        indexes, unresolved = self._unevaluated_coverage(backend_targets)
+        self.assertEqual(unresolved, [], f"範囲を特定できない tsunami region（全地点 unknown に倒れる）: {unresolved}")
+        unevaluated = {i.region for i in indexes}
 
-        missing = frontend_prefectures - backend_targets
+        missing = frontend_prefectures - backend_targets - unevaluated
         self.assertEqual(
             missing, set(),
-            f"backend の tsunami.targets に含まれていない prefecture: {missing}\n"
+            f"backend が評価も unknown 化もしない prefecture: {missing}\n"
             f"  backend targets : {backend_targets}\n"
+            f"  unknown 化      : {unevaluated}\n"
             f"  frontend display: {frontend_prefectures}\n"
-            "フロントで表示しているのに backend が判定しない → false safe になります。"
+            "フロントで表示しているのに backend が outside と返す → false safe になります。"
         )
 
     def test_backend_tsunami_targets_is_not_tokyo_only(self):
         """
         tokyo のみが設定されている場合は失敗させる（最低限のガード）。
-        kanagawa / chiba の沿岸が outside 判定になり false safe になる。
+        kanagawa は必ず評価する。chiba は評価する（targets）か、評価しない間は coverage index で
+        範囲内を unknown にする（outside / safe と返さない）。2026-10-11 時点は後者（chiba は
+        VPS メモリ確認のうえ OWNER 判断で targets へ加える）。
         """
         props = self._load_props()
         raw_targets = props.get("hazard.tsunami.targets", "tokyo")
         targets = {t.strip() for t in raw_targets.split(",") if t.strip()}
         self.assertIn("kanagawa", targets,
                       "kanagawa が tsunami.targets に含まれていません（false safe）")
-        self.assertIn("chiba", targets,
-                      "chiba が tsunami.targets に含まれていません（false safe）")
+        if "chiba" not in targets:
+            indexes, unresolved = self._unevaluated_coverage(targets)
+            self.assertEqual(unresolved, [])
+            self.assertIn("chiba", {i.region for i in indexes},
+                          "chiba が tsunami.targets に無く、unknown 化（coverage index）もされていません（false safe）")
+            # 千葉の津波浸水想定区域内の地点（館山駅・九十九里浜 片貝）は index の範囲内 → unknown
+            chiba = next(i for i in indexes if i.region == "chiba")
+            for lat, lon in ((34.9960, 139.8640), (35.5390, 140.4610)):
+                self.assertTrue(chiba.contains(lat, lon), (lat, lon))
 
 
 # ── C. 沿岸サンプル点 判定漏れ現状記録テスト ──────────────────────────────────

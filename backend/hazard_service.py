@@ -293,6 +293,10 @@ class HazardService:
         # 設定上期待する tsunami ソースのステム一覧（degraded 検出用）
         # 空リストは「期待値未設定」を意味し、欠落チェックをスキップする
         self._expected_tsunami_sources: List[str] = []
+        # TSUNAMI-UNLOADED-REGION-SAFETY: targets で読まない registry 上の tsunami region の coverage index
+        # （tsunami_coverage.CoverageIndex）と、範囲を特定できない region（index 欠落・不正）。
+        self._tsunami_unevaluated: List = []
+        self._tsunami_unresolved_regions: List[str] = []
         self._flood_proximity_buffer_deg = max(
             0.0,
             flood_proximity_buffer_deg
@@ -818,6 +822,26 @@ class HazardService:
         """
         self._expected_tsunami_sources = [f"tsunami_{t}" for t in targets]
 
+    def set_tsunami_unevaluated_coverage(self, indexes: List, unresolved_regions: List[str]) -> None:
+        """
+        hazard.tsunami.targets で読まない（＝評価しない）tsunami region の coverage index を登録する。
+
+        assess_candidate() は、その index の範囲内の地点の tsunami を "outside" ではなく "unknown" にする
+        （未評価を区域外と返さない）。unresolved_regions が空でなければ、範囲を特定できない region が
+        あるため、全地点の tsunami を "unknown" にする（fail closed）。
+        """
+        self._tsunami_unevaluated = list(indexes)
+        self._tsunami_unresolved_regions = list(unresolved_regions)
+
+    def tsunami_unevaluated_region_at(self, lat: float, lon: float) -> Optional[str]:
+        """地点が、津波 dataset を評価していない region の範囲内ならその region 名（範囲不明なら "unresolved"）。"""
+        if self._tsunami_unresolved_regions:
+            return "unresolved"
+        for idx in self._tsunami_unevaluated:
+            if idx.contains(lat, lon):
+                return idx.region
+        return None
+
     def get_missing_tsunami_sources(self) -> List[str]:
         """
         設定上期待するが実際にはロードされていない tsunami ソースのステムを返す。
@@ -1062,6 +1086,14 @@ class HazardService:
                 missing,
             )
             assessment["tsunami"] = "unknown"
+        elif assessment.get("tsunami") == "outside":
+            # TSUNAMI-UNLOADED-REGION-SAFETY: 読み込んだ dataset で polygon 外でも、targets で読んでいない
+            # region の範囲内なら評価していない → "outside" と返さない（false safe 防止）。
+            # "inside" は読み込んだ dataset で確定しているため変えない。
+            region = self.tsunami_unevaluated_region_at(lat, lon)
+            if region is not None:
+                logger.debug("assess_candidate: tsunami not evaluated for region=%s → unknown", region)
+                assessment["tsunami"] = "unknown"
 
         return assessment
 

@@ -135,7 +135,8 @@
     "tile_notes": [
       "frontend は静的 tileset ID（VECTOR_TILE_SOURCES.tsunami_tokyo）で tile を優先表示し、tile が無ければ /api/hazards/tsunami/tokyo（200、2026-10-11 VPS 確認）の GeoJSON で表示する",
       "tile の build 入力 data/processed/hazard/tokyo_tsunami_A40-23_13.geojson は canonical と geometry 全 33,124 件一致（2026-10-11 確認。tile には canonical が付加した dataset_id/depth 等の property は無い）"
-    ]
+    ],
+    "api_exposure": "enabled"
   },
   {
     "dataset_id": "TOKYO-SURGE-001",
@@ -174,7 +175,8 @@
     "tile_requirement": "optional",
     "tile_notes": [
       "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
-    ]
+    ],
+    "api_exposure": "enabled"
   },
   {
     "dataset_id": "TOKYO-URBAN-001",
@@ -212,7 +214,8 @@
     "tile_requirement": "optional",
     "tile_notes": [
       "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
-    ]
+    ],
+    "api_exposure": "enabled"
   },
   {
     "dataset_id": "TOKYO-SHELTER-001",
@@ -348,7 +351,8 @@
     "runtime_path": "data_runtime/backend/hazard/landslide",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_landslide",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "api_exposure": "enabled"
   },
   {
     "dataset_id": "ROAD-DRIVING-KANTO-001",
@@ -494,7 +498,71 @@
       "frontend は静的 tileset ID（VECTOR_TILE_SOURCES.tsunami_kanagawa）で tile を優先表示し、tile が無ければ /api/hazards/tsunami/kanagawa（200、2026-10-11 VPS 確認）の GeoJSON で表示する",
       "tile の build 入力 data/processed/hazard/kanagawa_tsunami_A40-20_14.geojson は canonical と geometry 全 66,965 件一致（2026-10-11 確認）",
       "tile は 2026-10-11 に tokyo/tsunami から kanagawa/tsunami へ移動した（tileset_id・内容は不変、sha256 8c0c2cf3…。旧 path は tile_dispositions.json の MIGRATED）。旧版 kanagawa_tsunami_A40-16_14 は退役済み"
-    ]
+    ],
+    "api_exposure": "enabled"
+  },
+  {
+    "dataset_id": "CHIBA-TSUNAMI-001",
+    "region": "chiba",
+    "category": "tsunami",
+    "layer_type": "tsunami",
+    "display_name": "津波浸水想定区域（千葉県）",
+    "description": "千葉県沿岸部の津波浸水想定区域図（最大クラスの津波、平成30年12月1日時点）。マップ上の津波リスク表示に使用。",
+    "hint_text": "千葉県の津波浸水想定データです。国土数値情報 A40-18_12（2018 年版。2026-10-11 時点の最新）の GML/ZIP を取り込み、GeoJSON に正規化して配信します。",
+    "impact_scope": "千葉県沿岸部の津波リスク表示（backend の津波判定は hazard.tsunami.targets に chiba を加えるまで未評価。範囲内の地点は区域外ではなく unknown を返す）",
+    "accepted_input_modes": [
+      "upload",
+      "fetch_url"
+    ],
+    "accepted_extensions": [
+      ".geojson",
+      ".json",
+      ".gml",
+      ".xml",
+      ".zip"
+    ],
+    "max_browser_upload_mb": 200,
+    "requires_normalize": true,
+    "requires_validation": true,
+    "requires_deploy": true,
+    "requires_osrm_rebuild": false,
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A40/A40-18/A40-18_12_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A40-2024.html",
+    "raw_storage_path": "data_lake/raw/chiba/tsunami",
+    "normalized_storage_path": "data_lake/normalized/chiba/tsunami",
+    "validated_storage_path": "data_lake/validated/chiba/tsunami",
+    "runtime_path": "data_runtime/backend/hazard/tsunami",
+    "deploy_mode": "copy_file",
+    "transformer_name": "normalize_tsunami",
+    "validator_name": "validate_geometry",
+    "tile_requirement": "required",
+    "tile_rel_path": "frontend/tiles/chiba/tsunami/chiba_tsunami_A40-18_12.mbtiles",
+    "tile_notes": [
+      "frontend は静的 tileset ID（VECTOR_TILE_SOURCES.tsunami_chiba）で tile を表示する。public GeoJSON API は api_exposure=disabled（canonical 約 145MB の全量配信は実用的な代替表示経路ではない）で 404 → tile が唯一の表示経路 → required",
+      "backend の津波判定（hazard.tsunami.targets）に chiba を加えて API を有効にした場合は optional へ見直す",
+      "旧 tile は tokyo/tsunami/chiba_tsunami_A40-18_12.mbtiles（tile_dispositions.json の MIGRATED で同じ tile として扱う）"
+    ],
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "津波浸水想定 A40（千葉県 A40-18_12）",
+    "source_year": "2018",
+    "source_version": "1.0",
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A40-*_12_GML.zip"
+    ],
+    "expected_source_files": [
+      "A40-18_12_GML.zip"
+    ],
+    "expected_source_region_code": "12",
+    "source_region_code_regex": "^A40-\\d+_(\\d{2})_",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の最新版ページ（2024 年度版、2025-05 更新）でも千葉県は A40-18_12（2018 年、v1.0）が最新（2026-10-11 確認）",
+      "千葉県の津波浸水想定は 2018-11-13 公表のものが現行（県 web で確認）"
+    ],
+    "api_exposure": "disabled"
   },
   {
     "dataset_id": "KANAGAWA-RIVER-001",
@@ -623,7 +691,8 @@
     "tile_requirement": "optional",
     "tile_notes": [
       "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
-    ]
+    ],
+    "api_exposure": "enabled"
   },
   {
     "dataset_id": "KANAGAWA-URBAN-001",
@@ -661,7 +730,8 @@
     "tile_requirement": "optional",
     "tile_notes": [
       "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
-    ]
+    ],
+    "api_exposure": "enabled"
   },
   {
     "dataset_id": "KANAGAWA-LANDSLIDE-001",
@@ -695,7 +765,8 @@
     "runtime_path": "data_runtime/backend/hazard/landslide",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_landslide",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "api_exposure": "enabled"
   },
   {
     "dataset_id": "KANAGAWA-BOUNDARY-001",

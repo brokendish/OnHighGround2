@@ -145,6 +145,27 @@ else
 fi
 log_step "seed staging from current"
 
+# TILE-PATH-MIGRATION: 移動が未完了の MIGRATED record（current に旧 path があり移動先が無い）の移動先 region を
+# publish 対象へ自動で含める。含めないと staging で移動先が揃わず publish が中止になる（admin UI の publish
+# region は active mapping 由来で、tile だけの region を含まない）。人が region を覚えなくてよい。
+# 含めてよいのは registry の dataset の tile 契約と一致する移動先だけ（未知 region・不整合は publish 中止）。
+if [[ -n "${CURRENT_REAL:-}" && -d "${CURRENT_REAL}" ]]; then
+    if ! _pending_regions="$(python3 "${SCRIPT_DIR}/apply_tile_retirements.py" --pending-migration-regions --current "${CURRENT_REAL}")"; then
+        log_error "tile 移動 record から publish region を決められない（publish を中止。current は変更されていない）"
+        exit 1
+    fi
+    for _r in ${_pending_regions}; do
+        if [[ ! "${_r}" =~ ^[a-z][a-z0-9_]*$ ]]; then
+            log_error "tile 移動 record の region 名が不正: ${_r}（publish を中止）"
+            exit 1
+        fi
+        if [[ " ${REGIONS[*]} " != *" ${_r} "* ]]; then
+            log_info "tile 移動が未完了のため region=${_r} を publish 対象に追加（tile_dispositions.json の MIGRATED）"
+            REGIONS+=("${_r}")
+        fi
+    done
+fi
+
 # 既存 deploy_to_runtime.sh を region ごとにstaging modeで実行する（同一
 # staging directoryへ積み重ねる）。各regionのdataset出力先はregion名を含む
 # ため（backend/hazard/<type>/<region>[...], frontend/tiles/<region>/...）、

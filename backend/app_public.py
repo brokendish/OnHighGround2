@@ -549,6 +549,23 @@ if _missing:
 else:
     logger.info("Tsunami coverage OK: all configured targets loaded: %s", _tsunami_targets)
 
+# TSUNAMI-UNLOADED-REGION-SAFETY: registry に tsunami dataset があるのに targets で読まない region（例: chiba）は、
+# その範囲（data_lake/registry/tsunami_coverage/<region>.json）の地点を "outside" ではなく "unknown" にする。
+# 範囲を特定できない region があれば津波判定全体を "unknown" にする（fail closed）。
+import tsunami_coverage as _tsunami_coverage  # noqa: E402
+
+_tsunami_registry_path = BASE_DIR.parent / "data_lake" / "registry" / "dataset_definitions.json"
+_tsunami_unevaluated, _tsunami_unresolved = _tsunami_coverage.resolve_unevaluated(
+    _tsunami_registry_path, _tsunami_coverage.coverage_dir_for(_tsunami_registry_path), _tsunami_targets)
+hazard_service.set_tsunami_unevaluated_coverage(_tsunami_unevaluated, _tsunami_unresolved)
+if _tsunami_unresolved:
+    logger.warning(
+        "DEGRADED: tsunami coverage index を解決できない region がある: %s → tsunami will be assessed as 'unknown' "
+        "for all candidates", _tsunami_unresolved)
+elif _tsunami_unevaluated:
+    logger.info("Tsunami not evaluated (registry にあるが targets 外、範囲内は 'unknown'): %s",
+                [i.region for i in _tsunami_unevaluated])
+
 # inland_flood: 内水氾濫想定
 # [Phase 4] data_runtime/backend/hazard/inland_flood/ 内の全 *.geojson を順次ロード。
 # 複数地域ファイルを自動認識。未整備の場合は data_lake/normalized/ → data/hazard/ へフォールバック。
@@ -1385,7 +1402,9 @@ async def hazard_check(
             "lon": float,
             "is_danger": bool,
             "hazards": list[str],
-            "hazard_assessment": dict[str, str]
+            "hazard_assessment": dict[str, str],
+            "hazard_coverage_status": dict[str, str],  # HAZARD_DETECTED | SOURCE_UNAVAILABLE | NO_HAZARD_RECORD
+            "aggregate_status": str,                   # 未評価があれば SOURCE_UNAVAILABLE
         }
     """
     try:
@@ -1397,6 +1416,9 @@ async def hazard_check(
             "is_danger": point_eval["is_danger"],
             "hazards": point_eval["hazards"],
             "hazard_assessment": point_eval["hazard_assessment"],
+            # 未評価（unknown）を安全と誤読させないための集約（is_danger=False は安全の確定ではない）
+            "hazard_coverage_status": point_eval["hazard_coverage_status"],
+            "aggregate_status": point_eval["aggregate_status"],
         }
     except Exception as e:
         logger.exception("ハザード判定エラー")
@@ -1466,6 +1488,8 @@ async def find_evacuation_destinations(request: EvacuationRequest):
             "is_danger": point_eval["is_danger"],
             "hazards": point_eval["hazards"],
             "assessment": point_eval["hazard_assessment"],  # severity 付き詳細（frontend 表示用）
+            "hazard_coverage_status": point_eval["hazard_coverage_status"],
+            "aggregate_status": point_eval["aggregate_status"],
         }
 
         # Time Margin: 現在地の TTI を構造化形式で取得（候補全件で共有）

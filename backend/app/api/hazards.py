@@ -37,6 +37,27 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent  # backend/
 _TILE_ROOT = _BACKEND_DIR.parent / "data_runtime" / "frontend" / "tiles"
 
 
+# ── API-EXPOSURE-CONTRACT ─────────────────────────────────────────────────────
+# dataset が registry に存在すること・directory に GeoJSON があることと、public API で全量を配信して
+# よいことは別の契約。dataset definition の api_exposure == "enabled" の (layer_type, region) だけを
+# 配信する（未設定・disabled・未登録は 404）。directory fallback（runtime subdir / data_lake/normalized /
+# data/hazard）はこの判定を通過した場合にだけ使われるため、file を置いただけでは公開されない。
+def _public_geojson_enabled(hazard_type: str, region: str) -> bool:
+    from app.services.dataset_definition_service import get_definition_service
+    return any(d.layer_type == hazard_type and d.region == region and d.api_exposure == "enabled"
+               for d in get_definition_service().list_all())
+
+
+def _require_public_geojson(hazard_type: str, region: str) -> None:
+    try:
+        enabled = _public_geojson_enabled(hazard_type, region)
+    except Exception as exc:  # registry を読めなければ配信しない（fail closed）
+        logger.exception("hazard api exposure check error: hazard_type=%s region=%s", hazard_type, region)
+        raise HTTPException(status_code=500, detail=_HAZARD_INTERNAL_ERROR_DETAIL) from exc
+    if not enabled:
+        raise HTTPException(status_code=404, detail=f"{hazard_type} データが見つかりません: region={region}")
+
+
 def _find_tileset_for_region(hazard_type: str, region: str, dataset_id: Optional[str] = None) -> Optional[dict]:
     """`data_runtime/frontend/tiles/<region>/<hazard_type>/*.mbtiles` から
     実際に配信可能な1件を選び、Martin source ID（filename stem）と、
@@ -220,6 +241,7 @@ async def get_inland_flood(region: str):
     """内水氾濫 GeoJSON を返す（lease保護されたdata_runtime current → data_lake の優先順）。
     StreamingResponse/FileResponse でストリーミング配信するため json.load() によるメモリ全展開は行わない。
     """
+    _require_public_geojson("inland_flood", region)
     stream = await _runtime_stream_or_none("inland_flood", region, "http-hazard-inland_flood")
     if stream is not None:
         return StreamingResponse(stream, media_type="application/geo+json")
@@ -234,6 +256,7 @@ async def get_landslide(region: str):
     """土砂災害警戒区域 GeoJSON を返す（lease保護されたdata_runtime current → data_lake の優先順）。
     StreamingResponse/FileResponse でストリーミング配信するため json.load() によるメモリ全展開は行わない。
     """
+    _require_public_geojson("landslide", region)
     stream = await _runtime_stream_or_none("landslide", region, "http-hazard-landslide")
     if stream is not None:
         return StreamingResponse(stream, media_type="application/geo+json")
@@ -264,6 +287,7 @@ async def get_storm_surge(region: str):
     precedentであり、本routeが新たに`application/geo+json`へ揃える理由は
     ない——OWNER Gate参照）。
     """
+    _require_public_geojson("storm_surge", region)
     stream = await _runtime_stream_or_none("storm_surge", region, "http-hazard-storm_surge")
     if stream is not None:
         return StreamingResponse(stream, media_type="application/json")
@@ -301,6 +325,7 @@ async def get_tsunami(region: str):
     content-type: storm_surgeと同一方針で`application/json`を維持する
     （既存catch-all contractからの変化を最小化）。
     """
+    _require_public_geojson("tsunami", region)
     stream = await _runtime_stream_or_none("tsunami", region, "http-hazard-tsunami")
     if stream is not None:
         return StreamingResponse(stream, media_type="application/json")

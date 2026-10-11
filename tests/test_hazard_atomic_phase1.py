@@ -74,10 +74,14 @@ def test_overlay_block_runs_after_normalized_sections_and_before_shelters():
     assert 'deploy_dir \\\n        "${NORMALIZED}/landslide"' in DEPLOY
 
 
-def test_tsunami_publish_logic_unchanged():
-    """tsunami は今回変更しない（registry 切替は OWNER 判断事項）。"""
-    tsunami = DEPLOY[DEPLOY.index('log_info "--- tsunami ---"'):DEPLOY.index('log_info "--- inland_flood ---"')]
-    assert 'filename="tsunami_${target}.geojson"' in tsunami
+def test_tsunami_publish_logic_is_registry_owned():
+    """tsunami の registry 切替（Phase 1 時点では OWNER 判断事項として据え置き）は、2026-10-11 の OWNER 指示
+    （Tsunami Backend Safety Contract: TSUNAMI-REGION-OWNERSHIP）で実施した。file 名探索は廃止し、
+    region 一致の registry dataset だけを resolve_tsunami_source.py で解決する。Phase 1 の範囲（flood /
+    storm_surge / pseudo_inland_flood の resolve_hazard_sources）とは別の resolver のまま混ぜない。"""
+    tsunami = DEPLOY[DEPLOY.index('log_info "--- tsunami (registry-resolved'):DEPLOY.index('log_info "--- inland_flood ---"')]
+    assert "resolve_tsunami_source.py" in tsunami
+    assert 'filename="tsunami_${target}.geojson"' not in tsunami
     assert "resolve_hazard_sources" not in tsunami
 
 

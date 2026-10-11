@@ -667,8 +667,10 @@ def test_registry_river_definition_and_consistency():
     assert sg.evaluate_source_set(river, river.expected_source_files).ok
     assert [p for d in ds.list_all() for p in sg.definition_problems(d)] == []
     # 他 dataset は推測で取得元を補っていない
-    # 取得元は repository 内の証拠（KSJ A31 原本・資料）がある flood 2 件だけ。他は推測で補っていない
-    assert {d.dataset_id for d in ds.list_all() if d.source_provider} == {"TOKYO-RIVER-001", "KANAGAWA-RIVER-001"}
+    # 取得元は公式原本と照合済みの証拠がある dataset だけ（flood 2 件: KSJ A31、CHIBA-TSUNAMI-001: KSJ A40-18_12 の
+    # zip sha256 一致、2026-10-11）。他は推測で補っていない
+    assert {d.dataset_id for d in ds.list_all() if d.source_provider} == {"TOKYO-RIVER-001", "KANAGAWA-RIVER-001",
+                                                                       "CHIBA-TSUNAMI-001"}
 
 
 def test_ui_uses_server_judgement_and_text_status():

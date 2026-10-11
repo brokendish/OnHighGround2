@@ -242,6 +242,11 @@ class DatasetDefinition(BaseModel):
     # current version 内の tile の相対 path（既定の frontend/tiles/<region>/<layer_type>/<dataset_id_snake>.mbtiles
     # と異なる既存 tile を契約に結びつける場合だけ設定する。tileset_id は file 名の stem）。
     tile_rel_path: Optional[str] = None
+    # public GeoJSON API（/api/hazards/<layer_type>/<region>）で全量を配信してよいか（API-EXPOSURE-CONTRACT）。
+    # dataset が存在する・directory に file があることとは別の明示契約。未設定は disabled（配信しない）。
+    #   enabled  : frontend の apiUrl fallback 等で全量配信する（サイズ・用途を確認済みの dataset だけ）
+    #   disabled : 配信しない（404）。tile や backend 判定には影響しない
+    api_exposure: Optional[Literal["enabled", "disabled"]] = None
 
     @model_validator(mode="after")
     def _artifact_record_is_flood_only(self):

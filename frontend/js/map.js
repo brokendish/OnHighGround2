@@ -328,6 +328,7 @@ async function updateCurrentLocation(lat, lon, sourceLabel = '現在地', accura
                 is_danger: hazardData.is_danger,
                 hazards: hazardData.hazards,
                 assessment: hazardData.hazard_assessment,
+                aggregate_status: hazardData.aggregate_status,
             });
         }
     } catch (e) {

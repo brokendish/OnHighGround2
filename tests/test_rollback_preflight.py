@@ -175,7 +175,7 @@ def test_production_registry_required_set_comes_from_registry():
     defs = rpf.load_definitions_strict(ROOT / "data_lake/registry/dataset_definitions.json")
     _, dos = rpf._import_backend()
     required = sorted(d.dataset_id for d in defs if dos.tile_requirement(d) == "required")
-    assert required == ["KANAGAWA-LOWLAND-POOR-DRAINAGE-001", "KANAGAWA-RIVER-001", "TOKYO-LOWLAND-POOR-DRAINAGE-001",
+    assert required == ["CHIBA-TSUNAMI-001", "KANAGAWA-LOWLAND-POOR-DRAINAGE-001", "KANAGAWA-RIVER-001", "TOKYO-LOWLAND-POOR-DRAINAGE-001",
                         "TOKYO-PSEUDO-INLAND-FLOOD-001", "TOKYO-RIVER-001"]
 
 

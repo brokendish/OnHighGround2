@@ -50,7 +50,9 @@ REG = ROOT / "data_lake/registry/tile_dispositions.json"
 
 
 def _migration():
-    return [d for d in json.loads(REG.read_text(encoding="utf-8")) if d.get("disposition") == "MIGRATED"]
+    """KANAGAWA の移動 record だけ（CHIBA の移動は tests/test_chiba_tsunami_formalization.py）。"""
+    return [d for d in json.loads(REG.read_text(encoding="utf-8"))
+            if d.get("disposition") == "MIGRATED" and d.get("tileset_id") == "kanagawa_tsunami_A40-20_14"]
 
 
 def _write(root: Path, rel: str, data: bytes) -> str:
@@ -72,7 +74,7 @@ def test_migration_record_is_complete_and_safe():
     [m] = _migration()
     assert (m["rel_path"], m["migrated_to"], m["tileset_id"]) == (OLD, NEW, "kanagawa_tsunami_A40-20_14")
     assert m["sha256"] == "8c0c2cf3e68306e76edc8575979a3838a7564989596fd2750a1c2e2cf2c06dbb" and m["migrated_at"] == "2026-10-11"
-    assert ret.load_migrations(REG) == [m]
+    assert m in ret.load_migrations(REG)
 
 
 @pytest.mark.parametrize("bad", [{"migrated_to": OLD}, {"migrated_to": "frontend/tiles/kanagawa/tsunami/other.mbtiles"},

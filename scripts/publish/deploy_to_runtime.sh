@@ -257,9 +257,8 @@ trap - RETURN EXIT
 log_info "flood/storm_surge/pseudo_inland_flood: registryから${_hazard_gap_resolved_count}件のactive datasetをpublish対象として解決（region=${REGION}）"
 
 # ─── backend: hazard / tsunami ────────────────────────────────────────────────
-# 標準名 tsunami_{target}.geojson を優先検索。
-# 見つからない場合は {target}-tsunami-*.geojson など別名ファイルを探して同名でデプロイ。
-# これにより kanagawa-tsunami-001.geojson → tsunami_kanagawa.geojson のリネームに対応。
+# 配置先は tsunami_{region}.geojson（backend の読込規約）。source は registry で解決する（下記
+# TSUNAMI-REGION-OWNERSHIP。2026-10-11 までの file 名探索は廃止）。
 #
 # CODEX P2B5-CX-003（第18ラウンド）対応: target集合の正本を
 # backend/app.properties の hazard.tsunami.targets 1本に一本化する
@@ -321,37 +320,30 @@ if [[ ${#TSUNAMI_TARGETS[@]} -eq 0 ]]; then
 fi
 log_info "tsunami targets (${APP_PROPERTIES_FILE_PATH} の hazard.tsunami.targets より解決): ${TSUNAMI_TARGETS[*]}"
 
-log_info "--- tsunami ---"
-for target in "${TSUNAMI_TARGETS[@]}"; do
-    filename="tsunami_${target}.geojson"
-    # 1. validated 標準名
-    if [[ -f "${VALIDATED}/tsunami/${filename}" ]]; then
-        deploy_file \
-            "${VALIDATED}/tsunami/${filename}" \
-            "${RUNTIME_BACKEND}/hazard/tsunami/${filename}" \
-            "backend"
-    # 2. normalized 標準名
-    elif [[ -f "${NORMALIZED}/tsunami/${filename}" ]]; then
-        deploy_file \
-            "${NORMALIZED}/tsunami/${filename}" \
-            "${RUNTIME_BACKEND}/hazard/tsunami/${filename}" \
-            "backend"
-    else
-        # 3. 別名フォールバック: {target}-tsunami-*.geojson または {target}_tsunami_*.geojson
-        _tsrc=""
-        _tsrc_v="$(find "${VALIDATED}/tsunami" -maxdepth 1 \( -name "${target}-tsunami-*.geojson" -o -name "${target}_tsunami_*.geojson" \) 2>/dev/null | sort | head -1)"
-        if [[ -n "${_tsrc_v}" ]]; then
-            _tsrc="${_tsrc_v}"
-        else
-            _tsrc="$(find "${NORMALIZED}/tsunami" -maxdepth 1 \( -name "${target}-tsunami-*.geojson" -o -name "${target}_tsunami_*.geojson" \) 2>/dev/null | sort | head -1)"
-        fi
-        if [[ -n "${_tsrc}" ]]; then
-            deploy_file "${_tsrc}" "${RUNTIME_BACKEND}/hazard/tsunami/${filename}" "backend"
-        else
-            log_warn "tsunami ${target}: ファイルが見つかりません (skip)"
-        fi
-    fi
-done
+log_info "--- tsunami (registry-resolved, region=${REGION}) ---"
+# TSUNAMI-REGION-OWNERSHIP: tsunami は実行中 region の registry dataset（region 一致）だけを配置する。
+# file 名（tsunami_<target> / <target>-tsunami-*）や directory では選ばない（--region tokyo の publish が
+# normalized/tokyo/tsunami/ の旧 tsunami_chiba.geojson を chiba として拾っていた）。他 region の target は
+# その region の publish（または current を種にした staging）で揃う。backend へは targets に含まれる region
+# だけ、frontend layers（静的 GeoJSON）へは api_exposure=enabled の dataset だけ。canonical の dataset_id・
+# depth が一致しなければ publish を止める（scripts/publish/resolve_tsunami_source.py）。
+_tsunami_targets_csv="$(IFS=,; echo "${TSUNAMI_TARGETS[*]}")"
+TSUNAMI_FRONTEND_LAYER_SRC=""
+if ! _tsunami_resolved="$(python3 "${SCRIPT_DIR}/resolve_tsunami_source.py" --region "${REGION}" --targets "${_tsunami_targets_csv}")"; then
+    log_error "tsunami source resolver が失敗しました（region=${REGION}）"
+    exit 1
+fi
+while IFS=$'\t' read -r _ts_kind _ts_dataset_id _ts_src; do
+    [[ -z "${_ts_kind:-}" ]] && continue
+    case "${_ts_kind}" in
+        backend)
+            deploy_file "${_ts_src}" "${RUNTIME_BACKEND}/hazard/tsunami/tsunami_${REGION}.geojson" "backend" ;;
+        frontend_layer)
+            TSUNAMI_FRONTEND_LAYER_SRC="${_ts_src}" ;;
+        *)
+            log_error "tsunami source resolver の出力が不正: ${_ts_kind}"; exit 1 ;;
+    esac
+done <<< "${_tsunami_resolved}"
 
 # ─── backend: hazard / inland_flood ──────────────────────────────────────────
 # region サブディレクトリ（hazard/inland_flood/{region}/）にデプロイする。
@@ -369,12 +361,16 @@ if [[ -d "${NORMALIZED}/inland_flood" ]] && compgen -G "${NORMALIZED}/inland_flo
         "${RUNTIME_BACKEND}/hazard/inland_flood/${REGION}" \
         "*.geojson" \
         "backend"
-else
+elif [[ "${REGION}" == "tokyo" ]]; then
+    # legacy sample は tokyo だけ（frontend layers と同じ扱い）。他 region へ sample を置くと、その region の
+    # 実データであるかのように runtime（ナビ判定）へ入るため置かない（2026-10-11、chiba 調査で判明）。
     log_warn "inland_flood normalized data not found — deploying legacy sample"
     deploy_file \
         "${PROJECT_ROOT}/data/hazard/inland_flood_sample.geojson" \
         "${RUNTIME_BACKEND}/hazard/inland_flood/${REGION}/inland_flood_sample.geojson" \
         "backend"
+else
+    log_warn "inland_flood normalized data not found (skip backend deploy、region=${REGION})"
 fi
 
 # ─── backend: hazard / landslide ─────────────────────────────────────────────
@@ -392,12 +388,16 @@ if [[ -d "${NORMALIZED}/landslide" ]] && compgen -G "${NORMALIZED}/landslide/*.g
         "${RUNTIME_BACKEND}/hazard/landslide/${REGION}" \
         "*.geojson" \
         "backend"
-else
+elif [[ "${REGION}" == "tokyo" ]]; then
+    # legacy sample は tokyo だけ（frontend layers と同じ扱い）。他 region へ sample を置くと、その region の
+    # 実データであるかのように runtime（ナビ判定）へ入るため置かない（2026-10-11、chiba 調査で判明）。
     log_warn "landslide normalized data not found — deploying legacy sample"
     deploy_file \
         "${PROJECT_ROOT}/data/hazard/landslide_sample.geojson" \
         "${RUNTIME_BACKEND}/hazard/landslide/${REGION}/landslide_sample.geojson" \
         "backend"
+else
+    log_warn "landslide normalized data not found (skip backend deploy、region=${REGION})"
 fi
 
 # ─── backend: hazard / lowland_poor_drainage ─────────────────────────────────
@@ -525,19 +525,12 @@ else
         "${RUNTIME_FRONTEND_LAYERS}/${REGION}_storm_surge.geojson" \
         "frontend_layers"
 
-    # tsunami: region ファイルのみ（kanagawa/chiba はサイズ大のため GeoJSON fallback は region のみ）
-    # 標準名 tsunami_{REGION}.geojson を優先し、なければ別名ファイルを探す
-    _tsunami_fe_src=""
-    if [[ -f "${NORMALIZED}/tsunami/tsunami_${REGION}.geojson" ]]; then
-        _tsunami_fe_src="${NORMALIZED}/tsunami/tsunami_${REGION}.geojson"
+    # tsunami: registry の dataset（region 一致・api_exposure=enabled）だけ。file 名では選ばない
+    # （TSUNAMI-REGION-OWNERSHIP / API-EXPOSURE-CONTRACT。backend 節の resolver が解決済み）
+    if [[ -n "${TSUNAMI_FRONTEND_LAYER_SRC}" ]]; then
+        deploy_file "${TSUNAMI_FRONTEND_LAYER_SRC}" "${RUNTIME_FRONTEND_LAYERS}/tsunami_${REGION}.geojson" "frontend_layers"
     else
-        _tsunami_fe_found="$(find "${NORMALIZED}/tsunami" -maxdepth 1 \( -name "${REGION}-tsunami-*.geojson" -o -name "${REGION}_tsunami_*.geojson" \) 2>/dev/null | sort | head -1)"
-        [[ -n "${_tsunami_fe_found}" ]] && _tsunami_fe_src="${_tsunami_fe_found}"
-    fi
-    if [[ -n "${_tsunami_fe_src}" ]]; then
-        deploy_file "${_tsunami_fe_src}" "${RUNTIME_FRONTEND_LAYERS}/tsunami_${REGION}.geojson" "frontend_layers"
-    else
-        log_warn "tsunami frontend fallback for ${REGION}: ファイルが見つかりません (skip)"
+        log_info "tsunami frontend layer: region=${REGION} は配置しない（dataset 無し または api_exposure が enabled でない）"
     fi
 
     # flood fallback: normalized の軽量 GeoJSON が存在する場合のみ

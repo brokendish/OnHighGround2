@@ -85,23 +85,24 @@ def _extract_depth_value(raw: object) -> Optional[float]:
     text = str(raw).strip()
     if not text:
         return None
-    compact = text.replace(" ", "")
-    if "0.5m未満" in compact or "0.3m未満" in compact:
-        return 0.5
-    if "0.5m以上" in compact and "1.0m未満" in compact:
-        return 0.75
-    if "1m以上" in compact and "3m未満" in compact:
-        return 2.0
-    if "3m以上" in compact and "5m未満" in compact:
-        return 4.0
-    if "5m以上" in compact and "10m未満" in compact:
-        return 5.0
-    if "10m以上" in compact and "20m未満" in compact:
-        return 10.0
-    if "20m以上" in compact:
-        return 20.0
-    if "5m以上" in compact:
-        return 5.0
+    compact = text.replace(" ", "").replace("　", "")
+    # 区分表記（A40_003）は都県・年版で書式が違う（例: 東京「0.5m以上 ～ 1m未満」、神奈川「0.3m以上 〜 1m未満」、
+    # 千葉「5.0m以上 10.0m未満」）。下限（以上）・上限（未満）を数値で取り出して代表値を決める:
+    #   上限 ≤ 0.5m → 0.5 / 下限 ≥ 5m → 下限 / それ以外 → 中央値（上限だけなら 0.5、下限だけなら下限）。
+    # 旧実装は部分文字列で照合しており「0.5m以上」が「5m以上」に一致して 5.0 になる誤り（東京 0.5–1m）や、
+    # 「5.0m以上」が「5m以上」に一致しない漏れ（千葉）があった（2026-10-11）。
+    lower = re.search(r"(\d+(?:\.\d+)?)m以上", compact)
+    upper = re.search(r"(\d+(?:\.\d+)?)m未満", compact)
+    if lower or upper:
+        lo = float(lower.group(1)) if lower else None
+        hi = float(upper.group(1)) if upper else None
+        if hi is not None and hi <= 0.5:
+            return 0.5
+        if lo is not None and lo >= 5:
+            return lo
+        if lo is not None and hi is not None:
+            return (lo + hi) / 2.0
+        return lo if lo is not None else 0.5
 
     numbers = [float(v) for v in re.findall(r"\d+(?:\.\d+)?", compact)]
     if not numbers:

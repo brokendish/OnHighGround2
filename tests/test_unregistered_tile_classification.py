@@ -4,7 +4,7 @@ dataset の tile 契約を持たない current 内 tile の分類（2026-10-11 �
   tokyo_tsunami_A40-23_13     → TOKYO-TSUNAMI-001 に登録（optional、geometry 全件一致）
   kanagawa_tsunami_A40-20_14  → KANAGAWA-TSUNAMI-001 に登録（optional、geometry 全件一致）
   kanagawa_tsunami_A40-16_14  → RETIRED（2016 年版の実質重複。frontend 参照削除後に退役、tests/test_tile_retirement.py）
-  chiba_tsunami_A40-18_12     → UNKNOWN_CONTRACT（frontend が使用、対応 dataset なし）
+  chiba_tsunami_A40-18_12     → CHIBA-TSUNAMI-001 に登録（required、2026-10-11 に chiba/tsunami へ移動する MIGRATED）
   tokyo_flood_max / tokyo_storm_surge → RETIRE_CANDIDATE（frontend 未使用、後継 tile あり）
 使用中の tile を退役候補にしない。退役候補・未分類は ERROR にしない（削除もしない）。
 """
@@ -73,7 +73,10 @@ def test_tsunami_static_ids_are_registered_to_existing_datasets():
         d = ds.get(did)
         assert d.tile_requirement == "optional" and dos.tile_tileset_id(d) == stem and stem in used
         assert d.tile_rel_path == f"frontend/tiles/{region}/tsunami/{stem}.mbtiles"  # 2026-10-11 に kanagawa を地域 path へ移動
-    assert not any(d.dataset_id.startswith("CHIBA") for d in ds.list_all())  # chiba は推測登録しない
+    # CHIBA-TSUNAMI-001（2026-10-11 正式化）: API が 404 のため tile が唯一の表示経路 → required
+    d = ds.get("CHIBA-TSUNAMI-001")
+    assert d.tile_requirement == "required" and dos.tile_tileset_id(d) == "chiba_tsunami_A40-18_12" and "chiba_tsunami_A40-18_12" in used
+    assert d.tile_rel_path == "frontend/tiles/chiba/tsunami/chiba_tsunami_A40-18_12.mbtiles"
 
 
 def _view_with(tmp_path, rels):
