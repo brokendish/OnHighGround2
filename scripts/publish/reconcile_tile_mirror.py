@@ -212,8 +212,23 @@ def cleanup(root: Path) -> None:
             t.unlink(missing_ok=True)
 
 
+def _remove(root: Path, a: dict, done: dict) -> None:
+    target = root / a["rel"]
+    if target.is_file() and _sha256(target) == a["sha256"]:
+        target.unlink()
+        _fsync_dir(target.parent)
+        done["REMOVE"].append(a["rel"])
+
+
 def commit(root: Path, p: dict, gid: int | None = None) -> dict:
     done = {"ADD": [], "REPLACE": [], "REMOVE": [], "NORMALIZE": []}
+    # 同じ tileset_id（file 名）が別 path へ移る場合は、旧 path を先に消してから新 path を置く。
+    # Martin は同じ source id が 2 つ見えると後から来た方を `<id>.1` に改名し、その後の旧 path 削除で
+    # 元の id が消える（2026-10-11 実測）。
+    moving = {Path(a["rel"]).name for a in p["actions"]["ADD"] + p["actions"]["REPLACE"]}
+    for a in p["actions"]["REMOVE"]:
+        if Path(a["rel"]).name in moving:
+            _remove(root, a, done)
     for kind in ("ADD", "REPLACE"):
         for a in p["actions"][kind]:
             target = root / a["rel"]
@@ -233,11 +248,8 @@ def commit(root: Path, p: dict, gid: int | None = None) -> dict:
             _normalize(target, gid, FILE_MODE)
             done["NORMALIZE"].append(a["rel"])
     for a in p["actions"]["REMOVE"]:
-        target = root / a["rel"]
-        if target.is_file() and _sha256(target) == a["sha256"]:
-            target.unlink()
-            _fsync_dir(target.parent)
-            done["REMOVE"].append(a["rel"])
+        if a["rel"] not in done["REMOVE"]:
+            _remove(root, a, done)
     return done
 
 

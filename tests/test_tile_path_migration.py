@@ -206,6 +206,34 @@ def test_reconcile_moves_tile_between_paths(tmp_path):
         assert rtm.verify(root, v, gid) == []
 
 
+def test_moved_tileset_is_removed_before_added(tmp_path, monkeypatch):
+    """Martin は同じ source id が 2 か所に見えると後着を `<id>.1` に改名するため、移動では旧 path を先に消す。"""
+    root = tmp_path / "rt"
+    v = root / "versions" / "V_OLD"
+    files = {OLD: b"a20", TOKYO: b"t"}
+    for r, d in files.items():
+        _write(v, r, d)
+    (v / "_manifest.json").write_text(json.dumps({"files": {r: hashlib.sha256(d).hexdigest() for r, d in files.items()}}))
+    vn = root / "versions" / "V_NEW"  # 移動後 version（mirror の新 path の素性）
+    _write(vn, NEW, b"a20")
+    (vn / "_manifest.json").write_text(json.dumps({"files": {NEW: hashlib.sha256(b"a20").hexdigest()}}))
+    for r, d in {NEW: b"a20", TOKYO: b"t", A16: b"a16"}.items():
+        _write(root, r, d)
+    events = []
+    real_unlink, real_replace = Path.unlink, os.replace
+    monkeypatch.setattr(Path, "unlink", lambda self, *a, **k: (events.append(("rm", self.name, str(self.parent).split("tiles/")[-1])), real_unlink(self, *a, **k))[1])
+    monkeypatch.setattr(rtm.os, "replace", lambda src, dst: (events.append(("add", Path(dst).name, str(Path(dst).parent).split("tiles/")[-1])), real_replace(src, dst))[1])
+    reg = tmp_path / "d.json"
+    reg.write_text(json.dumps(_migration() + [{"rel_path": A16, "disposition": "RETIRED", "backup": {"sha256": hashlib.sha256(b"a16").hexdigest()}}]))
+    p = rtm.plan(root, v, reg)
+    rtm.prepare(root, v, p, os.getegid())
+    events.clear()
+    rtm.commit(root, p, os.getegid())
+    a20 = [e for e in events if e[1] == "kanagawa_tsunami_A40-20_14.mbtiles"]
+    assert a20 == [("rm", "kanagawa_tsunami_A40-20_14.mbtiles", "kanagawa/tsunami"), ("add", "kanagawa_tsunami_A40-20_14.mbtiles", "tokyo/tsunami")]
+    assert ("rm", "kanagawa_tsunami_A40-16_14.mbtiles", "tokyo/tsunami") in events  # 移動でない削除も行う
+
+
 # ── Linux: publish → rollback → forward（operator identity・実 activate_version）──────
 
 @pytest.mark.skipif(not sys.platform.startswith("linux") or os.geteuid() != 10002, reason="operator identity で実行する")
