@@ -3,7 +3,7 @@ dataset の tile 契約を持たない current 内 tile の分類（2026-10-11 �
 
   tokyo_tsunami_A40-23_13     → TOKYO-TSUNAMI-001 に登録（optional、geometry 全件一致）
   kanagawa_tsunami_A40-20_14  → KANAGAWA-TSUNAMI-001 に登録（optional、geometry 全件一致）
-  kanagawa_tsunami_A40-16_14  → KEEP_LEGACY（2016 年版の実質重複だが frontend が参照中）
+  kanagawa_tsunami_A40-16_14  → RETIRE_CANDIDATE（2016 年版の実質重複。2026-10-11 に frontend 参照を外した）
   chiba_tsunami_A40-18_12     → UNKNOWN_CONTRACT（frontend が使用、対応 dataset なし）
   tokyo_flood_max / tokyo_storm_surge → RETIRE_CANDIDATE（frontend 未使用、後継 tile あり）
 使用中の tile を退役候補にしない。退役候補・未分類は ERROR にしない（削除もしない）。
@@ -113,6 +113,21 @@ def test_retire_candidate_does_not_affect_dataset_overall(tmp_path):
     view = _view_with(tmp_path, [dos.tile_rel(river), "frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles"])
     s = dos.tile_section(river, view, allow_heavy=False, catalog=["tokyo_river_001"])
     assert s["status"] == dos.OK
+
+
+def test_kanagawa_frontend_uses_only_current_edition():
+    """二重描画の解消: tsunami_kanagawa は A40-20 だけ（tileset ID・source layer・opacity は従来どおり）。"""
+    js = (ROOT / "frontend/js/hazard-layers.js").read_text(encoding="utf-8")
+    block = js[js.index("    tsunami_kanagawa: ["):]
+    block = block[:block.index("    ],")]
+    assert "kanagawa_tsunami_A40-16_14" not in js
+    assert block.count("tilesetId:") == 1
+    assert "{ tilesetId: 'kanagawa_tsunami_A40-20_14', sourceLayer: 'kanagawa_tsunami_A40-20_14', opacityFn: () => 0.18 }" in block
+    for key, tid in (("tsunami_tokyo", "tokyo_tsunami_A40-23_13"), ("tsunami_chiba", "chiba_tsunami_A40-18_12")):
+        b = js[js.index(f"    {key}: ["):]
+        assert f"{{ tilesetId: '{tid}', sourceLayer: '{tid}', opacityFn: () => 0.18 }}" in b[:b.index("    ],")]
+    disp = {Path(d["rel_path"]).stem: d for d in DISPOSITIONS}
+    assert disp["kanagawa_tsunami_A40-16_14"]["disposition"] == "RETIRE_CANDIDATE"
 
 
 def test_dispositions_file_is_well_formed():

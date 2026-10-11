@@ -31,7 +31,8 @@ const { test, expect } = require('@playwright/test');
 
 const TSUNAMI_TILESETS = {
     tokyo: ['tokyo_tsunami_A40-23_13'],
-    kanagawa: ['kanagawa_tsunami_A40-16_14', 'kanagawa_tsunami_A40-20_14'],
+    // 2016 年版 A40-16_14 は 2020 年版 A40-20_14 の実質重複のため参照しない（二重描画の解消、2026-10-11）
+    kanagawa: ['kanagawa_tsunami_A40-20_14'],
     chiba: ['chiba_tsunami_A40-18_12'],
 };
 
@@ -146,8 +147,8 @@ test.describe('TSUNAMI-FRONTEND-API-PREFERENCE-GAP: tile-first migration', () =>
         expect(states.kanagawa).toBe('vector-tiles');
     });
 
-    // ── D. Kanagawa: 2 tileset双方がHEAD checkされる ────────────────────────
-    test('D: both Kanagawa tilesets are checked and retained', async ({ page }) => {
+    // ── D. Kanagawa: 現行版 A40-20 だけを HEAD check し、旧版 A40-16 は要求しない ──
+    test('D: only the current Kanagawa tileset (A40-20) is checked', async ({ page }) => {
         const requestedTilesetIds = [];
         await setupMocks(page);
         await page.route('**/tiles/kanagawa_tsunami_A40-*', (route) => {
@@ -160,11 +161,13 @@ test.describe('TSUNAMI-FRONTEND-API-PREFERENCE-GAP: tile-first migration', () =>
         });
         await gotoAndInit(page);
 
-        expect(requestedTilesetIds).toContain('kanagawa_tsunami_A40-16_14');
         expect(requestedTilesetIds).toContain('kanagawa_tsunami_A40-20_14');
+        expect(requestedTilesetIds).not.toContain('kanagawa_tsunami_A40-16_14');
 
         const vtSources = await page.evaluate(() => VECTOR_TILE_SOURCES.tsunami_kanagawa.map(e => e.tilesetId));
-        expect(vtSources).toEqual(['kanagawa_tsunami_A40-16_14', 'kanagawa_tsunami_A40-20_14']);
+        expect(vtSources).toEqual(['kanagawa_tsunami_A40-20_14']);
+        const states = await page.evaluate(() => HAZARD_LAYERS.tsunami_kanagawa.availabilityState);
+        expect(states).toBe('vector-tiles');
     });
 
     // ── E. Chiba: metaが404でもtile成功なら利用可能 ─────────────────────────
@@ -241,7 +244,6 @@ test.describe('TSUNAMI-FRONTEND-API-PREFERENCE-GAP: tile-first migration', () =>
         await setupMocks(page, {
             tilesetStatus: {
                 'tokyo_tsunami_A40-23_13': 404,
-                'kanagawa_tsunami_A40-16_14': 404,
                 'kanagawa_tsunami_A40-20_14': 404,
             },
         });

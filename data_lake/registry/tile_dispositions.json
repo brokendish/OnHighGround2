@@ -19,11 +19,12 @@
   },
   {
     "rel_path": "frontend/tiles/tokyo/tsunami/kanagawa_tsunami_A40-16_14.mbtiles",
-    "disposition": "KEEP_LEGACY",
-    "consumer": "frontend VECTOR_TILE_SOURCES.tsunami_kanagawa（A40-20_14 と重ねて表示）",
+    "disposition": "RETIRE_CANDIDATE",
+    "consumer": "なし（2026-10-11 に frontend VECTOR_TILE_SOURCES.tsunami_kanagawa から参照を外した）",
     "superseded_by": "kanagawa_tsunami_A40-20_14（KANAGAWA-TSUNAMI-001）",
     "notes": [
-      "A40 2016 年版。2020 年版 A40-20_14 と同数 66,965 件・bbox 1 m 丸めで 99.98% 一致の実質重複。frontend が参照しているため退役には frontend 変更が必要（hazard-layers.js は改変禁止、別 Phase）（2026-10-11 確認）"
+      "A40 2016 年版（平成28年10月時点）。現行 KANAGAWA-TSUNAMI-001 の canonical と一致する 2020 年版 A40-20_14 と同数 66,965 件・bbox 1 m 丸めで 99.98% 一致の実質重複",
+      "frontend は 2026-03-08（0b22007）から A40-20 と重ねて描画していたが、機能的理由の記録はなかった。2026-10-11 に参照を外して二重描画を解消。tile は current / mirror に残す（削除は別 Phase）"
     ]
   },
   {

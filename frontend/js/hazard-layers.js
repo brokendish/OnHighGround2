@@ -430,7 +430,6 @@ const VECTOR_TILE_SOURCES = {
         { tilesetId: 'tokyo_tsunami_A40-23_13', sourceLayer: 'tokyo_tsunami_A40-23_13', opacityFn: () => 0.18 }
     ],
     tsunami_kanagawa: [
-        { tilesetId: 'kanagawa_tsunami_A40-16_14', sourceLayer: 'kanagawa_tsunami_A40-16_14', opacityFn: () => 0.18 },
         { tilesetId: 'kanagawa_tsunami_A40-20_14', sourceLayer: 'kanagawa_tsunami_A40-20_14', opacityFn: () => 0.18 }
     ],
     tsunami_chiba: [
