@@ -373,12 +373,32 @@ def legacy_tile_section(view: drr.RuntimeView, defs: List[DatasetDefinition],
 
 # 契約を持たない tile の棚卸し結果（data_lake/registry/tile_dispositions.json）。削除・登録の判断材料として表示するだけで、
 # 自動削除はしない。dataset の tile 契約より優先しない（契約がある tile は tile_section が判定する）。
-TILE_DISPOSITIONS = ("RETIRE_CANDIDATE", "KEEP_LEGACY", "UNKNOWN_CONTRACT")
+TILE_DISPOSITIONS = ("RETIRE_CANDIDATE", "KEEP_LEGACY", "UNKNOWN_CONTRACT", "RETIRED")
 TILE_DISPOSITION_LABELS = {
+    "RETIRED": "RETIRED（退役済みのはずが current / mirror に残存）",
     "RETIRE_CANDIDATE": "RETIRE CANDIDATE（未使用・後継 tile あり。削除は別 Phase）",
     "KEEP_LEGACY": "KEEP LEGACY（frontend が参照中。dataset 契約なし）",
     "UNKNOWN_CONTRACT": "UNKNOWN CONTRACT（使用中だが対応 dataset なし）",
 }
+
+
+def retired_tile_section(view: drr.RuntimeView, catalog: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """退役済み tile（disposition=RETIRED）。現役一覧とは分けて表示する。current / mirror に残っていれば WARNING。"""
+    out = []
+    for rel, d in sorted(load_tile_dispositions().items()):
+        if d["disposition"] != "RETIRED":
+            continue
+        stem = Path(rel).stem
+        in_current = bool(view.ok and rel in view.files)
+        in_mirror = (view.root / rel).is_file() if view.ok else False
+        served = None if catalog is None else stem in catalog
+        clean = not in_current and not in_mirror and served is not True
+        out.append({"rel_path": rel, "tileset_id": stem, "replacement": d.get("replacement"), "reason": d.get("reason"),
+                    "retired_at": d.get("retired_at"), "backup": d.get("backup"), "in_current": in_current,
+                    "in_mirror": in_mirror, "martin_registered": UNOBSERVED if catalog is None else (OK if served else "N/A"),
+                    "status": OK if clean else WARNING,
+                    "label": "RETIRED" if clean else "RETIRED（current / mirror / Martin に残存）"})
+    return out
 
 
 def _tile_dispositions_path() -> Path:
@@ -867,4 +887,5 @@ def build_console(ds=None, ss=None, *, dataset_id: Optional[str] = None, allow_h
         "errors": errors,
         "unregistered_runtime_artifacts": unregistered_section(view, expected, props),
         "legacy_tiles": legacy_tile_section(view, ds.list_all(), catalog),
+        "retired_tiles": retired_tile_section(view, catalog),
     }

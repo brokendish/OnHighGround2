@@ -253,6 +253,29 @@
     });
   }
 
+  function renderRetiredTiles() {
+    const tbody = document.getElementById("retired-tile-tbody");
+    tbody.textContent = "";
+    const items = _console.retired_tiles || [];
+    if (!items.length) {
+      const tr = el("tr");
+      const c = td("なし", "muted");
+      c.colSpan = 5;
+      tr.appendChild(c);
+      tbody.appendChild(tr);
+      return;
+    }
+    items.forEach(u => {
+      const tr = el("tr");
+      tr.appendChild(td(withSub(badge(u.status === "OK" ? "N/A" : "WARNING", u.label), u.retired_at ? `退役: ${u.retired_at}` : null), "wrap"));
+      tr.appendChild(td(withSub(el("span", "mono", u.rel_path), u.reason || null), "wrap"));
+      tr.appendChild(td(el("span", "mono", u.replacement || "—")));
+      tr.appendChild(td(`${u.in_current ? "current あり" : "current なし"} / ${u.in_mirror ? "mirror あり" : "mirror なし"}`));
+      tr.appendChild(td(u.backup ? withSub(el("span", "mono", u.backup.path), `sha256 ${String(u.backup.sha256).slice(0, 16)}…`) : "—", "wrap"));
+      tbody.appendChild(tr);
+    });
+  }
+
   async function loadConsole() {
     showError("");
     try {
@@ -270,6 +293,7 @@
     renderTable();
     renderUnregistered();
     renderLegacyTiles();
+    renderRetiredTiles();
     const fromHash = decodeURIComponent((location.hash || "").replace(/^#/, ""));
     if (fromHash && !_selected && (_console.datasets || []).some(d => d.dataset_id === fromHash)) openDetail(fromHash);
   }

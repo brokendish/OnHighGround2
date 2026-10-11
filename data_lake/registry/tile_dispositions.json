@@ -19,13 +19,29 @@
   },
   {
     "rel_path": "frontend/tiles/tokyo/tsunami/kanagawa_tsunami_A40-16_14.mbtiles",
-    "disposition": "RETIRE_CANDIDATE",
-    "consumer": "なし（2026-10-11 に frontend VECTOR_TILE_SOURCES.tsunami_kanagawa から参照を外した）",
+    "disposition": "RETIRED",
+    "consumer": "なし（frontend 参照は 2026-10-11 に削除）",
     "superseded_by": "kanagawa_tsunami_A40-20_14（KANAGAWA-TSUNAMI-001）",
     "notes": [
       "A40 2016 年版（平成28年10月時点）。現行 KANAGAWA-TSUNAMI-001 の canonical と一致する 2020 年版 A40-20_14 と同数 66,965 件・bbox 1 m 丸めで 99.98% 一致の実質重複",
       "frontend は 2026-03-08（0b22007）から A40-20 と重ねて描画していたが、機能的理由の記録はなかった。2026-10-11 に参照を外して二重描画を解消。tile は current / mirror に残す（削除は別 Phase）"
-    ]
+    ],
+    "tileset_id": "kanagawa_tsunami_A40-16_14",
+    "reason": "A40 2016 年版。現行 KANAGAWA-TSUNAMI-001（A40-20_14、2020 年版）の実質重複で、frontend 参照も 2026-10-11 に削除済み",
+    "replacement": "kanagawa_tsunami_A40-20_14",
+    "retired_at": "2026-10-11",
+    "backup": {
+      "path": "data_lake/_backup/retired-tiles-20261011/frontend/tiles/tokyo/tsunami/kanagawa_tsunami_A40-16_14.mbtiles",
+      "sha256": "8e143ba482066d98371c569c202ed97e28e8dbb0d3faccb546836e160373f799",
+      "size": 13721600,
+      "original_owner": "10002:20001",
+      "original_mode": "0640",
+      "original_mtime": "2026-10-11T03:14:16Z",
+      "quick_check": "ok",
+      "feature_count": 66965,
+      "zoom": "5-14",
+      "bounds": "139.106289,35.128634,139.796067,35.541363"
+    }
   },
   {
     "rel_path": "frontend/tiles/tokyo/tsunami/chiba_tsunami_A40-18_12.mbtiles",

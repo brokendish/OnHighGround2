@@ -75,6 +75,18 @@
       </table>
     </div>
   </section>
+
+  <section>
+    <h2>退役済み tile <span class="muted small">（tile_dispositions.json で RETIRED。publish 時に staging・mirror から除く。backup から復元できる）</span></h2>
+    <div class="table-wrap">
+      <table class="ops-table">
+        <thead>
+          <tr><th>状態</th><th>tile path</th><th>後継</th><th>current / mirror</th><th>backup</th></tr>
+        </thead>
+        <tbody id="retired-tile-tbody"><tr><td colspan="5" class="muted">読み込み中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 </main>
 
 <script src="/admin/js/admin-shell.js"></script>

@@ -166,6 +166,14 @@ if ! python3 "${SCRIPT_DIR}/stage_runtime_provenance.py" --staging "${STAGING_DI
 fi
 log_step "stage runtime provenance"
 
+# TILE-RETIREMENT: tile_dispositions.json で RETIRED と明示した tile（rel_path 単位、wildcard なし）を
+# staging から除く（新 version の manifest に入らない）。前 version は触らない。record 不正は publish を止める。
+if ! python3 "${SCRIPT_DIR}/apply_tile_retirements.py" --staging "${STAGING_DIR}"; then
+    log_error "tile retirement の適用に失敗（publish を中止。current は変更されていない）"
+    exit 1
+fi
+log_step "apply tile retirements (staging)"
+
 # Claude自己検証で発見した実バグ（macOS Docker Desktop named volume、
 # virtiofs/gRPC-FUSE経由での実機確認）: `.staging`自身がsetgid（0o2750、
 # init_lease_volume.py STAGING_DIR_MODE）のため、その配下に新規作成される
@@ -299,4 +307,13 @@ if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
 fi
 
 log_step "frontend tile mirror sync"
+
+# TILE-RETIREMENT: mirror は追加専用同期のため、退役 tile を明示的に除く（current に無く、
+# backup の sha256 と一致する file だけ）。publish 自体は成功済みのため失敗は warning に留める。
+if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
+    if ! python3 "${SCRIPT_DIR}/apply_tile_retirements.py" --mirror "${DATA_RUNTIME}" --current "${DATA_RUNTIME}/current"; then
+        log_warn "mirror からの退役 tile 除去に失敗（publish は成功済み。Data Ops の退役一覧で残存を確認すること）"
+    fi
+fi
+log_step "apply tile retirements (mirror)"
 log_info "=== deploy_to_runtime_atomic.sh done ==="

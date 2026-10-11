@@ -3,7 +3,7 @@ dataset の tile 契約を持たない current 内 tile の分類（2026-10-11 �
 
   tokyo_tsunami_A40-23_13     → TOKYO-TSUNAMI-001 に登録（optional、geometry 全件一致）
   kanagawa_tsunami_A40-20_14  → KANAGAWA-TSUNAMI-001 に登録（optional、geometry 全件一致）
-  kanagawa_tsunami_A40-16_14  → RETIRE_CANDIDATE（2016 年版の実質重複。2026-10-11 に frontend 参照を外した）
+  kanagawa_tsunami_A40-16_14  → RETIRED（2016 年版の実質重複。frontend 参照削除後に退役、tests/test_tile_retirement.py）
   chiba_tsunami_A40-18_12     → UNKNOWN_CONTRACT（frontend が使用、対応 dataset なし）
   tokyo_flood_max / tokyo_storm_surge → RETIRE_CANDIDATE（frontend 未使用、後継 tile あり）
 使用中の tile を退役候補にしない。退役候補・未分類は ERROR にしない（削除もしない）。
@@ -127,7 +127,7 @@ def test_kanagawa_frontend_uses_only_current_edition():
         b = js[js.index(f"    {key}: ["):]
         assert f"{{ tilesetId: '{tid}', sourceLayer: '{tid}', opacityFn: () => 0.18 }}" in b[:b.index("    ],")]
     disp = {Path(d["rel_path"]).stem: d for d in DISPOSITIONS}
-    assert disp["kanagawa_tsunami_A40-16_14"]["disposition"] == "RETIRE_CANDIDATE"
+    assert disp["kanagawa_tsunami_A40-16_14"]["disposition"] == "RETIRED"
 
 
 def test_dispositions_file_is_well_formed():
