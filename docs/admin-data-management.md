@@ -201,6 +201,20 @@ symlink が破損・欠落した場合の正式な復旧手順は `scripts/publi
 Martin 用 tile mirror も rollback 先 version の manifest に合わせる）、または再度の
 atomic publish（republish）です。`activate_version.py --rollback` を単独で実行すると
 current だけが戻り、tile mirror（退役 tile・差し替え前 tile）は戻りません。
+
+rollback の前に `rollback_runtime.sh` は、rollback 先 version の manifest と dataset registry の tile 契約
+（`tile_requirement`）から、表示に必須（required）の tile が rollback 先に揃っているかを自動判定します
+（version の新旧ではなく契約で判定）。欠けている場合は rollback を拒否し、current・mirror は変更しません。
+optional tile の欠落は WARNING だけで rollback を許可します（API GeoJSON で表示されるため）。
+
+```bash
+# 通常
+scripts/publish/rollback_runtime.sh <version-id>
+# 判定だけ（変更なし）
+python3 scripts/publish/rollback_preflight.py --data-runtime-root /data_runtime --version <version-id> --json
+# 緊急時専用: required tile が欠ける rollback を許可（該当 layer は表示できなくなる）
+scripts/publish/rollback_runtime.sh <version-id> --allow-missing-required-tiles
+```
 一部の route（`inland_flood`/`landslide` の直接配信、`HazardDatasetService` 経由の
 一部 hazard type）は atomic publish 機構自体が未導入の環境（`is_available()==False`）
 向けの compatibility fallback として flat runtime を読みますが、これは stale な

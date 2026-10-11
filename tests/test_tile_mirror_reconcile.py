@@ -234,7 +234,10 @@ def test_rollback_runtime_round_trip(tmp_path):
         _normalize(s); pub.publish(vid, _validator(True)); vids[name] = vid
     _mirror(root, tiles["new"])
     env = {**os.environ, "OHG2_DATA_RUNTIME_ROOT": str(root), "OHG2_ADMIN_DIR": str(tmp_path / "admin"), "OHG2_LEASES_GID": "20001"}
-    run = lambda vid: subprocess.run(["bash", str(ROOT / "scripts/publish/rollback_runtime.sh"), vid], capture_output=True, text=True, env=env)
+    # この fixture は mirror 整合の往復だけを見るため、本番 registry の required tile（RIVER・PSEUDO 等）を持たない。
+    # REQUIRED-TILE-ROLLBACK-GUARD が拒否するので override を明示する（拒否そのものは test_rollback_preflight.py）。
+    run = lambda vid: subprocess.run(["bash", str(ROOT / "scripts/publish/rollback_runtime.sh"), vid, "--allow-missing-required-tiles"],
+                                     capture_output=True, text=True, env=env)
     out = run(vids["old"])
     assert out.returncode == 0, out.stdout + out.stderr
     assert os.readlink(root / "current") == f"versions/{vids['old']}"
