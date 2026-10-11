@@ -164,6 +164,23 @@ if [[ -n "${CURRENT_REAL:-}" && -d "${CURRENT_REAL}" ]]; then
             REGIONS+=("${_r}")
         fi
     done
+    # TSUNAMI-REGION-OWNERSHIP: hazard.tsunami.targets にあるのに current に backend runtime file
+    # （tsunami_<region>.geojson）が無い region も自動で含める（targets に region を加えた直後の publish）。
+    # 含めないと activate の参照整合性検証が target 欠落で拒否する。registry に dataset が無い target は中止。
+    if ! _target_regions="$(python3 "${SCRIPT_DIR}/resolve_tsunami_source.py" --missing-target-regions --current "${CURRENT_REAL}")"; then
+        log_error "hazard.tsunami.targets から publish region を決められない（publish を中止。current は変更されていない）"
+        exit 1
+    fi
+    for _r in ${_target_regions}; do
+        if [[ ! "${_r}" =~ ^[a-z][a-z0-9_]*$ ]]; then
+            log_error "hazard.tsunami.targets の region 名が不正: ${_r}（publish を中止）"
+            exit 1
+        fi
+        if [[ " ${REGIONS[*]} " != *" ${_r} "* ]]; then
+            log_info "hazard.tsunami.targets の region=${_r} が current に無いため publish 対象に追加"
+            REGIONS+=("${_r}")
+        fi
+    done
 fi
 
 # 既存 deploy_to_runtime.sh を region ごとにstaging modeで実行する（同一

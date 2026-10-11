@@ -226,11 +226,12 @@ def test_rollback_guard_for_chiba(tmp_path, rel, verdict_ok):
         assert c["severity"] == "BLOCK"  # 移動前・移動後のどちらにも無い version へは戻さない
 
 
-# ── backend target 未追加時の既存挙動 ────────────────────────────────────────────
+# ── backend target ─────────────────────────────────────────────────────────────
 
-def test_backend_tsunami_targets_unchanged():
+def test_backend_tsunami_targets_include_chiba():
+    """2026-10-11 本番の runtime / required tile / Martin 受入後に OWNER 承認で追加した。"""
     props = (ROOT / "backend/app.properties").read_text(encoding="utf-8")
-    assert re.search(r"^hazard\.tsunami\.targets=tokyo,kanagawa$", props, re.M)
+    assert re.search(r"^hazard\.tsunami\.targets=tokyo,kanagawa,chiba$", props, re.M)
 
 
 def test_chiba_runtime_geojson_is_not_a_loader_target():

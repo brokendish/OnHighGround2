@@ -440,3 +440,39 @@ console.log(JSON.stringify(out));
     assert "✅" not in out["unknown"] and "判定不可" in out["unknown"]
     assert out["outside"] == '<span class="mbc-hazard-safe">✅ 安全</span>'
     assert "mbc-hazard-danger" in out["danger"]
+
+
+# ── C''. hazard.tsunami.targets の region を publish 対象へ自動で含める ─────────────
+
+def _tsunami_defs(*regions):
+    return [SimpleNamespace(dataset_id=f"{r.upper()}-TSUNAMI-001", region=r, layer_type="tsunami") for r in regions]
+
+
+def test_target_region_missing_from_current_is_included(tmp_path):
+    cur = _current(tmp_path, "backend/hazard/tsunami/tsunami_tokyo.geojson", "backend/hazard/tsunami/tsunami_kanagawa.geojson")
+    defs = _tsunami_defs("tokyo", "kanagawa", "chiba")
+    assert rts.missing_target_regions(cur, ["tokyo", "kanagawa", "chiba"], defs) == ["chiba"]
+    _current(tmp_path, "backend/hazard/tsunami/tsunami_chiba.geojson")
+    assert rts.missing_target_regions(cur, ["tokyo", "kanagawa", "chiba"], defs) == []  # 2 回目以降は追加しない
+
+
+def test_unknown_target_region_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="1 件ではない"):
+        rts.missing_target_regions(_current(tmp_path), ["osaka"], _tsunami_defs("tokyo"))
+    with pytest.raises(ValueError):
+        rts.missing_target_regions(_current(tmp_path), ["tokyo"], _tsunami_defs("tokyo", "tokyo"))
+
+
+def test_wrapper_adds_missing_target_regions():
+    w = (ROOT / "scripts/publish/deploy_to_runtime_atomic.sh").read_text(encoding="utf-8")
+    i = w.index("--missing-target-regions --current")
+    assert i < w.index('for _region in "${REGIONS[@]}"; do\n    log_info "--- region')
+    assert 'log_error "hazard.tsunami.targets から publish region を決められない' in w
+
+
+def test_production_targets_load_chiba_as_loader_target():
+    from app.services import data_ops_service as dos
+    props = dos._app_properties()
+    assert dos.loader_contract("backend/hazard/tsunami/tsunami_chiba.geojson", props)["loader_target"] is True
+    idx, unresolved = tc.resolve_unevaluated(REGISTRY, COVERAGE, ["tokyo", "kanagawa", "chiba"])
+    assert idx == [] and unresolved == []  # 全 registry region を評価 → 未評価扱いは消える

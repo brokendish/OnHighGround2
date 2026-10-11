@@ -105,11 +105,49 @@ def resolve(region: str, targets: list, definitions: list, data_lake: Path, extr
     return [(k, d.dataset_id, src) for k in kinds]
 
 
+def missing_target_regions(current: Path, targets: list, definitions: list) -> list:
+    """hazard.tsunami.targets にあるのに current に backend の runtime file が無い region。
+
+    backend は targets の tsunami_<region>.geojson を読み、activate の検証も targets 全件を要求するため、
+    この region を含めない publish は拒否される（admin UI の publish region は active mapping 由来で、
+    tile だけの region を含まない）。wrapper が自動で含める。registry に region 一致の tsunami dataset が
+    1 件だけある target に限る（未知の region は ValueError、fail closed）。"""
+    out = []
+    for t in targets:
+        if (current / "backend" / "hazard" / "tsunami" / f"tsunami_{t}.geojson").is_file():
+            continue
+        owners = [d for d in definitions if d.layer_type == "tsunami" and d.region == t]
+        if len(owners) != 1:
+            raise ValueError(f"hazard.tsunami.targets の {t} に対応する registry tsunami dataset が 1 件ではない: "
+                             f"{[d.dataset_id for d in owners]}")
+        out.append(t)
+    return sorted(set(out))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--region", required=True)
-    ap.add_argument("--targets", required=True, help="hazard.tsunami.targets（カンマ区切り）")
+    ap.add_argument("--region")
+    ap.add_argument("--targets", help="hazard.tsunami.targets（カンマ区切り）")
+    ap.add_argument("--missing-target-regions", action="store_true",
+                    help="--current の version に runtime file が無い targets の region を 1 行ずつ出力"
+                         "（targets は activate の検証と同じ設定解決で読む）")
+    ap.add_argument("--current")
     args = ap.parse_args()
+    if args.missing_target_regions:
+        try:
+            from app.services.dataset_definition_service import get_definition_service
+            from app.services.runtime_dataset_validate import _resolve_configured_tsunami_targets
+            configured, err = _resolve_configured_tsunami_targets()
+            if err or not args.current:
+                raise ValueError(err or "--missing-target-regions には --current が必要")
+            for r in missing_target_regions(Path(args.current), sorted(configured), get_definition_service().list_all()):
+                print(r)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[resolve_tsunami_source] FAIL missing-target-regions: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if not args.region or args.targets is None:
+        ap.error("--region と --targets が必要")
     targets = [t.strip() for t in args.targets.split(",") if t.strip()]
     try:
         from app.services.dataset_definition_service import get_definition_service

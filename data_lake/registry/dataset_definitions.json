@@ -509,7 +509,7 @@
     "display_name": "津波浸水想定区域（千葉県）",
     "description": "千葉県沿岸部の津波浸水想定区域図（最大クラスの津波、平成30年12月1日時点）。マップ上の津波リスク表示に使用。",
     "hint_text": "千葉県の津波浸水想定データです。国土数値情報 A40-18_12（2018 年版。2026-10-11 時点の最新）の GML/ZIP を取り込み、GeoJSON に正規化して配信します。",
-    "impact_scope": "千葉県沿岸部の津波リスク表示（backend の津波判定は hazard.tsunami.targets に chiba を加えるまで未評価。範囲内の地点は区域外ではなく unknown を返す）",
+    "impact_scope": "千葉県沿岸部の津波リスク表示と backend の津波判定（hazard.tsunami.targets に chiba、2026-10-11 追加）",
     "accepted_input_modes": [
       "upload",
       "fetch_url"
@@ -539,7 +539,7 @@
     "tile_rel_path": "frontend/tiles/chiba/tsunami/chiba_tsunami_A40-18_12.mbtiles",
     "tile_notes": [
       "frontend は静的 tileset ID（VECTOR_TILE_SOURCES.tsunami_chiba）で tile を表示する。public GeoJSON API は api_exposure=disabled（canonical 約 145MB の全量配信は実用的な代替表示経路ではない）で 404 → tile が唯一の表示経路 → required",
-      "backend の津波判定（hazard.tsunami.targets）に chiba を加えて API を有効にした場合は optional へ見直す",
+      "backend の津波判定（hazard.tsunami.targets）には 2026-10-11 に追加済み。public GeoJSON API を有効にした場合だけ optional へ見直す",
       "旧 tile は tokyo/tsunami/chiba_tsunami_A40-18_12.mbtiles（tile_dispositions.json の MIGRATED で同じ tile として扱う）"
     ],
     "source_provider": "国土交通省 国土数値情報",
