@@ -237,44 +237,122 @@ def martin_catalog_ids(ttl: float = 60.0) -> Optional[List[str]]:
     return ids
 
 
+# 表示 tile の状態（UI の表示名と対応）。DatasetDefinition.tile_requirement の契約で判定する。
+TILE_STATES = {
+    "TILE_OK": "TILE OK",
+    "TILE_NOT_APPLICABLE": "TILE N/A",
+    "REQUIRED_TILE_MISSING": "REQUIRED TILE MISSING",
+    "REQUIRED_TILE_UNMANAGED": "REQUIRED TILE UNMANAGED",
+    "OPTIONAL_TILE_MISSING": "OPTIONAL TILE MISSING",
+    "LEGACY_UNMANAGED_TILE": "LEGACY UNMANAGED TILE",
+    "UNKNOWN_TILE_CONTRACT": "UNKNOWN TILE CONTRACT",
+    "TILE_BROKEN": "TILE ERROR",
+}
+
+
+def tile_tileset_id(defn: DatasetDefinition) -> str:
+    return defn.dataset_id.lower().replace("-", "_")
+
+
+def tile_requirement(defn: DatasetDefinition) -> str:
+    """required / optional / not_applicable / unknown（未設定で requires_tile_build=true）。"""
+    if defn.tile_requirement:
+        return defn.tile_requirement
+    if not defn.requires_tile_build or not defn.layer_type:
+        return "not_applicable"
+    return "unknown"
+
+
+def _tile_set(sec: Dict[str, Any], status: str, state: str, reason: Optional[str]) -> Dict[str, Any]:
+    sec.update(status=status, state=state, label=TILE_STATES[state], reason=reason)
+    return sec
+
+
 def tile_section(defn: DatasetDefinition, view: drr.RuntimeView, allow_heavy: bool,
                  catalog: Optional[List[str]] = None) -> Dict[str, Any]:
-    if not defn.requires_tile_build or not defn.layer_type:
-        return {"status": NOT_APPLICABLE, "required": False}
-    stem = defn.dataset_id.lower().replace("-", "_")
+    req = tile_requirement(defn)
+    if req == "not_applicable" or not defn.layer_type:
+        return {"status": NOT_APPLICABLE, "required": False, "requirement": "not_applicable",
+                "state": "TILE_NOT_APPLICABLE", "label": TILE_STATES["TILE_NOT_APPLICABLE"],
+                "notes": list(defn.tile_notes)}
+    stem = tile_tileset_id(defn)
     rel = f"frontend/tiles/{defn.region}/{defn.layer_type}/{stem}.mbtiles"
-    sec: Dict[str, Any] = {"required": True, "tileset_id": stem, "rel_path": rel, "in_current": False,
+    sec: Dict[str, Any] = {"required": req == "required", "requirement": req, "notes": list(defn.tile_notes),
+                           "tileset_id": stem, "rel_path": rel, "in_current": False,
                            "current_sha256": None, "mirror": None, "martin_registered": UNOBSERVED,
-                           "metadata": None, "integrity": None}
+                           "metadata": None, "integrity": None, "managed": False}
     if not view.ok:
-        sec.update(status=UNKNOWN, reason=view.error)
-        return sec
+        return _tile_set(sec, UNKNOWN, "UNKNOWN_TILE_CONTRACT", view.error)
     sec["current_sha256"] = view.files.get(rel)
-    sec["in_current"] = sec["current_sha256"] is not None
+    sec["in_current"] = sec["managed"] = sec["current_sha256"] is not None
     mirror = view.root / rel  # Martin が配信する mirror（data_runtime/frontend/tiles → /tiles）
     sec["mirror"] = _file_info(str(mirror))
     version_file = view.version_path(rel)
     if catalog is not None:
         sec["martin_registered"] = OK if stem in catalog else ERROR
     if not sec["in_current"]:
-        sec.update(status=ERROR, reason="current version に tile がありません")
-        return sec
+        # current（publish / rollback の管理下）に tile が無い。mirror に残る tile は管理外（legacy）。
+        legacy = bool(sec["mirror"] and sec["mirror"]["exists"])
+        served = " Martin が配信中" if legacy and sec["martin_registered"] == OK else ""
+        if req == "required":
+            if legacy:
+                return _tile_set(sec, ERROR, "REQUIRED_TILE_UNMANAGED",
+                                 "表示に必須の tile が current に無い（mirror の管理外 tile だけで表示中。"
+                                 f"publish・rollback で管理されない）。{served}".strip())
+            return _tile_set(sec, ERROR, "REQUIRED_TILE_MISSING", "表示に必須の tile が current にも mirror にも無い")
+        if req == "optional":
+            if legacy:
+                return _tile_set(sec, WARNING, "LEGACY_UNMANAGED_TILE",
+                                 "current に tile が無く、mirror の管理外 tile が表示に使われている"
+                                 f"（無ければ API GeoJSON で表示される）。{served}".strip())
+            return _tile_set(sec, WARNING, "OPTIONAL_TILE_MISSING", "tile 未生成（API GeoJSON で表示される）")
+        return _tile_set(sec, UNKNOWN, "UNKNOWN_TILE_CONTRACT",
+                         "tile_requirement が未定義のため、tile 欠落の重大度を判定できない")
     sec["metadata"] = _mbtiles_metadata(version_file)
     vsize = version_file.stat().st_size if version_file.is_file() else None
     if not sec["mirror"]["exists"] or sec["mirror"]["size"] != vsize:
-        sec.update(status=ERROR, reason="Martin 配信 mirror が current の tile と一致しません（size 不一致または欠落）")
-        return sec
+        return _tile_set(sec, ERROR, "TILE_BROKEN",
+                         "Martin 配信 mirror が current の tile と一致しません（size 不一致または欠落）")
     integ = get_tile_cache().get(version_file, allow_heavy)
     sec["integrity"] = integ
     if sec["metadata"].get("error"):
-        sec.update(status=ERROR, reason=f"MBTiles metadata を読めません: {sec['metadata']['error']}")
-    elif integ is not None and integ.get("quick_check") != "ok":
-        sec.update(status=ERROR, reason=f"quick_check: {integ.get('quick_check')}")
-    elif sec["martin_registered"] == ERROR:
-        sec.update(status=ERROR, reason="Martin catalog に source がありません")
-    else:
-        sec.update(status=OK, reason=None if integ else "tile 数・quick_check は未計算（詳細表示で計算）")
-    return sec
+        return _tile_set(sec, ERROR, "TILE_BROKEN", f"MBTiles metadata を読めません: {sec['metadata']['error']}")
+    if integ is not None and integ.get("quick_check") != "ok":
+        return _tile_set(sec, ERROR, "TILE_BROKEN", f"quick_check: {integ.get('quick_check')}")
+    if sec["martin_registered"] == ERROR:
+        return _tile_set(sec, ERROR, "TILE_BROKEN", "Martin catalog に source がありません")
+    return _tile_set(sec, OK, "TILE_OK", None if integ else "tile 数・quick_check は未計算（詳細表示で計算）")
+
+
+def legacy_tile_section(view: drr.RuntimeView, defs: List[DatasetDefinition],
+                        catalog: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """dataset の管理 tile（current 内の frontend/tiles/<region>/<type>/<dataset>.mbtiles）以外の tile。
+    current 内の未登録 tile と、current に無く mirror だけにある tile（publish・rollback の管理外）。削除はしない。"""
+    if not view.ok:
+        return []
+    managed = {f"frontend/tiles/{d.region}/{d.layer_type}/{tile_tileset_id(d)}.mbtiles": d.dataset_id
+               for d in defs if d.layer_type and tile_requirement(d) != "not_applicable"}
+    current_tiles = {r for r in view.files if r.startswith("frontend/tiles/") and r.endswith(".mbtiles")}
+    mirror_root = view.root / "frontend" / "tiles"
+    mirror_tiles = set()
+    if mirror_root.is_dir():
+        mirror_tiles = {f"frontend/tiles/{p.relative_to(mirror_root)}" for p in mirror_root.rglob("*.mbtiles")}
+    out = []
+    for rel in sorted(current_tiles | mirror_tiles):
+        in_current, in_mirror = rel in current_tiles, rel in mirror_tiles
+        owner = managed.get(rel)
+        if owner and in_current:
+            continue  # 管理下（tile_section が判定する）
+        stem = Path(rel).stem
+        out.append({
+            "rel_path": rel, "tileset_id": stem, "in_current": in_current, "in_mirror": in_mirror,
+            "dataset_id": owner,  # dataset の tile 名と一致するが current に無い（mirror だけ）
+            "martin_registered": UNOBSERVED if catalog is None else (OK if stem in catalog else ERROR),
+            "label": "LEGACY TILE（dataset の tile、current 管理外）" if owner else
+                     ("UNREGISTERED TILE（current 内・dataset の tile 契約なし）" if in_current
+                      else "UNREGISTERED TILE（mirror のみ）"),
+        })
+    return out
 
 
 # ── 取得 ────────────────────────────────────────────────────────────────────────
@@ -682,7 +760,7 @@ def build_dataset(defn: DatasetDefinition, state: DatasetState, view: drr.Runtim
         "derived": {"status": tr["derived"]["status"], "reason": tr["derived"].get("reason")},
         "runtime": {"status": rt["status"], "reason": rt.get("reason") or rt["runtime_status"]},
         "backend": {"status": rt["backend"]["status"], "reason": rt["backend"].get("loader_reason")},
-        "tile": {"status": tile["status"], "reason": tile.get("reason")},
+        "tile": {"status": tile["status"], "reason": tile.get("reason"), "label": tile.get("label")},
         "runtime_provenance": {"status": rt_prov["component_status"], "reason": "; ".join(rt_prov.get("reasons") or [])
                                or rt_prov["status"]},
     }
@@ -749,4 +827,5 @@ def build_console(ds=None, ss=None, *, dataset_id: Optional[str] = None, allow_h
         "datasets": rows,
         "errors": errors,
         "unregistered_runtime_artifacts": unregistered_section(view, expected, props),
+        "legacy_tiles": legacy_tile_section(view, ds.list_all(), catalog),
     }

@@ -232,6 +232,13 @@ class DatasetDefinition(BaseModel):
     # canonical 本体の sha256 を照合）。artifact_record は build node の provenance record で連鎖を照合し、
     # runtime node に canonical 本体を置かなくてよい（record 欠落・不一致は fail-closed）。
     publish_verification_mode: Optional[Literal["canonical_file", "artifact_record"]] = None
+    # 表示 tile（Martin 配信 .mbtiles）の契約。frontend の表示経路から dataset ごとに確定した値だけを設定する。
+    #   required       : tile が唯一の表示経路（API fallback なし / 413・422）。current に無ければ ERROR
+    #   optional       : tile 優先だが API GeoJSON fallback で表示できる。current に無ければ WARNING
+    #   not_applicable : tile を使わない（Data Ops は N/A）
+    # 未設定で requires_tile_build=true の dataset は契約不明（UNKNOWN）として扱う。
+    tile_requirement: Optional[Literal["required", "optional", "not_applicable"]] = None
+    tile_notes: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _artifact_record_is_flood_only(self):

@@ -158,6 +158,10 @@
     unreg.appendChild(badge("WARNING", "UNREGISTERED"));
     unreg.appendChild(el("div", "n", (_console.unregistered_runtime_artifacts || []).length));
     box.appendChild(unreg);
+    const legacy = el("div", "card");
+    legacy.appendChild(badge("WARNING", "管理外 TILE"));
+    legacy.appendChild(el("div", "n", (_console.legacy_tiles || []).length));
+    box.appendChild(legacy);
   }
   function renderTable() {
     const tbody = document.getElementById("ops-tbody");
@@ -191,7 +195,7 @@
       if (rpb) { pubCell.appendChild(document.createTextNode(" ")); pubCell.appendChild(rpb); }
       tr.appendChild(td(pubCell));
       tr.appendChild(td(loadedCell(rt.backend)));
-      tr.appendChild(td(withSub(badge(r.tile.status), r.tile.tileset_id || null)));
+      tr.appendChild(td(withSub(badge(r.tile.status, r.tile.label || r.tile.status), r.tile.tileset_id || null)));
       tr.appendChild(td(withSub(badge(integ.overall), integ.unobserved.length ? `未観測: ${integ.unobserved.join(", ")}` : null)));
       const open = () => openDetail(r.dataset_id);
       tr.addEventListener("click", open);
@@ -223,6 +227,30 @@
     });
   }
 
+  function renderLegacyTiles() {
+    const tbody = document.getElementById("legacy-tile-tbody");
+    tbody.textContent = "";
+    const items = _console.legacy_tiles || [];
+    if (!items.length) {
+      const tr = el("tr");
+      const c = td("なし", "muted");
+      c.colSpan = 5;
+      tr.appendChild(c);
+      tbody.appendChild(tr);
+      return;
+    }
+    items.forEach(u => {
+      const tr = el("tr");
+      tr.appendChild(td(withSub(badge("WARNING", u.label), u.dataset_id || null), "wrap"));
+      tr.appendChild(td(el("span", "mono", u.rel_path), "wrap"));
+      tr.appendChild(td(u.in_current ? "あり" : "なし"));
+      tr.appendChild(td(u.in_mirror ? "あり" : "なし"));
+      tr.appendChild(td(badge(u.martin_registered === "OK" ? "WARNING" : u.martin_registered,
+        u.martin_registered === "OK" ? "配信中" : u.martin_registered)));
+      tbody.appendChild(tr);
+    });
+  }
+
   async function loadConsole() {
     showError("");
     try {
@@ -239,6 +267,7 @@
     renderSummary(_console.datasets || []);
     renderTable();
     renderUnregistered();
+    renderLegacyTiles();
     const fromHash = decodeURIComponent((location.hash || "").replace(/^#/, ""));
     if (fromHash && !_selected && (_console.datasets || []).some(d => d.dataset_id === fromHash)) openDetail(fromHash);
   }
@@ -401,15 +430,17 @@
     const rt = d.runtime;
     const tile = d.tile;
     const be = rt.backend || {};
-    const tileRows = tile.required ? [
-      ["Display Tile", withSub(badge(tile.status), tile.reason)],
+    const TILE_REQ_LABELS = { required: "required（表示に必須）", optional: "optional（API GeoJSON で代替可）", unknown: "UNKNOWN（契約未定義）" };
+    const tileRows = tile.requirement && tile.requirement !== "not_applicable" ? [
+      ["Display Tile", withSub(badge(tile.status, tile.label || tile.status), tile.reason)],
+      ["tile 契約", withSub(el("span", null, TILE_REQ_LABELS[tile.requirement] || tile.requirement), (tile.notes || []).join(" / ") || null)],
       ["tileset", el("span", "mono", tile.tileset_id)],
       ["current 内", tile.in_current ? "あり" : "なし"],
       ["Martin mirror", tile.mirror && tile.mirror.exists ? `${fmtBytes(tile.mirror.size)}` : "なし"],
       ["Martin source", tile.martin_registered],
       ["zoom / layer", tile.metadata ? `z${tile.metadata.minzoom ?? "?"}–${tile.metadata.maxzoom ?? "?"} / ${(tile.metadata.vector_layers || []).join(", ") || "—"}` : "—"],
       ["tile 数 / quick_check", tile.integrity ? `${fmtNum(tile.integrity.tile_count)} / ${tile.integrity.quick_check}` : "未計算"],
-    ] : [["Display Tile", badge("N/A")]];
+    ] : [["Display Tile", withSub(badge("N/A", tile.label || "TILE N/A"), (tile.notes || []).join(" / ") || null)]];
     layers.appendChild(section("稼働", [
       kv([
         ["current version", el("span", "mono", d.current_version || "UNKNOWN")],

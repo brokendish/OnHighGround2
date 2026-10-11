@@ -63,6 +63,18 @@
       </table>
     </div>
   </section>
+
+  <section>
+    <h2>管理外 tile <span class="muted small">（current の dataset tile 以外。mirror だけにある tile は publish・rollback で管理されない。削除はしない）</span></h2>
+    <div class="table-wrap">
+      <table class="ops-table">
+        <thead>
+          <tr><th>状態</th><th>tile path</th><th>current</th><th>mirror</th><th>Martin source</th></tr>
+        </thead>
+        <tbody id="legacy-tile-tbody"><tr><td colspan="5" class="muted">読み込み中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 </main>
 
 <script src="/admin/js/admin-shell.js"></script>

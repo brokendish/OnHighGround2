@@ -90,7 +90,11 @@
     ],
     "expected_source_region_code": "13",
     "source_region_code_regex": "^A31a-\\d+_(\\d{2})_",
-    "publish_verification_mode": "artifact_record"
+    "publish_verification_mode": "artifact_record",
+    "tile_requirement": "required",
+    "tile_notes": [
+      "frontend は tile 優先。/api/hazards/flood/<region> は全量応答を 413 で拒否するため API fallback で表示できない（2026-10-11 VPS 確認）"
+    ]
   },
   {
     "dataset_id": "TOKYO-TSUNAMI-001",
@@ -160,7 +164,11 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_storm_surge",
     "validator_name": "validate_geometry",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "tile_requirement": "optional",
+    "tile_notes": [
+      "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
+    ]
   },
   {
     "dataset_id": "TOKYO-URBAN-001",
@@ -194,7 +202,11 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_inland_flood",
     "validator_name": "validate_geometry",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "tile_requirement": "optional",
+    "tile_notes": [
+      "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
+    ]
   },
   {
     "dataset_id": "TOKYO-SHELTER-001",
@@ -555,7 +567,11 @@
     "coverage_notes": [
       "Mesh 5338 intersects Kanagawa administrative area (山北町, 1.824% of prefecture area), but no official 2025 flood features intersect Kanagawa within this mesh (verified 2026-10-08 by geometry intersection against the complete 10-file source set, canonical sha256 e0adcb8f…)."
     ],
-    "publish_verification_mode": "artifact_record"
+    "publish_verification_mode": "artifact_record",
+    "tile_requirement": "required",
+    "tile_notes": [
+      "frontend は tile 優先。/api/hazards/flood/<region> は全量応答を 413 で拒否するため API fallback で表示できない（2026-10-11 VPS 確認）"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-SURGE-001",
@@ -590,7 +606,11 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_storm_surge",
     "validator_name": "validate_geometry",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "tile_requirement": "optional",
+    "tile_notes": [
+      "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-URBAN-001",
@@ -624,7 +644,11 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_inland_flood",
     "validator_name": "validate_geometry",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "tile_requirement": "optional",
+    "tile_notes": [
+      "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-LANDSLIDE-001",
@@ -722,7 +746,11 @@
     "deploy_mode": "copy_file",
     "transformer_name": "generate_pseudo_inland_flood",
     "validator_name": "validate_pseudo_inland_flood",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "tile_requirement": "required",
+    "tile_notes": [
+      "frontend は tile のみで表示（apiUrl なし）。/api/hazards/<type>/<region> は 422 で全量応答を拒否（2026-10-11 VPS 確認）"
+    ]
   },
   {
     "dataset_id": "TOKYO-LOWLAND-POOR-DRAINAGE-001",
@@ -757,7 +785,11 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_lowland_poor_drainage",
     "validator_name": "validate_lowland_poor_drainage",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "tile_requirement": "required",
+    "tile_notes": [
+      "frontend は tile のみで表示（apiUrl なし）。/api/hazards/<type>/<region> は 422 で全量応答を拒否（2026-10-11 VPS 確認）"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-LOWLAND-POOR-DRAINAGE-001",
@@ -792,7 +824,11 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_lowland_poor_drainage",
     "validator_name": "validate_lowland_poor_drainage",
-    "requires_tile_build": true
+    "requires_tile_build": true,
+    "tile_requirement": "required",
+    "tile_notes": [
+      "frontend は tile のみで表示（apiUrl なし）。/api/hazards/<type>/<region> は 422 で全量応答を拒否（2026-10-11 VPS 確認）"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-EVAC-001",
