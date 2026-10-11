@@ -123,13 +123,14 @@ def test_backup_restores_retired_tile(tmp_path):
     assert hashlib.sha256((rt / A16).read_bytes()).hexdigest() == sha
 
 
-def test_wrapper_applies_retirement_before_activate_and_after_mirror_sync():
+def test_wrapper_applies_retirement_before_activate_and_before_mirror_sync():
     w = (ROOT / "scripts/publish/deploy_to_runtime_atomic.sh").read_text(encoding="utf-8")
     i_stage = w.index('apply_tile_retirements.py" --staging "${STAGING_DIR}"')
     i_activate = w.index('python3 "${SCRIPT_DIR}/activate_version.py"')
     i_sync = w.index('bash "${SCRIPT_DIR}/sync_frontend_tiles_mirror.sh"')
     i_mirror = w.index('apply_tile_retirements.py" --mirror "${DATA_RUNTIME}" --current "${DATA_RUNTIME}/current"')
-    assert i_stage < i_activate < i_sync < i_mirror
+    # mirror の除去は同期より前（同じ id の旧 path と新 path が同時に見えると Martin が改名するため）
+    assert i_stage < i_activate < i_mirror < i_sync
     block = w[i_stage - 120:i_stage + 300]
     assert "exit 1" in block  # staging 適用失敗は publish を止める
 
