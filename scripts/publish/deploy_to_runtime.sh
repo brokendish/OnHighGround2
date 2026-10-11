@@ -575,7 +575,14 @@ else
     log_info "--- frontend tiles ---"
     mkdir -p "${RUNTIME_FRONTEND_TILES}"
 
-    for hazard_type in flood tsunami storm_surge urban_flood pseudo_inland_flood lowland_poor_drainage; do
+    # tile directory 名は dataset の layer_type（tile build の出力先・Martin config・Data Ops と同じ）。
+    # inland_flood（URBAN dataset、category は urban_flood）の正規 path は tiles/<region>/inland_flood。
+    # 旧名 urban_flood の directory は publish しない（Martin が scan しない path へ置かれるだけのため）。
+    # tile が残っていれば legacy として警告する（削除はしない）。
+    if compgen -G "${TILES}/urban_flood/*.mbtiles" > /dev/null 2>&1; then
+        log_warn "legacy tile dir（publish しない）: ${TILES}/urban_flood — 正規 path は ${TILES}/inland_flood"
+    fi
+    for hazard_type in flood tsunami storm_surge inland_flood pseudo_inland_flood lowland_poor_drainage; do
         TILE_SRC="${TILES}/${hazard_type}"
         TILE_DST="${RUNTIME_FRONTEND_TILES}/${hazard_type}"
         if [[ -d "${TILE_SRC}" ]]; then
