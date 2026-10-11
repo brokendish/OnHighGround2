@@ -12,7 +12,14 @@
 #
 # 使い方:
 #   scripts/publish/deploy_to_runtime_atomic.sh [--region tokyo] [--region kanagawa] [--skip-frontend]
-#       [--allow-flood-routing-migration <OWNER承認の参照>]
+#       [--full-revalidate] [--allow-flood-routing-migration <OWNER承認の参照>]
+#
+# 検証の再利用（VALIDATED-CONTENT-REUSE）は既定で有効。前 version と内容（sha256）・検証規則
+# （validation_contract）が同一の file は再検証せず、変更された file だけを全検証する。
+# 前 manifest が旧形式・検証規則の変更・migration 時は自動的に全検証になる（指定不要）。
+# 全 file を必ず再検証したい場合だけ --full-revalidate（または環境変数
+# OHG2_PUBLISH_FULL_REVALIDATION=1）を指定する。どちらで動いたかは log と manifest の
+# validation_reuse に毎回記録される。
 #
 # --allow-flood-routing-migration は初回 flood routing migration 専用（legacy flood path
 # backend/hazard/flood/<region>/<dataset>.geojson → <dataset>.routing.geojson）。
@@ -68,10 +75,12 @@ source "${PROJECT_ROOT}/scripts/common/log.sh"
 REGIONS=()
 SKIP_FRONTEND_ARG=""
 FLOOD_MIGRATION_APPROVAL_REF=""
+FULL_REVALIDATE="${OHG2_PUBLISH_FULL_REVALIDATION:-0}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --region)        REGIONS+=("$2"); shift 2 ;;
         --skip-frontend) SKIP_FRONTEND_ARG="--skip-frontend"; shift ;;
+        --full-revalidate) FULL_REVALIDATE=1; shift ;;
         --allow-flood-routing-migration)
             if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
                 log_error "--allow-flood-routing-migration には OWNER 承認の参照文字列が必須です"
@@ -197,9 +206,12 @@ ACTIVATE_EXTRA_ARGS=()
 if [[ -n "${FLOOD_MIGRATION_APPROVAL_REF}" ]]; then
     log_warn "flood routing migration を OWNER 承認参照付きで実行します: ${FLOOD_MIGRATION_APPROVAL_REF}"
     ACTIVATE_EXTRA_ARGS=(--allow-flood-routing-migration --owner-approval-ref "${FLOOD_MIGRATION_APPROVAL_REF}")
-elif [[ "${OHG2_PUBLISH_REUSE_VALIDATION:-0}" == "1" ]]; then
-    # VALIDATED-CONTENT-REUSE（opt-in）: 前 version と sha256・検証契約が同一の file は再検証しない。
-    log_info "validated-content reuse: enabled（OHG2_PUBLISH_REUSE_VALIDATION=1）"
+elif [[ "${FULL_REVALIDATE}" == "1" ]]; then
+    log_info "validated-content reuse: disabled（--full-revalidate 指定。全 file を再検証する）"
+else
+    # VALIDATED-CONTENT-REUSE（既定）: 前 version と sha256・検証契約が同一の file は再検証しない。
+    # 再利用できない条件では activate_version.py 側で自動的に全検証へ戻る（理由は log / manifest に記録）。
+    log_info "validated-content reuse: enabled（既定。全検証は --full-revalidate）"
     ACTIVATE_EXTRA_ARGS=(--reuse-validated-content)
 fi
 set +e

@@ -5,7 +5,7 @@ ATOMIC-PUBLISH-OPTIMIZATION: VALIDATED-CONTENT-REUSE と publish 契約の回帰
 activate の約 109 秒は、前 version 全量の sha256 再照合・件数 re-parse と、staging 全量の
 schema 検証・sha256 で、大半は GeoJSON の Python 側 parse（CPU）。
 
-VALIDATED-CONTENT-REUSE（opt-in）: staging の file の sha256 が「disk と再照合済みの前 manifest」の
+VALIDATED-CONTENT-REUSE（wrapper 既定で有効）: staging の file の sha256 が「disk と再照合済みの前 manifest」の
 同一 path と一致し、validation_contract（検証 module source と ijson の sha256）が同一なら、
 schema 再検証と件数 re-parse を省く。sha256 は毎回全 file を計算する。
 
@@ -262,12 +262,38 @@ def test_contract_changes_when_validator_source_changes(tmp_path):
     assert other.hexdigest() != rdv.VALIDATION_CONTRACT
 
 
-def test_reuse_is_opt_in_and_production_wrapper_default_off():
+def test_wrapper_reuses_by_default_and_full_revalidate_is_explicit():
+    """運用者が何も覚えていなくても reuse が効く（CLI・管理画面とも同じ wrapper）。
+    全検証は --full-revalidate / OHG2_PUBLISH_FULL_REVALIDATION=1 の明示指定だけ。"""
     wrapper = (ROOT / "scripts/publish/deploy_to_runtime_atomic.sh").read_text(encoding="utf-8")
-    assert 'OHG2_PUBLISH_REUSE_VALIDATION:-0}" == "1"' in wrapper
+    assert 'FULL_REVALIDATE="${OHG2_PUBLISH_FULL_REVALIDATION:-0}"' in wrapper
+    assert "--full-revalidate) FULL_REVALIDATE=1; shift ;;" in wrapper
+    assert "OHG2_PUBLISH_REUSE_VALIDATION" not in wrapper
+    block = wrapper[wrapper.index('ACTIVATE_EXTRA_ARGS=()'):wrapper.index('set +e\npython3 "${SCRIPT_DIR}/activate_version.py"')]
+    assert block.rstrip().endswith('ACTIVATE_EXTRA_ARGS=(--reuse-validated-content)\nfi')  # else 節 = 既定
     assert 'cp -a --reflink=auto "${CURRENT_REAL}/." "${STAGING_DIR}/"' in wrapper
-    import inspect
-    assert inspect.signature(rdv.validate_and_manifest_staging).parameters["reuse_previous_validation"].default is False
+    pipeline = (ROOT / "backend/app/services/pipeline_service.py").read_text(encoding="utf-8")
+    assert "--full-revalidate" not in pipeline  # 管理画面の反映は既定（reuse）で動く
+
+
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="bash")
+@pytest.mark.parametrize("argv,env,expect", [
+    ([], {}, "enabled（既定"),
+    (["--full-revalidate"], {}, "disabled（--full-revalidate"),
+    ([], {"OHG2_PUBLISH_FULL_REVALIDATION": "1"}, "disabled（--full-revalidate"),
+])
+def test_wrapper_reuse_decision(tmp_path, argv, env, expect):
+    """wrapper の分岐だけを実行して判定を確認する（publish 本体は呼ばない）。"""
+    wrapper = (ROOT / "scripts/publish/deploy_to_runtime_atomic.sh").read_text(encoding="utf-8")
+    parse = wrapper[wrapper.index('REGIONS=()'):wrapper.index('if [[ "${#REGIONS[@]}" -eq 0 ]]')]
+    decide = wrapper[wrapper.index('ACTIVATE_EXTRA_ARGS=()'):wrapper.index('set +e\npython3 "${SCRIPT_DIR}/activate_version.py"')]
+    script = ('log_info(){ echo "$*"; }; log_warn(){ echo "$*"; }; log_error(){ echo "$*"; }\n'
+              + parse + decide + 'echo "ARGS=${ACTIVATE_EXTRA_ARGS[*]-}"\n')
+    out = subprocess.run(["bash", "-c", script, "x", *argv], capture_output=True, text=True,
+                         env={"PATH": os.environ["PATH"], **env})
+    assert out.returncode == 0, out.stderr
+    assert expect in out.stdout
+    assert ("ARGS=--reuse-validated-content" in out.stdout) == ("enabled" in expect)
 
 
 # ── 4. publisher 層（Linux）: previous immutable / rollback / crash safety ───────────

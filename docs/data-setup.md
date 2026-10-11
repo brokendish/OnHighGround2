@@ -237,6 +237,17 @@ Streamer のデータ/設定は任意で、個別に secret を持ちます。
    （`current` が既に存在する場合）は、直前の `current` から staging を
    seed するため、region を 1 つずつ追加していくインクリメンタルな
    publish も可能。
+
+   **検証の再利用（既定で有効、指定不要）。** publish は前 version と内容
+   （sha256）・検証規則が同一の file を再検証せず、変更された file だけを
+   全検証する（provenance だけの更新なら数秒で終わる）。sha256 は毎回
+   全 file について計算する。前 version の manifest が旧形式の場合・検証
+   規則（`runtime_dataset_validate.py`）を変更した直後・flood routing
+   migration 時は、自動的に全検証になる。全 file を必ず再検証したい場合
+   だけ `--full-revalidate`（または `OHG2_PUBLISH_FULL_REVALIDATION=1`）を
+   付ける。どちらで動いたかは publish log の `validated-content reuse:` 行と、
+   manifest の `validation_reuse`（`reuse` に理由）で確認できる。管理画面の
+   反映も同じ wrapper を通るため、同じ動作になる。
 3. `data_runtime/current/` が解決でき、想定される runtime ファイルを含むことを
    確認する。`data_runtime/manifests/` の下に生成される manifest を確認する。
 4. 避難所（shelter）は `${VALIDATED}/shelter` のような固定ディレクトリ名では
