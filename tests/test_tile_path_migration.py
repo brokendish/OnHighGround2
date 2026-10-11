@@ -234,6 +234,30 @@ def test_moved_tileset_is_removed_before_added(tmp_path, monkeypatch):
     assert ("rm", "kanagawa_tsunami_A40-16_14.mbtiles", "tokyo/tsunami") in events  # 移動でない削除も行う
 
 
+def test_moved_tileset_requires_martin_restart(tmp_path):
+    assert rtm.moved_tilesets({"ADD": [OLD], "REMOVE": [NEW]}) == ["kanagawa_tsunami_A40-20_14"]
+    assert rtm.moved_tilesets({"ADD": [TOKYO], "REMOVE": [A16]}) == []          # 別 tileset の追加・削除は移動ではない
+    assert rtm.moved_tilesets({"REPLACE": [NEW], "REMOVE": []}) == []           # 同じ path の置換は Martin が追従する
+    root = tmp_path / "rt"
+    for vid, rel in (("V_OLD", OLD), ("V_NEW", NEW)):
+        v = root / "versions" / vid
+        sha = _write(v, rel, b"a20")
+        (v / "_manifest.json").write_text(json.dumps({"files": {rel: sha}}))
+    _write(root, NEW, b"a20")
+    run = lambda vid: subprocess.run([sys.executable, str(ROOT / "scripts/publish/reconcile_tile_mirror.py"), "--data-runtime-root", str(root),
+                                      "--registry", str(REG), "--gid", str(os.getegid()), "--version", vid, "--apply"], capture_output=True, text=True)
+    out = run("V_OLD")
+    assert out.returncode == 5 and "MARTIN_RESTART_REQUIRED" in out.stdout
+    assert run("V_OLD").returncode == 0  # 収束後の再実行は移動なし
+
+
+def test_publish_wrapper_reports_martin_restart_for_migrations():
+    w = (ROOT / "scripts/publish/deploy_to_runtime_atomic.sh").read_text(encoding="utf-8")
+    assert 'grep -q "MARTIN_RESTART_REQUIRED"' in w and "docker restart evacuation-navi-martin" in w
+    r = (ROOT / "scripts/publish/rollback_runtime.sh").read_text(encoding="utf-8")
+    assert "exit 5" in r and "MARTIN_RESTART_REQUIRED" in r
+
+
 # ── Linux: publish → rollback → forward（operator identity・実 activate_version）──────
 
 @pytest.mark.skipif(not sys.platform.startswith("linux") or os.geteuid() != 10002, reason="operator identity で実行する")
@@ -270,12 +294,15 @@ def test_publish_rollback_forward_round_trip(tmp_path):
     _normalize(s2); pub.publish(v2, _validator(True))
     m2 = json.loads((root / "versions" / v2 / rdv.MANIFEST_BASENAME).read_text())["files"]
     assert NEW in m2 and OLD not in m2
-    subprocess.run([sys.executable, str(ROOT / "scripts/publish/reconcile_tile_mirror.py"), "--data-runtime-root", str(root),
-                    "--registry", str(REG), "--apply"], check=True, capture_output=True)
+    out = subprocess.run([sys.executable, str(ROOT / "scripts/publish/reconcile_tile_mirror.py"), "--data-runtime-root", str(root),
+                          "--registry", str(REG), "--apply"], capture_output=True, text=True)
+    assert out.returncode == 5 and "MARTIN_RESTART_REQUIRED" in out.stdout  # tile の directory が変わった
     assert (root / NEW).exists() and not (root / OLD).exists()
     env = {**os.environ, "OHG2_DATA_RUNTIME_ROOT": str(root), "OHG2_ADMIN_DIR": str(tmp_path / "admin")}
     for vid, present, absent in ((v1, OLD, NEW), (v2, NEW, OLD)):
         out = subprocess.run(["bash", str(ROOT / "scripts/publish/rollback_runtime.sh"), vid], capture_output=True, text=True, env=env)
-        assert out.returncode == 0, out.stdout + out.stderr  # guard は旧 path の tile を認識する（override 不要）
+        # guard は旧 path の tile を認識する（override 不要）。tile の directory が変わるので Martin 再起動を要求（exit 5）
+        assert out.returncode == 5, out.stdout + out.stderr
+        assert "MARTIN_RESTART_REQUIRED" in out.stdout + out.stderr
         assert (root / present).exists() and not (root / absent).exists()
         assert hashlib.sha256((root / present).read_bytes()).hexdigest() == hashlib.sha256(a20).hexdigest()

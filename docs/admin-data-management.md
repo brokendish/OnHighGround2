@@ -215,6 +215,11 @@ python3 scripts/publish/rollback_preflight.py --data-runtime-root /data_runtime 
 # 緊急時専用: required tile が欠ける rollback を許可（該当 layer は表示できなくなる）
 scripts/publish/rollback_runtime.sh <version-id> --allow-missing-required-tiles
 ```
+
+tile の directory が変わる rollback（例: KANAGAWA tsunami tile を `tokyo/tsunami` から `kanagawa/tsunami` へ
+移した version の前後）では、`rollback_runtime.sh` は終了コード 5 と `MARTIN_RESTART_REQUIRED` を出します。
+Martin 1.14.0 は起動中に見た path と source id の対応を覚えており、別 directory に現れた同名 tile を
+`<id>.1` として扱うため、`docker restart evacuation-navi-martin` で再起動してください（publish でも同じ警告を出します）。
 一部の route（`inland_flood`/`landslide` の直接配信、`HazardDatasetService` 経由の
 一部 hazard type）は atomic publish 機構自体が未導入の環境（`is_available()==False`）
 向けの compatibility fallback として flat runtime を読みますが、これは stale な

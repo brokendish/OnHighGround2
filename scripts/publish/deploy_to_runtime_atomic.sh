@@ -260,12 +260,19 @@ fi
 log_step "reconcile dataset state"
 
 # TILE-RETIREMENT / TILE-PATH-MIGRATION: mirror 同期（追加専用）の前に、退役 tile と移動前の旧 path を除く
-# （current に無く、record の sha256 と一致する file だけ）。同期より先に行うのは、同じ tileset_id の新 path が
-# 旧 path と同時に見えると Martin が新 path を `<id>.1` に改名し、旧 path 削除で元の id を失うため（2026-10-11 実測）。
-# publish 自体は成功済みのため失敗は warning に留める。
+# （current に無く、record の sha256 と一致する file だけ。同じ tileset_id が 2 か所に同時に存在する時間を作らない）。
+# tile が別 directory へ移った場合、Martin 1.14.0 は再起動まで新 path を `<id>.1` として扱う（2026-10-11 実測）ため、
+# MARTIN_RESTART_REQUIRED を出したら Martin を再起動する。publish 自体は成功済みのため失敗は warning に留める。
 if [[ -z "${SKIP_FRONTEND_ARG}" ]]; then
-    if ! python3 "${SCRIPT_DIR}/apply_tile_retirements.py" --mirror "${DATA_RUNTIME}" --current "${DATA_RUNTIME}/current"; then
+    set +e
+    _retire_out="$(python3 "${SCRIPT_DIR}/apply_tile_retirements.py" --mirror "${DATA_RUNTIME}" --current "${DATA_RUNTIME}/current" 2>&1)"
+    _retire_rc=$?
+    set -e
+    printf '%s\n' "${_retire_out}"
+    if [[ ${_retire_rc} -ne 0 ]]; then
         log_warn "mirror からの退役 tile・旧 path の除去に失敗（publish は成功済み。Data Ops の退役一覧で残存を確認すること）"
+    elif grep -q "MARTIN_RESTART_REQUIRED" <<<"${_retire_out}"; then
+        log_warn "MARTIN_RESTART_REQUIRED: tile の directory が変わったため Martin を再起動すること（docker restart evacuation-navi-martin）"
     fi
 fi
 log_step "apply tile retirements / migrations (mirror)"

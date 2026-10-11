@@ -23,7 +23,12 @@ path は frontend/tiles/ 配下の *.mbtiles に限る（symlink・traversal は
   --commit   用意した一時 file を rename し REMOVE を実行（current 切替後に実行。冪等で再実行可）
   --apply    prepare + commit
   --verify   mirror と version manifest の path / sha256 / mode / group が一致するか（不一致は exit 1）
-exit: 0=一致/成功, 1=失敗, 2=成功だが UNKNOWN（素性不明で残した file）あり
+exit: 0=一致/成功, 1=失敗, 2=成功だが UNKNOWN（素性不明で残した file）あり,
+      5=成功だが Martin の再起動が必要（同じ tileset_id の file が別 directory へ移った）
+
+Martin 1.14.0 は起動中、source id を最初に見た path に結び付けて覚えるため、同じ file 名の tile が別 path に
+現れると `<id>.1` に改名し、元の id では配信しない（削除と追加の順序・間隔に関係なく、2026-10-11 実測）。
+再起動すると元の id に戻る。
 """
 from __future__ import annotations
 
@@ -222,9 +227,9 @@ def _remove(root: Path, a: dict, done: dict) -> None:
 
 def commit(root: Path, p: dict, gid: int | None = None) -> dict:
     done = {"ADD": [], "REPLACE": [], "REMOVE": [], "NORMALIZE": []}
-    # 同じ tileset_id（file 名）が別 path へ移る場合は、旧 path を先に消してから新 path を置く。
-    # Martin は同じ source id が 2 つ見えると後から来た方を `<id>.1` に改名し、その後の旧 path 削除で
-    # 元の id が消える（2026-10-11 実測）。
+    # 同じ tileset_id（file 名）が別 path へ移る場合は、旧 path を先に消してから新 path を置く（同じ id の
+    # file が 2 か所に同時に存在する時間を作らない）。ただし Martin は起動中に見た path と id の対応を
+    # 覚えているため、移動後は再起動しないと元の id で配信しない（main が exit 5 で知らせる）。
     moving = {Path(a["rel"]).name for a in p["actions"]["ADD"] + p["actions"]["REPLACE"]}
     for a in p["actions"]["REMOVE"]:
         if Path(a["rel"]).name in moving:
@@ -251,6 +256,12 @@ def commit(root: Path, p: dict, gid: int | None = None) -> dict:
         if a["rel"] not in done["REMOVE"]:
             _remove(root, a, done)
     return done
+
+
+def moved_tilesets(done: dict) -> list:
+    """同じ file 名（tileset_id）が削除と追加の両方に現れた = 別 directory へ移った tile。"""
+    removed = {Path(r).name for r in done.get("REMOVE", [])}
+    return sorted(Path(r).stem for r in done.get("ADD", []) if Path(r).name in removed)
 
 
 def verify(root: Path, version: Path, gid: int | None) -> list:
@@ -318,6 +329,11 @@ def main() -> int:
         if args.commit or args.apply:
             done = commit(root, p, gid)
             print(f"[tile-mirror] version={vid} committed={done} unknown_kept={[u['rel'] for u in p['actions']['UNKNOWN']]}")
+            moved = moved_tilesets(done)
+            if moved:
+                print(f"[tile-mirror] MARTIN_RESTART_REQUIRED moved_tilesets={moved}（Martin は起動中に別 path へ移った"
+                      " tile を `<id>.1` として扱う。再起動で元の id に戻る）")
+                return 5
         return 2 if p["actions"]["UNKNOWN"] else 0
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         print(f"[tile-mirror] ERROR {exc}", file=sys.stderr)

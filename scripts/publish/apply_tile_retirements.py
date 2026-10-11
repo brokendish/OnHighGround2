@@ -175,6 +175,9 @@ def main() -> int:
         moved, kept2 = apply_mirror_migrations(Path(args.mirror), Path(args.current), migrations)
         kept += kept2
         print(f"[tile-retirement] mirror: removed={removed} migrated_old_paths_removed={moved}")
+        if moved:
+            print("[tile-retirement] MARTIN_RESTART_REQUIRED（tile が別 directory へ移った。Martin 1.14.0 は再起動まで"
+                  " 新 path の tile を `<id>.1` として扱う）")
         for k in kept:
             print(f"[tile-retirement] WARN {k}", file=sys.stderr)
     return 0
