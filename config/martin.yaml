@@ -53,3 +53,7 @@ mbtiles:
     - /tiles/kanagawa/lowland_poor_drainage
     # KANAGAWA-TSUNAMI-001（kanagawa_tsunami_A40-20_14）。2026-10-11 に tokyo/tsunami から移動（tileset_id は不変）
     - /tiles/kanagawa/tsunami
+    # ── 千葉 ────────────────────────────────────────────────────────────────
+    # CHIBA-TSUNAMI-001（chiba_tsunami_A40-18_12、required）。2026-10-11 に tokyo/tsunami から移動（tileset_id は不変）。
+    # publish（version 20261011T131110Z-a5ac542f）で mirror に directory ができた後に追加した。
+    - /tiles/chiba/tsunami

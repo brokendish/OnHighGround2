@@ -176,14 +176,17 @@ def test_frontend_static_id_unchanged():
     assert "apiUrl: '/api/hazards/tsunami/chiba'" in js
 
 
-def test_martin_config_keeps_legacy_dir_until_production_migration():
-    """Martin 1.14.0 は設定した path が無いと起動しない。chiba/tsunami は本番の dir 作成後、
-    MARTIN_RESTART_REQUIRED の再起動と同時に追加する（それまで旧 tile を tokyo/tsunami から配信）。"""
-    for name, prefix in (("martin.yaml", "/tiles/"), ("martin-local.yaml", "/data_runtime/frontend/tiles/")):
-        cfg = (ROOT / "config" / name).read_text(encoding="utf-8")
-        paths = [l.strip()[2:] for l in cfg.splitlines() if l.strip().startswith(f"- {prefix}")]
-        assert f"{prefix}tokyo/tsunami" in paths, name
-        assert f"{prefix}chiba/tsunami" not in paths, name
+def test_martin_config_serves_chiba_regional_dir():
+    """本番移行（2026-10-11、publish 20261011T131110Z-a5ac542f で mirror に chiba/tsunami を作成）後、
+    martin.yaml は /tiles/chiba/tsunami を配信する。Martin 1.14.0 は設定した path が無いと起動しないため、
+    martin-local.yaml は Local mirror に directory ができてから追加する。"""
+    cfg = (ROOT / "config" / "martin.yaml").read_text(encoding="utf-8")
+    paths = [l.strip()[2:] for l in cfg.splitlines() if l.strip().startswith("- /tiles/")]
+    assert {"/tiles/chiba/tsunami", "/tiles/tokyo/tsunami", "/tiles/kanagawa/tsunami"} <= set(paths)
+    local = (ROOT / "config" / "martin-local.yaml").read_text(encoding="utf-8")
+    prefix = "/data_runtime/frontend/tiles/"
+    lpaths = [l.strip()[2:] for l in local.splitlines() if l.strip().startswith(f"- {prefix}")]
+    assert f"{prefix}tokyo/tsunami" in lpaths
 
 
 # ── Data Ops / rollback guard ──────────────────────────────────────────────────
