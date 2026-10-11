@@ -60,15 +60,18 @@ _LAYER_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "name": "高潮浸水想定（東京都）",
         "type": "polygon",
         "region": "tokyo",
-        "tileset_id": "tokyo_storm_surge",
+        # 表示 tile は canonical（TOKYO-SURGE-001、validated）から公式 tile build で生成する
+        # tokyo_surge_001（publish 管理下）。旧 pipeline の tokyo_storm_surge（normalized/tokyo_storm_surge.geojson）は
+        # 退役候補（data_lake/registry/tile_dispositions.json）。
+        "tileset_id": "tokyo_surge_001",
         "api_url": "/api/hazards/storm_surge/tokyo",
         "severity": True,
         "notes": (
-            "drop-densest-as-needed + coalesce-densest-as-needed "
-            "+ detect-shared-borders applied."
+            "drop-densest-as-needed applied. "
+            "built from canonical TOKYO-SURGE-001 (validated)."
         ),
-        "source_path": "data_lake/normalized/tokyo/storm_surge/tokyo_storm_surge.geojson",
-        "runtime_tiles_path": "data_runtime/frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles",
+        "source_path": "data_lake/validated/tokyo/storm_surge/tokyo-surge-001.geojson",
+        "runtime_tiles_path": "data_runtime/frontend/tiles/tokyo/storm_surge/tokyo_surge_001.mbtiles",
         "docs": [
             "docs/hazard_layers.md",
             "docs/architecture/layer_strategy.md",

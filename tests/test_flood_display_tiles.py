@@ -275,6 +275,38 @@ def test_admin_hazard_registry_points_to_canonical_tile():
     assert d["runtime_tiles_path"].endswith("tokyo/flood/tokyo_river_001.mbtiles")
 
 
+def test_admin_hazard_registry_points_to_managed_surge_tile():
+    """要約表示は publish 管理下の tokyo_surge_001 を参照する（旧 tokyo_storm_surge は退役候補）。"""
+    from app.services import admin_hazard_service as ahs
+    d = ahs._LAYER_DEFINITIONS["storm_surge_tokyo"]
+    assert d["tileset_id"] == "tokyo_surge_001"
+    assert d["source_path"] == "data_lake/validated/tokyo/storm_surge/tokyo-surge-001.geojson"
+    assert d["runtime_tiles_path"].endswith("tokyo/storm_surge/tokyo_surge_001.mbtiles")
+    assert "tokyo_storm_surge" not in json.dumps(ahs._LAYER_DEFINITIONS)
+    # TOKYO-SURGE-001 の dataset 定義（tileset_id の正）と一致する
+    from app.services.data_ops_service import tile_tileset_id
+    from app.services.dataset_definition_service import get_definition_service
+    assert tile_tileset_id(get_definition_service().get("TOKYO-SURGE-001")) == d["tileset_id"]
+    row = ahs._build_summary_row("storm_surge_tokyo", d, ["tokyo_surge_001"])
+    assert (row["status"], row["runtime_state"], row["catalog_present"], row["fallback"]) == ("active", "ok", True, True)
+    assert ahs._build_summary_row("storm_surge_tokyo", d, ["tokyo_storm_surge"])["runtime_state"] == "tiles_missing"
+
+
+def test_admin_hazards_and_runtime_summary_with_managed_surge_tile():
+    """/admin/hazards・/runtime/summary が返す要約（Martin catalog は差し替え。実 Martin へは問い合わせない）。"""
+    from unittest.mock import patch
+    from app.services import admin_hazard_service as ahs
+    catalog = ["tokyo_river_001", "tokyo_surge_001", "tokyo_tsunami_A40-23_13", "tokyo_storm_surge"]
+    with patch.object(ahs, "_fetch_catalog", return_value=catalog):
+        svc = ahs.AdminHazardService()
+        rows = {r["layer_key"]: r for r in svc.list_layers()["layers"]}
+        detail = svc.get_layer("storm_surge_tokyo")
+        summary = svc.get_runtime_summary()
+    assert rows["storm_surge_tokyo"]["tileset_id"] == "tokyo_surge_001" and rows["storm_surge_tokyo"]["status"] == "active"
+    assert detail["runtime_tiles_path"].endswith("tokyo_surge_001.mbtiles") and detail["region"] == "tokyo"
+    assert summary["catalog_ok"] is True and summary["vector_tile_layers"] >= 3
+
+
 def test_frontend_flood_tokyo_vector_source_and_meta():
     src = (ROOT / "frontend/js/hazard-layers.js").read_text(encoding="utf-8")
     block = src[src.index("    flood_tokyo_max: ["): src.index("    flood_kanagawa_max: [")]
