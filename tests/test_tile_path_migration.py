@@ -266,7 +266,17 @@ def test_publish_wrapper_reports_martin_restart_for_migrations():
 def test_publish_rollback_forward_round_trip(tmp_path):
     from app.services.runtime_publish import AtomicPublisher
     from app.services import runtime_dataset_validate as rdv
-    from test_atomic_publish_validation_reuse import _build, _normalize, _validator
+    from unittest.mock import patch
+    from test_atomic_publish_validation_reuse import _build, _normalize
+    targets = rpf._configured_tsunami_targets()  # rollback guard（subprocess）と同じ consumer 設定で検証する
+
+    def _validator(reuse):
+        def fn(staging, previous):
+            st = {}
+            with patch.object(rdv, "_resolve_configured_tsunami_targets", return_value=(frozenset(targets), None)):
+                manifest, counts = rdv.validate_and_manifest_staging(staging, previous, reuse_previous_validation=reuse, stats=st)
+            rdv.write_manifest(staging, manifest, 0o640, counts, validation_reuse={"reuse": st["reuse"]})
+        return fn
     root = tmp_path / "data_runtime"
     (root / ".staging").mkdir(parents=True); (root / "versions").mkdir(); (root / ".publish.lock").touch(mode=0o600)
     pub = AtomicPublisher(root, expect_uid=10002, expect_gid=10002, capacity_min_free_bytes=None, min_free_inodes=None)
@@ -281,6 +291,14 @@ def test_publish_rollback_forward_round_trip(tmp_path):
         if not (s1 / rel).exists():  # _build が作る tile（kanagawa_river_001）はそのまま使う
             _mbtiles(s1 / rel, Path(rel).stem)
     _write(s1, OLD, a20)
+    # 実 version と同じく hazard.tsunami.targets の backend runtime file を置く（rollback guard の tsunami 契約）
+    tsunami_fc = json.dumps({"type": "FeatureCollection", "features": [  # validator の最小件数（100）を満たす
+        {"type": "Feature", "properties": {"A40_001": "x", "A40_002": "x", "A40_003": "0.3m未満"},
+         "geometry": {"type": "Polygon", "coordinates": [[[139.8 + i * 0.01, 35.0], [139.805 + i * 0.01, 35.0],
+                                                          [139.805 + i * 0.01, 35.005], [139.8 + i * 0.01, 35.0]]]}}
+        for i in range(100)]}).encode()
+    for t in targets:
+        _write(s1, f"backend/hazard/tsunami/tsunami_{t}.geojson", tsunami_fc)
     _normalize(s1); pub.publish(v1, _validator(True))
     subprocess.run([sys.executable, str(ROOT / "scripts/publish/reconcile_tile_mirror.py"), "--data-runtime-root", str(root),
                     "--registry", str(REG), "--apply"], check=True, capture_output=True)

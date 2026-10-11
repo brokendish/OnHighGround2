@@ -30,6 +30,8 @@ SURGE = "frontend/tiles/tokyo/storm_surge/tokyo_surge_001.mbtiles"              
 TSUNAMI = "frontend/tiles/tokyo/tsunami/tokyo_tsunami_A40-23_13.mbtiles"                   # optional（tile_rel_path）
 URBAN = "frontend/tiles/tokyo/inland_flood/tokyo_urban_001.mbtiles"                        # 契約を外して unknown にする
 ALL = (PSEUDO, SURGE, TSUNAMI, URBAN)
+# 実 version と同じく hazard.tsunami.targets の backend runtime file を既定で含める（tsunami consumer 契約）
+TSUNAMI_RUNTIME = tuple(f"backend/hazard/tsunami/tsunami_{t}.geojson" for t in rpf._configured_tsunami_targets())
 
 
 def _registry(tmp: Path, mutate=None) -> Path:
@@ -46,10 +48,10 @@ def _registry(tmp: Path, mutate=None) -> Path:
     return p
 
 
-def _version(root: Path, vid: str, rels, tamper=()) -> Path:
+def _version(root: Path, vid: str, rels, tamper=(), tsunami=TSUNAMI_RUNTIME) -> Path:
     v = root / "versions" / vid
     files = {}
-    for rel in rels:
+    for rel in (*rels, *tsunami):
         data = f"tile:{rel}".encode()
         (v / rel).parent.mkdir(parents=True, exist_ok=True)
         (v / rel).write_bytes(b"tampered" if rel in tamper else data)
@@ -242,3 +244,26 @@ def test_override_rollback_proceeds_with_warning(tmp_path):
     assert out.returncode == 0, log
     assert "WARNING missing required tile" in log and PSEUDO in log and f"target={vids['old']}" in log
     assert os.readlink(root / "current") == f"versions/{vids['old']}" and PSEUDO not in _mirror_state(root)
+
+
+# ── tsunami consumer 契約（hazard.tsunami.targets）──────────────────────────────────
+
+def test_configured_targets_include_chiba():
+    assert rpf._configured_tsunami_targets() == ["chiba", "kanagawa", "tokyo"]
+
+
+def test_missing_tsunami_target_runtime_blocks(tmp_path):
+    chiba = "backend/hazard/tsunami/tsunami_chiba.geojson"
+    v = _version(tmp_path, "V", ALL, tsunami=tuple(r for r in TSUNAMI_RUNTIME if r != chiba))
+    r = rpf.preflight(v, _registry(tmp_path))
+    assert r["verdict"] == rpf.UNSAFE and [c["dataset_id"] for c in r["blocked"]] == ["tsunami-target:chiba"]
+    out = _run(tmp_path, "V", _registry(tmp_path))
+    assert out.returncode == 4 and "tsunami-target:chiba" in out.stdout
+    assert _run(tmp_path, "V", _registry(tmp_path), "--allow-missing-required-tiles").returncode == 0  # 緊急 override のみ
+
+
+def test_tampered_tsunami_target_runtime_blocks(tmp_path):
+    v = _version(tmp_path, "V", ALL, tamper=TSUNAMI_RUNTIME[:1])
+    blocked = [c["dataset_id"] for c in rpf.preflight(v, _registry(tmp_path))["blocked"]]
+    assert blocked == [f"tsunami-target:{Path(TSUNAMI_RUNTIME[0]).stem.split('_', 1)[1]}"]
+

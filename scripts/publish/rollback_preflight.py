@@ -11,6 +11,11 @@ rollback_preflight.py — rollback 先 version が「表示に必須の tile」�
   unknown（契約未定義の tile 対象 dataset）: WARNING（required へ自動昇格はしないが、安全とも扱わない）
   not_applicable  : 対象外
 
+tsunami consumer 契約（backend/app.properties の hazard.tsunami.targets）: targets の region の
+backend/hazard/tsunami/tsunami_<region>.geojson が rollback 先に無い・壊れている → BLOCK。backend は
+再起動時に target 欠落を検出して全地点の津波判定を unknown に倒すため（false safe ではないが、
+全域で津波判定が使えなくなる）、required tile と同じく既定で拒否する（2026-10-11、chiba 追加時）。
+
 registry を厳密に読む（1 件でも定義が不正・file が無い・dataset 0 件なら FAIL）。通常の定義読み込みは
 不正な定義を読み飛ばすため、そのまま使うと required dataset が判定から消えて fail-open になる。
 
@@ -34,9 +39,12 @@ EXIT_UNSAFE = 4
 
 
 def _import_backend():
+    # repo の backend（host / test 実行）を /app（container の mount）より優先する。既に sys.path にあっても
+    # 先頭へ並べ直す（/app だけが先頭に入り、別の backend の app package を読むことを防ぐ）
     for base in ("/app", str(Path(__file__).resolve().parents[2] / "backend")):
-        if base not in sys.path:
-            sys.path.insert(0, base)
+        if base in sys.path:
+            sys.path.remove(base)
+        sys.path.insert(0, base)
     from app.models.admin_dataset import DatasetDefinition
     from app.services import data_ops_service as dos
     return DatasetDefinition, dos
@@ -69,6 +77,38 @@ def _sha256(p: Path) -> str:
             except OSError:
                 pass
     return h.hexdigest()
+
+
+def _configured_tsunami_targets() -> list:
+    """activate の検証・backend と同じ設定解決で hazard.tsunami.targets を読む（読めなければ例外）。"""
+    _import_backend()
+    from app.services.runtime_dataset_validate import _resolve_configured_tsunami_targets
+    targets, err = _resolve_configured_tsunami_targets()
+    if err:
+        raise ValueError(f"hazard.tsunami.targets を解決できない: {err}")
+    return sorted(targets)
+
+
+def tsunami_target_checks(version: Path, files: dict, targets: "list | None" = None) -> list:
+    out = []
+    for t in (_configured_tsunami_targets() if targets is None else targets):
+        rel = f"backend/hazard/tsunami/tsunami_{t}.geojson"
+        sha = files.get(rel)
+        if sha is None:
+            detail = "rollback 先 version に無い"
+        elif not (version / rel).is_file():
+            detail = "manifest にあるが実 file が無い"
+        elif _sha256(version / rel) != sha:
+            detail = "実 file の sha256 が manifest と一致しない"
+        else:
+            out.append({"dataset_id": f"tsunami-target:{t}", "requirement": "tsunami_target", "tile_rel_path": rel,
+                        "state": "present", "severity": "OK", "reason": None})
+            continue
+        out.append({"dataset_id": f"tsunami-target:{t}", "requirement": "tsunami_target", "tile_rel_path": rel,
+                    "state": "missing", "severity": "BLOCK",
+                    "reason": f"hazard.tsunami.targets の {t} の runtime file が{detail.replace('rollback 先 version に無い', '無い')}"
+                              "（backend 再起動で全地点の津波判定が unknown になる）"})
+    return out
 
 
 def preflight(version: Path, registry: Path) -> dict:
@@ -107,6 +147,7 @@ def preflight(version: Path, registry: Path) -> dict:
                       else f"tile 契約が未定義で欠落の影響を判定できない（{detail}）")
         checks.append({"dataset_id": d.dataset_id, "requirement": req, "tile_rel_path": rel, "state": state,
                        "severity": severity, "reason": reason})
+    checks += tsunami_target_checks(version, files)
     blocked = [c for c in checks if c["severity"] == "BLOCK"]
     warned = [c for c in checks if c["severity"] == "WARNING"]
     verdict = UNSAFE if blocked else (SAFE_WITH_WARNINGS if warned else SAFE)
