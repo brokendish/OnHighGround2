@@ -48,6 +48,13 @@ def _sha256(p: Path) -> str:
     with open(p, "rb") as f:
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
+        # 全 tile の読み込みで backend の page が swap へ押し出されないよう page cache を手放す
+        # （publish の検証と同じ扱い。clean page のみ対象で内容には影響しない）
+        if hasattr(os, "posix_fadvise"):
+            try:
+                os.posix_fadvise(f.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+            except OSError:
+                pass
     return h.hexdigest()
 
 
