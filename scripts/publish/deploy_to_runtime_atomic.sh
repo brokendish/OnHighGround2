@@ -12,7 +12,11 @@
 #
 # 使い方:
 #   scripts/publish/deploy_to_runtime_atomic.sh [--region tokyo] [--region kanagawa] [--skip-frontend]
-#       [--full-revalidate] [--allow-flood-routing-migration <OWNER承認の参照>]
+#       [--full-revalidate] [--allow-flood-routing-migration <OWNER承認の参照>] [--rebuild-from-sources]
+#
+# --rebuild-from-sources は current を種にせず、registry / data_lake の正式な成果物だけで version を組み立てる
+# （region は自動で全 region。source から作られなくなった旧 artifact を current から外す環境再構築用）。
+# 表示必須の tile・tsunami target の runtime が揃わなければ activate しない。外れる file は log に一覧する。
 #
 # 検証の再利用（VALIDATED-CONTENT-REUSE）は既定で有効。前 version と内容（sha256）・検証規則
 # （validation_contract）が同一の file は再検証せず、変更された file だけを全検証する。
@@ -76,11 +80,13 @@ REGIONS=()
 SKIP_FRONTEND_ARG=""
 FLOOD_MIGRATION_APPROVAL_REF=""
 FULL_REVALIDATE="${OHG2_PUBLISH_FULL_REVALIDATION:-0}"
+REBUILD_FROM_SOURCES=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --region)        REGIONS+=("$2"); shift 2 ;;
         --skip-frontend) SKIP_FRONTEND_ARG="--skip-frontend"; shift ;;
         --full-revalidate) FULL_REVALIDATE=1; shift ;;
+        --rebuild-from-sources) REBUILD_FROM_SOURCES=1; shift ;;
         --allow-flood-routing-migration)
             if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
                 log_error "--allow-flood-routing-migration には OWNER 承認の参照文字列が必須です"
@@ -132,7 +138,11 @@ chmod 0750 "${STAGING_DIR}"
 if [[ -L "${CURRENT_LINK}" ]]; then
     CURRENT_TARGET="$(readlink "${CURRENT_LINK}")"
     CURRENT_REAL="${DATA_RUNTIME}/${CURRENT_TARGET}"
-    if [[ -d "${CURRENT_REAL}" ]]; then
+    if [[ "${REBUILD_FROM_SOURCES}" == "1" ]]; then
+        # --rebuild-from-sources: current を種にせず、registry / data_lake の正式な成果物だけで組み立てる
+        # （source から作られなくなった旧 artifact を current から外す。scripts/publish/rebuild_from_sources.py）
+        log_warn "rebuild-from-sources: current を種にしない（staging を空から作る）: ${CURRENT_REAL}"
+    elif [[ -d "${CURRENT_REAL}" ]]; then
         log_info "seeding staging from current: ${CURRENT_REAL}"
         # --reflink=auto: reflink 対応 filesystem（VPS: XFS reflink=1）では data block を共有する
         # copy-on-write clone になり、物理 write はほぼ発生しない。非対応 fs では通常 copy に縮退する。
@@ -183,6 +193,19 @@ if [[ -n "${CURRENT_REAL:-}" && -d "${CURRENT_REAL}" ]]; then
     done
 fi
 
+if [[ "${REBUILD_FROM_SOURCES}" == "1" ]]; then
+    if ! _rebuild_regions="$(python3 "${SCRIPT_DIR}/rebuild_from_sources.py" --regions)"; then
+        log_error "rebuild-from-sources: 再構築する region を決められない（publish を中止）"
+        exit 1
+    fi
+    for _r in ${_rebuild_regions}; do
+        if [[ " ${REGIONS[*]} " != *" ${_r} "* ]]; then
+            log_info "rebuild-from-sources: region=${_r} を publish 対象に追加"
+            REGIONS+=("${_r}")
+        fi
+    done
+fi
+
 # 既存 deploy_to_runtime.sh を region ごとにstaging modeで実行する（同一
 # staging directoryへ積み重ねる）。各regionのdataset出力先はregion名を含む
 # ため（backend/hazard/<type>/<region>[...], frontend/tiles/<region>/...）、
@@ -193,6 +216,15 @@ for _region in "${REGIONS[@]}"; do
         "${SCRIPT_DIR}/deploy_to_runtime.sh" --region "${_region}" ${SKIP_FRONTEND_ARG}
     log_step "deploy region ${_region}"
 done
+
+if [[ "${REBUILD_FROM_SOURCES}" == "1" ]]; then
+    if ! python3 "${SCRIPT_DIR}/rebuild_from_sources.py" --check-staging "${STAGING_DIR}" \
+            ${CURRENT_REAL:+--current "${CURRENT_REAL}"}; then
+        log_error "rebuild-from-sources: 再構築した staging に必須の artifact が無い（publish を中止。current は変更されていない）"
+        exit 1
+    fi
+    log_step "rebuild-from-sources check"
+fi
 
 # RUNTIME-PROVENANCE: build node が書いた provenance record（data_lake/provenance/）を staging の
 # provenance/<dataset_id>.json へ配置する（activate で _manifest.json に sha256 が載り、rollback と整合する）。
