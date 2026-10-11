@@ -131,7 +131,7 @@ _ERROR_MESSAGES: Dict[str, Dict[str, str]] = {
     },
     "ROLLBACK_ATOMIC_PUBLISH_MANAGED": {
         "user_message": "このデータは実行環境の version 単位で管理されているため、ここからは戻せません。",
-        "action_message": "operator が activate_version.py --rollback <version-id> で version を戻してください。",
+        "action_message": "operator が scripts/publish/rollback_runtime.sh <version-id> で version（と tile mirror）を戻してください。",
     },
     "ROLLBACK_NOT_AVAILABLE": {
         "user_message": "戻せるバックアップがありません。",

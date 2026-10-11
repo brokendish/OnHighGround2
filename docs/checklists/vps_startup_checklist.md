@@ -59,8 +59,8 @@ in-place 再構築**時に使用する。手順は記載の順番で実行する
 
 - [ ] 上記バックアップから復元する具体的な手順（コピー先パス、復元コマンド）を作業開始前に
       書き出しておく
-- [ ] `scripts/publish/activate_version.py --rollback <version-id>` による atomic runtime
-      単体のロールバック手段があることを確認する（`data_runtime/versions/` 配下に複数版が
+- [ ] `scripts/publish/rollback_runtime.sh <version-id>`（`activate_version.py --rollback` と
+      tile mirror の整合を 1 手順で行う）による atomic runtime 単体のロールバック手段があることを確認する（`data_runtime/versions/` 配下に複数版が
       残っていれば、`current` だけを直前の版へ戻せる。ただし今回の一連の修正でディレクトリ
       レイアウトが変わった箇所——避難所の dataset_id サブディレクトリ化——があるため、
       **修正前の版と修正後の版を跨いだ rollback は避け、必要なら該当版を再 publish し直す**）

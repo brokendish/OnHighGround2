@@ -196,8 +196,11 @@ production の API・ナビゲーション判定エンジンは current/versione
 されません。
 
 **flat runtime は「current 障害時の正式な recovery 手段」ではありません。** current
-symlink が破損・欠落した場合の正式な復旧手順は `activate_version.py --rollback
-<version-id>` による atomic rollback、または再度の atomic publish（republish）です。
+symlink が破損・欠落した場合の正式な復旧手順は `scripts/publish/rollback_runtime.sh
+<version-id>` による atomic rollback（内部で `activate_version.py --rollback` を実行し、
+Martin 用 tile mirror も rollback 先 version の manifest に合わせる）、または再度の
+atomic publish（republish）です。`activate_version.py --rollback` を単独で実行すると
+current だけが戻り、tile mirror（退役 tile・差し替え前 tile）は戻りません。
 一部の route（`inland_flood`/`landslide` の直接配信、`HazardDatasetService` 経由の
 一部 hazard type）は atomic publish 機構自体が未導入の環境（`is_available()==False`）
 向けの compatibility fallback として flat runtime を読みますが、これは stale な

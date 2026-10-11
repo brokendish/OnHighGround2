@@ -1788,7 +1788,7 @@ async def run_rollback(
         # 表示と実 runtime が乖離する。version 単位の rollback（operator CLI）だけを正式手段とする。
         _fail(job, jm, "ROLLBACK_ATOMIC_PUBLISH_MANAGED",
               "このデータは実行環境の version 単位で管理されているため、ここからは戻せません。",
-              "operator が activate_version.py --rollback <version-id> で version を戻してください。")
+              "operator が scripts/publish/rollback_runtime.sh <version-id> で version（と tile mirror）を戻してください。")
         return
 
     if not state.backup_path:
