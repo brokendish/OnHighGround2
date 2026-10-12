@@ -475,6 +475,16 @@ def _wait_backend_public_settled(override_file: Path, timeout_s: int = 60) -> Tu
 def linux_native_permission_matrix() -> None:
     volume_name = f"{PROJECT_NAME}-permtest-data-runtime"
     inner_script = REPO_ROOT / "tools" / "public_release" / "phase2b5_permission_matrix_inner.py"
+    # matrix は app.services（runtime_version_access → runtime_publish → runtime_dataset_validate）を import し、
+    # runtime_dataset_validate は import 時に ijson を読む（2026-10-11 以降）。依存を持たない素の python:3.11-slim では
+    # import に失敗するため、この run が隔離 stack 用に build した backend-public image（backend/Dockerfile =
+    # python:3.11-slim + requirements.txt、production と同じ構成）で実行する。無ければ fail closed（slim へ戻さない）。
+    image = f"{PROJECT_NAME}-backend-public:latest"
+    check_img = _run(["docker", "image", "inspect", image])
+    if check_img.returncode != 0:
+        record("P2B5-CX-007: permission matrix用のbackend-public image（隔離stackのbuild）が存在する", False,
+               check_img.stderr[-500:])
+        return
 
     _run(["docker", "volume", "create", volume_name])
     try:
@@ -487,7 +497,7 @@ def linux_native_permission_matrix() -> None:
                 # RUNTIME-MBTILES-GROUP-CONTRACT: flat mirror同期scriptの権限matrix用
                 "-v", f"{REPO_ROOT}/scripts:/scripts:ro",
                 "-v", f"{inner_script}:/perm_test.py:ro",
-                "python:3.11-slim", "python3", "/perm_test.py",
+                image, "python3", "/perm_test.py",
             ],
             timeout=120,
         )
