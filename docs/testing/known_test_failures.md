@@ -27,10 +27,17 @@ F テスト基盤の不具合 / G 意図した挙動 / H 公開対象外（opera
 | 期限 | 次の public-release gate（Phase 2-E）の再実行前 |
 | 閉じる条件 | (a) 同種テストと同じ Linux 専用 marker を付け、Linux での PASS を release gate の証跡に含める、または (b) macOS では Linux container 内で実行する。どちらにするかは skip 追加の扱いを含めて別 phase で決める |
 
-### KTF-002 `tests/test_runtime_mbtiles_group_contract.py::test_C_permission_matrix_flat_mirror_backend_public_can_read_all_mbtiles`
+補足: この matrix を使う Phase 2-B.5 の正式 tool（`tools/public_release/phase2b5_atomic_publish.py`）は今も素の
+`python:3.11-slim` で matrix を実行するため、現在の HEAD では ijson の import で stream 系 2 項目も失敗する
+（テスト側は 2026-10-12 に backend-public image へ変更済み）。Phase 2-B.5 の evidence を取り直すときは同じ変更が要る。
+
+## 解消済み
+
+### KTF-002（CLOSED）`tests/test_runtime_mbtiles_group_contract.py::test_C_permission_matrix_flat_mirror_backend_public_can_read_all_mbtiles`
 
 | 項目 | 内容 |
 |---|---|
+| 状態 | **CLOSED**（2026-10-12、修正 commit d99a2a4） |
 | 失敗 | 権限 matrix 74 項目中 1 項目:「flat mirror sync失敗: operatorが書き込めないdirectory（root:root 0700）では exit 2」が exit 1 |
 | 原因 | `scripts/publish/sync_frontend_tiles_mirror.sh` の cp 失敗時の後始末 `rm -f -- "${tmp}"` が、operator が traverse できない directory では Permission denied で失敗し、`set -euo pipefail` によりその場で exit 1 になる（`exit 2` と `log_warn` に届かない）。rename 失敗時の後始末も同じ形 |
 | first-bad | 660cf34（2026-10-06、mirror 同期を file 単位の atomic rename に変更） |
@@ -38,14 +45,10 @@ F テスト基盤の不具合 / G 意図した挙動 / H 公開対象外（opera
 | 判定 | NON_BLOCKER・P3（重大度 低） |
 | 公開への影響 | なし。呼び出し側 `deploy_to_runtime_atomic.sh` は 0 と 4 以外の終了コードをすべて warning として扱うため、exit 1 でも publish の結果・表示は exit 2 と同じ。契約違反の exit 4（fail-loud）は正しく動く。失われるのは script 側の「cp 同期に失敗」の warning 行だけ |
 | 再現 | uid 10002 で、root:root 0700 の directory へ `set -e` 下で cp → `rm -f` すると exit 1。`rm -f ... 2>/dev/null \|\| true` にすると exit 2 |
-| last_verified | 2026-10-12（backend-public image で matrix 73/74） |
-| 受け入れる理由 | 公開 runtime・避難判断に影響しない operator script の終了コードの不一致で、製品の挙動の変更は triage の範囲外 |
-| 期限 | 専用 phase（MIRROR-SYNC-EXIT-CODE）で修正する。Phase 2-E の release gate 再実行前 |
-| 閉じる条件 | 後始末の `rm -f` を失敗しても止まらない形にし、matrix 74/74 PASS |
-
-補足: この matrix を使う Phase 2-B.5 の正式 tool（`tools/public_release/phase2b5_atomic_publish.py`）は今も素の
-`python:3.11-slim` で matrix を実行するため、現在の HEAD では ijson の import で stream 系 2 項目も失敗する
-（テスト側は 2026-10-12 に backend-public image へ変更済み）。Phase 2-B.5 の evidence を取り直すときは同じ変更が要る。
+| 受け入れていた理由 | 公開 runtime・避難判断に影響しない operator script の終了コードの不一致で、製品の挙動の変更は triage の範囲外だった |
+| 修正 | MIRROR-SYNC-EXIT-CODE phase。同期の結果（primary）と後始末（cleanup）を分けた。後始末は EXIT trap が行い、失敗は path と rc を warning に残すが終了コードは同期の結果のまま（同期が成功して後始末だけ失敗した場合は成功扱いにせず 2）。後始末は自分の一時名（dst 配下の `.<name>.syncing-<pid>`）以外・`..` を含む path・symlink を消さない。終了コードの契約（0 / 2 / 4）と呼び出し側の解釈は不変 |
+| closure test | 権限 matrix 74/74 PASS（本テスト FAIL → PASS）、`tests/test_mirror_sync_exit_code.py`（A〜E・path 拒否）。macOS の一般ユーザーで traverse できない directory を使った再現も exit 1 → 2 |
+| closed_at | 2026-10-12 |
 
 ## triage 記録（2026-10-12、HEAD ee944e9）
 
@@ -62,7 +65,7 @@ Linux（backend-public image、arm64）では #2 だけが PASS し、残りは�
 | 6 | `test_live_kikikuru_summary_service.py::test_no_danger_detected_false` | watch（注意）も areas に含める仕様へ変更。danger_detected は warning / danger のみ | ce40b18（2026-06-03） | C | NON_BLOCKER | P2 | 修正 |
 | 7 | `test_live_kikikuru_summary_service.py::test_watch_does_not_enter_areas` | 同上 | ce40b18 | C | NON_BLOCKER | P2 | 修正（並び順 danger > warning > watch のテストを追加） |
 | 8 | `test_live_train_service.py::test_fetch_all_disruptions_filters_challenge_items` | ODPT operator allowlist（TokyoMetro / Toei）導入後、JR-West は fail closed で表示されない。テストは環境変数を直接書き換えていた | 265dd12（2026-08-30） | C・F | NON_BLOCKER | P2 | 修正（allowlist の operator を使い、allowlist 外の拒否も検査。monkeypatch へ変更） |
-| 9 | `test_runtime_mbtiles_group_contract.py::test_C_permission_matrix_...` | (a) 素の python:3.11-slim に ijson が無く stream 系 2 項目が import 失敗、(b) mirror script の exit コード | (a) 6b61b6d（2026-10-11）、(b) 660cf34（2026-10-06） | (a) F、(b) A・H | NON_BLOCKER | P3 | (a) 修正（backend-public image で実行）、(b) 未解消（KTF-002） |
+| 9 | `test_runtime_mbtiles_group_contract.py::test_C_permission_matrix_...` | (a) 素の python:3.11-slim に ijson が無く stream 系 2 項目が import 失敗、(b) mirror script の exit コード | (a) 6b61b6d（2026-10-11）、(b) 660cf34（2026-10-06） | (a) F、(b) A・H | NON_BLOCKER | P3 | (a) 修正（backend-public image で実行）、(b) KTF-002 として記録 → 同日 CLOSED |
 | 10 | `test_safety_critical.py::test_unknown_hazard_text_constant_is_defined` | 公開準備で肯定的な安全表現をやめ、`UNKNOWN_HAZARD_TEXT` を `SOURCE_UNAVAILABLE_TEXT` へ置き換えた（unknown を安全と表示しない分岐は維持） | 265dd12（2026-08-30） | C | NON_BLOCKER | P2 | 修正（新しい定数・unknown 分岐での使用・文言に「安全」を含まないことを検査） |
 | 11 | `test_safety_critical.py::test_assess_candidate_tsunami_outside_when_full_coverage` | flood / tsunami の読み込み判定が numpy bbox 配列へ移ったのに、テストが `_polygons` を直接書き換えていたため未読み込み扱い（unknown）になった。製品は安全側 | 8588221（2026-04-18） | F | NON_BLOCKER | P2 | 修正（本番と同じ `load_geojson_streaming(bbox_only=True)` で読み込む） |
 
