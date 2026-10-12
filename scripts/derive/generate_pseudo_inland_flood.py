@@ -93,7 +93,7 @@ def _box_mean_2d(arr: np.ndarray, window: int) -> np.ndarray:
 
 
 def _is_axis_swapped_geographic(bounds) -> bool:
-    """既存DEMにある lat/lon 軸入れ替わり GeoTIFF を検出する。"""
+    """旧 convert_dem.py の lat/lon 入れ替わり GeoTIFF を検出する（使わずに中止するため）。"""
     return (
         -90 <= bounds.left <= 90
         and -90 <= bounds.right <= 90

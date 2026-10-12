@@ -240,7 +240,7 @@ def test_13_generator_does_not_reference_production_dem_paths():
         assert "data_runtime" not in call_args
 
     # data_lake（production hazard/DEM raw data root）はdocstringにも一切
-    # 登場しない前提（data_runtimeはaxis-swap契約の説明で言及するため許容）。
+    # 登場しない前提（data_runtimeは座標契約の説明で言及するため許容）。
     assert "data_lake" not in text
 
 

@@ -19,9 +19,10 @@ DEM-ELEVATION-INTEGRITY-AUDIT（2026-10-12）で確定した座標契約:
     col_in = floor((lon - lon0 - tl*tile_dlon) / (tile_dlon / tile_cols))
     row = (n_tiles_lon - 1 - tl) * tile_rows + row_in
     col = tc * tile_cols + col_in
-  geotransform をそのまま使う読み方（x=緯度・y=経度。backend の ElevationService と PSEUDO generator）は、
+  geotransform をそのまま使う読み方（x=緯度・y=経度。2026-10-12 の修正前の ElevationService と PSEUDO generator）は、
   正しい tile を引くが tile 内では緯度の割合を列・経度の割合を行に使うため、最大で tile 1 枚分（約 0.9×1.1 km）
-  ずれた画素を読む。
+  ずれた画素を読む。修正後（DEM-RUNTIME-REPAIR）は DEM を標準配置へ並べ替え（scripts/derive/relayout_fgd_dem.py）、
+  backend は geotransform どおりに読む。この module は旧 artifact の監査・並べ替えの検証に使う。
 
 使い方（operator container 内）:
   python3 /scripts/validate/audit_dem_elevation.py --dem /data_lake/validated/tokyo/dem/elevation.tif \\
