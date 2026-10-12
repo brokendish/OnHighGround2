@@ -1,20 +1,116 @@
 [
   {
     "rel_path": "frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles",
-    "disposition": "RETIRE_CANDIDATE",
-    "consumer": "なし（frontend の tile 参照なし。frontend/backend の tokyo_flood_max は GeoJSON path 名のみ）",
+    "disposition": "RETIRED",
+    "consumer": "なし（frontend の静的 tile ID・meta API（tokyo_river_001 を返す）・admin_hazard_service とも参照なし。tokyo_flood_max という名前は GeoJSON path・旧 build script・テスト fixture のみ）",
     "superseded_by": "tokyo_river_001（TOKYO-RIVER-001）",
     "notes": [
-      "旧 pipeline（normalized/tokyo/flood/tokyo_flood_max.geojson、666,833 件・穴あき欠落）の tile。admin_hazard_service も tokyo_river_001 を参照（2026-10-11 確認）"
+      "旧 pipeline（normalized/tokyo/flood/tokyo_flood_max.geojson、666,833 件・穴あき欠落）の tile。admin_hazard_service も tokyo_river_001 を参照（2026-10-11 確認）",
+      "2026-10-12 退役。node ごとの実体は node_backups（build node と runtime node で sha が同じ）。rollback で退役前 version に戻すと mirror へ復元される"
+    ],
+    "tileset_id": "tokyo_flood_max",
+    "reason": "旧 pipeline の洪水 tile（666,833 件・穴あき欠落）。TOKYO-RIVER-001 の tokyo_river_001 が後継で、frontend・meta API・admin のいずれも参照しない（2026-10-12 確認）",
+    "replacement": "tokyo_river_001",
+    "retired_at": "2026-10-12",
+    "backup": {
+      "path": "data_lake/_backup/retired-tiles-20261012/frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles",
+      "sha256": "84b7311e57a0d3a5f394a20487450992d80550a4367d6b27db54bf9a9b42c9da",
+      "size": 175357952,
+      "original_owner": "10002:20001",
+      "original_mode": "0640",
+      "original_mtime": "2026-10-06T11:53:37Z",
+      "quick_check": "ok",
+      "feature_count": 666833,
+      "zoom": "5-16",
+      "bounds": "138.943831,35.333333,140.000000,36.000000",
+      "layer": "tokyo_flood_max"
+    },
+    "node_backups": [
+      {
+        "node": "build node (Local)",
+        "path": "data_lake/_backup/retired-tiles-20261012/frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles",
+        "sha256": "84b7311e57a0d3a5f394a20487450992d80550a4367d6b27db54bf9a9b42c9da",
+        "size": 175357952,
+        "original_owner": "10002:20001",
+        "original_mode": "0640",
+        "original_mtime": "2026-10-06T11:53:37Z",
+        "quick_check": "ok",
+        "feature_count": 666833,
+        "zoom": "5-16",
+        "bounds": "138.943831,35.333333,140.000000,36.000000",
+        "layer": "tokyo_flood_max"
+      },
+      {
+        "node": "runtime node (VPS)",
+        "path": "~/backups/retired-tiles-20261012/frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles",
+        "sha256": "84b7311e57a0d3a5f394a20487450992d80550a4367d6b27db54bf9a9b42c9da",
+        "size": 175357952,
+        "original_owner": "10002:20001",
+        "original_mode": "0640",
+        "original_mtime": "2026-09-06T08:01:31Z",
+        "quick_check": "ok",
+        "feature_count": 666833,
+        "zoom": "5-16",
+        "bounds": "138.943831,35.333333,140.000000,36.000000",
+        "layer": "tokyo_flood_max"
+      }
     ]
   },
   {
     "rel_path": "frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles",
-    "disposition": "RETIRE_CANDIDATE",
-    "consumer": "frontend なし。admin_hazard_service._LAYER_DEFINITIONS の storm_surge_tokyo が旧 tileset_id として参照（管理画面の要約表示のみ）",
+    "disposition": "RETIRED",
+    "consumer": "なし（frontend の静的 tile ID・meta API（tokyo_surge_001 を返す）とも参照なし。admin_hazard_service は 0326b61 で tokyo_surge_001 へ更新済み）",
     "superseded_by": "tokyo_surge_001（TOKYO-SURGE-001）",
     "notes": [
-      "旧 pipeline（normalized/tokyo/storm_surge/tokyo_storm_surge.geojson）の tile。feature 59,039 件は tokyo_surge_001 と同数。退役前に admin_hazard_service の参照を tokyo_surge_001 へ更新する必要がある（2026-10-11 確認）"
+      "旧 pipeline（normalized/tokyo/storm_surge/tokyo_storm_surge.geojson）の tile。feature 59,039 件は tokyo_surge_001 と同数。退役前に admin_hazard_service の参照を tokyo_surge_001 へ更新する必要がある（2026-10-11 確認）",
+      "2026-10-12 退役。node ごとの実体は node_backups（build node と runtime node で sha が異なる別 build）。rollback で退役前 version に戻すと mirror へ復元される"
+    ],
+    "tileset_id": "tokyo_storm_surge",
+    "reason": "旧 pipeline の高潮 tile（59,039 件、tokyo_surge_001 と同数）。TOKYO-SURGE-001 の tokyo_surge_001 が後継で、frontend・meta API・admin のいずれも参照しない（2026-10-12 確認）",
+    "replacement": "tokyo_surge_001",
+    "retired_at": "2026-10-12",
+    "backup": {
+      "path": "data_lake/_backup/retired-tiles-20261012/frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles",
+      "sha256": "60ccf1ffd556f1d4c59887eee2914d05915904371401c5308eb4f9fa41d4bb79",
+      "size": 8671232,
+      "original_owner": "10002:20001",
+      "original_mode": "0640",
+      "original_mtime": "2026-10-06T11:53:37Z",
+      "quick_check": "ok",
+      "feature_count": 59039,
+      "zoom": "5-16",
+      "bounds": "139.643920,35.531472,139.917868,35.815661",
+      "layer": "storm_surge"
+    },
+    "node_backups": [
+      {
+        "node": "build node (Local)",
+        "path": "data_lake/_backup/retired-tiles-20261012/frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles",
+        "sha256": "60ccf1ffd556f1d4c59887eee2914d05915904371401c5308eb4f9fa41d4bb79",
+        "size": 8671232,
+        "original_owner": "10002:20001",
+        "original_mode": "0640",
+        "original_mtime": "2026-10-06T11:53:37Z",
+        "quick_check": "ok",
+        "feature_count": 59039,
+        "zoom": "5-16",
+        "bounds": "139.643920,35.531472,139.917868,35.815661",
+        "layer": "storm_surge"
+      },
+      {
+        "node": "runtime node (VPS)",
+        "path": "~/backups/retired-tiles-20261012/frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles",
+        "sha256": "22ea3ba557c18118158d654e504682ee3f1d088ccb357d62b28e7362dc92ad6e",
+        "size": 19054592,
+        "original_owner": "10002:20001",
+        "original_mode": "0640",
+        "original_mtime": "2026-09-06T08:01:31Z",
+        "quick_check": "ok",
+        "feature_count": 59039,
+        "zoom": "5-16",
+        "bounds": "139.643920,35.531472,139.917868,35.815661",
+        "layer": "tokyo_storm_surge"
+      }
     ]
   },
   {

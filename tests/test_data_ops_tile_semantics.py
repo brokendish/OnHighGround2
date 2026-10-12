@@ -156,8 +156,14 @@ def test_legacy_tile_listing(tmp_path):
     assert _rel(river) not in items  # 管理下
     assert items[_rel(surge)]["dataset_id"] == SURGE and items[_rel(surge)]["in_current"] is False
     assert items[_rel(surge)]["martin_registered"] == dos.OK and items[_rel(surge)]["label"].startswith("LEGACY TILE")
-    assert items["frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles"]["disposition"] == "RETIRE_CANDIDATE"
-    assert items["frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles"]["label"].startswith("RETIRE CANDIDATE")
+    # 2026-10-12 退役（RETIRED）。この fixture は current / mirror に実物を残しているため、残存として
+    # disposition=RETIRED で出る（退役 publish 後は current / mirror に無く、一覧に出ない）
+    assert items["frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles"]["disposition"] == "RETIRED"
+    assert items["frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles"]["disposition"] == "RETIRED"
+    retired = {r["tileset_id"]: r for r in dos.retired_tile_section(view, catalog=["kanagawa_surge_001"])}
+    assert retired["tokyo_flood_max"]["replacement"] == "tokyo_river_001" and retired["tokyo_flood_max"]["in_current"] is True
+    assert retired["tokyo_flood_max"]["status"] == dos.WARNING  # current に残存
+    assert retired["tokyo_storm_surge"]["replacement"] == "tokyo_surge_001" and retired["tokyo_storm_surge"]["in_mirror"] is True
 
 
 # ── registry: 事実確認できた dataset だけに契約を設定 ─────────────────────────────

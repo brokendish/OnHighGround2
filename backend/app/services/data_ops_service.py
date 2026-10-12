@@ -408,7 +408,8 @@ def retired_tile_section(view: drr.RuntimeView, catalog: Optional[List[str]] = N
         served = None if catalog is None else stem in catalog
         clean = not in_current and not in_mirror and served is not True
         out.append({"rel_path": rel, "tileset_id": stem, "replacement": d.get("replacement"), "reason": d.get("reason"),
-                    "retired_at": d.get("retired_at"), "backup": d.get("backup"), "in_current": in_current,
+                    "retired_at": d.get("retired_at"), "backup": d.get("backup"),
+                    "node_backups": d.get("node_backups") or [], "in_current": in_current,
                     "in_mirror": in_mirror, "martin_registered": UNOBSERVED if catalog is None else (OK if served else "N/A"),
                     "status": OK if clean else WARNING,
                     "label": "RETIRED" if clean else "RETIRED（current / mirror / Martin に残存）"})

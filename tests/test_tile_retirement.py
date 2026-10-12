@@ -56,13 +56,26 @@ def _tree(root, files):
 
 # ── record 検証 ─────────────────────────────────────────────────────────────────
 
+FLOOD_MAX = "frontend/tiles/tokyo/flood/tokyo_flood_max.mbtiles"
+STORM = "frontend/tiles/tokyo/storm_surge/tokyo_storm_surge.mbtiles"
+
+
 def test_production_registry_has_complete_retirement_record():
-    items = ret.load_retirements(ROOT / "data_lake/registry/tile_dispositions.json")
-    assert [i["rel_path"] for i in items] == [A16]
-    i = items[0]
+    items = {i["rel_path"]: i for i in ret.load_retirements(ROOT / "data_lake/registry/tile_dispositions.json")}
+    assert sorted(items) == sorted([A16, FLOOD_MAX, STORM])
+    i = items[A16]
     assert i["replacement"] == "kanagawa_tsunami_A40-20_14" and i["retired_at"] == "2026-10-11"
     assert i["backup"]["sha256"] == "8e143ba482066d98371c569c202ed97e28e8dbb0d3faccb546836e160373f799"
     assert i["backup"]["path"].startswith("data_lake/_backup/retired-tiles-20261011/")
+    # 2026-10-12: 旧 pipeline の Tokyo flood / surge tile（後継は publish 管理下の tile）
+    for rel, repl, shas in ((FLOOD_MAX, "tokyo_river_001", {"84b7311e57a0d3a5f394a20487450992d80550a4367d6b27db54bf9a9b42c9da"}),
+                            (STORM, "tokyo_surge_001", {"60ccf1ffd556f1d4c59887eee2914d05915904371401c5308eb4f9fa41d4bb79",
+                                                        "22ea3ba557c18118158d654e504682ee3f1d088ccb357d62b28e7362dc92ad6e"})):  # build node / runtime node で別 build
+        i = items[rel]
+        assert i["replacement"] == repl and i["retired_at"] == "2026-10-12"
+        assert i["backup"]["path"] == "data_lake/_backup/retired-tiles-20261012/" + rel
+        assert {nb["node"] for nb in i["node_backups"]} == {"build node (Local)", "runtime node (VPS)"}
+        assert shas == ret.retired_shas(i)
 
 
 @pytest.mark.parametrize("bad", [
@@ -214,3 +227,52 @@ def test_publish_excludes_retired_tile_and_previous_version_is_intact(tmp_path):
     pub.rollback(v1)
     assert os.readlink(root / "current") == f"versions/{v1}" and (root / "current" / A16).exists()
     assert not (root / A16).exists()
+
+
+# ── node ごとの backup（2026-10-12: tokyo_storm_surge は build node と runtime node で別 build）──────────
+
+def _node_record(local_sha, vps_sha, rel=STORM):
+    return _record(local_sha, rel=rel, replacement="tokyo_surge_001", node_backups=[
+        {"node": "build node (Local)", "path": "data_lake/_backup/a", "sha256": local_sha},
+        {"node": "runtime node (VPS)", "path": "~/backups/a", "sha256": vps_sha}])
+
+
+def test_mirror_removes_runtime_node_build_by_node_backup(tmp_path):
+    vps = _write(tmp_path / "v.mbtiles", b"vps build")
+    rt = _tree(tmp_path / "rt", {STORM: b"vps build"})
+    removed, kept = ret.apply_mirror(rt, tmp_path / "cur", [_node_record(hashlib.sha256(b"local").hexdigest(), vps)])
+    assert removed == [STORM] and kept == [] and not (rt / STORM).exists()
+
+
+def test_mirror_keeps_unrecorded_build_even_with_node_backups(tmp_path):
+    rt = _tree(tmp_path / "rt", {STORM: b"someone else's file"})
+    rec = _node_record(hashlib.sha256(b"local").hexdigest(), hashlib.sha256(b"vps").hexdigest())
+    removed, kept = ret.apply_mirror(rt, tmp_path / "cur", [rec])
+    assert removed == [] and "backup と一致しない" in kept[0] and (rt / STORM).exists()
+
+
+@pytest.mark.parametrize("nb", [[{"node": "x", "path": "p"}], [{"path": "p", "sha256": "s"}], ["bad"]])
+def test_incomplete_node_backup_is_rejected(tmp_path, nb):
+    p = tmp_path / "d.json"
+    p.write_text(json.dumps([_record("a" * 64, node_backups=nb)]))
+    with pytest.raises(ValueError, match="node_backups"):
+        ret.load_retirements(p)
+
+
+def test_reconcile_treats_node_backup_builds_as_known(tmp_path):
+    spec2 = importlib.util.spec_from_file_location("reconcile_tile_mirror", ROOT / "scripts/publish/reconcile_tile_mirror.py")
+    rtm = importlib.util.module_from_spec(spec2)
+    spec2.loader.exec_module(rtm)
+    reg = tmp_path / "reg.json"
+    reg.write_text(json.dumps([_node_record("1" * 64, "2" * 64)]))
+    (tmp_path / "versions").mkdir()
+    assert rtm.known_shas(tmp_path, reg)[STORM] == {"1" * 64, "2" * 64}
+
+
+def test_retired_legacy_tiles_have_no_frontend_consumer():
+    js = (ROOT / "frontend/js/hazard-layers.js").read_text(encoding="utf-8")
+    block = js[js.index("const VECTOR_TILE_SOURCES = {"):]
+    block = block[:block.index("\n};")]
+    for stem in ("tokyo_flood_max", "tokyo_storm_surge"):
+        assert f"tilesetId: '{stem}'" not in block
+    assert "tilesetId: 'tokyo_river_001'" in block and "tilesetId: 'tokyo_surge_001'" in block

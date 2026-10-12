@@ -49,6 +49,9 @@ def load_retirements(path: Path) -> list:
         backup = i.get("backup") or {}
         if missing or not backup.get("path") or not backup.get("sha256"):
             raise ValueError(f"RETIRED record が不完全: {i.get('rel_path')} missing={missing or 'backup.path/sha256'}")
+        for nb in i.get("node_backups") or []:
+            if not isinstance(nb, dict) or not nb.get("node") or not nb.get("path") or not nb.get("sha256"):
+                raise ValueError(f"RETIRED record の node_backups が不完全: {i.get('rel_path')}（node / path / sha256 が必要）")
         rel = i["rel_path"]
         if not (rel.startswith("frontend/tiles/") and rel.endswith(".mbtiles")) or ".." in rel.split("/") or "*" in rel:
             raise ValueError(f"RETIRED rel_path が不正: {rel}")
@@ -143,6 +146,14 @@ def apply_mirror_migrations(mirror_root: Path, current: Path, items: list) -> "t
     return removed, kept
 
 
+def retired_shas(item: dict) -> set:
+    """退役 tile として消してよい sha256（backup と node ごとの backup）。node で build が異なる tile
+    （例: tokyo_storm_surge は build node と runtime node で別 build）も、記録した sha だけを対象にする。"""
+    shas = {(item.get("backup") or {}).get("sha256")}
+    shas |= {nb.get("sha256") for nb in item.get("node_backups") or []}
+    return {s for s in shas if s}
+
+
 def apply_staging(staging: Path, items: list) -> list:
     removed = []
     for i in items:
@@ -164,8 +175,8 @@ def apply_mirror(mirror_root: Path, current: Path, items: list) -> "tuple[list, 
         if (current / rel).exists():
             kept.append(f"{rel}: current にまだ存在するため mirror から消さない")
             continue
-        if _sha256(target) != i["backup"]["sha256"]:
-            kept.append(f"{rel}: mirror の sha256 が backup と一致しないため消さない")
+        if _sha256(target) not in retired_shas(i):
+            kept.append(f"{rel}: mirror の sha256 が backup と一致しないため消さない（node_backups を含む）")
             continue
         target.unlink()
         removed.append(rel)
