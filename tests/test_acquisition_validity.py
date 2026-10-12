@@ -336,7 +336,11 @@ def test_registry_region_codes_for_flood_only():
     assert ds.get("KANAGAWA-RIVER-001").expected_source_region_code == "14"
     assert {d.dataset_id for d in ds.list_all() if d.expected_source_region_code} == {
         "TOKYO-RIVER-001", "KANAGAWA-RIVER-001", "TOKYO-BOUNDARY-001", "KANAGAWA-BOUNDARY-001",
-        "CHIBA-TSUNAMI-001", "TOKYO-TSUNAMI-001", "KANAGAWA-TSUNAMI-001"}  # A40 の都道府県 code（2026-10-11 正式化）
+        "CHIBA-TSUNAMI-001", "TOKYO-TSUNAMI-001", "KANAGAWA-TSUNAMI-001",  # A40 の都道府県 code（2026-10-11 正式化）
+        # KSJ の公式 zip と照合した 2026-10-12 の出典登録（A49 / A51 / A33 / G08 の都道府県 code）
+        "TOKYO-SURGE-001", "KANAGAWA-SURGE-001", "TOKYO-URBAN-001", "KANAGAWA-URBAN-001",
+        "TOKYO-LANDSLIDE-001", "KANAGAWA-LANDSLIDE-001", "TOKYO-LOWLAND-POOR-DRAINAGE-001",
+        "KANAGAWA-LOWLAND-POOR-DRAINAGE-001"}
     assert [ds.get(f"{r}-TSUNAMI-001").expected_source_region_code for r in ("TOKYO", "KANAGAWA", "CHIBA")] == ["13", "14", "12"]
     tr = ds.get("TOKYO-RIVER-001")
     files = [ah.SourceFile(name=n) for n in A31]

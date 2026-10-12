@@ -47,7 +47,9 @@ def _check_registry_canonical(path: Path, dataset_id: str) -> int:
 
 
 def generate(defn, state, *, store=None, cache=None, allow_hash: bool = True,
-             data_lake: Optional[Path] = None) -> Dict[str, Any]:
+             data_lake: Optional[Path] = None, without_tile_reason: Optional[str] = None) -> Dict[str, Any]:
+    """without_tile_reason: tile を record に含めない理由（runtime node の tile が build node と別 build で、
+    sha256 が一致しない等）。指定時は tile=None・tile_note=理由を記録する（tile を検証済みとは主張しない）。"""
     from app.services import dataset_runtime_reconcile as drr
     from app.services.acquisition_history import get_acquisition_store
     from app.services.flood_routing_contract import load_meta, routing_paths_for_canonical
@@ -111,6 +113,9 @@ def generate(defn, state, *, store=None, cache=None, allow_hash: bool = True,
         validation["routing_coverage_false_negatives"] = rv["coverage_false_negatives"] if rv else None
         validation["routing_validation_source"] = rv["source"] if rv else None
     record["validation"] = validation
+    if without_tile_reason:
+        record["tile"] = None
+        record["tile_note"] = without_tile_reason
     return record
 
 

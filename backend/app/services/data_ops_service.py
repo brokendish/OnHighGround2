@@ -868,8 +868,51 @@ def build_dataset(defn: DatasetDefinition, state: DatasetState, view: drr.Runtim
             "overall": _overall(components),
             "components": components,
             "unobserved": [k for k, c in components.items() if c["status"] == UNOBSERVED],
+            "labels": integrity_labels(acq, rt_prov, components, defn),
         },
     }
+
+
+# 判定（overall / component status）とは別に、WARNING の中身を区別して示すラベル（DATA-OPS-WARNING-INVENTORY、
+# 2026-10-12）。「情報が無い」（node 差・観測経路）と「異常」（不一致）を分けて表示する。判定は変えない。
+LABEL_SEVERITY = {
+    "SOURCE_PROVENANCE_MISSING": WARNING, "ACQUISITION_HISTORY_MISSING": WARNING,
+    "PROVENANCE_SUSPECT": WARNING, "PROVENANCE_UNKNOWN": WARNING, "PROVENANCE_MISMATCH": ERROR,
+    "RUNTIME_PROVENANCE_UNKNOWN": WARNING, "RUNTIME_PROVENANCE_MISMATCH": ERROR,
+    "ACQUISITION_NOT_PRESENT_ON_THIS_NODE": "INFO", "OBSERVABILITY_LIMITED": "INFO",
+    "LEGACY_HISTORY": "INFO", "TILE_NOT_IN_RUNTIME_RECORD": "INFO",
+}
+
+
+def integrity_labels(acq: Dict[str, Any], rt_prov: Dict[str, Any], components: Dict[str, Any],
+                     defn: DatasetDefinition) -> List[Dict[str, str]]:
+    from app.services import runtime_provenance as rp
+    labels = []
+    missing = " ".join(acq.get("provenance_missing") or [])
+    if "source_provider" in missing or "source_dataset_name" in missing:
+        labels.append("SOURCE_PROVENANCE_MISSING")
+    if "acquisition history" in missing:
+        labels.append("ACQUISITION_HISTORY_MISSING")
+    if acq.get("acquisition_history") == "NOT PRESENT ON THIS NODE":
+        labels.append("ACQUISITION_NOT_PRESENT_ON_THIS_NODE")
+    validity = acq.get("validity")
+    if validity == "provenance_mismatch":
+        labels.append("PROVENANCE_MISMATCH")
+    elif validity == "provenance_suspect":
+        labels.append("PROVENANCE_SUSPECT")
+    elif validity == "unknown" and "acquisition history" not in missing:
+        labels.append("PROVENANCE_UNKNOWN")
+    if rt_prov.get("status") in (rp.MISMATCH, rp.INVALID):
+        labels.append("RUNTIME_PROVENANCE_MISMATCH")
+    elif rt_prov.get("status") == rp.ABSENT:
+        labels.append("RUNTIME_PROVENANCE_UNKNOWN")
+    if (rt_prov.get("record") or {}).get("tile_note"):
+        labels.append("TILE_NOT_IN_RUNTIME_RECORD")
+    if any(c["status"] == UNOBSERVED for c in components.values()):
+        labels.append("OBSERVABILITY_LIMITED")
+    if getattr(defn, "superseded_canonicals", None):
+        labels.append("LEGACY_HISTORY")
+    return [{"label": l, "severity": LABEL_SEVERITY[l]} for l in labels]
 
 
 def unregistered_section(view: drr.RuntimeView, expected: "set[str]", props: Dict[str, str]) -> List[Dict[str, Any]]:

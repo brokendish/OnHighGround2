@@ -198,8 +198,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://disaportal.gsi.go.jp/",
-    "official_source_url": "https://disaportal.gsi.go.jp/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A49/A49-20/A49-20_13_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A49-2024.html",
     "raw_storage_path": "data_lake/raw/tokyo/storm_surge",
     "normalized_storage_path": "data_lake/normalized/tokyo/storm_surge",
     "validated_storage_path": "data_lake/validated/tokyo/storm_surge",
@@ -212,7 +212,30 @@
     "tile_notes": [
       "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
     ],
-    "api_exposure": "enabled"
+    "api_exposure": "enabled",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "高潮浸水想定区域 A49（東京都 A49-20_13）",
+    "source_year": "2020",
+    "source_version": "1.0",
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A49-20_13_GML.zip"
+    ],
+    "expected_source_files": [
+      "A49-20_13_GML.zip"
+    ],
+    "expected_source_region_code": "13",
+    "source_region_code_regex": "^A49-\\d+_(\\d{2})",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-A49-2024.html）で A49-20_13_GML.zip（2020年）を確認（2026-10-12）",
+      "公式 zip の sha256 = cec46df37c0d8cabc660fc85f8ec6f0cac78b6754a5387f7be21b7a599810390（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報 高潮浸水想定区域 東京都 A49-20_13、version 1.0、2021-03-26（2024 年度版の掲載表でも東京は 2020 年が最新）",
+      "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+    ]
   },
   {
     "dataset_id": "TOKYO-URBAN-001",
@@ -237,8 +260,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://www.kensetsu.metro.tokyo.lg.jp/",
-    "official_source_url": "https://www.kensetsu.metro.tokyo.lg.jp/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A51/A51-24/A51-24_13_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A51-2024.html",
     "raw_storage_path": "data_lake/raw/tokyo/urban_flood",
     "normalized_storage_path": "data_lake/normalized/tokyo/inland_flood",
     "validated_storage_path": "data_lake/validated/tokyo/inland_flood",
@@ -251,7 +274,30 @@
     "tile_notes": [
       "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
     ],
-    "api_exposure": "enabled"
+    "api_exposure": "enabled",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "雨水出水浸水想定区域 A51（東京都 A51-24_13）",
+    "source_year": "2024",
+    "source_version": null,
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A51-24_13_GML.zip"
+    ],
+    "expected_source_files": [
+      "A51-24_13_GML.zip"
+    ],
+    "expected_source_region_code": "13",
+    "source_region_code_regex": "^A51-\\d+_(\\d{2})",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-A51-2024.html）で A51-24_13_GML.zip（2024年）を確認（2026-10-12）",
+      "公式 zip の sha256 = 8c82c0b438f9da0b52bd64fdd889d24d0fb924a68ac3da14822b40c5d8a7d0b7（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報（雨水出水浸水想定区域）A51、2025-03-26。データの版は記載なし（3.2.1 は GML 形式の版）",
+      "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+    ]
   },
   {
     "dataset_id": "TOKYO-SHELTER-001",
@@ -285,7 +331,10 @@
     "runtime_path": "data_runtime/backend/shelters",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_shelter",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "ingest_notes": [
+      "要確認（2026-10-12）: raw 13000_2.zip は国土地理院の定義で「指定緊急避難場所データ」で、canonical も全件一致する。dataset 定義の layer_type / 名称（指定避難所）と中身が逆。backend の避難所種別は file の内容（列）から判定するため避難先選択への影響はないが、registry・Data Ops の表示が実データと逆。是正方法（定義の名称・layer_type の修正か原本の入れ替えか）は OWNER 判断"
+    ]
   },
   {
     "dataset_id": "TOKYO-EVAC-001",
@@ -319,7 +368,10 @@
     "runtime_path": "data_runtime/backend/emergency_shelters",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_shelter",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "ingest_notes": [
+      "要確認（2026-10-12）: raw 13000_1.zip は国土地理院の定義で「指定避難所データ」で、canonical も全件一致する。dataset 定義の layer_type / 名称（指定緊急避難場所）と中身が逆。backend の避難所種別は file の内容（列）から判定するため避難先選択への影響はないが、registry・Data Ops の表示が実データと逆。是正方法（定義の名称・layer_type の修正か原本の入れ替えか）は OWNER 判断"
+    ]
   },
   {
     "dataset_id": "TOKYO-BOUNDARY-001",
@@ -379,8 +431,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://nlftp.mlit.go.jp/ksj/",
-    "official_source_url": "https://nlftp.mlit.go.jp/ksj/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A33/A33-24/A33-24_13_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A33-2024.html",
     "raw_storage_path": "data_lake/raw/tokyo/landslide",
     "normalized_storage_path": "data_lake/normalized/tokyo/landslide",
     "validated_storage_path": "data_lake/validated/tokyo/landslide",
@@ -388,7 +440,30 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_landslide",
     "validator_name": "validate_geometry",
-    "api_exposure": "enabled"
+    "api_exposure": "enabled",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "土砂災害警戒区域 A33（東京都 A33-24_13）",
+    "source_year": "2024",
+    "source_version": "1.0",
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A33-24_13_GML.zip"
+    ],
+    "expected_source_files": [
+      "A33-24_13_GML.zip"
+    ],
+    "expected_source_region_code": "13",
+    "source_region_code_regex": "^A33-\\d+_(\\d{2})",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-A33-2024.html）で A33-24_13_GML.zip（2024年）を確認（2026-10-12）",
+      "公式 zip の sha256 = bf02d48cd4dad6e429d7f1cc86388cd7c78c593a7e15bd287dd70b0169998789（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報（土砂災害警戒区域）A33-24、version 1.0、2025-03-26（原典資料の整備時点は都道府県で異なる）",
+      "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+    ]
   },
   {
     "dataset_id": "ROAD-DRIVING-KANTO-001",
@@ -485,14 +560,24 @@
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
     "source_url": "https://www.gsi.go.jp/bousaichiri/hinanbasho.html",
-    "official_source_url": "https://www.gsi.go.jp/bousaichiri/hinanbasho.html",
+    "official_source_url": "https://hinanmap.gsi.go.jp/hinanjocp/hinanbasho/koukaidate.html",
     "raw_storage_path": "data_lake/raw/kanagawa/shelter",
     "normalized_storage_path": "data_lake/normalized/kanagawa/shelter",
     "validated_storage_path": "data_lake/validated/kanagawa/shelter",
     "runtime_path": "data_runtime/backend/shelters/kanagawa",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_shelter",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "source_provider": "国土地理院",
+    "source_dataset_name": "指定緊急避難場所データ（神奈川県 14000_2）",
+    "expected_source_files": [
+      "14000_2.zip"
+    ],
+    "ingest_notes": [
+      "国土地理院「指定緊急避難場所・指定避難所データ」の配布ページで、都道府県別 zip の _2 は「指定緊急避難場所データ」列（2026-10-12 確認。ページの列定義と 14000_2.csv の列見出し（洪水・津波 等の災害種別）が一致）",
+      "raw 14000_2.zip の sha256 = 41583fe7490d4bcb35cd5aa5f82e815daab959a5cb512014a96a4f4a9db61dcf。配布 zip はページの JavaScript がその場で組み立てるため、公式 zip との sha 照合はできない",
+      "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-TSUNAMI-001",
@@ -739,8 +824,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://disaportal.gsi.go.jp/",
-    "official_source_url": "https://disaportal.gsi.go.jp/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A49/A49-24/A49-24_14_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A49-2024.html",
     "raw_storage_path": "data_lake/raw/kanagawa/storm_surge",
     "normalized_storage_path": "data_lake/normalized/kanagawa/storm_surge",
     "validated_storage_path": "data_lake/validated/kanagawa/storm_surge",
@@ -753,7 +838,30 @@
     "tile_notes": [
       "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
     ],
-    "api_exposure": "enabled"
+    "api_exposure": "enabled",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "高潮浸水想定区域 A49（神奈川県 A49-24_14）",
+    "source_year": "2024",
+    "source_version": null,
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A49-24_14_GML.zip"
+    ],
+    "expected_source_files": [
+      "A49-24_14_GML.zip"
+    ],
+    "expected_source_region_code": "14",
+    "source_region_code_regex": "^A49-\\d+_(\\d{2})",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-A49-2024.html）で A49-24_14_GML.zip（2024年）を確認（2026-10-12）",
+      "公式 zip の sha256 = aef39816fa3dc6e473cf70f3153f1b60b7adb0aec7ec36696a97afab19bfdc00（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報 高潮浸水想定区域 神奈川県 A49-24_14、2025-03-26。データの版は記載なし（3.2.1 は GML 形式の版）",
+      "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-URBAN-001",
@@ -778,8 +886,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://disaportal.gsi.go.jp/",
-    "official_source_url": "https://disaportal.gsi.go.jp/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A51/A51-24/A51-24_14_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A51-2024.html",
     "raw_storage_path": "data_lake/raw/kanagawa/urban_flood",
     "normalized_storage_path": "data_lake/normalized/kanagawa/inland_flood",
     "validated_storage_path": "data_lake/validated/kanagawa/inland_flood",
@@ -792,7 +900,30 @@
     "tile_notes": [
       "frontend は tile 優先、tile が無ければ apiUrl（/api/hazards/<type>/<region>、200 応答を 2026-10-11 VPS 確認）の GeoJSON で表示する"
     ],
-    "api_exposure": "enabled"
+    "api_exposure": "enabled",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "雨水出水浸水想定区域 A51（神奈川県 A51-24_14）",
+    "source_year": "2024",
+    "source_version": null,
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A51-24_14_GML.zip"
+    ],
+    "expected_source_files": [
+      "A51-24_14_GML.zip"
+    ],
+    "expected_source_region_code": "14",
+    "source_region_code_regex": "^A51-\\d+_(\\d{2})",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-A51-2024.html）で A51-24_14_GML.zip（2024年）を確認（2026-10-12）",
+      "公式 zip の sha256 = a648ba89ab5aaab431155a7e414c2a811e50c6c29da7ff78a984cbc2ff4be935（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報（雨水出水浸水想定区域）A51、2025-03-26。データの版は記載なし（3.2.1 は GML 形式の版）",
+      "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-LANDSLIDE-001",
@@ -818,8 +949,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://nlftp.mlit.go.jp/ksj/",
-    "official_source_url": "https://nlftp.mlit.go.jp/ksj/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/A33/A33-24/A33-24_14_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A33-2024.html",
     "raw_storage_path": "data_lake/raw/kanagawa/landslide",
     "normalized_storage_path": "data_lake/normalized/kanagawa/landslide",
     "validated_storage_path": "data_lake/validated/kanagawa/landslide",
@@ -827,7 +958,30 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_landslide",
     "validator_name": "validate_geometry",
-    "api_exposure": "enabled"
+    "api_exposure": "enabled",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "土砂災害警戒区域 A33（神奈川県 A33-24_14）",
+    "source_year": "2024",
+    "source_version": "1.0",
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "A33-24_14_GML.zip"
+    ],
+    "expected_source_files": [
+      "A33-24_14_GML.zip"
+    ],
+    "expected_source_region_code": "14",
+    "source_region_code_regex": "^A33-\\d+_(\\d{2})",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-A33-2024.html）で A33-24_14_GML.zip（2024年）を確認（2026-10-12）",
+      "公式 zip の sha256 = 35c10f5dadadea095ab5ac3604100ffc3b901b3b9a579c77049ba5c453bfd497（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報（土砂災害警戒区域）A33-24、version 1.0、2025-03-26（原典資料の整備時点は都道府県で異なる）",
+      "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+    ]
   },
   {
     "dataset_id": "KANAGAWA-BOUNDARY-001",
@@ -852,8 +1006,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://nlftp.mlit.go.jp/",
-    "official_source_url": "https://nlftp.mlit.go.jp/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2025/N03-20250101_14_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2025.html",
     "raw_storage_path": "data_lake/raw/kanagawa/boundary",
     "normalized_storage_path": "data_lake/normalized/kanagawa/boundary",
     "validated_storage_path": "data_lake/validated/kanagawa/boundary",
@@ -861,7 +1015,28 @@
     "transformer_name": "normalize_boundary",
     "validator_name": "validate_geometry",
     "expected_source_region_code": "14",
-    "source_region_code_regex": "^N03-\\d+_(\\d{2})"
+    "source_region_code_regex": "^N03-\\d+_(\\d{2})",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "行政区域 N03（神奈川県 N03-20250101_14、令和7年1月1日時点）",
+    "source_year": "2025",
+    "source_version": null,
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "N03-20250101_14_GML.zip"
+    ],
+    "expected_source_files": [
+      "N03-20250101_14_GML.zip"
+    ],
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-N03-2025.html）で N03-20250101_14_GML.zip（2025年）を確認（2026-10-12）",
+      "公式 zip の sha256 = 1cf3c1ee08686de1e2685e5f81b9f0eaf6abb94bfffcd0811cc109c84b2e9fb4（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報（行政区域）（令和7年1月1日時点）神奈川県。KS-META の version は「不明」、dateStamp は 2050-03-26（不自然な値のため採用しない）",
+      "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+    ]
   },
   {
     "dataset_id": "TOKYO-PSEUDO-INLAND-FLOOD-001",
@@ -925,8 +1100,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-G08.html",
-    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-G08.html",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/G08/G08-15/G08-15_13_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-G08-2015.html",
     "raw_storage_path": "data_lake/raw/tokyo/lowland_poor_drainage",
     "normalized_storage_path": "data_lake/normalized/tokyo/lowland_poor_drainage",
     "validated_storage_path": "data_lake/validated/tokyo/lowland_poor_drainage",
@@ -938,6 +1113,29 @@
     "tile_requirement": "required",
     "tile_notes": [
       "frontend は tile のみで表示（apiUrl なし）。/api/hazards/<type>/<region> は 422 で全量応答を拒否（2026-10-11 VPS 確認）"
+    ],
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "低位地帯 G08（東京都 G08-15_13）",
+    "source_year": "2015",
+    "source_version": "1.0",
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "G08-15_13_GML.zip"
+    ],
+    "expected_source_files": [
+      "G08-15_13_GML.zip"
+    ],
+    "expected_source_region_code": "13",
+    "source_region_code_regex": "^G08-\\d+_(\\d{2})",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-G08-2015.html）で G08-15_13_GML.zip（2015年）を確認（2026-10-12）",
+      "公式 zip の sha256 = c1cce92038905c556042fe94a8feff3cbf3092eb9a6cdda032a7f0e1258a80bb（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報低位地帯データ G08-15_13、version 1.0、2016-03-23",
+      "canonical は raw を公式 pipeline で再取込した結果と一致（2026-10-12 Local 再構築時に確認、VPS と同一 sha）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
     ]
   },
   {
@@ -964,8 +1162,8 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-G08.html",
-    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-G08.html",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/G08/G08-15/G08-15_14_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-G08-2015.html",
     "raw_storage_path": "data_lake/raw/kanagawa/lowland_poor_drainage",
     "normalized_storage_path": "data_lake/normalized/kanagawa/lowland_poor_drainage",
     "validated_storage_path": "data_lake/validated/kanagawa/lowland_poor_drainage",
@@ -977,6 +1175,29 @@
     "tile_requirement": "required",
     "tile_notes": [
       "frontend は tile のみで表示（apiUrl なし）。/api/hazards/<type>/<region> は 422 で全量応答を拒否（2026-10-11 VPS 確認）"
+    ],
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "低位地帯 G08（神奈川県 G08-15_14）",
+    "source_year": "2015",
+    "source_version": "1.0",
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "G08-15_14_GML.zip"
+    ],
+    "expected_source_files": [
+      "G08-15_14_GML.zip"
+    ],
+    "expected_source_region_code": "14",
+    "source_region_code_regex": "^G08-\\d+_(\\d{2})",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-G08-2015.html）で G08-15_14_GML.zip（2015年）を確認（2026-10-12）",
+      "公式 zip の sha256 = 57af4b08db9fe3eca4a343601a538431b02a5617964b3a1e74a545e5b434a664（2026-10-12 取得、raw と一致）",
+      "KS-META: 国土数値情報低位地帯データ G08-15_14、version 1.0、2016-03-23",
+      "canonical は raw を公式 pipeline で再取込した結果と一致（2026-10-12 Local 再構築時に確認、VPS と同一 sha）",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
     ]
   },
   {
@@ -1011,7 +1232,18 @@
     "runtime_path": "data_runtime/backend/shelters/kanagawa",
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_shelter",
-    "validator_name": "validate_geometry"
+    "validator_name": "validate_geometry",
+    "source_provider": "国土地理院",
+    "source_dataset_name": "指定避難所データ（神奈川県 14000_1）",
+    "expected_source_files": [
+      "14000_1.zip"
+    ],
+    "ingest_notes": [
+      "国土地理院「指定緊急避難場所・指定避難所データ」の配布ページで、都道府県別 zip の _1 は「指定避難所データ」列（2026-10-12 確認。ページの列定義と 14000_1.csv の列見出し（受入対象者・指定緊急避難場所との住所同一）が一致）",
+      "raw 14000_1.zip の sha256 = c57de19b7f64b6e48eb90d89ac93ce301a96cf36feacfb7588b70341b3e4ddce。配布 zip はページの JavaScript がその場で組み立てるため、公式 zip との sha 照合はできない",
+      "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）",
+      "DatasetState の current_raw_path が 14000_2.zip（KANAGAWA-SHELTER-001 の原本）を指していたが、canonical（1,576 件）は 14000_1.zip と全件一致し 14000_2.zip とは別物。誤っていたのは raw の記録だけ（2026-10-12 確認）"
+    ]
   },
   {
     "dataset_id": "TIDE-JMA-JAPAN-2026-001",

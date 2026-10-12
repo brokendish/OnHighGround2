@@ -29,6 +29,9 @@ def main() -> int:
     p = argparse.ArgumentParser(description="runtime provenance record を build node で生成する")
     p.add_argument("--dataset", action="append", required=True, help="対象 dataset（複数回指定可）")
     p.add_argument("--dry-run", action="store_true", help="書き出さずに内容だけ表示")
+    p.add_argument("--without-tile", metavar="REASON", default=None,
+                   help="tile を record に含めない（理由を tile_note に記録）。runtime node の tile が build node と"
+                        "別 build で sha256 が一致しない場合など")
     a = p.parse_args()
     _import_backend()
     from app.services import build_provenance
@@ -46,10 +49,10 @@ def main() -> int:
             continue
         try:
             if a.dry_run:
-                rec = build_provenance.generate(defn, state)
+                rec = build_provenance.generate(defn, state, without_tile_reason=a.without_tile)
                 print(json.dumps(rec, ensure_ascii=False, indent=2))
             else:
-                path = build_provenance.export(defn, state)
+                path = build_provenance.export(defn, state, without_tile_reason=a.without_tile)
                 rec = json.loads(path.read_text(encoding="utf-8"))
                 print(json.dumps({"dataset_id": dataset_id, "written": str(path),
                                   "runtime_artifact": rec["runtime_artifact"], "tile": rec["tile"],

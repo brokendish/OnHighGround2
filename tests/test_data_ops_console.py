@@ -672,9 +672,13 @@ def test_registry_river_definition_and_consistency():
     # 取得元は公式原本と照合済みの証拠がある dataset だけ（flood 2 件: KSJ A31、CHIBA-TSUNAMI-001: KSJ A40-18_12 の
     # zip sha256 一致、2026-10-11）。他は推測で補っていない
     # tsunami 3 件: KSJ A40 の公式 zip と raw の sha256 一致・canonical の再生成一致を確認（2026-10-11）
-    assert {d.dataset_id for d in ds.list_all() if d.source_provider} == {"TOKYO-RIVER-001", "KANAGAWA-RIVER-001",
-                                                                       "CHIBA-TSUNAMI-001", "TOKYO-TSUNAMI-001",
-                                                                       "KANAGAWA-TSUNAMI-001"}
+    # 2026-10-12: KSJ の公式 zip と raw の sha256 一致・canonical の再正規化一致を確認した 9 件と、国土地理院の
+    # 公式定義と CSV 列・共通 ID で中身を確認した KANAGAWA の避難所 2 件
+    assert {d.dataset_id for d in ds.list_all() if d.source_provider} == {
+        "TOKYO-RIVER-001", "KANAGAWA-RIVER-001", "CHIBA-TSUNAMI-001", "TOKYO-TSUNAMI-001", "KANAGAWA-TSUNAMI-001",
+        "TOKYO-SURGE-001", "KANAGAWA-SURGE-001", "TOKYO-URBAN-001", "KANAGAWA-URBAN-001",
+        "TOKYO-LANDSLIDE-001", "KANAGAWA-LANDSLIDE-001", "TOKYO-LOWLAND-POOR-DRAINAGE-001",
+        "KANAGAWA-LOWLAND-POOR-DRAINAGE-001", "KANAGAWA-BOUNDARY-001", "KANAGAWA-SHELTER-001", "KANAGAWA-EVAC-001"}
 
 
 def test_ui_uses_server_judgement_and_text_status():
