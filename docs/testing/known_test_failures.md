@@ -1,0 +1,74 @@
+# 既知のテスト失敗（known test failures）
+
+full regression（`venv/bin/python -m pytest -q -p no:cacheprovider tests backend/tests`）で失敗するが、
+原因が分かっていて今は直さないテストの台帳。ここに載せることは「失敗を受け入れた」記録であり、
+解決ではない。各項目は期限と、何をもって閉じるかを持つ。期限を過ぎた項目は再判定する。
+
+新しい失敗をここへ足すときは、原因・分類・公開への影響・期限・閉じる条件を書く。
+skip / xfail・assertion の緩和で失敗を消さない。
+
+分類: A 製品の不具合 / B 公開 blocker / C 古い期待値 / D 古い fixture / E platform 依存 /
+F テスト基盤の不具合 / G 意図した挙動 / H 公開対象外（operator 等）/ I 原因未確定
+
+## 未解消（2026-10-12 時点）
+
+### KTF-001 `backend/tests/test_phase2b6_rollback.py::test_rollback_isolated_setup_and_reader_observation`
+
+| 項目 | 内容 |
+|---|---|
+| 失敗 | macOS で `RuntimeAtomicError: renameat2はこのplatformで利用不能（platform=darwin）` |
+| 原因 | atomic publish / rollback は Linux の `renameat2(RENAME_NOREPLACE)` を使う（`runtime_atomic.py`）。macOS には無い。同種のテスト（`test_tile_retirement.py` 等）は Linux 専用の marker を持つが、このテストには無い |
+| 分類 | E（platform 依存）。F（Linux 専用 marker の欠落） |
+| 判定 | NON_BLOCKER・P3 |
+| 公開への影響 | なし。Linux（backend-public image、arm64）では PASS。本番 VPS（amd64）は publish のたびにこの経路を使っている |
+| first_seen | Phase 2-B.6（2026-08-15、「既知の Linux 専用 rollback test」として deselect されていた） |
+| last_verified | 2026-10-12（macOS: FAIL、Linux container: PASS） |
+| 受け入れる理由 | 製品の挙動は正しく、失敗は実行 platform の制約だけ |
+| 期限 | 次の public-release gate（Phase 2-E）の再実行前 |
+| 閉じる条件 | (a) 同種テストと同じ Linux 専用 marker を付け、Linux での PASS を release gate の証跡に含める、または (b) macOS では Linux container 内で実行する。どちらにするかは skip 追加の扱いを含めて別 phase で決める |
+
+### KTF-002 `tests/test_runtime_mbtiles_group_contract.py::test_C_permission_matrix_flat_mirror_backend_public_can_read_all_mbtiles`
+
+| 項目 | 内容 |
+|---|---|
+| 失敗 | 権限 matrix 74 項目中 1 項目:「flat mirror sync失敗: operatorが書き込めないdirectory（root:root 0700）では exit 2」が exit 1 |
+| 原因 | `scripts/publish/sync_frontend_tiles_mirror.sh` の cp 失敗時の後始末 `rm -f -- "${tmp}"` が、operator が traverse できない directory では Permission denied で失敗し、`set -euo pipefail` によりその場で exit 1 になる（`exit 2` と `log_warn` に届かない）。rename 失敗時の後始末も同じ形 |
+| first-bad | 660cf34（2026-10-06、mirror 同期を file 単位の atomic rename に変更） |
+| 分類 | A（製品の不具合）・H（operator の publish script、公開 runtime ではない） |
+| 判定 | NON_BLOCKER・P3（重大度 低） |
+| 公開への影響 | なし。呼び出し側 `deploy_to_runtime_atomic.sh` は 0 と 4 以外の終了コードをすべて warning として扱うため、exit 1 でも publish の結果・表示は exit 2 と同じ。契約違反の exit 4（fail-loud）は正しく動く。失われるのは script 側の「cp 同期に失敗」の warning 行だけ |
+| 再現 | uid 10002 で、root:root 0700 の directory へ `set -e` 下で cp → `rm -f` すると exit 1。`rm -f ... 2>/dev/null \|\| true` にすると exit 2 |
+| last_verified | 2026-10-12（backend-public image で matrix 73/74） |
+| 受け入れる理由 | 公開 runtime・避難判断に影響しない operator script の終了コードの不一致で、製品の挙動の変更は triage の範囲外 |
+| 期限 | 専用 phase（MIRROR-SYNC-EXIT-CODE）で修正する。Phase 2-E の release gate 再実行前 |
+| 閉じる条件 | 後始末の `rm -f` を失敗しても止まらない形にし、matrix 74/74 PASS |
+
+補足: この matrix を使う Phase 2-B.5 の正式 tool（`tools/public_release/phase2b5_atomic_publish.py`）は今も素の
+`python:3.11-slim` で matrix を実行するため、現在の HEAD では ijson の import で stream 系 2 項目も失敗する
+（テスト側は 2026-10-12 に backend-public image へ変更済み）。Phase 2-B.5 の evidence を取り直すときは同じ変更が要る。
+
+## triage 記録（2026-10-12、HEAD ee944e9）
+
+開始時の full regression: 2312 passed / 11 failed / 16 skipped。11 件はすべて単独実行でも再現した。
+Linux（backend-public image、arm64）では #2 だけが PASS し、残りは同じく失敗した（#9 は container 内に Docker が無く skip）。
+
+| # | テスト | 原因 | first-bad | 分類 | 判定 | 優先度 | 結果 |
+|---|---|---|---|---|---|---|---|
+| 1 | `test_phase2b1_entrypoint_boundary.py::test_all_public_routes_match_exact_allowlist` | storm_surge / tsunami の GeoJSON を catch-all から専用 streaming route へ移した（URL の範囲は同じ）のに allowlist が未更新 | 765f4f7・564ea02（2026-09-12） | C | NON_BLOCKER | P1 | 修正（45 → 47 件、完全一致の検査は維持） |
+| 2 | `test_phase2b6_rollback.py::test_rollback_isolated_setup_and_reader_observation` | renameat2 は Linux 専用 | — | E・F | NON_BLOCKER | P3 | 未解消（KTF-001） |
+| 3 | `navigation/test_interaction.py::test_interaction_matrix` | sweep から閾値 100 を外したのに、テストが rt=100 を探して StopIteration。後続の assertion は実行されていなかった | b0a044f（2026-04-23） | F・C | NON_BLOCKER | P2 | 修正（sweep の最大値を使い、全 cell の存在も検査。後続の assertion も PASS） |
+| 4 | `test_hazard_layers_source_guards.py::test_hazard_layer_source_routing` | storm_surge は vector tile へ移行（preferApi 削除）、旧 tile `tokyo_storm_surge` は退役、tileset ID は /meta から解決 | b9b43c0（2026-04-12）・4e4af1e・88ce04d（2026-09-05） | C | NON_BLOCKER | P2 | 修正（現行の契約を検査し、旧 tile ID・旧解決方式が戻らないことも検査） |
+| 5 | `test_hazard_layers_source_guards.py::test_set_visibility_has_simple_on_off_branches` | 表示 ON の追加処理が zoom 帯の `_applyZoomBandToLayer` へ移った（二重追加の guard は維持） | 5d78030（2026-05-01） | C | NON_BLOCKER | P2 | 修正 |
+| 6 | `test_live_kikikuru_summary_service.py::test_no_danger_detected_false` | watch（注意）も areas に含める仕様へ変更。danger_detected は warning / danger のみ | ce40b18（2026-06-03） | C | NON_BLOCKER | P2 | 修正 |
+| 7 | `test_live_kikikuru_summary_service.py::test_watch_does_not_enter_areas` | 同上 | ce40b18 | C | NON_BLOCKER | P2 | 修正（並び順 danger > warning > watch のテストを追加） |
+| 8 | `test_live_train_service.py::test_fetch_all_disruptions_filters_challenge_items` | ODPT operator allowlist（TokyoMetro / Toei）導入後、JR-West は fail closed で表示されない。テストは環境変数を直接書き換えていた | 265dd12（2026-08-30） | C・F | NON_BLOCKER | P2 | 修正（allowlist の operator を使い、allowlist 外の拒否も検査。monkeypatch へ変更） |
+| 9 | `test_runtime_mbtiles_group_contract.py::test_C_permission_matrix_...` | (a) 素の python:3.11-slim に ijson が無く stream 系 2 項目が import 失敗、(b) mirror script の exit コード | (a) 6b61b6d（2026-10-11）、(b) 660cf34（2026-10-06） | (a) F、(b) A・H | NON_BLOCKER | P3 | (a) 修正（backend-public image で実行）、(b) 未解消（KTF-002） |
+| 10 | `test_safety_critical.py::test_unknown_hazard_text_constant_is_defined` | 公開準備で肯定的な安全表現をやめ、`UNKNOWN_HAZARD_TEXT` を `SOURCE_UNAVAILABLE_TEXT` へ置き換えた（unknown を安全と表示しない分岐は維持） | 265dd12（2026-08-30） | C | NON_BLOCKER | P2 | 修正（新しい定数・unknown 分岐での使用・文言に「安全」を含まないことを検査） |
+| 11 | `test_safety_critical.py::test_assess_candidate_tsunami_outside_when_full_coverage` | flood / tsunami の読み込み判定が numpy bbox 配列へ移ったのに、テストが `_polygons` を直接書き換えていたため未読み込み扱い（unknown）になった。製品は安全側 | 8588221（2026-04-18） | F | NON_BLOCKER | P2 | 修正（本番と同じ `load_geojson_streaming(bbox_only=True)` で読み込む） |
+
+関連して見つけて直したもの:
+
+- `test_assess_candidate_injects_unknown_when_coverage_incomplete` は #11 と同じ理由で、coverage の guard を通らずに
+  unknown になり PASS していた。正規の読み込み経路に揃え、guard を無効にすると失敗することを確認した。
+- `tests/navigation/conftest.py` は、一部のテストだけを実行しても、追跡対象の `reports/parameter_sweep/*.md` を
+  部分的な結果で上書きしていた。3 種類の sweep がすべて実行されたときだけ書くようにした。

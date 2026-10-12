@@ -61,7 +61,11 @@ def test_no_danger_detected_false():
     sec = build_kikikuru_section_from_samples(samples, _OBS_AT)
     assert sec["evaluated"] is True
     assert sec["summary"]["danger_detected"] is False
-    assert sec["areas"] == []
+    # Phase 5-A fix（2026-06-03、ce40b18）以降、watch は areas に入る（危険地域統合の注意域）。
+    # danger_detected は warning / danger だけで判定する。
+    assert [a["level"] for a in sec["areas"]] == ["watch", "watch"]
+    assert sec["summary"]["warning_area_count"] == 0
+    assert sec["summary"]["danger_area_count"] == 0
 
 
 def test_no_danger_reason_sampled_kikikuru():
@@ -139,13 +143,23 @@ def test_danger_area_count():
     assert sec["summary"]["warning_area_count"] == 0
 
 
-# ── watch は dangerous_areas に入らない ──────────────────────────────────────
+# ── watch は areas に入るが danger_detected にはならない（ce40b18、2026-06-03）──────────
 
 def test_watch_does_not_enter_areas():
     samples = _make_samples(["watch"] * 5)
     sec = build_kikikuru_section_from_samples(samples, _OBS_AT)
-    assert sec["areas"] == []
+    assert [a["level"] for a in sec["areas"]] == ["watch"] * 5
+    assert sec["summary"]["watch_area_count"] == 5
     assert sec["summary"]["danger_detected"] is False
+    assert sec["summary"]["warning_area_count"] == 0
+    assert sec["summary"]["danger_area_count"] == 0
+
+
+def test_watch_sorts_after_warning_and_danger():
+    samples = _make_samples(["watch", "warning", "watch", "danger", "normal"])
+    sec = build_kikikuru_section_from_samples(samples, _OBS_AT)
+    assert [a["level"] for a in sec["areas"]] == ["danger", "warning", "watch", "watch"]
+    assert sec["summary"]["danger_detected"] is True
 
 
 def test_watch_counted_in_summary():

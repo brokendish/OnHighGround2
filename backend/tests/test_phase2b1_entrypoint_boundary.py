@@ -63,6 +63,13 @@ SUBPROCESS_TIMEOUT_SECONDS = 180
 # 出典: tasks/public-release/github_public_audit_phase2b1_codex_verification.md
 #       第4.1節（実物public image内でのroute inventory実測、50件）から
 #       Phase 2-Cのdocs無効化差分を反映
+#
+# 47件（2026-10-12）: 2026-09-12 の STORM-SURGE / TSUNAMI-FALLBACK-STREAMING Phase B1
+# （765f4f7・564ea02）で、catch-all `GET /api/hazards/{hazard_type}/{region_code}` が受けていた
+# storm_surge / tsunami の GeoJSON を、json.load しない専用 streaming route
+# （`GET /api/hazards/storm_surge/{region}`・`GET /api/hazards/tsunami/{region}`）へ移した。
+# 公開される URL の範囲は変わらない（catch-all に含まれていた path、同じ _require_public_geojson
+# による fail-closed の公開判定）。inland_flood / landslide の専用 route と同じ扱い。
 EXPECTED_PUBLIC_ROUTES = frozenset(
     {
         "GET /",
@@ -80,6 +87,8 @@ EXPECTED_PUBLIC_ROUTES = frozenset(
         "GET /api/hazards/active",
         "GET /api/hazards/inland_flood/{region}",
         "GET /api/hazards/landslide/{region}",
+        "GET /api/hazards/storm_surge/{region}",
+        "GET /api/hazards/tsunami/{region}",
         "GET /api/hazards/{hazard_type}/{region_code}",
         "GET /api/hazards/{hazard_type}/{region_code}/meta",
         "GET /api/jartic/traffic",
@@ -112,7 +121,7 @@ EXPECTED_PUBLIC_ROUTES = frozenset(
         "GET /api/weather/warnings",
     }
 )
-assert len(EXPECTED_PUBLIC_ROUTES) == 45
+assert len(EXPECTED_PUBLIC_ROUTES) == 47
 
 # 管理・operator機能のroute prefix denylist（public routeに1件でも現れてはならない）
 DENYLIST_PREFIXES = (
@@ -199,7 +208,7 @@ def _route_paths(introspection: Dict[str, Any]) -> set:
 
 
 class TestPublicRouteAllowlist:
-    """AT-01: public route一覧が明示allowlist（45件のmethod+path exact set）と完全一致、
+    """AT-01: public route一覧が明示allowlist（47件のmethod+path exact set）と完全一致、
     admin/simulation/operator routeが0件（P2B1-CX-002対応、prefix包括許可を廃止）。"""
 
     def test_all_public_routes_match_exact_allowlist(self, public_introspection_clean_env):
@@ -209,11 +218,11 @@ class TestPublicRouteAllowlist:
         missing = sorted(EXPECTED_PUBLIC_ROUTES - actual)
         extra = sorted(actual - EXPECTED_PUBLIC_ROUTES)
         assert missing == [] and extra == [], (
-            f"public route一覧が規範allowlist（45件）と完全一致しない。\n"
+            f"public route一覧が規範allowlist（47件）と完全一致しない。\n"
             f"missing（規範集合にあるがpublicに存在しない）: {missing}\n"
             f"extra（publicに存在するが規範集合にない、想定外route追加の疑い）: {extra}"
         )
-        assert len(actual) == 45, f"route数が45件ではない: {len(actual)}"
+        assert len(actual) == len(EXPECTED_PUBLIC_ROUTES) == 47, f"route数が47件ではない: {len(actual)}"
 
     def test_no_admin_or_simulation_routes(self, public_introspection_clean_env):
         paths = _route_paths(public_introspection_clean_env)

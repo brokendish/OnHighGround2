@@ -442,28 +442,30 @@ def test_excluded_keywords_env_override(monkeypatch):
     assert _excluded_keywords() == ("foo", "bar")
 
 
-def test_fetch_all_disruptions_filters_challenge_items():
-    """_fetch_all_disruptions が challenge2026 相当のraw itemを除外する。"""
-    import os
+def test_fetch_all_disruptions_filters_challenge_items(monkeypatch):
+    """_fetch_all_disruptions が challenge2026 相当のraw itemを除外する。
 
-    os.environ["ODPT_API_KEY"] = "test-key"
+    公開準備（2026-08-30、265dd12）の ODPT operator allowlist（odpt_allowlist_data.json、
+    TokyoMetro / Toei）以降、allowlist 外の operator（例: JR-West）も表示されない（fail closed）。
+    表示される側の例は allowlist の operator を使う。
+    """
+    monkeypatch.setenv("ODPT_API_KEY", "test-key")
     raw_list = [
         _make_raw(railway="odpt.Railway:Challenge2026.SomeLine",
                    operator="odpt.Operator:Challenge2026",
+                   status={"ja": "遅延"}),
+        _make_raw(railway="odpt.Railway:TokyoMetro.Ginza",
+                   operator="odpt.Operator:TokyoMetro",
                    status={"ja": "遅延"}),
         _make_raw(railway="odpt.Railway:JR-West.Kobe",
                    operator="odpt.Operator:JR-West",
                    status={"ja": "遅延"}),
     ]
-    try:
-        with patch("app.services.live_train_service._fetch_odpt_train_information",
-                   return_value=raw_list):
-            items = _run(_fetch_all_disruptions())
-        railway_ids = [it["railway_id"] for it in items]
-        assert "odpt.Railway:Challenge2026.SomeLine" not in railway_ids
-        assert "odpt.Railway:JR-West.Kobe" in railway_ids
-    finally:
-        os.environ.pop("ODPT_API_KEY", None)
+    with patch("app.services.live_train_service._fetch_odpt_train_information",
+               return_value=raw_list):
+        items = _run(_fetch_all_disruptions())
+    railway_ids = [it["railway_id"] for it in items]
+    assert railway_ids == ["odpt.Railway:TokyoMetro.Ginza"]
 
 
 # ── matched_geojson 診断フィールド (Phase 7-A.5) ──────────────────────────────

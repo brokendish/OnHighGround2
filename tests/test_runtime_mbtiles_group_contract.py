@@ -16,12 +16,18 @@ A. 静的ガード: atomic publishがflat mirror同期を専用scriptへ委譲�
 B. 観測性: mbtilesを読めない場合にwarningを出す（返り値仕様 source_layer=None は不変）。
 C. 実権限の検証（Docker）: 権限matrixを実行し、旧同期の再現・誤group/modeの検出・自動修復・
    backend-public(10001+20001)が公開対象MBTilesを全て読めることを確認する。
-   Docker / python:3.11-slim が無い環境ではskipする。
+   Docker / backend-public image が無い環境ではskipする。
+
+   matrix は app.services（runtime_version_access → runtime_publish → runtime_dataset_validate）を
+   import する。runtime_dataset_validate は import 時に ijson を読む（2026-10-11、6b61b6d）ため、
+   backend/requirements.txt の依存を持たない素の python:3.11-slim では import に失敗する。
+   backend-public image（backend/Dockerfile = python:3.11-slim + requirements.txt）で実行する。
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -131,14 +137,17 @@ def test_B2_readable_mbtiles_resolves_non_null_source_layer(tmp_path, monkeypatc
 
 # ── C. 実権限（Docker）: 権限matrix ───────────────────────────────────────────
 
+MATRIX_IMAGE = os.environ.get("OHG2_PERM_MATRIX_IMAGE", "onhighground2-backend-public:latest")
+
+
 def _docker_ready() -> bool:
     if not shutil.which("docker"):
         return False
-    r = subprocess.run(["docker", "image", "inspect", "python:3.11-slim"], capture_output=True)
+    r = subprocess.run(["docker", "image", "inspect", MATRIX_IMAGE], capture_output=True)
     return r.returncode == 0
 
 
-@pytest.mark.skipif(not _docker_ready(), reason="docker / python:3.11-slim が利用できない")
+@pytest.mark.skipif(not _docker_ready(), reason=f"docker / {MATRIX_IMAGE} が利用できない")
 def test_C_permission_matrix_flat_mirror_backend_public_can_read_all_mbtiles():
     vol = f"ohg2-mbtiles-contract-{uuid.uuid4().hex[:8]}"
     subprocess.run(["docker", "volume", "create", vol], check=True, capture_output=True)
@@ -149,7 +158,7 @@ def test_C_permission_matrix_flat_mirror_backend_public_can_read_all_mbtiles():
              "-v", f"{REPO_ROOT}/backend/app:/app/app:ro",
              "-v", f"{REPO_ROOT}/scripts:/scripts:ro",
              "-v", f"{MATRIX}:/perm_test.py:ro",
-             "python:3.11-slim", "python3", "/perm_test.py"],
+             MATRIX_IMAGE, "python3", "/perm_test.py"],
             capture_output=True, text=True, timeout=300,
         )
     finally:

@@ -149,10 +149,15 @@ def test_interaction_matrix(interaction_results):
             and r['noise_sigma'] == sigma
         )
 
+    # Every swept cell must exist; a lookup for a value that is not in the sweep would raise
+    # StopIteration before any assertion runs (rt=100 left the sweep in b0a044f, 2026-04-23).
+    assert len(interaction_results) == 2 * len(ARRIVAL_RADIUS_SWEEP) * len(REROUTE_THRESHOLD_SWEEP)
+
     # Large radius + large threshold + σ=0: user always reaches DEST → arrival must fire
-    res = _get(75, 100, sigma=0)
+    ar_max, rt_max = max(ARRIVAL_RADIUS_SWEEP), max(REROUTE_THRESHOLD_SWEEP)
+    res = _get(ar_max, rt_max, sigma=0)
     assert res['arrival_rate'] == 1.0, (
-        f"ar=75, rt=100 σ=0: expected 100% arrival, got {res['arrival_rate']:.2f}"
+        f"ar={ar_max}, rt={rt_max} σ=0: expected 100% arrival, got {res['arrival_rate']:.2f}"
     )
 
     # Small radius + small threshold: reroute should fire (30 m offset > any tested threshold)

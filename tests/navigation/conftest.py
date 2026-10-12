@@ -42,8 +42,9 @@ def interaction_results():
 
 def pytest_sessionfinish(session, exitstatus):
     """Generate markdown reports after all tests have run."""
-    # Only generate if any results were collected
-    if not (_arrival_results or _reroute_results or _interaction_results):
+    # Only generate when all three sweeps ran. reports/parameter_sweep/*.md are tracked files: a
+    # partial run (one test file or -k) would otherwise overwrite them with partial results.
+    if not (_arrival_results and _reroute_results and _interaction_results):
         return
     try:
         from report_generator import generate_all_reports

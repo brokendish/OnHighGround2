@@ -342,6 +342,29 @@ class TestTsunamiDegradedCoverage(unittest.TestCase):
       - derive_hazard_safe → None（unknown）
     """
 
+    # 判定点（有明北部 35.6415, 139.7905）から遠い北海道沖の矩形。テスト点は常に polygon の外。
+    _FAR_RING = [[141.0, 43.0], [142.0, 43.0], [142.0, 44.0], [141.0, 44.0], [141.0, 43.0]]
+
+    def _load_far_polygon(self, svc, hazard_type, stems):
+        """本番と同じ経路（load_geojson_streaming、bbox_only=True）で読み込む。
+
+        flood / tsunami の「読み込み済み」は numpy bbox 配列で判定する（2026-04-18 の 8588221 以降）。
+        _polygons を直接書き換えるだけでは未読み込み扱いになり、assess_candidate は coverage の
+        判定より前に "unknown" を返してしまう（テストが意図した分岐を通らない）。
+        source 名は file 名の stem になるので、stem ごとに 1 file を読む。
+        """
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            for stem in stems:
+                p = Path(d) / f"{stem}.geojson"
+                p.write_text(json.dumps({"type": "FeatureCollection", "features": [
+                    {"type": "Feature", "properties": {},
+                     "geometry": {"type": "Polygon", "coordinates": [self._FAR_RING]}}]}), encoding="utf-8")
+                svc.load_geojson_streaming(hazard_type, p, bbox_only=True)
+        self.assertTrue(svc.is_loaded(hazard_type), f"{hazard_type} が読み込み済みにならない")
+        self.assertEqual(svc._sources[hazard_type], list(stems))
+
     def _make_service(self, loaded_targets, expected_targets):
         """
         loaded_targets: 実際にロードするターゲット名リスト（ファイルは存在しない想定のためスキップ）
@@ -403,19 +426,15 @@ class TestTsunamiDegradedCoverage(unittest.TestCase):
         """
         from hazard_service import HazardService, derive_hazard_safe
 
-        # ダミーポリゴン（北海道沖・テスト点 35.64 から遠い → outside 判定）
-        dummy_poly = {"bbox": (43.0, 141.0, 44.0, 142.0), "coords": [
-            [141.0, 43.0], [142.0, 43.0], [142.0, 44.0], [141.0, 44.0], [141.0, 43.0]
-        ]}
-
         svc = HazardService()
-        svc._polygons["flood"]   = [dummy_poly]
-        svc._sources["flood"]    = ["tokyo_flood"]
-        svc._polygons["tsunami"] = [dummy_poly]   # loaded_hazard_types に含まれるよう非空
-        svc._sources["tsunami"]  = ["tsunami_tokyo"]  # tokyo のみロード済み
-        svc.set_expected_tsunami_sources(["tokyo", "kanagawa", "chiba"])  # chiba 欠落
+        self._load_far_polygon(svc, "flood", ["tokyo_flood"])
+        self._load_far_polygon(svc, "tsunami", ["tsunami_tokyo"])  # tokyo のみロード済み
+        svc.set_expected_tsunami_sources(["tokyo", "kanagawa", "chiba"])  # kanagawa / chiba 欠落
+        # 読み込んだ polygon だけで判定すれば outside（coverage の guard が無ければ false safe になる点）
+        self.assertEqual(svc.check_point_assessment(35.6415, 139.7905, "tsunami"), "outside")
 
         assessment = svc.assess_candidate(35.6415, 139.7905)  # 有明北部
+        self.assertEqual(assessment.get("flood"), "outside")
 
         self.assertIn("tsunami", assessment,
                       "assess_candidate は tsunami キーを含むべき")
@@ -438,16 +457,11 @@ class TestTsunamiDegradedCoverage(unittest.TestCase):
         """
         from hazard_service import HazardService, derive_hazard_safe
 
-        dummy_poly = {"bbox": (43.0, 141.0, 44.0, 142.0), "coords": [
-            [141.0, 43.0], [142.0, 43.0], [142.0, 44.0], [141.0, 44.0], [141.0, 43.0]
-        ]}
-
         svc = HazardService()
-        svc._polygons["flood"]   = [dummy_poly]
-        svc._sources["flood"]    = ["tokyo_flood"]
-        svc._polygons["tsunami"] = [dummy_poly]
-        svc._sources["tsunami"]  = ["tsunami_tokyo", "tsunami_kanagawa", "tsunami_chiba"]
+        self._load_far_polygon(svc, "flood", ["tokyo_flood"])
+        self._load_far_polygon(svc, "tsunami", ["tsunami_tokyo", "tsunami_kanagawa", "tsunami_chiba"])
         svc.set_expected_tsunami_sources(["tokyo", "kanagawa", "chiba"])  # 全件ロード済み
+        self.assertTrue(svc.has_full_tsunami_coverage())
 
         assessment = svc.assess_candidate(35.6415, 139.7905)
         # coverage は full なので unknown への上書きなし → 通常判定（ダミーポリゴンは外 → outside）
@@ -478,9 +492,20 @@ class TestBuildHazardReasonBlockSourceGuards(unittest.TestCase):
         cls.SOURCE = cls.SOURCE_PATH.read_text(encoding="utf-8")
 
     def test_unknown_hazard_text_constant_is_defined(self):
-        """UNKNOWN_HAZARD_TEXT 定数が定義されていること"""
-        self.assertIn("UNKNOWN_HAZARD_TEXT", self.SOURCE,
-                      "UNKNOWN_HAZARD_TEXT 定数が未定義です")
+        """unknown のときの表示文言（SOURCE_UNAVAILABLE_TEXT）が定義され、unknown の分岐で使われていること。
+
+        公開準備（2026-08-30、265dd12）で肯定的な安全表現をやめ、UNKNOWN_HAZARD_TEXT（「未判定」）は
+        SOURCE_UNAVAILABLE_TEXT（「ハザード情報を確認できません」）へ、SAFE_HAZARD_TEXT は
+        NO_HAZARD_RECORD_TEXT（「該当ハザード記録なし（危険がないことを示すものではありません）」）へ置き換えた。
+        """
+        m = re.search(r"const SOURCE_UNAVAILABLE_TEXT\s*=\s*'([^']+)'", self.SOURCE)
+        self.assertIsNotNone(m, "SOURCE_UNAVAILABLE_TEXT 定数が未定義です")
+        self.assertNotIn("安全", m.group(1), "unknown の文言が安全を示している")
+        self.assertIn('<span class="hazard-reason-item is-unknown">❓ ${SOURCE_UNAVAILABLE_TEXT}</span>', self.SOURCE,
+                      "unknown の分岐が SOURCE_UNAVAILABLE_TEXT を表示していません")
+        m = re.search(r"const NO_HAZARD_RECORD_TEXT\s*=\s*'([^']+)'", self.SOURCE)
+        self.assertIsNotNone(m, "NO_HAZARD_RECORD_TEXT 定数が未定義です")
+        self.assertIn("危険がないことを示すものではありません", m.group(1))
 
     def test_build_hazard_reason_block_checks_unknown_status(self):
         """buildHazardReasonBlock が 'unknown' を検出していること"""
