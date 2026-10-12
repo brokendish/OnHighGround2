@@ -415,6 +415,23 @@ def _finalize_acquisition(job: Job, defn: DatasetDefinition, acquisition_id: Opt
 
 # ── ingest_upload ─────────────────────────────────────────────────────────────
 
+# raw 原本の file mode 契約（RAW-ARTIFACT-PERMISSION、2026-10-12）。raw は公開 open data（国土数値情報・
+# 国土地理院等）で秘密情報を含まない。upload の一時 file（NamedTemporaryFile = 0600）を shutil.copy2 すると
+# mode がそのまま引き継がれ、作成時の process umask でも変わるため、保存直後に明示的に揃える。
+# 2026-04 の operator は root 実行だったため VPS に root:root 0600 の raw が残り、operator（uid 10002）から
+# 読めなかった（取得履歴・出典を検証できない）。所有者は書き込んだ process のまま（chown はしない）。
+RAW_FILE_MODE = 0o644
+
+
+def _apply_raw_file_mode(job: Job, jm: JobManager, path: Path) -> None:
+    """保存した raw の mode を RAW_FILE_MODE にする（内容は変えない）。できなければ job log に残す。"""
+    try:
+        os.chmod(path, RAW_FILE_MODE)
+    except OSError as exc:
+        logger.warning("raw file mode を %o にできない: %s: %s", RAW_FILE_MODE, path, exc)
+        jm.log(job, f"WARNING: raw file mode を {RAW_FILE_MODE:o} にできません: {path}: {exc}")
+
+
 async def run_ingest_upload(
     job: Job,
     defn: DatasetDefinition,
@@ -447,6 +464,7 @@ async def run_ingest_upload(
         file_name = tmp_path.name
         dest_path = dest_dir / file_name
         shutil.copy2(tmp_path, dest_path)
+        _apply_raw_file_mode(job, jm, dest_path)
         jm.log(job, f"Stored: {dest_path} ({dest_path.stat().st_size} bytes)")
 
         state.storage_status = StorageStatus.stored
@@ -643,6 +661,8 @@ async def _store_downloaded(
     if not _source_set_guard(job, jm, defn, dest_path):
         return
 
+    if dest_path.exists():
+        _apply_raw_file_mode(job, jm, dest_path)
     file_size = dest_path.stat().st_size if dest_path.exists() else 0
     jm.log(job, f"Stored: {dest_path} ({file_size} bytes)")
 
