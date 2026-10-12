@@ -81,6 +81,53 @@ def runtime_init_service(container_prefix: str, seeded: Dict[str, Path], compose
             "volumes": service_volumes("runtime-init", seeded, compose_file)}
 
 
+def reset_seeded_staging(seeded: Dict[str, Path]) -> List[str]:
+    """seed 済み data_runtime の、runtime-init（init_lease_volume.py）が管理する制御状態を、**複製の側だけで**
+    新規 install と同じ状態へ戻す: `.staging` の中身（publish 途中の残留物）と `.publish.lock` を取り除く。
+
+    runtime-init はこれらの owner / mode が期待（operator 10002:10002）と違うと自動修復せず fail closed で止まる。
+    Local の data_runtime は host 側の file で、macOS Docker Desktop の file 共有では container 内で設定した owner が
+    再現されないことがあり（複製では 0:0 に見える）、また staging の残留物が残ることがある（retention は
+    operator-only GC として保留中）。test stack では runtime-init に正しい owner で作り直させる。
+    実 repository の data_runtime には触れない（seeded の path が実 repository 配下なら拒否する）。"""
+    root = seeded["data_runtime"]
+    real = (REPO_ROOT / "data_runtime").resolve()
+    if root.resolve() == real or real in root.resolve().parents:
+        raise RuntimeError(f"seed 先が実 data_runtime を指している（触れない）: {root}")
+    import shutil
+    removed: List[str] = []
+    staging = root / ".staging"
+    if staging.is_dir():
+        for child in sorted(staging.iterdir()):
+            removed.append(f".staging/{child.name}")
+            shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
+    lock = root / ".publish.lock"
+    if lock.exists() or lock.is_symlink():
+        lock.unlink()
+        removed.append(".publish.lock")
+    # shelters: init_data_runtime_backend_shelters.py の分類（active / backup / dormant）に無い file は、Local に残った
+    # 旧配置の残骸（同 script 導入前の file）。runtime-init はこれを fail closed で拒否するため、複製側だけで除く。
+    # 分類は init script 自身の定義を読む（tool 側に二重に持たない）。
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_init_shelters", REPO_ROOT / "scripts" / "publish" / "init_data_runtime_backend_shelters.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    known = set(mod._ACTIVE_FILES) | set(mod._BACKUP_FILES) | set(mod._DORMANT_LEGACY_FILES)
+    backend = root / "backend"
+    for rel_dir in mod._SHELTER_DIRS:
+        d = backend / rel_dir
+        if not d.is_dir():
+            continue
+        for f in sorted(d.iterdir()):
+            rel = f"{rel_dir}/{f.name}"
+            if f.name.startswith(".") or not f.is_file() or rel in known:
+                continue
+            f.unlink()
+            removed.append(f"backend/{rel}")
+    return removed
+
+
 def lease_volume_override(container_prefix: str) -> dict:
     return {LEASE_VOLUME_KEY: {"name": f"{container_prefix}-lease-coordination"}}
 

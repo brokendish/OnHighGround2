@@ -201,3 +201,26 @@ def test_b7_negative_controls(tmp_path):
     r2 = at17.run(repo, manifest2, required_spot_check_paths=[], required_absent_paths=[])
     assert not r2["completeness"]["completeness_pass"]
     assert r2["completeness"]["tree_inventory"]["prohibited"] == ["vendor/sub"]
+
+
+def test_seed_conform_resets_control_state_only_in_copy(tmp_path):
+    seeded = _fake_seeded(tmp_path)
+    rt = seeded["data_runtime"]
+    (rt / ".staging" / "20260101T000000Z-deadbeef").mkdir(parents=True)
+    (rt / ".publish.lock").write_text("")
+    sh = rt / "backend" / "shelters"
+    (sh / "kanagawa").mkdir(parents=True)
+    (sh / "tokyo-shelter-001.geojson").write_text("{}")          # active
+    (sh / "tokyo_shelter.geojson").write_text("{}")              # dormant
+    (sh / "kanagawa" / "kanagawa-shelter-001.geojson").write_text("{}")
+    (sh / "kanagawa-shelter-001.geojson").write_text("{}")       # 分類外（旧配置の残骸）
+    removed = iso.reset_seeded_staging(seeded)
+    assert sorted(removed) == [".publish.lock", ".staging/20260101T000000Z-deadbeef",
+                               "backend/shelters/kanagawa-shelter-001.geojson"]
+    assert (sh / "tokyo-shelter-001.geojson").exists() and (sh / "tokyo_shelter.geojson").exists()
+    assert (sh / "kanagawa" / "kanagawa-shelter-001.geojson").exists() and (rt / ".staging").is_dir()
+
+
+def test_seed_conform_refuses_real_data_runtime():
+    with pytest.raises(RuntimeError, match="実 data_runtime"):
+        iso.reset_seeded_staging({"data_runtime": REPO_ROOT / "data_runtime"})

@@ -633,6 +633,7 @@ def seed_temp_data_dirs(run_tmp_path: Path) -> Dict[str, Path]:
             (proc.stdout + proc.stderr)[-500:],
         )
         seeded[key] = dest
+    isolated_stack.reset_seeded_staging(seeded)  # 複製側の .staging 残留物だけを除く（新規 install と同じ状態）
     return seeded
 
 

@@ -203,6 +203,7 @@ def seed_temp_data_dirs(run_tmp_path: Path) -> Dict[str, Path]:
             (proc.stdout + proc.stderr)[-500:],
         )
         seeded[key] = dest
+    isolated_stack.reset_seeded_staging(seeded)  # 複製側の .staging 残留物だけを除く（新規 install と同じ状態）
     return seeded
 
 
@@ -676,9 +677,11 @@ def check_docker_available() -> bool:
 # `--no-env-resolution`フラグでenv_fileの生キー残存を直接検査し、さらに
 # 既定解決後の`environment`キー集合を既知allowlistと照合する
 # （env_file以外の経路での混入も検出する二重チェック）。
+# OHG2_LEASE_TTL_SECONDS: docker-compose.yml の environment で宣言された非 secret の既定値（${...:-30}、265dd12 で追加）。
+# 実 .env 由来の key ではない。
 EXPECTED_ENVIRONMENT_KEYS = {
-    "backend-public": {"API_HOST", "API_PORT", "DEM_FILE_PATH"},
-    "backend-operator": {"API_HOST", "API_PORT", "OPERATOR_AUTH_SECRET"},
+    "backend-public": {"API_HOST", "API_PORT", "DEM_FILE_PATH", "OHG2_LEASE_TTL_SECONDS"},
+    "backend-operator": {"API_HOST", "API_PORT", "OPERATOR_AUTH_SECRET", "OHG2_LEASE_TTL_SECONDS"},
 }
 
 
