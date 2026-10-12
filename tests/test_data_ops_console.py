@@ -677,13 +677,13 @@ def test_registry_river_definition_and_consistency():
     # tsunami 3 件: KSJ A40 の公式 zip と raw の sha256 一致・canonical の再生成一致を確認（2026-10-11）
     # 2026-10-12: KSJ の公式 zip と raw の sha256 一致・canonical の再正規化一致を確認した 9 件と、国土地理院の
     # 公式定義と CSV 列・共通 ID で中身を確認した KANAGAWA の避難所 2 件。同じ確認で定義を中身に合わせて訂正した
-    # TOKYO の避難所 2 件（OWNER 承認）
+    # TOKYO の避難所 2 件（OWNER 承認）。TOKYO-BOUNDARY は公式 zip を取得して sha 一致を確認（2026-10-12）
     assert {d.dataset_id for d in ds.list_all() if d.source_provider} == {
         "TOKYO-RIVER-001", "KANAGAWA-RIVER-001", "CHIBA-TSUNAMI-001", "TOKYO-TSUNAMI-001", "KANAGAWA-TSUNAMI-001",
         "TOKYO-SURGE-001", "KANAGAWA-SURGE-001", "TOKYO-URBAN-001", "KANAGAWA-URBAN-001",
         "TOKYO-LANDSLIDE-001", "KANAGAWA-LANDSLIDE-001", "TOKYO-LOWLAND-POOR-DRAINAGE-001",
         "KANAGAWA-LOWLAND-POOR-DRAINAGE-001", "KANAGAWA-BOUNDARY-001", "KANAGAWA-SHELTER-001", "KANAGAWA-EVAC-001",
-        "TOKYO-SHELTER-001", "TOKYO-EVAC-001"}
+        "TOKYO-SHELTER-001", "TOKYO-EVAC-001", "TOKYO-BOUNDARY-001"}
 
 
 def test_ui_uses_server_judgement_and_text_status():

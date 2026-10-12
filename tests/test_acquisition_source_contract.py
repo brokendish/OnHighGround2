@@ -85,9 +85,9 @@ def test_05_processed_and_active_alone_is_not_verified():
 def test_06_without_registered_sha_or_identity():
     d = _d("KANAGAWA-SURGE-001").model_copy(update={"expected_source_sha256": {}, "expected_source_sha256_basis": None})
     assert si.verify(d, _files(_d("KANAGAWA-SURGE-001"))).status == si.SOURCE_READABLE
-    unknown = _d("TOKYO-BOUNDARY-001")  # 出典未確定の dataset に expected source を作らない
+    unknown = _d("TOKYO-DEM-001")  # 出典未確定の dataset に expected source を作らない
     assert not unknown.expected_source_files and not unknown.expected_source_sha256
-    res = si.verify(unknown, [SourceFile(name="N03-20250101_13_GML.zip", sha256="a" * 64)])
+    res = si.verify(unknown, [SourceFile(name="dem.zip", sha256="a" * 64)])
     assert res.status == si.SOURCE_UNKNOWN
     assert pv.assess(unknown, _rec(unknown, [SourceFile(name="x.zip", sha256="a" * 64)]))[2] == [pv.SOURCE_UNKNOWN]
 

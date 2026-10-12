@@ -6,7 +6,7 @@ DATA-OPS-WARNING-INVENTORY（2026-10-12）: Data Ops の WARNING を棚卸しし
     KANAGAWA-EVAC-001 の raw の記録（14000_2.zip）が誤りで、canonical は 14000_1.zip と全件一致
   - 東京の避難所 2 件: layer_type / 名称と中身が逆だった → 定義を中身に合わせて訂正（2026-10-12 OWNER 承認、
     test_tokyo_shelter_semantic_contract.py）
-  - 出典を確定できないもの（DEM / TOKYO-BOUNDARY / ROAD / TIDE / RAILWAY / PSEUDO）は推測で埋めない
+  - 出典を確定できないもの（DEM / ROAD / TIDE / RAILWAY / PSEUDO）は推測で埋めない（TOKYO-BOUNDARY は 2026-10-12 に公式 zip で確定）
   - Data Ops の判定は変えず、WARNING の中身を示すラベル（integrity.labels）を加える
 """
 from __future__ import annotations
@@ -39,8 +39,10 @@ KSJ = {  # dataset → (file, year, version, region code, official zip sha256)
     "TOKYO-LOWLAND-POOR-DRAINAGE-001": ("G08-15_13_GML.zip", "2015", "1.0", "13", "c1cce92038905c556042fe94a8feff3cbf3092eb9a6cdda032a7f0e1258a80bb"),
     "KANAGAWA-LOWLAND-POOR-DRAINAGE-001": ("G08-15_14_GML.zip", "2015", "1.0", "14", "57af4b08db9fe3eca4a343601a538431b02a5617964b3a1e74a545e5b434a664"),
     "KANAGAWA-BOUNDARY-001": ("N03-20250101_14_GML.zip", "2025", None, "14", "1cf3c1ee08686de1e2685e5f81b9f0eaf6abb94bfffcd0811cc109c84b2e9fb4"),
+    # 2026-10-12 TOKYO-BOUNDARY-OFFICIAL-SOURCE: 公式 zip を取得し VPS raw と一致、旧 Local raw は再梱包（member 同一）
+    "TOKYO-BOUNDARY-001": ("N03-20250101_13_GML.zip", "2025", None, "13", "e73a70ca903c5a37daba66158ee5de7c48bb7cd7d45f31f7fa4a178c9456702f"),
 }
-UNRESOLVED = ["TOKYO-DEM-001", "TOKYO-BOUNDARY-001", "ROAD-DRIVING-KANTO-001", "ROAD-WALKING-TOKYO-KANAGAWA-001",
+UNRESOLVED = ["TOKYO-DEM-001", "ROAD-DRIVING-KANTO-001", "ROAD-WALKING-TOKYO-KANAGAWA-001",
               "TIDE-JMA-JAPAN-2026-001", "RAILWAY-PMTILES-JAPAN-001", "TOKYO-PSEUDO-INLAND-FLOOD-001"]
 TILE_OMITTED = ["TOKYO-SURGE-001", "KANAGAWA-SURGE-001", "TOKYO-URBAN-001", "KANAGAWA-URBAN-001",
                 "TOKYO-LOWLAND-POOR-DRAINAGE-001", "KANAGAWA-LOWLAND-POOR-DRAINAGE-001", "TOKYO-PSEUDO-INLAND-FLOOD-001"]

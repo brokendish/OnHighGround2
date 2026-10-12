@@ -445,14 +445,40 @@
     "requires_validation": true,
     "requires_deploy": true,
     "requires_osrm_rebuild": false,
-    "source_url": "https://nlftp.mlit.go.jp/",
-    "official_source_url": "https://nlftp.mlit.go.jp/",
+    "source_url": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2025/N03-20250101_13_GML.zip",
+    "official_source_url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2025.html",
     "raw_storage_path": "data_lake/raw/tokyo/boundary",
     "normalized_storage_path": "data_lake/normalized/tokyo/boundary",
     "validated_storage_path": "data_lake/validated/tokyo/boundary",
     "runtime_path": "data_runtime/frontend/layers/tokyo/boundary",
     "transformer_name": "normalize_boundary",
     "validator_name": "validate_geometry",
+    "source_provider": "国土交通省 国土数値情報",
+    "source_dataset_name": "行政区域 N03（東京都 N03-20250101_13、令和7年1月1日時点）",
+    "source_year": "2025",
+    "source_version": null,
+    "source_group_mode": "single",
+    "ingest_mode": "single_batch",
+    "required_source_count": 1,
+    "source_file_patterns": [
+      "N03-20250101_13_GML.zip"
+    ],
+    "expected_source_files": [
+      "N03-20250101_13_GML.zip"
+    ],
+    "expected_source_sha256": {
+      "N03-20250101_13_GML.zip": "e73a70ca903c5a37daba66158ee5de7c48bb7cd7d45f31f7fa4a178c9456702f"
+    },
+    "expected_source_sha256_basis": "official_zip",
+    "ingest_replaces_canonical": true,
+    "ingest_notes": [
+      "国土数値情報の掲載表（KsjTmplt-N03-2025.html）で N03-20250101_13_GML.zip（東京、2025年、11.06MB）を確認（2026-10-12）",
+      "公式 zip の sha256 = e73a70ca903c5a37daba66158ee5de7c48bb7cd7d45f31f7fa4a178c9456702f（2026-10-12 取得、Last-Modified 2025-06-17、11,595,541 bytes）。VPS の raw と一致",
+      "KS-META: 国土数値情報（行政区域）（令和7年1月1日時点）東京都。KS-META の version は「不明」、dateStamp は 2050-03-26（不自然な値のため採用しない）",
+      "Local の旧 raw（sha256 ad84fb5fb23b743c6868ef631069503e67228a00824583634eecb106fc6d63cc、2026-04-07）は公式 zip の 8 member を N03-20250101_13_GML/ 配下へ入れ直して zip し直したもの（member の内容は全件バイト一致、梱包だけの差）。data_lake/_backup/tokyo_boundary_repacked_raw_20261012/ に保管",
+      "canonical（sha256 0de2359f25d3982046fa7cb4b5b3ee42f887cc20bdb6ddaa51212ecef4a35572、6,904 feature、source_dataset=TOKYO-BOUNDARY-001、normalized_region_code=13）は公式 zip・旧 Local raw のどちらを現行 normalizer（normalize_boundary.py 1c339ea 版、--dataset-id TOKYO-BOUNDARY-001 --region-code 13）で正規化してもバイト一致。2026-10-12 に公式 zip を正式 pipeline で取り込み直し（Local job 2e3a3306）同じ sha を再生成。VPS の canonical もこの sha",
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+    ],
     "expected_source_region_code": "13",
     "source_region_code_regex": "^N03-\\d+_(\\d{2})"
   },
