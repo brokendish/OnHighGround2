@@ -10,29 +10,27 @@ skip / xfail・assertion の緩和で失敗を消さない。
 分類: A 製品の不具合 / B 公開 blocker / C 古い期待値 / D 古い fixture / E platform 依存 /
 F テスト基盤の不具合 / G 意図した挙動 / H 公開対象外（operator 等）/ I 原因未確定
 
-## 未解消（2026-10-12 時点）
+## 未解消（2026-10-13 時点）
 
-### KTF-003 `tests/test_public_release_dem_fixture.py::test_12_historical_release_record_is_preserved`
+なし。
+
+## 解消済み
+
+### KTF-003（CLOSED）`tests/test_public_release_dem_fixture.py::test_12_historical_release_record_is_preserved`（再設計後 `test_12_formal_evidence_is_append_only`）
 
 | 項目 | 内容 |
 |---|---|
+| 状態 | **CLOSED**（2026-10-13、修正 commit 39f4fd5） |
 | 失敗 | `tasks/public-release/evidence/phase2d/phase2d_round5c_release_delta_manifest.json` に demo DEM の entry が無い（StopIteration） |
-| 原因 | Round 5C の release delta manifest（2026-08-22、baseline d3eeb99、674 entry）を、2026-10-12 の Phase 2-D formal 再実行で AT-17 tool が同じ固定 file 名へ上書きした（0 entry の現在の manifest）。同時に `phase2d_round5c_at17_snapshot_result.json` と `phase2d_at14_results.json` も上書きされた。いずれも gitignore の作業記録で、写し（approval package・Time Machine・Spotlight）は見つからず復元できない。テストの判定（記録が保たれていない）は事実どおり |
+| 原因 | Round 5C の release delta manifest（2026-08-22、baseline d3eeb99、674 entry）を、2026-10-12 の Phase 2-D formal 再実行で AT-17 tool が同じ固定 file 名へ上書きした（0 entry の当時の manifest）。同時に `phase2d_round5c_at17_snapshot_result.json` と `phase2d_at14_results.json` も上書きされた |
+| 失われた記録の扱い | 原本は失われ、写し（approval package・Time Machine・Spotlight）は無く、正確な復元はできない。OWNER 決定（2026-10-12）により、再生成・推測による復元・test を通すための偽 evidence の作成・過去記録の書き換えはしない。残っている事実（baseline d3eeb99・674 entry・うち 213 entry が 2026-10-12 時点で現在と異なること・demo DEM の entry が旧 sha 0641f39c… だったこと）は commit ee944e9 のメッセージと test の docstring にだけある |
 | 分類 | F（tool が過去の evidence を上書きする設計）。製品・公開物への影響なし |
-| 判定 | NON_BLOCKER・P3 |
-| 残っている事実 | baseline d3eeb99・674 entry・うち 213 entry が 2026-10-12 時点で現在と異なること・demo DEM の entry が旧 sha 0641f39c… だったことは、commit ee944e9 のメッセージと本テストの docstring に記録済み |
-| 再発防止 | AT-14 / AT-17 tool は実行ごとの `evidence/phase2d/runs/<UTC>-<HEAD>-at14|at17/` へ書き、既存なら中止する（上書きしない） |
-| first_seen / last_verified | 2026-10-12 |
-| 受け入れる理由 | 記録は失われ、テストを通すための記録の再作成（捏造）はしない |
-| 期限 | 次の public-release gate（Phase 2-E）の前 |
-| 閉じる条件 | OWNER 判断: (a) 失われた記録の受け入れを記録し、本テストを「ee944e9 の記録を正とする」形に改める、または (b) CODEX 等が保持する写しから復元する |
-
-補足: この matrix を使う Phase 2-B.5 の正式 tool（`tools/public_release/phase2b5_atomic_publish.py`）は今も素の
-`python:3.11-slim` で matrix を実行するため、現在の HEAD では ijson の import で stream 系 2 項目も失敗する
-（テスト側は 2026-10-12 に backend-public image へ変更済み）。Phase 2-B.5 の evidence を取り直すときは同じ変更が要る。
-`scripts/test/run_linux_contract.sh` と同じく backend-public image（+ named volume）を使えば足りる（別 phase）。
-
-## 解消済み
+| OWNER 決定 | formal evidence は immutable / append-only を正式な契約とする。回復できない「過去の記録が残っている」前提の test は捨て、上書きが再発しないことを検査する |
+| 新しい契約 | `tools/public_release/formal_evidence.py`。run ごとに `evidence/<phase>/runs/<UTC>-<HEAD12>-<tool>-<round>-a<attempt>-<run_id>/` を作り、既存 directory・同じ identity（phase・tool・round・HEAD・attempt）の既存 attempt があれば止まる。file は一時 file → fsync → 読み戻し検証（JSON は parse）→ `os.link`（既存名を置き換えない）で作る。finalize で `provenance.json`（schema・HEAD・tool・round・attempt・実行結果・generated_at・各 file の sha256 / size）を書き read-only にする。AT-14・AT-17 はこの方式、固定 directory へ上書きしていた 2b1・2b2・2c official runner は run ごとの directory と終了時の provenance |
+| closure test | `test_12_formal_evidence_is_append_only`（AT-17 の evidence A → 別 run B で A が byte 単位で同一・B は別 identity / path・同じ attempt の明示は拒否・旧固定名 file に触れない）。`tools/public_release/test_formal_evidence_immutability_selfcheck.py` 22 件（identity・同一 path / link 段階の上書きの negative control・中断 / 不正 JSON / 読み戻し不一致で何も残らない・旧形式の上書きを provenance と snapshot が検出・tool の配線）。変異（`os.link`→`os.replace`、directory の再利用、attempt 重複の許可、JSON 検証の除去）はいずれも検出される |
+| closure evidence | full regression 2338 passed・0 failed・16 skipped。public-release selfcheck 372 passed。実 tool で AT-14 30/30 PASS・AT-17 PASS（判定は従来どおり）、evidence は新しい run directory だけに作られ verify_run 一致。既存 evidence 52 file は変更・削除 0 |
+| 残り | `phase2b6_scoped_assertions` は固定 directory（`evidence/phase2b6/`）へ書き、自分の過去の出力を読み戻す設計で、その path が tracked fixture（version binding）に埋め込まれているため今回は変更していない（Phase 2-E で扱う） |
+| first_seen / closed_at | 2026-10-12 / 2026-10-13 |
 
 ### KTF-001（CLOSED）`backend/tests/test_phase2b6_rollback.py::test_rollback_isolated_setup_and_reader_observation`
 
