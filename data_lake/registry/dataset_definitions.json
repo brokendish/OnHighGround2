@@ -1051,7 +1051,9 @@
       "公式 zip の sha256 = 1cf3c1ee08686de1e2685e5f81b9f0eaf6abb94bfffcd0811cc109c84b2e9fb4（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報（行政区域）（令和7年1月1日時点）神奈川県。KS-META の version は「不明」、dateStamp は 2050-03-26（不自然な値のため採用しない）",
       "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "canonical の sha256 = 92348caf7bcf9a674dec36c30c5653c0fba159a70d0d164070b86b96c4c0ffef（1,247 feature、source_dataset=KANAGAWA-BOUNDARY-001、normalized_region_code=14）。build node（Local）で正式 pipeline が生成したこの canonical を runtime node（VPS）へ転送し、両 node で一致させる（2026-10-12）",
+      "VPS に残っていた旧 canonical（sha256 c19d78c0…、2026-04-17 生成）は同じ raw を normalize_boundary.py a4c56c8 版で正規化したもの（再現で確認）。geometry・N03 属性は同一で、metadata だけが東京固定値（TOKYO-BOUNDARY-001 / 13）だった。VPS ~/backups/kanagawa-boundary-canonical-20261012/ に保管"
     ]
   },
   {
