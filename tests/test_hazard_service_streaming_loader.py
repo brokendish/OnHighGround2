@@ -257,9 +257,15 @@ def test_G_lowland_streaming_polygons_equal_legacy(tmp_path):
     svc_streaming.load_geojson_streaming("lowland_poor_drainage", path, bbox_only=True)
 
     assert svc_legacy.polygon_count("lowland_poor_drainage") == svc_streaming.polygon_count("lowland_poor_drainage") == 300
-    # lowland_poor_drainageはnumpy化されず、{"bbox": bbox}のみのdict listのまま
+    # lowland_poor_drainageはnumpy化されず、{"bbox": bbox, "ring_id": n}のdict list
+    # （EVACUATION-HAZARD-GEOMETRY-SAFETY: 形状は ring store に保持し ring_id で参照する。coords は常駐させない）
     assert svc_legacy._polygons["lowland_poor_drainage"] == svc_streaming._polygons["lowland_poor_drainage"]
-    assert all(set(p.keys()) == {"bbox"} for p in svc_streaming._polygons["lowland_poor_drainage"])
+    assert all(set(p.keys()) == {"bbox", "ring_id"} for p in svc_streaming._polygons["lowland_poor_drainage"])
+    legacy_store = svc_legacy._ring_stores["lowland_poor_drainage"]
+    streaming_store = svc_streaming._ring_stores["lowland_poor_drainage"]
+    assert len(legacy_store) == len(streaming_store) == 300
+    for i in range(300):
+        assert (legacy_store.ring(i) == streaming_store.ring(i)).all()
 
 
 def test_H_lowland_check_point_equivalence(tmp_path):

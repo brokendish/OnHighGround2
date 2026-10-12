@@ -279,8 +279,12 @@ class HazardEngine:
     # ──────────────────────────────────────────────────────────────────────────
 
     def get_polygon_store(self) -> Dict:
-        """RSA 計算のために内部ポリゴンストアを返す。"""
+        """内部ポリゴンストアを返す（bbox-only の entry は coords を持たない。RSA は hazard_rings_in_bbox を使う）。"""
         return self._service.get_polygon_store()
+
+    def hazard_rings_in_bbox(self, s: float, w: float, n: float, e: float):
+        """RSA 計算用: bbox に掛かる全ロード済み hazard の外周 ring と、形状を取得できない hazard type。"""
+        return self._service.hazard_rings_in_bbox(s, w, n, e)
 
     def polygon_count(self, hazard_type: str) -> int:
         """指定ハザードのポリゴン数を返す (health check 用)。"""

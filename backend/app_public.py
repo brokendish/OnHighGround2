@@ -878,17 +878,21 @@ def _calc_rsa(user_lat: float, user_lon: float, tti_minutes: float) -> dict:
         user_lat=user_lat,
         user_lon=user_lon,
         radius_m=radius_m,
-        hazard_polygon_store=hazard_engine.get_polygon_store(),
+        hazard_rings=hazard_engine.hazard_rings_in_bbox,
     )
     logger.info(
-        "RSA generated: radius_m=%.0f area_m2=%.0f exists=%s",
-        result["radius_m"], result["area_m2"] or 0, result["exists"],
+        "RSA generated: status=%s radius_m=%.0f area_m2=%.0f exists=%s",
+        result["status"], result["radius_m"], result["area_m2"] or 0, result["exists"],
     )
+    # EVACUATION-HAZARD-GEOMETRY-SAFETY: 円に掛かる hazard の形状を取得できない場合は安全範囲を出さない
+    # （status="unavailable"、exists=None。「安全」とも「危険なし」とも言わない）
+    computed = result["status"] == "computed"
     return {
         "enabled": True,
-        "computed": True,
-        "status": "computed",
-        "reason": None,
+        "computed": computed,
+        "status": result["status"],
+        "reason": result["reason"],
+        "unavailable_hazard_types": result["unavailable_hazard_types"],
         "radius_m": result["radius_m"],
         "time_to_impact_minutes": round(tti_minutes, 1),
         "walking_speed_mps": WALKING_SPEED_MPS,

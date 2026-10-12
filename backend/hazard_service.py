@@ -19,6 +19,11 @@ hazard_safe 決定ルール:
 import json
 import logging
 import math
+import mmap
+import os
+import tempfile
+import threading
+from array import array
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
@@ -26,6 +31,110 @@ import ijson
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+class _RingStore:
+    """
+    bbox_only でロードした hazard の外周 ring を、bbox と同じ順で一時ファイルに保持する
+    （EVACUATION-HAZARD-GEOMETRY-SAFETY、2026-10-12）。
+
+    bbox_only は判定（check_point）用に bbox だけを常駐させるが、Reachable Safe Area は形状が要る。
+    形状を捨てたままだと RSA は危険区域を差し引けず（安全範囲を過大に描く）、coords 前提の箇所は
+    KeyError で 500 になっていた。ここでは座標を float64（元データと同じ値。float32 だと境界が約 1m ずれ、
+    安全範囲が危険区域へはみ出しうる）で匿名一時ファイルへ書き、
+    常駐させるのは ring ごとの vertex offset（4 byte）だけにする。必要な ring だけ mmap で読む。
+
+    - ファイルは作成時点で unlink 済み（プロセス終了で消える。source の version が消えても読める）
+    - commit() までの追加分は rollback() で捨てられる（loader の all-or-nothing と揃える）
+    - 書き込みに失敗したら error を立て、以後この store の形状は「取得不能」として扱う
+    """
+
+    _FLUSH_FLOATS = 1 << 20
+
+    def __init__(self, directory: Optional[str] = None) -> None:
+        self._directory = directory
+        self._file = None
+        self._offsets = array("I", [0])  # commit 済み: ring i = vertices [offsets[i], offsets[i+1])
+        self._pending = array("I")
+        self._buf = array("d")
+        self._mm = None
+        self._mm_vertices = 0
+        self._lock = threading.Lock()
+        self.error: Optional[str] = None
+
+    def __len__(self) -> int:
+        return len(self._offsets) - 1
+
+    def add(self, ring) -> int:
+        """ring を追加し、その ring 番号を返す（失敗しても番号は返し、store を error にする）。"""
+        idx = len(self._offsets) - 1 + len(self._pending)
+        if self.error is not None:
+            return idx
+        try:
+            buf = self._buf
+            for c in ring:
+                buf.append(float(c[0]))
+                buf.append(float(c[1]))
+            base = self._pending[-1] if self._pending else self._offsets[-1]
+            self._pending.append(base + len(ring))  # 4G vertex を超えたら OverflowError → error
+            if len(buf) >= self._FLUSH_FLOATS:
+                self._flush()
+        except Exception as exc:  # noqa: BLE001 - 失敗は error として保持し、RSA を fail-closed にする
+            self._set_error(exc)
+        return idx
+
+    def _flush(self) -> None:
+        if not self._buf:
+            return
+        if self._file is None:
+            self._file = tempfile.TemporaryFile(prefix="ohg2-hazard-rings-", dir=self._directory)
+        self._file.write(self._buf.tobytes())
+        self._buf = array("d")
+
+    def _set_error(self, exc: Exception) -> None:
+        self.error = f"{type(exc).__name__}: {exc}"
+        logger.error("hazard ring store: 形状を保持できない（RSA はこの hazard を評価不能として扱う）: %s", self.error)
+
+    def commit(self) -> None:
+        if self.error is not None:
+            return
+        try:
+            self._flush()
+            self._offsets.extend(self._pending)
+            self._pending = array("I")
+            if self._file is not None:
+                self._file.flush()
+                getattr(os, "fdatasync", os.fsync)(self._file.fileno())
+                if hasattr(os, "posix_fadvise"):  # 書いた分の page cache を手放す（hint）
+                    try:
+                        os.posix_fadvise(self._file.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+                    except OSError:
+                        pass
+        except Exception as exc:  # noqa: BLE001
+            self._set_error(exc)
+
+    def rollback(self) -> None:
+        self._pending = array("I")
+        self._buf = array("d")
+        if self._file is not None and self.error is None:
+            try:
+                self._file.flush()
+                self._file.truncate(self._offsets[-1] * 16)
+                self._file.seek(0, os.SEEK_END)
+            except Exception as exc:  # noqa: BLE001
+                self._set_error(exc)
+
+    def ring(self, i: int) -> np.ndarray:
+        """ring i を (n, 2) float64 [lon, lat] で返す（commit 済みのみ）。"""
+        start, end = self._offsets[i], self._offsets[i + 1]
+        with self._lock:
+            total = self._offsets[-1]
+            if self._mm is None or self._mm_vertices < end:
+                # 古い mmap は close しない（他スレッドが返した view が参照している可能性がある）
+                self._mm = mmap.mmap(self._file.fileno(), total * 16, access=mmap.ACCESS_READ)
+                self._mm_vertices = total
+            mm = self._mm
+        return np.frombuffer(mm, dtype=np.float64, count=(end - start) * 2, offset=start * 16).reshape(-1, 2)
 
 HazardResult = Literal["inside", "outside", "unknown"]
 
@@ -313,6 +422,16 @@ class HazardService:
         self._tsunami_centroids: List[Tuple[float, float]] = []
         # landslide: bbox 配列と index で対応する properties リスト
         self._landslide_props: List[dict] = []
+        # bbox_only でロードした hazard の外周 ring（RSA 用）。numpy 型は bbox 行と同じ番号、
+        # _polygons の bbox-only entry は "ring_id" で参照する。
+        self._ring_stores: Dict[str, _RingStore] = {}
+        self._ring_store_dir: Optional[str] = os.environ.get("OHG2_HAZARD_GEOMETRY_DIR") or None
+
+    def _ring_store(self, hazard_type: str) -> _RingStore:
+        store = self._ring_stores.get(hazard_type)
+        if store is None:
+            store = self._ring_stores[hazard_type] = _RingStore(self._ring_store_dir)
+        return store
 
     # ------------------------------------------------------------------
     # データ読み込み
@@ -352,6 +471,7 @@ class HazardService:
         new_surge_rows: List[Tuple] = []
         new_landslide_rows: List[Tuple] = []
         new_landslide_props: List[dict] = []
+        rings = self._ring_store(hazard_type) if bbox_only else None
 
         try:
             with geojson_path.open("r", encoding="utf-8") as f:
@@ -379,6 +499,7 @@ class HazardService:
                     lats = [c[1] for c in ring]
                     bbox = (min(lats), min(lons), max(lats), max(lons))  # (s, w, n, e)
                     if bbox_only:
+                        ring_id = rings.add(ring)
                         if hazard_type == "flood":
                             new_flood_rows.append(bbox)
                         elif hazard_type == "tsunami":
@@ -390,7 +511,7 @@ class HazardService:
                             new_landslide_rows.append(bbox)
                             new_landslide_props.append(props)
                         else:
-                            new_polygons.append({"bbox": bbox})
+                            new_polygons.append({"bbox": bbox, "ring_id": ring_id})
                     else:
                         new_polygons.append({"bbox": bbox, "coords": ring, "properties": props})
 
@@ -416,6 +537,8 @@ class HazardService:
             self._polygons[hazard_type] = existing
 
             # ソース追跡（/health で何をロードしたか分かるようにする）
+            if rings is not None:
+                rings.commit()
             existing_sources = self._sources.get(hazard_type, [])
             existing_sources.append(geojson_path.stem)
             self._sources[hazard_type] = existing_sources
@@ -436,6 +559,8 @@ class HazardService:
             )
 
         except Exception as e:
+            if rings is not None:
+                rings.rollback()
             logger.error(
                 "Failed to load hazard data: type=%s path=%s error=%s",
                 hazard_type, geojson_path, e,
@@ -480,6 +605,7 @@ class HazardService:
         new_surge_rows: List[Tuple] = []
         new_landslide_rows: List[Tuple] = []
         new_landslide_props: List[dict] = []
+        rings = self._ring_store(hazard_type) if bbox_only else None
         skipped = 0
 
         try:
@@ -523,6 +649,7 @@ class HazardService:
                         lats = [c[1] for c in ring]
                         bbox = (min(lats), min(lons), max(lats), max(lons))
                         if bbox_only:
+                            ring_id = rings.add(ring)
                             if hazard_type == "flood":
                                 new_flood_rows.append(bbox)
                             elif hazard_type == "tsunami":
@@ -534,7 +661,7 @@ class HazardService:
                                 new_landslide_rows.append(bbox)
                                 new_landslide_props.append(props)
                             else:
-                                new_polygons.append({"bbox": bbox})
+                                new_polygons.append({"bbox": bbox, "ring_id": ring_id})
                         else:
                             new_polygons.append({"bbox": bbox, "coords": ring})
 
@@ -557,6 +684,8 @@ class HazardService:
             existing.extend(new_polygons)
             self._polygons[hazard_type] = existing
 
+            if rings is not None:
+                rings.commit()
             existing_sources = self._sources.get(hazard_type, [])
             existing_sources.append(geojsonl_path.stem)
             self._sources[hazard_type] = existing_sources
@@ -578,6 +707,8 @@ class HazardService:
             )
 
         except Exception as e:
+            if rings is not None:
+                rings.rollback()
             logger.error(
                 "Failed to load hazard data: type=%s path=%s error=%s",
                 hazard_type, geojsonl_path, e,
@@ -654,6 +785,7 @@ class HazardService:
         new_tsunami_centroids: List[Tuple[float, float]] = []
         new_landslide_rows: List[Tuple] = []
         new_landslide_props: List[dict] = []
+        rings = self._ring_store(hazard_type) if bbox_only else None
         feature_count = 0
 
         try:
@@ -667,6 +799,7 @@ class HazardService:
                         if bbox is None:
                             continue
                         if bbox_only:
+                            ring_id = rings.add(ring)
                             if hazard_type == "flood":
                                 new_flood_rows.append(bbox)
                             elif hazard_type == "storm_surge":
@@ -678,7 +811,7 @@ class HazardService:
                                 new_landslide_rows.append(bbox)
                                 new_landslide_props.append(props)
                             else:
-                                new_polygons.append({"bbox": bbox})
+                                new_polygons.append({"bbox": bbox, "ring_id": ring_id})
                         else:
                             new_polygons.append({
                                 "bbox": bbox,
@@ -707,6 +840,8 @@ class HazardService:
             existing.extend(new_polygons)
             self._polygons[hazard_type] = existing
 
+            if rings is not None:
+                rings.commit()
             existing_sources = self._sources.get(hazard_type, [])
             existing_sources.append(geojson_path.stem)
             self._sources[hazard_type] = existing_sources
@@ -728,6 +863,8 @@ class HazardService:
             )
 
         except Exception as e:
+            if rings is not None:
+                rings.rollback()
             logger.error(
                 "Failed to load hazard data (streaming): type=%s path=%s error=%s",
                 hazard_type, geojson_path, e,
@@ -803,6 +940,51 @@ class HazardService:
             if self._np_loaded(arr) and ht not in types:
                 types.append(ht)
         return types
+
+    def _bbox_array(self, hazard_type: str) -> Optional[np.ndarray]:
+        return {
+            "flood": self._flood_bboxes_np,
+            "tsunami": self._tsunami_bboxes_np,
+            "storm_surge": self._storm_surge_bboxes_np,
+            "landslide": self._landslide_bboxes_np,
+        }.get(hazard_type)
+
+    def hazard_rings_in_bbox(
+        self, s: float, w: float, n: float, e: float
+    ) -> Tuple[List[np.ndarray], List[str]]:
+        """
+        Reachable Safe Area 用: bbox (s, w, n, e) に掛かる全ロード済み hazard の外周 ring と、
+        形状を取得できなかった hazard type を返す。
+
+        bbox-only の polygon は ring store から形状を読む。形状を取れない（store 不在・書き込み失敗・
+        件数不一致）候補が 1 件でもあれば、その type を unavailable として返す。呼び出し側は
+        unavailable がある限り安全範囲を出してはならない（polygon を黙って捨てると危険区域を見落とす）。
+        """
+        rings: List[np.ndarray] = []
+        unavailable: List[str] = []
+        for hazard_type in self.loaded_hazard_types():
+            store = self._ring_stores.get(hazard_type)
+            arr = self._bbox_array(hazard_type)
+            if arr is not None and len(arr):
+                hit = np.nonzero(~((arr[:, 0] > n) | (arr[:, 2] < s) | (arr[:, 1] > e) | (arr[:, 3] < w)))[0]
+                if len(hit):
+                    if store is None or store.error is not None or len(store) != len(arr):
+                        unavailable.append(hazard_type)
+                    else:
+                        rings.extend(store.ring(int(i)) for i in hit)
+            for poly in self._polygons.get(hazard_type, []):
+                ps, pw, pn, pe = poly["bbox"]
+                if ps > n or pn < s or pw > e or pe < w:
+                    continue
+                coords = poly.get("coords")
+                ring_id = poly.get("ring_id")
+                if coords is not None:
+                    rings.append(np.asarray(coords, dtype=np.float64)[:, :2])
+                elif ring_id is not None and store is not None and store.error is None and ring_id < len(store):
+                    rings.append(store.ring(ring_id))
+                elif hazard_type not in unavailable:
+                    unavailable.append(hazard_type)
+        return rings, unavailable
 
     def get_polygon_store(self) -> Dict[str, List[dict]]:
         """内部ポリゴンストア全体を返す（RSA 計算などで使用）。"""
@@ -973,8 +1155,9 @@ class HazardService:
             s, w, n, e = poly["bbox"]
             if not (s <= lat <= n and w <= lon <= e):
                 continue
-            coords = poly.get("coords", [])
-            if coords and _point_in_polygon(lat, lon, coords):
+            coords = poly.get("coords")
+            # 形状の無い entry（bbox-only）は bbox を形状とみなす（check_point と同じ安全側。outside にしない）
+            if coords is None or _point_in_polygon(lat, lon, coords):
                 props = poly.get("properties", {})
                 # depth プロパティを試みる（spec: "depth"、sample: "depth_min_m"）
                 raw_depth = props.get("depth") or props.get("depth_min_m") or 0

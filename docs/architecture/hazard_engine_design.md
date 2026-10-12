@@ -104,7 +104,9 @@ Phase 3 以降、main.py からハザード固有知識を排除する方向で�
     → hazard_service.assess_candidate()         # 各候補地の判定
     → derive_hazard_safe()                      # hazard_safe 決定
   → _calc_rsa() (TTI あり時)
-    → hazard_engine.get_polygon_store()         # RSA 計算用ポリゴン
+    → hazard_engine.hazard_rings_in_bbox()      # RSA 計算用: 円に掛かる全 hazard の外周 ring
+                                                #（bbox_only でも ring store から形状を取得。取れなければ
+                                                #  status="unavailable" で安全範囲を出さない）
   → レスポンス: {hazard_status, recommended, reachable_safe_area, ...}
 ```
 

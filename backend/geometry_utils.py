@@ -9,7 +9,14 @@ v1 モデル:
     半径: walking_speed_mps × tti_minutes × 60
 
   ハザードポリゴン:
-    HazardService._polygons から取得（flood / tsunami など）
+    ロード済みの全 hazard（flood / tsunami / storm_surge / landslide / inland_flood /
+    lowland_poor_drainage）の外周 ring。HazardService.hazard_rings_in_bbox() から取得する。
+
+安全契約（EVACUATION-HAZARD-GEOMETRY-SAFETY、2026-10-12）:
+  円に掛かる hazard の形状を 1 件でも取得できない、または形状演算に失敗した場合は、
+  安全範囲を出さず status="unavailable"（exists=None）を返す。polygon を黙って捨てたり、
+  差し引かずに円全体を安全範囲として返したりしない（危険区域の見落とし = 安全範囲の過大評価）。
+  外周 ring だけを使い穴は無視する（穴の部分も危険側に数える）。
 
 座標系:
   入力/出力: EPSG:4326 (lon/lat)
@@ -17,14 +24,15 @@ v1 モデル:
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Callable, List, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
 try:
+    import numpy as np
     import pyproj
+    import shapely
     from shapely.geometry import Point, Polygon, mapping
-    from shapely.ops import transform, unary_union
 
     SHAPELY_AVAILABLE = True
     logger.info("geometry_utils: shapely/pyproj available — RSA calculation enabled")
@@ -32,21 +40,37 @@ except ImportError:
     SHAPELY_AVAILABLE = False
     logger.warning("geometry_utils: shapely/pyproj not available — RSA calculation disabled")
 
+_CLIP_MARGIN_DEG = 1e-4  # 約 10m。円の接点で切り口が掛からず、float32 の bbox 丸めで候補を落とさない余白
 
-def _bbox_overlaps(
-    s1: float, w1: float, n1: float, e1: float,
-    s2: float, w2: float, n2: float, e2: float,
-) -> bool:
-    """2つのバウンディングボックスが重なるか判定する。"""
-    return not (s1 > n2 or n1 < s2 or w1 > e2 or e1 < w2)
+# (s, w, n, e) → (外周 ring の list [(n, 2) lon/lat], 形状を取得できなかった hazard type の list)
+HazardRingProvider = Callable[[float, float, float, float], Tuple[Sequence, List[str]]]
+
+
+def _vectorized(transformer):
+    """pyproj Transformer を shapely.transform 用（(N, 2) 配列 → (N, 2) 配列）にする。"""
+    def _apply(xy):
+        x, y = transformer.transform(xy[:, 0], xy[:, 1])
+        return np.column_stack([x, y])
+    return _apply
+
+
+def _unavailable(radius_m: float, reason: str, hazard_types: List[str] = ()) -> dict:
+    return {
+        "status": "unavailable",
+        "reason": reason,
+        "unavailable_hazard_types": sorted(hazard_types),
+        "radius_m": round(radius_m, 1),
+        "area_m2": None,
+        "exists": None,
+        "geometry": None,
+    }
 
 
 def calc_reachable_safe_area(
     user_lat: float,
     user_lon: float,
     radius_m: float,
-    hazard_polygon_store: Dict[str, List[dict]],
-    hazard_types: Optional[List[str]] = None,
+    hazard_rings: HazardRingProvider,
 ) -> dict:
     """
     Reachable Safe Area (到達可能安全エリア) を計算する。
@@ -58,26 +82,21 @@ def calc_reachable_safe_area(
         user_lat: ユーザー緯度
         user_lon: ユーザー経度
         radius_m: 到達可能半径（メートル）
-        hazard_polygon_store: HazardService.get_polygon_store() の戻り値
-            {hazard_type: [{"bbox": (s,w,n,e), "coords": [[lon,lat],...]}]}
-        hazard_types: 使用するハザードタイプ (None = 全タイプ)
+        hazard_rings: HazardService.hazard_rings_in_bbox（bbox → (rings, unavailable_types)）
 
     Returns:
         {
+            "status": "computed" | "unavailable",
+            "reason": str | None,
+            "unavailable_hazard_types": list[str],
             "radius_m": float,
-            "area_m2": float,
-            "exists": bool,
-            "geometry": dict | None   # GeoJSON Geometry (EPSG:4326)
+            "area_m2": float | None,   # unavailable のとき None
+            "exists": bool | None,     # unavailable のとき None（安全とも危険とも言わない）
+            "geometry": dict | None    # GeoJSON Geometry (EPSG:4326)
         }
     """
     if not SHAPELY_AVAILABLE:
-        return {
-            "radius_m": round(radius_m, 1),
-            "area_m2": 0.0,
-            "exists": False,
-            "geometry": None,
-            "error": "shapely/pyproj not available",
-        }
+        return _unavailable(radius_m, "shapely_unavailable")
 
     # 座標変換器 (always_xy: lon/lat 順序を明示)
     to_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
@@ -87,62 +106,62 @@ def calc_reachable_safe_area(
     user_x, user_y = to_3857.transform(user_lon, user_lat)
     reachable_3857 = Point(user_x, user_y).buffer(radius_m, resolution=32)
 
-    # 到達可能円の EPSG:4326 bbox を算出してハザードフィルタに使う
+    # 到達可能円の EPSG:4326 bbox を算出してハザードの候補を絞る
     bounds_3857 = reachable_3857.bounds  # (minx, miny, maxx, maxy)
     sw_lon, sw_lat = to_4326.transform(bounds_3857[0], bounds_3857[1])
     ne_lon, ne_lat = to_4326.transform(bounds_3857[2], bounds_3857[3])
-    circle_bbox = (sw_lat, sw_lon, ne_lat, ne_lon)  # (s, w, n, e)
 
-    # 使用するハザードタイプを決定
-    if hazard_types is None:
-        selected_types = list(hazard_polygon_store.keys())
-    else:
-        selected_types = [t for t in hazard_types if t in hazard_polygon_store]
+    try:
+        # 候補の bbox は float32 で保持されている（端が約 1m 内側へ丸まりうる）ので、少し広く問い合わせる
+        rings, unavailable = hazard_rings(sw_lat - _CLIP_MARGIN_DEG, sw_lon - _CLIP_MARGIN_DEG,
+                                          ne_lat + _CLIP_MARGIN_DEG, ne_lon + _CLIP_MARGIN_DEG)
+    except Exception:
+        logger.exception(
+            "RSA unavailable: hazard geometry lookup failed user=(%.5f,%.5f) radius=%.0fm",
+            user_lat, user_lon, radius_m,
+        )
+        return _unavailable(radius_m, "hazard_geometry_error")
+    if unavailable:
+        logger.warning(
+            "RSA unavailable: user=(%.5f,%.5f) radius=%.0fm hazard geometry unavailable for %s",
+            user_lat, user_lon, radius_m, sorted(unavailable),
+        )
+        return _unavailable(radius_m, "hazard_geometry_unavailable", unavailable)
 
-    # bbox で絞り込んでハザードポリゴンを shapely Polygon (EPSG:4326) に変換
-    hazard_geoms_4326: List[Polygon] = []
-    for htype in selected_types:
-        for poly in hazard_polygon_store.get(htype, []):
-            s, w, n, e = poly["bbox"]
-            if not _bbox_overlaps(s, w, n, e, *circle_bbox):
-                continue
-            coords = poly["coords"]
-            if len(coords) < 3:
-                continue
+    clip_rect = (sw_lon - _CLIP_MARGIN_DEG, sw_lat - _CLIP_MARGIN_DEG,
+                 ne_lon + _CLIP_MARGIN_DEG, ne_lat + _CLIP_MARGIN_DEG)
+    try:
+        hazard_geoms_4326 = []
+        for ring in rings:
+            if len(ring) < 3:
+                continue  # 面積を持たない（危険区域としての広がりが無い）
+            shp = Polygon(ring)
+            # 円の bbox の外側は結果に影響しないので先に切り落とし（巨大な ring の演算量を抑える）、
+            # 自己交差等の不正な形は切った後で修正して使う（捨てない）。切り取りに失敗したら全体を修正してから切る。
             try:
-                shp = Polygon([(c[0], c[1]) for c in coords])
-                if shp.is_valid and not shp.is_empty:
-                    hazard_geoms_4326.append(shp)
-            except Exception:
-                pass
+                part = shapely.clip_by_rect(shp, *clip_rect)
+            except shapely.errors.GEOSException:
+                part = shapely.clip_by_rect(shapely.make_valid(shp), *clip_rect)
+            shp = part if part.is_valid else shapely.make_valid(part)
+            if not shp.is_empty:
+                hazard_geoms_4326.append(shp)
 
-    logger.debug(
-        "RSA: user=(%.5f,%.5f) radius=%.0fm hazard_polys_in_bbox=%d",
-        user_lat, user_lon, radius_m, len(hazard_geoms_4326),
-    )
-
-    # 安全エリア = 到達可能円 - ハザード領域
-    if hazard_geoms_4326:
-        try:
-            hazard_union_4326 = unary_union(hazard_geoms_4326)
-            hazard_3857 = transform(to_3857.transform, hazard_union_4326)
+        # 安全エリア = 到達可能円 - ハザード領域
+        if hazard_geoms_4326:
+            hazard_union_4326 = shapely.union_all(hazard_geoms_4326)
+            hazard_3857 = shapely.transform(hazard_union_4326, _vectorized(to_3857))
             safe_3857 = reachable_3857.difference(hazard_3857)
-        except Exception as e:
-            logger.warning("RSA difference failed: %s — using full reachable circle", e)
+        else:
             safe_3857 = reachable_3857
-    else:
-        safe_3857 = reachable_3857
-
-    area_m2 = safe_3857.area
-
-    # EPSG:4326 に戻して GeoJSON 化
-    geojson = None
-    if area_m2 > 0:
-        try:
-            safe_4326 = transform(to_4326.transform, safe_3857)
-            geojson = mapping(safe_4326)
-        except Exception as e:
-            logger.warning("RSA GeoJSON conversion failed: %s", e)
+        area_m2 = safe_3857.area
+        geojson = mapping(shapely.transform(safe_3857, _vectorized(to_4326))) if area_m2 > 0 else None
+    except Exception:
+        # 差し引けなかった円を安全範囲として返さない（以前は円全体へ fallback していた）
+        logger.exception(
+            "RSA unavailable: hazard geometry operation failed user=(%.5f,%.5f) radius=%.0fm polygons=%d",
+            user_lat, user_lon, radius_m, len(rings),
+        )
+        return _unavailable(radius_m, "hazard_geometry_error")
 
     logger.info(
         "RSA computed: radius=%.0fm area=%.0fm2 exists=%s hazard_polys=%d",
@@ -150,6 +169,9 @@ def calc_reachable_safe_area(
     )
 
     return {
+        "status": "computed",
+        "reason": None,
+        "unavailable_hazard_types": [],
         "radius_m": round(radius_m, 1),
         "area_m2": round(area_m2, 0),
         "exists": area_m2 > 0,

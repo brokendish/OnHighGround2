@@ -858,6 +858,19 @@ function displayRsa(rsa) {
 
     clearRsaLayer();
 
+    // 危険区域の形状を取得できず安全範囲を計算できなかった（安全とも危険なしとも言わない。範囲は描かない）
+    if (rsa && rsa.enabled && rsa.status === 'unavailable') {
+        panel.style.display = 'block';
+        info.innerHTML = `
+            <span class="rsa-exists-badge no">⚠️ 避難可能エリアを評価できませんでした</span>
+            <div class="rsa-warning">
+                周辺の危険区域の形状を確認できないため、安全な範囲を表示していません。<br>
+                ハザード表示と避難先の情報を確認してください。
+            </div>
+        `;
+        return;
+    }
+
     if (!rsa || !rsa.enabled || rsa.exists === null) {
         panel.style.display = 'none';
         return;
