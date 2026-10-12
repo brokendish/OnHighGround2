@@ -1010,7 +1010,9 @@ def _artifact_path(defn: DatasetDefinition, state: Optional[DatasetState], artif
         if name:
             cands.append(rdir / name)
         elif rdir.is_dir():
-            files = [f for f in rdir.iterdir() if f.is_file() and not f.name.startswith(".")]
+            # 置き換えで残した旧 artifact（*.superseded-<sha12>、deploy_dem_runtime.sh）と staging は対象外
+            files = [f for f in rdir.iterdir() if f.is_file() and not f.name.startswith(".")
+                     and ".superseded-" not in f.name and ".staging-" not in f.name]
             if len(files) == 1:
                 cands.append(files[0])
     return next((c for c in cands if c.is_file()), None)

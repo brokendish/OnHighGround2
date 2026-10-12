@@ -154,6 +154,29 @@ def test_18_data_ops_artifact_section(tmp_path, monkeypatch, content, expected):
     assert s["component_status"] == {"ARTIFACT_VERIFIED": dos.OK}.get(expected, dos.ERROR)
 
 
+def test_18b_runtime_node_artifact_ignores_superseded_copy(tmp_path, monkeypatch):
+    """runtime node（validated が無い）では flat runtime の file を照合する。置き換えで残した
+    elevation.tif.superseded-<sha12> があっても現在の file を選ぶ。"""
+    from app.models.admin_dataset import DatasetDefinition, DatasetState
+    from app.services import data_ops_service as dos
+    from app.services import dataset_runtime_reconcile as drr
+    from app.services import runtime_version_access as rva
+    rt = tmp_path / "rt"
+    (rt / "backend/elevation").mkdir(parents=True)
+    (rt / "backend/elevation/elevation.tif").write_bytes(b"NEW")
+    (rt / "backend/elevation/elevation.tif.superseded-0123456789ab").write_bytes(b"OLD")
+    (rt / "backend/elevation/.gitkeep").write_bytes(b"")
+    monkeypatch.setattr(rva, "DATA_RUNTIME_ROOT", rt)
+    monkeypatch.setattr(drr, "get_source_sha_cache", lambda: drr.SourceShaCache(tmp_path / "c.json"))
+    defn = DatasetDefinition(dataset_id="DEM-T", region="tokyo", category="dem", display_name="t", description="t",
+                             hint_text="t", impact_scope="t", accepted_input_modes=["upload"], accepted_extensions=[".tif"],
+                             max_browser_upload_mb=1, requires_normalize=False, requires_validation=False,
+                             requires_deploy=True, requires_osrm_rebuild=False, raw_storage_path="x",
+                             runtime_path="data_runtime/backend/elevation", artifact_sha256=hashlib.sha256(b"NEW").hexdigest())
+    s = dos.artifact_section(defn, DatasetState(dataset_id="DEM-T"), allow_hash=True)
+    assert s["label"] == "ARTIFACT_VERIFIED" and s["path"].endswith("backend/elevation/elevation.tif")
+
+
 # ── 19. 配備と rollback（flat runtime の DEM）────────────────────────────────────────
 
 def _sh(*a):
