@@ -303,11 +303,11 @@
     "dataset_id": "TOKYO-SHELTER-001",
     "region": "tokyo",
     "category": "shelter",
-    "layer_type": "evacuation_shelter",
-    "display_name": "指定避難場所（東京都）",
-    "description": "東京都全域の指定避難場所データ（13000_2.zip）。災害時に住民が一定期間生活する避難所。マップ上の避難場所表示・目的地候補に使用。",
-    "hint_text": "指定避難場所データです（国土地理院 13000_2.zip）。学校の体育館・公民館など、避難生活を送る施設の位置・名称・対応災害種別が含まれます。ZIP形式で取り込み後に整形処理が必要です。",
-    "impact_scope": "避難場所表示・避難目的地候補",
+    "layer_type": "emergency_shelter",
+    "display_name": "指定緊急避難場所（東京都）",
+    "description": "東京都全域の指定緊急避難場所データ（国土地理院 13000_2.zip）。災害発生時に直ちに身を守るための避難場所（公園・広場等）。災害種別ごとの対応状況を含む。",
+    "hint_text": "指定緊急避難場所データです（国土地理院 13000_2.zip）。地震・津波・洪水・高潮・崖崩れ等の各災害種別に対応した緊急避難場所の位置・名称・対応種別が含まれます。ZIP形式で取り込み後に整形処理が必要です。",
+    "impact_scope": "緊急避難場所表示・災害種別フィルタリング・避難目的地候補",
     "accepted_input_modes": [
       "upload",
       "fetch_url",
@@ -332,19 +332,27 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_shelter",
     "validator_name": "validate_geometry",
+    "source_provider": "国土地理院",
+    "source_dataset_name": "指定緊急避難場所データ（東京都 13000_2）",
+    "expected_source_files": [
+      "13000_2.zip"
+    ],
     "ingest_notes": [
-      "要確認（2026-10-12）: raw 13000_2.zip は国土地理院の定義で「指定緊急避難場所データ」で、canonical も全件一致する。dataset 定義の layer_type / 名称（指定避難所）と中身が逆。backend の避難所種別は file の内容（列）から判定するため避難先選択への影響はないが、registry・Data Ops の表示が実データと逆。是正方法（定義の名称・layer_type の修正か原本の入れ替えか）は OWNER 判断"
+      "国土地理院「指定緊急避難場所・指定避難所データ」の配布ページで、都道府県別 zip の _2 は「指定緊急避難場所データ」列（2026-10-12 確認。ページの列定義と 13000_2.csv の列見出し（洪水・津波 等の災害種別、指定避難所との住所同一）が一致）",
+      "raw 13000_2.zip の sha256 = 23a87d2e6cd120edd077b6d625c262825d6de1b095f9040176c930b687658065。配布 zip はページの JavaScript がその場で組み立てるため、公式 zip との sha 照合はできない",
+      "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）",
+      "2026-10-12 定義を中身に合わせて訂正（OWNER 承認）: 旧定義は layer_type evacuation_shelter・名称「指定避難場所」で中身（指定緊急避難場所）と逆だった。dataset_id と保管 path（shelters/）は互換のため維持。canonical は訂正後の定義で正式 pipeline から再生成し、designation を「指定緊急避難場所」に是正"
     ]
   },
   {
     "dataset_id": "TOKYO-EVAC-001",
     "region": "tokyo",
     "category": "shelter",
-    "layer_type": "emergency_shelter",
-    "display_name": "指定緊急避難場所（東京都）",
-    "description": "東京都全域の指定緊急避難場所データ（13000_1.zip）。災害発生時に直ちに身を守るための避難場所（公園・広場等）。災害種別ごとの対応状況を含む。",
-    "hint_text": "指定緊急避難場所データです（国土地理院 13000_1.zip）。地震・津波・洪水・高潮・崖崩れ等の各災害種別に対応した緊急避難場所の位置・名称・対応種別が含まれます。ZIP形式で取り込み後に整形処理が必要です。",
-    "impact_scope": "緊急避難場所表示・災害種別フィルタリング・避難目的地候補",
+    "layer_type": "evacuation_shelter",
+    "display_name": "指定避難所（東京都）",
+    "description": "東京都全域の指定避難所データ（国土地理院 13000_1.zip）。災害時に住民が一定期間生活する避難所。",
+    "hint_text": "指定避難所データです（国土地理院 13000_1.zip）。学校・公民館など、避難生活を送る施設の位置・名称が含まれます。ZIP形式で取り込み後に整形処理が必要です。",
+    "impact_scope": "避難所表示・避難目的地候補",
     "accepted_input_modes": [
       "upload",
       "fetch_url",
@@ -369,8 +377,16 @@
     "deploy_mode": "copy_file",
     "transformer_name": "normalize_shelter",
     "validator_name": "validate_geometry",
+    "source_provider": "国土地理院",
+    "source_dataset_name": "指定避難所データ（東京都 13000_1）",
+    "expected_source_files": [
+      "13000_1.zip"
+    ],
     "ingest_notes": [
-      "要確認（2026-10-12）: raw 13000_1.zip は国土地理院の定義で「指定避難所データ」で、canonical も全件一致する。dataset 定義の layer_type / 名称（指定緊急避難場所）と中身が逆。backend の避難所種別は file の内容（列）から判定するため避難先選択への影響はないが、registry・Data Ops の表示が実データと逆。是正方法（定義の名称・layer_type の修正か原本の入れ替えか）は OWNER 判断"
+      "国土地理院「指定緊急避難場所・指定避難所データ」の配布ページで、都道府県別 zip の _1 は「指定避難所データ」列（2026-10-12 確認。ページの列定義と 13000_1.csv の列見出し（受入対象者・指定緊急避難場所との住所同一）が一致）",
+      "raw 13000_1.zip の sha256 = 53928e38326b31f3b1ee2e1faab90b0b24d3c4885751330e5eb3b767d4995df7。配布 zip はページの JavaScript がその場で組み立てるため、公式 zip との sha 照合はできない",
+      "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）",
+      "2026-10-12 定義を中身に合わせて訂正（OWNER 承認）: 旧定義は layer_type emergency_shelter・名称「指定緊急避難場所」で中身（指定避難所）と逆だった。dataset_id と保管 path（emergency_shelters/）は互換のため維持。canonical は訂正後の定義で正式 pipeline から再生成し、designation を「指定避難所」に是正"
     ]
   },
   {
@@ -541,7 +557,7 @@
     "category": "shelter",
     "layer_type": "emergency_shelter",
     "display_name": "指定緊急避難場所（神奈川県）",
-    "description": "神奈川県内の指定緊急避難場所データ（P20 GML由来）。災害発生時に直ちに身を守るための避難場所。災害種別ごとの対応状況を含む。",
+    "description": "神奈川県内の指定緊急避難場所データ（国土地理院 14000_2.zip）。災害発生時に直ちに身を守るための避難場所。災害種別ごとの対応状況を含む。",
     "hint_text": "神奈川県の避難場所データです。市区町村が指定した緊急避難場所の位置・名称・対応災害種別が含まれます。GeoJSON形式または国土地理院の指定緊急避難場所データを使用してください。",
     "impact_scope": "神奈川県内の避難場所表示・避難目的地候補",
     "accepted_input_modes": [

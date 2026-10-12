@@ -70,6 +70,26 @@ _EVAC_SHELTER_INDICATOR_KEYS: frozenset[str] = frozenset({
 })
 
 
+# 国土地理院「指定緊急避難場所・指定避難所データ」の列で種別が確定する（_1 / _2 にしか無い列）。
+# --designation（dataset 定義の layer_type 由来）と食い違えば定義側の誤りなので取り込みを止める
+# （2026-10-12: 東京都の 2 dataset で定義と中身が逆のまま canonical の designation が全件逆になっていた）。
+_GSI_DESIGNATION_COLUMNS: dict[str, str] = {
+    "受入対象者": "指定避難所",
+    "指定緊急避難場所との住所同一": "指定避難所",
+    "指定避難所との住所同一": "指定緊急避難場所",
+}
+
+
+def content_designation(features: list[dict]) -> "str | None":
+    """列から確定できる designation。確定できない（列が無い・両方の列がある）なら None。"""
+    found: set[str] = set()
+    for feat in features:
+        for key in (feat.get("properties") or {}):
+            if key in _GSI_DESIGNATION_COLUMNS:
+                found.add(_GSI_DESIGNATION_COLUMNS[key])
+    return found.pop() if len(found) == 1 else None
+
+
 def _infer_designation_for_features(features: list[dict]) -> str:
     """全フィーチャーの列名からファイル種別を推定する。
     指定避難所固有の列があれば '指定避難所'、それ以外は '指定緊急避難場所' を返す。"""
@@ -434,8 +454,14 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
-    # --designation が指定された場合は全フィーチャーに強制上書き
+    # --designation が指定された場合は全フィーチャーに強制上書き（列で確定する種別と矛盾したら拒否）
     if args.designation:
+        by_content = content_designation(features)
+        if by_content is not None and by_content != args.designation:
+            print(f"[ERROR] designation の矛盾: dataset 定義は「{args.designation}」だが、"
+                  f"入力の列は「{by_content}」のデータ。dataset 定義（layer_type）か原本を確認してください。",
+                  file=sys.stderr)
+            return 1
         for feat in features:
             props = feat.get("properties")
             if props is not None:

@@ -4,7 +4,8 @@ DATA-OPS-WARNING-INVENTORY（2026-10-12）: Data Ops の WARNING を棚卸しし
   - KSJ 9 件（A49 / A51 / A33 / G08 / N03）: 公式 zip と raw の sha256 一致、canonical は raw の再正規化と一致
   - KANAGAWA の避難所 2 件: 国土地理院の公式定義（_1 = 指定避難所、_2 = 指定緊急避難場所）と CSV 列・共通 ID で確認。
     KANAGAWA-EVAC-001 の raw の記録（14000_2.zip）が誤りで、canonical は 14000_1.zip と全件一致
-  - 東京の避難所 2 件: layer_type / 名称と中身が逆（OWNER 判断）。出典は登録しない
+  - 東京の避難所 2 件: layer_type / 名称と中身が逆だった → 定義を中身に合わせて訂正（2026-10-12 OWNER 承認、
+    test_tokyo_shelter_semantic_contract.py）
   - 出典を確定できないもの（DEM / TOKYO-BOUNDARY / ROAD / TIDE / RAILWAY / PSEUDO）は推測で埋めない
   - Data Ops の判定は変えず、WARNING の中身を示すラベル（integrity.labels）を加える
 """
@@ -40,8 +41,7 @@ KSJ = {  # dataset → (file, year, version, region code, official zip sha256)
     "KANAGAWA-BOUNDARY-001": ("N03-20250101_14_GML.zip", "2025", None, "14", "1cf3c1ee08686de1e2685e5f81b9f0eaf6abb94bfffcd0811cc109c84b2e9fb4"),
 }
 UNRESOLVED = ["TOKYO-DEM-001", "TOKYO-BOUNDARY-001", "ROAD-DRIVING-KANTO-001", "ROAD-WALKING-TOKYO-KANAGAWA-001",
-              "TIDE-JMA-JAPAN-2026-001", "RAILWAY-PMTILES-JAPAN-001", "TOKYO-PSEUDO-INLAND-FLOOD-001",
-              "TOKYO-SHELTER-001", "TOKYO-EVAC-001"]
+              "TIDE-JMA-JAPAN-2026-001", "RAILWAY-PMTILES-JAPAN-001", "TOKYO-PSEUDO-INLAND-FLOOD-001"]
 TILE_OMITTED = ["TOKYO-SURGE-001", "KANAGAWA-SURGE-001", "TOKYO-URBAN-001", "KANAGAWA-URBAN-001",
                 "TOKYO-LOWLAND-POOR-DRAINAGE-001", "KANAGAWA-LOWLAND-POOR-DRAINAGE-001", "TOKYO-PSEUDO-INLAND-FLOOD-001"]
 
@@ -79,11 +79,16 @@ def test_kanagawa_shelter_pair_follows_gsi_definition():
     assert any("14000_2.zip" in n and "誤っていたのは raw の記録" in n for n in evac.ingest_notes)
 
 
-def test_tokyo_shelter_pair_mismatch_is_recorded_not_resolved():
-    for did in ("TOKYO-SHELTER-001", "TOKYO-EVAC-001"):
-        d = _d(did)
-        assert d.source_provider is None  # 定義と中身が逆のまま出典を「正しい」と登録しない
-        assert any(n.startswith("要確認（2026-10-12）") and "OWNER 判断" in n for n in d.ingest_notes)
+def test_tokyo_shelter_pair_follows_gsi_definition():
+    """2026-10-12 OWNER 承認: 定義を中身に合わせて訂正（dataset_id は維持。Kanagawa と同じく EVAC = _1、SHELTER = _2）。"""
+    shelter, evac = _d("TOKYO-SHELTER-001"), _d("TOKYO-EVAC-001")
+    assert shelter.layer_type == "emergency_shelter" and shelter.expected_source_files == ["13000_2.zip"]
+    assert evac.layer_type == "evacuation_shelter" and evac.expected_source_files == ["13000_1.zip"]
+    assert shelter.display_name == "指定緊急避難場所（東京都）" and evac.display_name == "指定避難所（東京都）"
+    assert shelter.source_provider == evac.source_provider == "国土地理院"
+    for d in (shelter, evac):
+        assert not any(n.startswith("要確認") for n in d.ingest_notes)
+        assert any("定義を中身に合わせて訂正" in n for n in d.ingest_notes)
 
 
 @pytest.mark.parametrize("did", UNRESOLVED)
