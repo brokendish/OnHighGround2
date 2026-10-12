@@ -698,9 +698,12 @@ def generate_manifest(repo_root: Path | None = None, approved_untracked_policy: 
     return manifest
 
 
+def serialize_manifest(manifest: dict) -> str:
+    return json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=False) + "\n"
+
+
 def write_manifest(manifest: dict, output_path: Path) -> str:
-    text = json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=False)
-    text += "\n"
+    text = serialize_manifest(manifest)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(text, encoding="utf-8")
     return hashlib.sha256(text.encode("utf-8")).hexdigest()

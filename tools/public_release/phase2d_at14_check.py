@@ -812,6 +812,17 @@ def run_all(repo_root: Path = REPO_ROOT) -> RunReport:
     return report
 
 
+def save_evidence(results_json: list, all_passed: bool, passed: int, total: int, repo_root: Path | None = None) -> Path:
+    """AT-14 の結果を formal_evidence の run directory に immutable / append-only で残す（KTF-003。
+    旧実装は固定名 phase2d_at14_results.json へ上書きした）。"""
+    import formal_evidence
+    run = formal_evidence.open_run("phase2d", "at14", repo_root=repo_root)
+    run.write_json("phase2d_at14_results.json", {"results": results_json, "all_passed": all_passed})
+    run.finalize({"passed": passed, "total": total, "overall": "PASS" if all_passed else "FAIL",
+                  "exit_code": 0 if all_passed else 1})
+    return run.directory
+
+
 def main() -> int:
     report = run_all()
     results_json = [
@@ -822,20 +833,10 @@ def main() -> int:
         status = "PASS" if r.passed else "FAIL"
         print(f"[{r.check_id}] {status} — {r.name}: {r.detail}")
 
-    # 実行ごとの directory へ書く（既存の evidence は上書きしない。旧実装は固定名 phase2d_at14_results.json へ上書きした）
-    from datetime import datetime, timezone
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True).stdout.strip()[:12]
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    evidence_dir = REPO_ROOT / "tasks" / "public-release" / "evidence" / "phase2d" / "runs" / f"{stamp}-{head}-at14"
-    evidence_dir.mkdir(parents=True, exist_ok=False)
-    print(f"evidence: {evidence_dir}")
-    (evidence_dir / "phase2d_at14_results.json").write_text(
-        json.dumps({"results": results_json, "all_passed": report.all_passed}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
     total = len(report.results)
     passed = sum(1 for r in report.results if r.passed)
+    evidence_dir = save_evidence(results_json, report.all_passed, passed, total)
+    print(f"evidence: {evidence_dir}")
     print(f"\nAT-14 SUMMARY: {passed}/{total} PASS")
     print("OVERALL RESULT:", "PASS" if report.all_passed else "FAIL")
     return 0 if report.all_passed else 1

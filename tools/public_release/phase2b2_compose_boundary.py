@@ -1688,6 +1688,19 @@ def public_regression_checks(override_file: Path, project_name: str) -> None:
 
 
 def main() -> int:
+    """formal run の evidence は run ごとの directory に残し、終了時に provenance を書いて read-only にする
+    （formal_evidence、KTF-003: 旧実装は固定 directory の同名 file へ毎回上書きした）。"""
+    global EVIDENCE_DIR
+    import formal_evidence
+    run = formal_evidence.open_run("phase2b2", "compose-boundary")
+    EVIDENCE_DIR = run.directory
+    print(f"evidence: {EVIDENCE_DIR}")
+    rc = _main()
+    run.finalize_existing({"exit_code": rc, "overall": "PASS" if rc == 0 else "FAIL"})
+    return rc
+
+
+def _main() -> int:
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     print(f"run tag: {_RUN_TAG}")
     print(f"project name (default/AT-03): {PROJECT_NAME_DEFAULT}")

@@ -52,6 +52,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import formal_evidence  # noqa: E402
 import phase2d_release_delta_manifest as manifest_mod  # noqa: E402
 import phase2d_typed_boundary_scan as typed_scan_mod  # noqa: E402
 import phase2d_untracked_policy as untracked_policy_mod  # noqa: E402
@@ -489,14 +490,21 @@ def compare_completeness(
     return result
 
 
-def _new_run_evidence_dir(repo_root: Path) -> Path:
-    """tasks/public-release/evidence/phase2d/runs/<UTC>-<HEAD12>/（既にあれば中止。過去の evidence を上書きしない）。"""
-    from datetime import datetime, timezone
-    head = _run(["git", "rev-parse", "HEAD"], repo_root).stdout.strip()[:12]
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    d = repo_root / "tasks" / "public-release" / "evidence" / "phase2d" / "runs" / f"{stamp}-{head}-at17"
-    d.mkdir(parents=True, exist_ok=False)
-    return d
+def save_evidence(repo_root: Path, manifest: dict, result: dict) -> Path:
+    """AT-17 の evidence を formal_evidence の run directory に immutable / append-only で残す（KTF-003）。
+
+    旧実装は固定名 phase2d_round5c_release_delta_manifest.json / phase2d_round5c_at17_snapshot_result.json へ
+    上書きしており、2026-10-12 の再実行で Round 5C（baseline d3eeb99）の記録を失った（復元不能）。
+    判定（result の中身）はここでは変えない。result に manifest の sha256 と policy 適用有無を足すのは従来どおり。
+    """
+    run = formal_evidence.open_run("phase2d", "at17", repo_root=repo_root)
+    result["manifest_sha256"] = run.write_text("release_delta_manifest.json", manifest_mod.serialize_manifest(manifest))
+    run.write_json("at17_snapshot_result.json", result)
+    run.finalize({
+        "overall_snapshot_completeness_result": result.get("overall_snapshot_completeness_result"),
+        "exit_code": 0 if result.get("overall_snapshot_completeness_result") == "PASS" else 1,
+    })
+    return run.directory
 
 
 def _ls_tree(repo: Path, rev: str) -> dict:
@@ -795,22 +803,11 @@ def main() -> int:
         print("\nSNAPSHOT COMPLETENESS RESULT:", result["overall_snapshot_completeness_result"])
         return 0 if result["overall_snapshot_completeness_result"] == "PASS" else 1
 
-    # 実行ごとの directory へ書く（既存の evidence は上書きしない）。旧実装は固定名
-    # phase2d_round5c_release_delta_manifest.json / phase2d_round5c_at17_snapshot_result.json へ上書きしており、
-    # 2026-10-12 の再実行で Round 5C（baseline d3eeb99）の記録を失った。
-    evidence_dir = _new_run_evidence_dir(repo_root)
-
-    manifest_sha256 = manifest_mod.write_manifest(
-        manifest, evidence_dir / "release_delta_manifest.json"
-    )
-    result["manifest_sha256"] = manifest_sha256
     result["approved_untracked_policy_applied"] = approved_untracked is not None
     result["approved_vbf_waiver_applied"] = approved_vbf is not None
-
+    # 実行ごとの run directory へ immutable / append-only で書く（formal_evidence、KTF-003）
+    evidence_dir = save_evidence(repo_root, manifest, result)
     print(f"evidence: {evidence_dir}")
-    (evidence_dir / "at17_snapshot_result.json").write_text(
-        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
     print("\nSNAPSHOT COMPLETENESS RESULT:", result["overall_snapshot_completeness_result"])

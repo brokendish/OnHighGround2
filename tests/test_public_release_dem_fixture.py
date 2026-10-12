@@ -6,8 +6,9 @@ DEM-RUNTIME-REPAIR の座標契約で再資格化する。
   新 fixture sha256 90edc62a…: 標準 north-up 配置（x = 経度、y = 緯度）、nodata = -9999（南東隅 9 cell）
 修正後の backend は入れ替わった DEM を読み込まない（fail closed）ため、旧 fixture では demo profile の DEM が
 使えなくなる。release delta manifest（tasks/public-release/evidence/phase2d/phase2d_round5c_*）は 2026-08-22 時点の
-round の記録（674 entry 中 213 entry が既に現在と異なる）であり、書き換えない。現在の tree には release delta が
-無く（manifest 再生成で entry 0）、release candidate は HEAD の内容そのもの。
+round の記録（674 entry 中 213 entry が既に現在と異なる）だったが、2026-10-12 の formal 再実行で上書きされ失われた
+（KTF-003、復元不能）。test_12 はその再発防止（formal evidence の append-only）を検査する。現在の tree には release
+delta が無く（manifest 再生成で entry 0）、release candidate は HEAD の内容そのもの。
 """
 from __future__ import annotations
 
@@ -148,11 +149,56 @@ def test_11_old_fixture_sha_absent_from_active_release_surface():
     assert hits == []
 
 
-def test_12_historical_release_record_is_preserved():
-    """round 5C の release delta manifest は当時の記録として旧 sha を保持する（gitignore の tasks/ がある環境だけ）。"""
-    p = ROOT / "tasks/public-release/evidence/phase2d/phase2d_round5c_release_delta_manifest.json"
-    if not p.is_file():
-        pytest.skip("public-release の作業記録が無い環境")
-    m = json.loads(p.read_text(encoding="utf-8"))
-    entry = next(e for e in m["entries"] if e["path"] == "tests/fixtures/dem_demo/elevation_demo.tif")
-    assert entry["release_sha256"] == OLD_SHA and m["baseline_head"].startswith("d3eeb99")
+def _git_repo(path: Path) -> Path:
+    path.mkdir(parents=True)
+    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "fixture@local.invalid"],
+                 ["config", "user.name", "Fixture"]):
+        subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
+    (path / "README").write_text("fixture\n")
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=path, check=True, capture_output=True)
+    return path
+
+
+def test_12_formal_evidence_is_append_only(tmp_path):
+    """KTF-003 の再設計（2026-10-12、OWNER 承認）。
+
+    旧 test は「Round 5C の release delta manifest（2026-08-22、baseline d3eeb99、674 entry、demo DEM の entry は旧 sha
+    0641f39c…）が今も残っている」ことを確かめていた。その記録は 2026-10-12 の Phase 2-D formal 再実行で AT-17 tool が
+    同じ固定 file 名へ上書きして失われ、写しが無く復元できない（再生成・推測復元はしない。事実は commit ee944e9 の
+    message と docs/testing/known_test_failures.md KTF-003 に残す）。
+
+    回復できない前提を捨て、失われた原因（formal evidence の上書き）が再発しないことを検査する:
+      1. AT-17 の evidence A を作り hash を記録する  2. 別の formal run B を作る
+      3. A が byte 単位で同一のまま残る  4. B は別 identity・別 path  5. attempt を明示して既存と同じにすると止まる
+      6. 旧形式の固定名 evidence（phase2d_round5c_*）にも触れない
+    """
+    sys.path.insert(0, str(ROOT / "tools" / "public_release"))
+    import formal_evidence
+    import phase2d_at17_clean_clone as at17
+
+    repo = _git_repo(tmp_path / "repo")
+    legacy = repo / "tasks/public-release/evidence/phase2d"
+    legacy.mkdir(parents=True)
+    (legacy / "phase2d_round5c_release_delta_manifest.json").write_text('{"legacy": "round5c"}\n')
+    (legacy / "phase2d_round5c_at17_snapshot_result.json").write_text('{"legacy": "round5c-result"}\n')
+    before_legacy = formal_evidence.snapshot_tree(legacy)
+
+    manifest = {"schema_version": 1, "entries": [{"path": "README", "release_sha256": "x"}]}
+    dir_a = at17.save_evidence(repo, manifest, {"overall_snapshot_completeness_result": "PASS"})
+    snap_a = formal_evidence.snapshot_tree(dir_a)
+    assert set(snap_a) == {"release_delta_manifest.json", "at17_snapshot_result.json", "provenance.json"}
+    assert formal_evidence.verify_run(dir_a) == []
+
+    dir_b = at17.save_evidence(repo, {"schema_version": 1, "entries": []}, {"overall_snapshot_completeness_result": "FAIL"})
+    assert dir_b != dir_a and formal_evidence.verify_run(dir_b) == []
+    prov_a = json.loads((dir_a / "provenance.json").read_text(encoding="utf-8"))
+    prov_b = json.loads((dir_b / "provenance.json").read_text(encoding="utf-8"))
+    assert (prov_a["tool"], prov_a["attempt"]) == ("at17", 1) and (prov_b["tool"], prov_b["attempt"]) == ("at17", 2)
+    assert prov_a["git_head"] == prov_b["git_head"] and prov_a["run_id"] != prov_b["run_id"]
+
+    with pytest.raises(formal_evidence.EvidenceError):
+        formal_evidence.open_run("phase2d", "at17", attempt=1, repo_root=repo)  # 同じ identity は作らない
+
+    assert formal_evidence.snapshot_tree(dir_a) == snap_a  # A は byte 単位で同一
+    assert formal_evidence.changed_or_removed(before_legacy, formal_evidence.snapshot_tree(legacy)) == []

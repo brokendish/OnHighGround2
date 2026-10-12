@@ -170,7 +170,7 @@ Status: 全件 CONFIRMED_RUNTIME_ONLY（イメージそのものはビルド時�
 
 **Round 2訂正**: Round 1では本節に手動集計の数値を記載していたが、CODEX第1ラウンドがAT-14 check 10の分母算定ロジック自体の不備（prose・定義節の`NOT_CONFIRMED`混入）を指摘した。手動の再集計は同種の誤りを繰り返すリスクがあるため、Round 2からは集計を**第8節の機械可読分類サマリーをAT-14 checkerが構造的にparseして算出する値のみ**を正とし、本節への手動転記をやめる。
 
-実行方法と実測値は`tasks/public-release/evidence/phase2d/runs/<UTC>-<HEAD>-at14/phase2d_at14_results.json`（`tools/public_release/phase2d_at14_check.py`の実行ごとの結果）を参照。集計ロジックの詳細は第8節。
+実行方法と実測値は`tasks/public-release/evidence/phase2d/runs/<UTC>-<HEAD12>-at14-<round>-a<attempt>-<run_id>/phase2d_at14_results.json`（`tools/public_release/phase2d_at14_check.py`の実行ごとの結果。`provenance.json`にHEAD・attempt・各fileのsha256を記録し、上書きしない）を参照。集計ロジックの詳細は第8節。
 
 ---
 
