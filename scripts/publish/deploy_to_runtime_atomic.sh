@@ -117,11 +117,23 @@ log_info "regions    = ${REGIONS[*]}"
 # 工程別の経過秒（ATOMIC-PUBLISH-TIMING）。publish 時間・I/O の内訳を log から追えるようにする。
 _STEP_T0="$(date +%s.%N)"
 _STEP_PREV="${_STEP_T0}"
+# PUBLISH-MEMORY-PRESSURE: 工程ごとの page cache / swap の変化（/proc は node 全体の値）。
+# Cached・MemAvailable・SwapFree（MB）と、前工程からの pgpgin / pgpgout（MB）・pswpout（MB）の差分。
+_mem_sample() {
+    awk '/^Cached:/{c=$2}/^MemAvailable:/{a=$2}/^SwapFree:/{s=$2}END{printf "%d %d %d", c/1024, a/1024, s/1024}' /proc/meminfo
+    awk '/^pgpgin /{i=$2}/^pgpgout /{o=$2}/^pswpout /{w=$2}END{printf " %d %d %d", i, o, w}' /proc/vmstat
+}
+_MEM_PREV="$(_mem_sample 2>/dev/null || echo "0 0 0 0 0 0")"
 log_step() {
     local now; now="$(date +%s.%N)"
     log_info "[timing] $1: $(awk -v a="${_STEP_PREV}" -v b="${now}" 'BEGIN{printf "%.2f", b-a}')s" \
              "(total $(awk -v a="${_STEP_T0}" -v b="${now}" 'BEGIN{printf "%.2f", b-a}')s)"
     _STEP_PREV="${now}"
+    local cur; cur="$(_mem_sample 2>/dev/null || echo "0 0 0 0 0 0")"
+    log_info "[memory] $1: $(awk -v p="${_MEM_PREV}" -v c="${cur}" 'BEGIN{split(p,a," "); split(c,b," ");
+        printf "cached=%dMB(%+d) avail=%dMB swap_free=%dMB pgpgin=%+dMB pgpgout=%+dMB pswpout=%+dMB",
+        b[1], b[1]-a[1], b[2], b[3], (b[4]-a[4])/1024, (b[5]-a[5])/1024, (b[6]-a[6])*4/1024}')"
+    _MEM_PREV="${cur}"
 }
 
 mkdir -p "${STAGING_ROOT_BASE}"

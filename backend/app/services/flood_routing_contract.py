@@ -73,11 +73,9 @@ def routing_paths_for_canonical(canonical_path: Path) -> Tuple[Path, Path]:
 
 
 def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
-    h = hashlib.sha256()
-    with Path(path).open("rb") as f:
-        for chunk in iter(lambda: f.read(chunk_size), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    # 大きい routing / canonical は読了後に page cache を手放す（PUBLISH-MEMORY-PRESSURE、file_hash 参照）
+    from app.services.file_hash import sha256_file as _sha256_file
+    return _sha256_file(path, chunk_size)
 
 
 def load_meta(meta_path: Path) -> dict:

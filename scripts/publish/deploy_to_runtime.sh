@@ -129,7 +129,11 @@ deploy_file() {
     fi
 
     mkdir -p "${dst_dir}"
-    cp "${src}" "${dst}"
+    # PUBLISH-MEMORY-PRESSURE: reflink 対応 filesystem（VPS: XFS reflink=1・data_lake と data_runtime が同一 fs）
+    # では data block を共有する clone になり、GB 級の read / write と page cache 膨張が発生しない。
+    # 非対応 fs では通常 copy に縮退する（内容は同一。publish の検証は activate が全 file を hash して行う）。
+    # BSD cp（macOS の開発機）は --reflink を受け付けないため通常 copy に戻す（copy 自体の失敗はそのまま表に出る）
+    cp --reflink=auto "${src}" "${dst}" 2>/dev/null || cp "${src}" "${dst}"
     log_info "Deployed: $(basename "${src}") -> ${dst}"
     echo "OK\t${src}\t${dst}" >> "${LOG_FILE}"
 

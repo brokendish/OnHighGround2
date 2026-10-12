@@ -88,6 +88,13 @@ _normalize_exact() {
     [[ "$(_gid_mode "${path}" 2>/dev/null || true)" == "${LEASES_GID} ${want}" ]]
 }
 
+# PUBLISH-MEMORY-PRESSURE: cmp で全読みした大きい MBTiles（16 MiB 以上）の page cache を手放す
+# （GNU dd の iflag=nocache・count=0 は file 全体の DONTNEED。hint のため失敗しても同期は続行）
+_drop_cache_if_large() {
+    local size; size="$(stat -c %s "$1" 2>/dev/null || echo 0)"
+    (( size >= 16777216 )) || return 0
+    dd if="$1" iflag=nocache count=0 status=none 2>/dev/null || true
+}
 _report_violation() {
     log_error "VIOLATION $1 (actual='$(_gid_mode "$2" 2>/dev/null || echo '?')' expected='${LEASES_GID} $3' kind=$4)"
 }
@@ -140,12 +147,16 @@ unchanged=0
 while IFS= read -r -d '' f; do
     rel="${f#"${src}"/}"
     target="${dst}/${rel}"
-    if [[ -f "${target}" ]] && cmp -s -- "${f}" "${target}"; then
+    if [[ -f "${target}" ]] && [[ "$(stat -c %s "${f}" 2>/dev/null)" == "$(stat -c %s "${target}" 2>/dev/null)" ]] \
+            && cmp -s -- "${f}" "${target}"; then
+        _drop_cache_if_large "${f}"; _drop_cache_if_large "${target}"
         unchanged=$((unchanged + 1))
         continue
     fi
+    _drop_cache_if_large "${f}"; [[ -f "${target}" ]] && _drop_cache_if_large "${target}"
     tmp="$(dirname "${target}")/.$(basename "${target}").syncing-$$"
-    if ! cp -- "${f}" "${tmp}"; then
+    # reflink 対応 fs では clone（data block 共有、page cache を増やさない）
+    if ! { cp --reflink=auto -- "${f}" "${tmp}" 2>/dev/null || cp -- "${f}" "${tmp}"; }; then
         rm -f -- "${tmp}"; log_warn "cp 同期に失敗: ${f} -> ${tmp}"; exit 2
     fi
     sync -- "${tmp}" 2>/dev/null || true

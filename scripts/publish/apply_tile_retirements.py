@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -36,6 +37,11 @@ def _sha256(p: Path) -> str:
     with open(p, "rb") as f:
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
+        if os.fstat(f.fileno()).st_size >= (16 << 20) and hasattr(os, "posix_fadvise"):
+            try:  # 大きい MBTiles は読了後に page cache を手放す（hint。失敗しても判定は変えない）
+                os.posix_fadvise(f.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+            except OSError:
+                pass
     return h.hexdigest()
 
 

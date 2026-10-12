@@ -323,8 +323,10 @@ def _run_sync(src: Path, dst: Path, spy_dir: Path | None = None, log: Path | Non
     if spy_dir is not None:
         # cp をラップし、コピー中の配置先 directory の状態を記録する
         spy_dir.mkdir()
+        # 本物の cp の終了コードを返し、成功した copy だけ記録する（cp --reflink=auto が使えない BSD cp では
+        # 同期 script が通常 copy に戻るため、失敗した試行を成功に見せない）
         (spy_dir / "cp").write_text(
-            "#!/bin/bash\n/bin/cp \"$@\"\n"
+            "#!/bin/bash\n/bin/cp \"$@\" || exit $?\n"
             f"for a in \"$@\"; do :; done; d=$(dirname \"$a\"); ls -A \"$d\" >> {log}; "
             f"echo ---- >> {log}\n")
         (spy_dir / "cp").chmod(0o755)

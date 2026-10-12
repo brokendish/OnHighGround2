@@ -104,14 +104,11 @@ def resolve(region: str, targets: list, definitions: list, data_lake: Path, extr
         raise ValueError(f"{d.dataset_id}: canonical が無い: {src}")
     old = {c.get("sha256"): c for c in (getattr(d, "superseded_canonicals", None) or []) if c.get("sha256")}
     if old:
-        import hashlib
-        h = hashlib.sha256()
-        with src.open("rb") as f:
-            for b in iter(lambda: f.read(1 << 20), b""):
-                h.update(b)
-        if h.hexdigest() in old:
-            raise ValueError(f"{d.dataset_id}: canonical {h.hexdigest()[:12]}… は置き換え済みの旧版"
-                             f"（superseded_canonicals: {old[h.hexdigest()].get('status')}）。publish しない")
+        from app.services.file_hash import sha256_file  # 大きい canonical は読了後に page cache を手放す
+        digest = sha256_file(src)
+        if digest in old:
+            raise ValueError(f"{d.dataset_id}: canonical {digest[:12]}… は置き換え済みの旧版"
+                             f"（superseded_canonicals: {old[digest].get('status')}）。publish しない")
     check_canonical(src, d.dataset_id, extract_depth)
     return [(k, d.dataset_id, src) for k in kinds]
 
