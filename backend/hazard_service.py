@@ -148,6 +148,23 @@ SEVERITY_HAZARD_TYPES: List[str] = ["inland_flood", "landslide"]
 # 地形的リスクであり、単独では避難判断のトリガーにならない
 SUPPLEMENTARY_HAZARD_TYPES: List[str] = ["lowland_poor_drainage"]
 
+# ── Reachable Safe Area（RSA）が差し引く hazard の契約（OWNER 判断、2026-10-12）──────────────
+# RSA は「津波到達時間内に歩いて届く範囲」ではなく、その範囲のうち実際に避難先として使える
+# 「安全範囲」を表す。したがって評価可能な全ハザードを差し引く（津波だけ・津波＋高潮だけに縮めない）。
+# 補助ハザード（lowland_poor_drainage）も is_danger には使わないが、RSA では差し引く。
+# 津波到達時間だけから求めた範囲が必要になったら、RSA の意味は変えず、reachable_area 等の
+# 別概念・別 API として設計する。
+# backend がロードする hazard type を追加・削除したら、ここを更新する（tests が不一致を検知する）。
+# 一覧に無い type がロードされても RSA は差し引く（無視しない）。その場合は警告を出す。
+RSA_SUBTRACTED_HAZARD_TYPES: Tuple[str, ...] = (
+    "flood",
+    "tsunami",
+    "storm_surge",
+    "landslide",
+    "inland_flood",
+    "lowland_poor_drainage",
+)
+
 
 def _classify_depth(depth: float) -> str:
     """浸水深（m）から危険度レベルを返す。
@@ -426,6 +443,7 @@ class HazardService:
         # _polygons の bbox-only entry は "ring_id" で参照する。
         self._ring_stores: Dict[str, _RingStore] = {}
         self._ring_store_dir: Optional[str] = os.environ.get("OHG2_HAZARD_GEOMETRY_DIR") or None
+        self._rsa_contract_warned: set = set()
 
     def _ring_store(self, hazard_type: str) -> _RingStore:
         store = self._ring_stores.get(hazard_type)
@@ -962,7 +980,15 @@ class HazardService:
         """
         rings: List[np.ndarray] = []
         unavailable: List[str] = []
+        # 契約（RSA_SUBTRACTED_HAZARD_TYPES）: 評価可能な全ハザードを差し引く。ロード済みの type は
+        # 一覧に無くても差し引き（安全側）、契約の更新漏れとして警告する。
         for hazard_type in self.loaded_hazard_types():
+            if hazard_type not in RSA_SUBTRACTED_HAZARD_TYPES and hazard_type not in self._rsa_contract_warned:
+                self._rsa_contract_warned.add(hazard_type)
+                logger.warning(
+                    "RSA: hazard type '%s' は RSA_SUBTRACTED_HAZARD_TYPES に無い（差し引きは行う。契約を更新すること）",
+                    hazard_type,
+                )
             store = self._ring_stores.get(hazard_type)
             arr = self._bbox_array(hazard_type)
             if arr is not None and len(arr):

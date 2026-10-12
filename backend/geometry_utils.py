@@ -9,8 +9,13 @@ v1 モデル:
     半径: walking_speed_mps × tti_minutes × 60
 
   ハザードポリゴン:
-    ロード済みの全 hazard（flood / tsunami / storm_surge / landslide / inland_flood /
-    lowland_poor_drainage）の外周 ring。HazardService.hazard_rings_in_bbox() から取得する。
+    評価可能な全ハザードの外周 ring。HazardService.hazard_rings_in_bbox() から取得する。
+    対象一覧の契約は hazard_service.RSA_SUBTRACTED_HAZARD_TYPES（1 箇所で管理）。
+
+RSA の意味（OWNER 判断、2026-10-12）:
+  RSA は津波到達時間内に歩いて届く範囲そのものではなく、そのうち実際に避難先として使える
+  「安全範囲」を表す。津波だけ・津波＋高潮だけへ縮めない。到達時間だけから求めた範囲が
+  必要になったら、RSA の意味は変えず reachable_area 等の別概念・別 API として設計する。
 
 安全契約（EVACUATION-HAZARD-GEOMETRY-SAFETY、2026-10-12）:
   円に掛かる hazard の形状を 1 件でも取得できない、または形状演算に失敗した場合は、

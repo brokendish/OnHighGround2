@@ -110,6 +110,18 @@ Phase 3 以降、main.py からハザード固有知識を排除する方向で�
   → レスポンス: {hazard_status, recommended, reachable_safe_area, ...}
 ```
 
+### Reachable Safe Area（RSA）の意味（OWNER 判断、2026-10-12）
+
+- RSA = 到達可能円（歩行速度 × 津波到達時間）から**評価可能な全ハザード**を差し引いた、避難先として使える安全範囲。
+  津波到達時間内に届く範囲そのもの（reachable area）ではない。
+- 差し引く hazard は津波だけ・津波＋高潮だけに縮めない。対象一覧の契約は
+  `backend/hazard_service.py` の `RSA_SUBTRACTED_HAZARD_TYPES`（flood / tsunami / storm_surge / landslide /
+  inland_flood / lowland_poor_drainage）。backend がロードする hazard を増減したらここを更新する
+  （`tests/test_evacuation_hazard_geometry_safety.py` が不一致を検知する）。
+- 一覧に無い hazard がロードされても無視せず差し引く（警告ログ）。形状を取得できない hazard が円に掛かれば
+  `status="unavailable"` とし、安全範囲を出さない。
+- 津波到達時間だけから求めた範囲が必要になったら、RSA の意味は変えずに `reachable_area` 等の別概念・別 API として設計する。
+
 ---
 
 ## TTI / RSA / assessment の関係

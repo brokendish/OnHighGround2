@@ -261,3 +261,59 @@ def test_app_public_and_ui_follow_the_contract():
     assert ui.index("rsa.status === 'unavailable'", i) < ui.index("L.geoJSON(rsa.geometry", i)
     src = (ROOT / "backend/geometry_utils.py").read_text(encoding="utf-8")
     assert "using full reachable circle" not in src and "except Exception:\n                pass" not in src
+
+
+# ── RSA の意味の契約（OWNER 判断 2026-10-12: 評価可能な全ハザードを差し引く）────────────────
+
+def _backend_loaded_hazard_types():
+    """backend（tests 以外）が hazard_service.load*("<type>", ...) でロードする hazard type。"""
+    import re
+    types = set()
+    for p in (ROOT / "backend").rglob("*.py"):
+        if "tests" in p.parts:
+            continue
+        types |= set(re.findall(r'hazard_service\.load(?:_geojson_streaming|_geojsonl|_dir)?\(\s*"([a-z_]+)"',
+                                p.read_text(encoding="utf-8")))
+    return types
+
+
+def test_rsa_contract_matches_hazards_loaded_by_backend():
+    """hazard を追加・削除したら RSA_SUBTRACTED_HAZARD_TYPES の更新が必要（ここで検知する）。"""
+    loaded = _backend_loaded_hazard_types()
+    assert loaded, "ロード箇所を検出できない（検知の仕組みが壊れている）"
+    assert set(hsm.RSA_SUBTRACTED_HAZARD_TYPES) == loaded
+    assert len(hsm.RSA_SUBTRACTED_HAZARD_TYPES) == len(set(hsm.RSA_SUBTRACTED_HAZARD_TYPES))
+
+
+def test_rsa_contract_is_not_narrowed_to_tsunami():
+    assert {"tsunami", "storm_surge", "flood", "landslide", "inland_flood",
+            "lowland_poor_drainage"} <= set(hsm.RSA_SUBTRACTED_HAZARD_TYPES)
+    assert "lowland_poor_drainage" in hsm.SUPPLEMENTARY_HAZARD_TYPES  # 補助ハザードでも RSA では差し引く
+
+
+@pytest.mark.parametrize("hazard_type", hsm.RSA_SUBTRACTED_HAZARD_TYPES)
+def test_rsa_subtracts_every_contract_hazard(tmp_path, hazard_type):
+    hs = HazardService()
+    path = _fc(tmp_path / "h.geojson", [_half_east(*KAWASAKI)])
+    if hazard_type == "inland_flood":
+        hs.load(hazard_type, path)  # backend と同じく full coords でロード
+    else:
+        hs.load_geojson_streaming(hazard_type, path, bbox_only=True)
+    res = _rsa(hs, *KAWASAKI)
+    assert res["status"] == "computed"
+    assert res["area_m2"] == pytest.approx(_circle_area(300) / 2, rel=0.02)
+
+
+def test_hazard_outside_contract_is_still_subtracted_and_warns(tmp_path, caplog):
+    hs = HazardService()
+    hs.load_geojson_streaming("volcano_test", _fc(tmp_path / "v.geojson", [_half_east(*KAWASAKI)]), bbox_only=True)
+    with caplog.at_level("WARNING", logger="hazard_service"):
+        res = _rsa(hs, *KAWASAKI)
+    assert res["area_m2"] == pytest.approx(_circle_area(300) / 2, rel=0.02)  # 無視しない
+    assert any("RSA_SUBTRACTED_HAZARD_TYPES に無い" in r.getMessage() for r in caplog.records)
+
+
+def test_rsa_meaning_is_documented():
+    for p in ("backend/geometry_utils.py", "backend/hazard_service.py", "docs/architecture/hazard_engine_design.md"):
+        text = (ROOT / p).read_text(encoding="utf-8")
+        assert "評価可能な全ハザード" in text and "reachable_area" in text, p
