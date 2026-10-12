@@ -64,10 +64,17 @@ DUMMY_OPERATOR_SECRET = "OHG2_PHASE2B4_DUMMY_SECRET_DO_NOT_USE"
 WRONG_TOKEN = "OHG2_PHASE2B4_WRONG_TOKEN_DO_NOT_USE"
 
 OPERATOR_TARGET_PORT = 8100
+# operator gateway の外部 API prefix（operator/nginx.conf、3fb1ead 以降）。public 側の拒否対象 path（/api/admin 等）とは別物。
+OPERATOR_API_ADMIN = "/admin/api/admin"
+OPERATOR_API_SIMULATION = "/admin/api/simulation"
 OPERATOR_HOST_PORT = 19900 + (hash(_RUN_TAG) % 300)
 
 RESULTS: List[Dict[str, Any]] = []
-FORMAL_EXPECTED_CASE_IDS = [f"S11-{index:03d}" for index in range(1, 139)]
+# PHASE-2D-FINAL-ALIGNMENT（2026-10-12）: 138 → 144。138 は operator asset が 14 file だった時点の件数で、
+# 3fb1ead 以降 operator/frontend-admin は 20 file（+ login.html・login.js・js/admin-shell.js・data-ops.{html,js,css}）
+# になり、asset ごとの AT-06-ARTIFACT case が 6 件増えた（実 container の配信物と期待集合の完全一致は check 6 が別途検査）。
+# 件数は引き続き固定で、増減・欠落・順序違いは collection contract が FAIL にする。
+FORMAL_EXPECTED_CASE_IDS = [f"S11-{index:03d}" for index in range(1, 145)]
 
 
 def _redact_evidence_text(value: str) -> str:
@@ -702,6 +709,8 @@ def build_override_compose(tmp_dir: Path, seeded: Dict[str, Path]) -> Path:
             },
             "martin": {
                 "container_name": f"{CONTAINER_PREFIX}-martin",
+                # PHASE-2D-FINAL-ALIGNMENT: tile root は run tree 内の空 skeleton（check 4 の martin DNS、phase2_isolated_stack）
+                "volumes": _OverrideList(isolated_stack.martin_service_volumes(tmp_dir)),
             },
         },
         "networks": {
@@ -1044,30 +1053,33 @@ def operator_http_matrix(base_url: str, secret: str, expected_assets: List[str],
     record("AT-06-HTTP-OPERATOR: 未知API pathは404（SPA fallbackなし）", status == 404, f"status={status}")
 
     # 9: 無認証401 + WWW-Authenticate
-    status, hdrs, body = http_get(f"{base_url}/api/admin/hazards")
-    record("AT-06-HTTP-OPERATOR: 無認証 /api/admin/hazards は401", status == 401, f"status={status}")
+    # PHASE-2D-FINAL-ALIGNMENT（2026-10-12）: 3fb1ead で operator gateway の外部 API path は /admin/api/admin/*・
+    # /admin/api/simulation/* になった（operator/nginx.conf の proxy_pass で backend の /api/admin/* 等へ 1:1 対応）。
+    # 期待 status・認証要件は変更しない。旧 /api/admin/* は gateway では 404（未知 path）。
+    status, hdrs, body = http_get(f"{base_url}{OPERATOR_API_ADMIN}/hazards")
+    record("AT-06-HTTP-OPERATOR: 無認証 /admin/api/admin/hazards は401", status == 401, f"status={status}")
     record("AT-06-HTTP-OPERATOR: 401応答にWWW-Authenticate: Bearerが付与される", hdrs.get("www-authenticate", "").lower().startswith("bearer"), f"headers={hdrs}")
     record("AT-06-TOKEN-HYGIENE: 401 responseがtoken値を含まない", secret not in body and WRONG_TOKEN not in body, f"body={body[:200]!r}")
 
     # 誤Bearer401
-    status, hdrs, body = http_get(f"{base_url}/api/admin/hazards", headers={"Authorization": f"Bearer {WRONG_TOKEN}"})
+    status, hdrs, body = http_get(f"{base_url}{OPERATOR_API_ADMIN}/hazards", headers={"Authorization": f"Bearer {WRONG_TOKEN}"})
     record("AT-06-HTTP-OPERATOR: 誤Bearerは401", status == 401, f"status={status}")
 
     # 正Bearer 200 (read-only)
-    status, hdrs, body = http_get(f"{base_url}/api/admin/hazards", headers={"Authorization": f"Bearer {secret}"})
+    status, hdrs, body = http_get(f"{base_url}{OPERATOR_API_ADMIN}/hazards", headers={"Authorization": f"Bearer {secret}"})
     record("AT-06-HTTP-OPERATOR: 正Bearerでread-only APIが200", status == 200, f"status={status}")
 
-    status, hdrs, body = http_get(f"{base_url}/api/simulation/scenarios", headers={"Authorization": f"Bearer {secret}"})
-    record("AT-06-HTTP-OPERATOR: 正Bearerで/api/simulation/scenariosが200", status == 200, f"status={status}")
+    status, hdrs, body = http_get(f"{base_url}{OPERATOR_API_SIMULATION}/scenarios", headers={"Authorization": f"Bearer {secret}"})
+    record("AT-06-HTTP-OPERATOR: 正Bearerで/admin/api/simulation/scenariosが200", status == 200, f"status={status}")
 
     # health（匿名可の唯一例外、gateway経由）
     status, hdrs, body = http_get(f"{base_url}/health")
     record("AT-06-HTTP-OPERATOR: /health（匿名）は200", status == 200, f"status={status}")
 
     # 10: query/cookie/formのみのtokenは401
-    status, hdrs, body = http_get(f"{base_url}/api/admin/hazards?token={secret}")
+    status, hdrs, body = http_get(f"{base_url}{OPERATOR_API_ADMIN}/hazards?token={secret}")
     record("AT-06-HTTP-OPERATOR: queryのみのtokenは401", status == 401, f"status={status}")
-    status, hdrs, body = http_get(f"{base_url}/api/admin/hazards", headers={"Cookie": f"operator_token={secret}"})
+    status, hdrs, body = http_get(f"{base_url}{OPERATOR_API_ADMIN}/hazards", headers={"Cookie": f"operator_token={secret}"})
     record("AT-06-HTTP-OPERATOR: cookieのみのtokenは401", status == 401, f"status={status}")
 
     # AT-06-TOKEN-HYGIENE（CODEX P2B4-CX-003対応）: query-only tokenは401で
@@ -1672,7 +1684,12 @@ def main() -> int:
 
                     # check 4 rendered + check 13/14
                     frontend_id = get_container_id(override_file, "frontend") if frontend_port else None
-                    dns_ready, dns_detail = wait_frontend_dns(frontend_id, "osrm-walking") if frontend_id else (False, "frontend not ready")
+                    # public nginx.conf は osrm-walking と martin の両 upstream を起動時に解決する（fixture readiness 待ち）
+                    dns_ready, dns_detail = (False, "frontend not ready")
+                    if frontend_id:
+                        dns_ready, dns_detail = wait_frontend_dns(frontend_id, "osrm-walking")
+                        if dns_ready:
+                            dns_ready, dns_detail = wait_frontend_dns(frontend_id, "martin")
                     ok, detail = check_public_nginx_rendered(frontend_id) if dns_ready else (False, dns_detail)
                     if frontend_port:
                         record("AT-06-SOURCE (check 4, rendered): public nginx -T にoperator参照0件", ok, detail)

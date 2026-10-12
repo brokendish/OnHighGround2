@@ -8,7 +8,8 @@ PUBLIC-RELEASE-HARNESS-MODERNIZATION（2026-10-12）の focused self-test。B1�
            helper は seed 先の無い rw bind を拒否し、違反の各種別を検出する
   B4 deny manifest は current HEAD の clean clone から作られ（entry > 0）、public 配信面への operator 資産混入を検出する
   B5 .env.example が code の参照する env key を全て持つ（OHG2_ADMIN_DIR を含む）
-  B6 RTE-004 は selector だけを更新し、oracle（200 / 401 / findings 0）は不変
+  B6 RTE-004 は login form の selector を使う（oracle は 2026-10-12 の OWNER 承認契約改定で session-cookie 方式へ追従。
+     契約の各項目は test_phase2d_final_alignment_selfcheck.py が検査する）
   B7 AT-17 は delta = 0 の clean clone を正本として completeness / spot check / 禁止物を検査する
 """
 from __future__ import annotations
@@ -146,14 +147,13 @@ def test_b5_env_example_covers_referenced_keys():
 
 # ── B6 ───────────────────────────────────────────────────────────────────────────────
 
-def test_b6_selector_only_change_and_frozen_oracle():
+def test_b6_login_form_selector():
     e2e = (HERE / "phase2d_round12b_rte004_e2e.js").read_text(encoding="utf-8")
     assert "page.fill('#login-form input#token', token)" in e2e
     assert "page.click('#login-form button#submit-btn')" in e2e
     assert "page.fill('#operator-auth-bar" not in e2e and "page.click('#operator-auth-bar" not in e2e
     runner = (HERE / "phase2d_round12b_new_cases_runner.py").read_text(encoding="utf-8")
     assert 'payload.get("postAuthFetchStatus") == 200' in runner
-    assert 'payload.get("postReloadStatus") == 401' in runner
     assert 'payload.get("findings") == []' in runner
 
 

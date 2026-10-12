@@ -15,6 +15,7 @@ test project がそれらを上書きし忘れると、実 Local stack の conta
   2. lease_volume_override(): lease-coordination volume を project 専用名にする
   3. isolation_violations(): 描画済み compose（`docker compose config --format json`）を検査し、
      実 repository への rw bind・実 stack と同じ固定名・実 .env の読み込みを列挙する（値は返さない）
+  4. martin_service_volumes(): martin の tile root を run tree 内の空 skeleton にする（2026-10-12 追加）
 """
 from __future__ import annotations
 
@@ -126,6 +127,37 @@ def reset_seeded_staging(seeded: Dict[str, Path]) -> List[str]:
             f.unlink()
             removed.append(f"backend/{rel}")
     return removed
+
+
+MARTIN_CONFIG = REPO_ROOT / "config" / "martin.yaml"
+
+
+def martin_service_volumes(tmp_dir: Path, martin_config: Path = MARTIN_CONFIG) -> List[str]:
+    """PHASE-2D-FINAL-ALIGNMENT（2026-10-12）: test stack の martin 用 volume（tile root は run tree 内の空 skeleton）。
+
+    base compose の martin は `./data_runtime/frontend/tiles`（実 repository の未追跡 directory）を mount する。
+    その中身は Local の作業状態に依存し（clean clone には存在しない）、committed の config/martin.yaml が列挙する
+    path（ab830b7・4ee4b16 以降の地域別 tsunami directory 等）が欠けると Martin 1.14 は tile 解決の warning で
+    exit 1 → restart loop になり、Docker DNS に `martin` が登録されない。public nginx は起動時に upstream `martin`
+    を解決するため、2b4 check 4 の `nginx -T` が `host not found in upstream "martin"` で失敗していた。
+    Phase 2-B の検証は tile の中身を対象にしないため、committed config が列挙する directory を空で用意し、
+    実 repository・実 Local stack の tile には依存しない。config は commit 済みの ./config を read-only で使う。
+    """
+    cfg = yaml.safe_load(martin_config.read_text(encoding="utf-8")) or {}
+    tiles_root = tmp_dir / "martin_tiles"
+    fallback_root = tmp_dir / "martin_tiles_fallback"
+    tiles_root.mkdir(parents=True, exist_ok=True)
+    fallback_root.mkdir(parents=True, exist_ok=True)
+    for entry in (cfg.get("mbtiles") or {}).get("paths") or []:
+        rel = Path(str(entry))
+        if not rel.is_absolute() or rel.parts[:2] != ("/", "tiles") or ".." in rel.parts:
+            raise ValueError(f"unexpected martin mbtiles path: {entry!r}")
+        (tiles_root / Path(*rel.parts[2:])).mkdir(parents=True, exist_ok=True)
+    return [
+        f"{tiles_root.resolve()}:/tiles:ro",
+        f"{fallback_root.resolve()}:/tiles_fallback:ro",
+        "./config:/config:ro",
+    ]
 
 
 def lease_volume_override(container_prefix: str) -> dict:

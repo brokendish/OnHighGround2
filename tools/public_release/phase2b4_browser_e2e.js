@@ -5,7 +5,7 @@
  * Phase 2-B.4 browser E2E（第8.3節）。既存の playwright.config.js /
  * e2e/global-setup とは独立に、呼び出し元（phase2b4_frontend_boundary.py）
  * が起動済みの隔離Compose stackの実host portを引数で受け取り、実browserで
- * token取り扱い・public/operator境界を確認する。
+ * token取り扱い（session-cookie login）・public/operator境界を確認する。
  *
  * 使い方:
  *   node tools/public_release/phase2b4_browser_e2e.js \
@@ -108,51 +108,91 @@ async function main() {
   }
 
   // ── operator UI: token hygiene ──
+  //
+  // PHASE-2D-FINAL-ALIGNMENT（2026-10-12）: 3fb1ead（2026-09-12）で operator UI の認証は「各ページの
+  // #operator-auth-bar に Bearer token を貼り、JS メモリだけに保持する」方式から「/admin/login.html の login form で
+  // POST /admin/api/login → HttpOnly session cookie（Path=/admin）」方式に置き換わり、operator API の外部 path は
+  // /admin/api/admin/* になった。旧 UI 前提の 4 件（auth bar 描画・Authorization header 付与・reload 後 401・
+  // reload 後の未認証表示）を OWNER 承認済みの session-cookie 契約（RTE-004 改定と同じ）で置き換え、token 値の
+  // 非永続・非露出の走査（storage・cookie・IndexedDB・Cache Storage・URL・DOM・console）は従来どおり維持する。
+  // check 数（16）と順序は変えない。
   {
     const context = await browser.newContext();
     const page = await context.newPage();
     const consoleTexts = [];
     page.on('console', (msg) => consoleTexts.push(msg.text()));
-    const networkRequestsWithAuthHeader = [];
+    const requestUrls = [];
+    const leakingRequestBodies = [];
+    const leakingLocations = [];
     page.on('request', (req) => {
-      const auth = req.headers()['authorization'];
-      if (auth) networkRequestsWithAuthHeader.push({ url: req.url(), hasToken: auth.includes(token) });
+      requestUrls.push(req.url());
+      const body = req.postData() || '';
+      let path = '';
+      try {
+        path = new URL(req.url()).pathname;
+      } catch (_) {
+        path = '';
+      }
+      // login request body に token が入ること自体は許容（契約 4）。それ以外の request body は禁止。
+      if (body.includes(token) && !(req.method() === 'POST' && path === '/admin/api/login')) {
+        leakingRequestBodies.push(`${req.method()} ${path}`);
+      }
+    });
+    page.on('response', (res) => {
+      const loc = res.headers()['location'];
+      if (loc && loc.includes(token)) leakingLocations.push(res.url());
     });
 
+    const protectedUrl = '/admin/api/admin/hazards';
+    const fetchStatus = () =>
+      page.evaluate(async (u) => {
+        try {
+          const r = await fetch(u, { credentials: 'same-origin' });
+          return r.status;
+        } catch (e) {
+          return -1;
+        }
+      }, protectedUrl);
+
+    // 未ログインで管理ページを開くと login 画面へ送られる
     await page.goto(gatewayBase + '/admin/hazards.html', { waitUntil: 'load', timeout: 20000 });
+    await page.waitForURL('**/admin/login.html', { timeout: 10000 }).catch(() => {});
 
-    // token未入力での特権操作（read-only fetchが実行されfailすることを確認）
-    const preAuthStatus = await page.evaluate(async () => {
-      try {
-        const r = await fetch('/api/admin/hazards');
-        return r.status;
-      } catch (e) {
-        return -1;
-      }
-    });
-    record('E2E: token未入力時 /api/admin/hazards は401', preAuthStatus === 401, `status=${preAuthStatus}`);
+    const preAuthStatus = await fetchStatus();
+    record('E2E: 未ログイン時 /admin/api/admin/hazards は401', preAuthStatus === 401, `status=${preAuthStatus}`);
 
-    // dummy tokenを入力して接続
-    const authBarExists = await page.locator('#operator-auth-bar').count();
-    record('E2E: operator auth bar が描画される', authBarExists > 0, `count=${authBarExists}`);
-
-    await page.fill('#operator-auth-bar input[type="password"]', token);
-    await page.click('#operator-auth-bar button:has-text("接続")');
-    await page.waitForTimeout(300);
-
-    const postAuthStatus = await page.evaluate(async () => {
-      try {
-        const r = await fetch('/api/admin/hazards');
-        return r.status;
-      } catch (e) {
-        return -1;
-      }
-    });
-    record('E2E: dummy token接続後 /api/admin/hazards は200', postAuthStatus === 200, `status=${postAuthStatus}`);
+    const loginFormCount = await page.locator('#login-form input#token[type="password"]').count();
     record(
-      'E2E: read-only requestにAuthorization headerがdummy token値で付与される',
-      networkRequestsWithAuthHeader.some((r) => r.hasToken),
-      `count=${networkRequestsWithAuthHeader.length}`
+      'E2E: 未ログインで管理ページを開くと login form（#login-form #token）が描画される',
+      loginFormCount === 1 && new URL(page.url()).pathname === '/admin/login.html',
+      `count=${loginFormCount} path=${new URL(page.url()).pathname}`
+    );
+
+    await page.fill('#login-form input#token', token);
+    await Promise.all([
+      page.waitForURL((u) => new URL(u).pathname === '/admin/', { timeout: 15000 }),
+      page.click('#login-form button#submit-btn'),
+    ]).catch(() => {});
+    await page.waitForLoadState('load');
+
+    const postAuthStatus = await fetchStatus();
+    record('E2E: login 後 /admin/api/admin/hazards は200（session cookie）', postAuthStatus === 200, `status=${postAuthStatus}`);
+
+    const sessionCookies = (await context.cookies()).filter((c) => c.name === 'ohg_admin_session');
+    const sc = sessionCookies[0];
+    const gatewayHost = new URL(gatewayBase).hostname;
+    record(
+      'E2E: session cookie は HttpOnly・Secure・SameSite=Strict・Path=/admin・host-only で発行され、値は token と異なる',
+      sessionCookies.length === 1 &&
+        sc.httpOnly === true &&
+        sc.secure === true &&
+        sc.sameSite === 'Strict' &&
+        sc.path === '/admin' &&
+        sc.domain === gatewayHost &&
+        !sc.value.includes(token),
+      sc
+        ? `count=${sessionCookies.length} httpOnly=${sc.httpOnly} secure=${sc.secure} sameSite=${sc.sameSite} path=${sc.path} domain=${sc.domain}`
+        : 'session cookie not issued'
     );
 
     // ── storage走査（token値の非永続を確認） ──
@@ -173,7 +213,11 @@ async function main() {
     const ssText = JSON.stringify(storageDump.ss);
     record('E2E: localStorageにtoken値0件', !lsText.includes(token), 'localStorage scanned');
     record('E2E: sessionStorageにtoken値0件', !ssText.includes(token), 'sessionStorage scanned');
-    record('E2E: document.cookieにtoken値0件', !storageDump.cookie.includes(token), 'cookie scanned');
+    record(
+      'E2E: document.cookieにtoken値0件（HttpOnly session cookieはJSから読めない）',
+      !storageDump.cookie.includes(token) && !storageDump.cookie.includes('ohg_admin_session'),
+      'cookie scanned'
+    );
 
     const cookies = await context.cookies();
     record('E2E: context cookie jarにtoken値0件', !cookies.some((c) => c.value.includes(token)), `cookie_count=${cookies.length}`);
@@ -208,30 +252,56 @@ async function main() {
       JSON.stringify(idbAndCache.cacheNames)
     );
 
-    // URL / DOM / console にtoken値が出現しないこと
-    record('E2E: page URLにtoken値0件', !page.url().includes(token), page.url());
+    // URL / redirect / request body / DOM / console にtoken値が出現しないこと
+    const urlLeaks = requestUrls.filter((u) => u.includes(token) || u.includes(encodeURIComponent(token)));
+    record(
+      'E2E: page URL・全request URL・redirect Location・login以外のrequest bodyにtoken値0件',
+      !page.url().includes(token) && urlLeaks.length === 0 && leakingLocations.length === 0 && leakingRequestBodies.length === 0,
+      `requests=${requestUrls.length} url_hits=${urlLeaks.length} location_hits=${leakingLocations.length} body_hits=${JSON.stringify(leakingRequestBodies)}`
+    );
     const bodyHtml = await page.content();
     record('E2E: DOM(page.content())にtoken値0件', !bodyHtml.includes(token), 'DOM scanned');
     record('E2E: consoleログにtoken値0件', !consoleTexts.some((t) => t.includes(token)), `console_lines=${consoleTexts.length}`);
 
-    // reload後にtokenが失われる（memory-only）
+    // reload後も有効な session cookie がある限り認証状態を維持する（契約 5）
     await page.reload({ waitUntil: 'load' });
-    const statusAfterReload = await page.evaluate(async () => {
-      try {
-        const r = await fetch('/api/admin/hazards');
-        return r.status;
-      } catch (e) {
-        return -1;
-      }
-    });
-    record('E2E: reload後は再びtoken未認証状態に戻る（401）', statusAfterReload === 401, `status=${statusAfterReload}`);
-    const statusTextAfterReload = await page.locator('#operator-auth-status').textContent();
-    record('E2E: reload後のauth barが未認証表示に戻る', (statusTextAfterReload || '').includes('未認証'), statusTextAfterReload);
+    await page.waitForTimeout(500);
+    const statusAfterReload = await fetchStatus();
+    record(
+      'E2E: reload後も session が維持され /admin/api/admin/hazards は200（login画面へ戻されない）',
+      statusAfterReload === 200 && new URL(page.url()).pathname !== '/admin/login.html',
+      `status=${statusAfterReload} path=${new URL(page.url()).pathname}`
+    );
 
-    // 誤401応答がtoken/Authorization/生bodyをDOMへ出さないこと（datasetsページの
-    // エラー表示要素を確認。tokenが入っていないため401を誘発するだけで良い）
+    // logout（admin-shell の「ログアウト」）後は session が無効化され 401（契約 6）
+    await Promise.all([
+      page.waitForURL('**/admin/login.html', { timeout: 10000 }),
+      page.locator('#admin-shell-bar').getByRole('button', { name: 'ログアウト', exact: true }).click(),
+    ]).catch(() => {});
+    const statusAfterLogout = await fetchStatus();
+    const replay = sc
+      ? await (async () => {
+          const ctx = await browser.newContext();
+          await ctx.addCookies([{ name: sc.name, value: sc.value, domain: sc.domain, path: sc.path, secure: sc.secure, httpOnly: true, sameSite: 'Strict' }]);
+          const r = await ctx.request.get(gatewayBase + protectedUrl);
+          const st = r.status();
+          await ctx.close();
+          return st;
+        })()
+      : null;
+    record(
+      'E2E: logout後は /admin/api/admin/hazards が401・logout前のsession cookieを再送しても401',
+      statusAfterLogout === 401 && replay === 401,
+      `status=${statusAfterLogout} replay=${replay}`
+    );
+
+    // 401後のDOMにtoken/Authorization文字列が出ないこと
     const domAfterFailure = await page.content();
-    record('E2E: 401後のDOMにAuthorizationヘッダ文字列が出現しない', !domAfterFailure.includes('Bearer ' + token), 'DOM scanned (post-401)');
+    record(
+      'E2E: 401後のDOMにAuthorizationヘッダ文字列・token値が出現しない',
+      !domAfterFailure.includes('Bearer ' + token) && !domAfterFailure.includes(token),
+      'DOM scanned (post-401)'
+    );
 
     await context.close();
   }

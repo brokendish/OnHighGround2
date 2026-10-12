@@ -299,15 +299,16 @@ def build_override_compose(tmp_dir: Path, seeded: Dict[str, Path]) -> Path:
                 # osrm-walkingだけが実repositoryのdata_lake/osrmを直接共有した
                 # ままだった（container名・portsしか上書きしていなかったため）。
                 # backend-public/backend-operatorと同じseed先へ差し替える。
-                "volumes": _OverrideList(
-                    [
-                        f"{seeded['data_lake'].resolve()}:/data_lake",
-                        f"{seeded['osrm'].resolve()}/foot.lua:/opt/foot.lua",
-                    ]
-                ),
+                # PHASE-2D-FINAL-ALIGNMENT（2026-10-12）: 手書きの一覧は base compose の
+                # `./scripts/osrm_provenance.sh:/usr/local/bin/osrm-provenance:ro`（OSRM provenance guard 導入時に追加）
+                # に追従しておらず、osrm-walking が exit 127 で restart loop → frontend nginx が upstream を解決できず
+                # 停止していた。2b4 と同じく base compose から rw bind を seed 先へ機械的に写像する（ro bind はそのまま）。
+                "volumes": _OverrideList(isolated_stack.service_volumes("osrm-walking", seeded)),
             },
             "martin": {
                 "container_name": f"{CONTAINER_PREFIX}-martin",
+                # PHASE-2D-FINAL-ALIGNMENT: tile root は run tree 内の空 skeleton（実 repository の未追跡 tile に依存しない）
+                "volumes": _OverrideList(isolated_stack.martin_service_volumes(tmp_dir)),
             },
         },
         "networks": {
@@ -436,16 +437,19 @@ def wait_backend_public_ready(override_file: Path, timeout_s: int = 90) -> Tuple
 
 
 def wait_operator_ready(operator_host_port: int, timeout_s: int = 90) -> Tuple[bool, str]:
-    """`/operator/health`（唯一の匿名可routeとして維持されている契約、第4.3節）が
-    200を返すまで待機する。Bearer認証境界の実測に先立つ起動待ちであり、
-    このrouteはそもそも認証不要契約のため無トークンで確認する。"""
+    """gateway の `/health`（backend-operator の `/operator/health` への固定 1:1 proxy。唯一の匿名可 route、
+    第4.3節）が200を返すまで待機する。Bearer認証境界の実測に先立つ起動待ちであり、
+    このrouteはそもそも認証不要契約のため無トークンで確認する。
+
+    PHASE-2D-FINAL-ALIGNMENT（2026-10-12）: 3fb1ead で operator gateway（operator/nginx.conf）の外部 path が
+    `location = /health`・`/admin/api/admin/*` に変わった。backend-operator 自身の route は不変。"""
     deadline = time.time() + timeout_s
     last_detail = ""
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{operator_host_port}/operator/health", timeout=3) as resp:
+            with urllib.request.urlopen(f"http://127.0.0.1:{operator_host_port}/health", timeout=3) as resp:
                 if resp.status == 200:
-                    return True, "operator /operator/health reachable"
+                    return True, "operator gateway /health reachable"
         except Exception as exc:  # noqa: BLE001
             last_detail = repr(exc)
         time.sleep(2)
@@ -474,11 +478,11 @@ def http_get(url: str, headers: Optional[Dict[str, str]] = None, timeout: float 
 
 
 def at10_host_loopback_auth_checks(operator_host_port: int) -> None:
-    url = f"http://127.0.0.1:{operator_host_port}/api/admin/hazards"
+    url = f"http://127.0.0.1:{operator_host_port}/admin/api/admin/hazards"
 
     status, headers, body = http_get(url)
     record(
-        "AT-10: host loopback経由、無認証requestが401（保護route、operator/healthではない）",
+        "AT-10: host loopback経由、無認証requestが401（保護route、/healthではない）",
         status == 401,
         f"status={status} www-authenticate={headers.get('www-authenticate')} body={body[:200]}",
     )
@@ -507,10 +511,10 @@ def at10_host_loopback_auth_checks(operator_host_port: int) -> None:
         f"status={status} body={body[:200]}",
     )
 
-    # /operator/health は唯一の匿名可route（第4.3節）: 無token・誤tokenのいずれでも200
-    status, _, body = http_get(f"http://127.0.0.1:{operator_host_port}/operator/health")
+    # gateway の /health（→ backend-operator /operator/health）は唯一の匿名可route（第4.3節）
+    status, _, body = http_get(f"http://127.0.0.1:{operator_host_port}/health")
     record(
-        "AT-10: /operator/healthのみ無認証でも200のまま（唯一の匿名可例外route）",
+        "AT-10: /healthのみ無認証でも200のまま（唯一の匿名可例外route）",
         status == 200 and '"role"' in body and '"operator"' in body,
         f"status={status} body={body[:200]}",
     )
@@ -609,7 +613,7 @@ def at09_auth_ext_ssh_forward_auth_check(operator_host_port: int) -> None:
                     )
                     return
 
-                forward_url = f"http://127.0.0.1:{local_forward_port}/api/admin/hazards"
+                forward_url = f"http://127.0.0.1:{local_forward_port}/admin/api/admin/hazards"
                 status, headers, body = http_get(forward_url)
                 record(
                     "AT-09-AUTH-EXT: 実ssh -L forward経由、無認証requestが401",
@@ -1016,7 +1020,7 @@ def main() -> int:
                     published = get_host_published_port(override_file, "operator-gateway", OPERATOR_TARGET_PORT)
                     operator_host_port = int(published) if published else OPERATOR_HOST_PORT
                     op_ready_ok, op_ready_detail = wait_operator_ready(operator_host_port)
-                    record("operator (/operator/health)がhealthyになる", op_ready_ok, op_ready_detail)
+                    record("operator gateway (/health)がhealthyになる", op_ready_ok, op_ready_detail)
 
                     if op_ready_ok:
                         at10_host_loopback_auth_checks(operator_host_port)

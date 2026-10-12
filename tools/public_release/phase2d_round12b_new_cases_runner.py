@@ -1221,6 +1221,8 @@ def case_new_rte_004() -> None:
     import secrets as _secrets
     import tempfile
 
+    import yaml
+
     node_bin = None
     for candidate in ("node",):
         proc = subprocess.run(["which", candidate], capture_output=True, text=True)
@@ -1234,6 +1236,23 @@ def case_new_rte_004() -> None:
     e2e_script = REPO_ROOT / "tools" / "public_release" / "phase2d_round12b_rte004_e2e.js"
     canary_token = "RTE004-CANARY-" + _secrets.token_hex(8)
 
+    def _redact(text: str) -> str:
+        return text.replace(canary_token, "<RTE004_CANARY_REDACTED>")
+
+    # PHASE-2D-FINAL-ALIGNMENT（2026-10-12）: 旧 fixture は Local に残っている `onhighground2-backend-operator:latest`
+    # （Local の作業状態。2026-08-14 build で 3fb1ead の session login を含まない）と未 pin の `nginx:alpine` を使っていた。
+    # fixture を HEAD の source だけで完結させるため、backend-operator は HEAD の backend/ から実行専用 tag で build し
+    # （終了時に削除）、gateway は base compose と同じ digest pin の image を使う。
+    run_image = f"ohg2-r12b-rte004-operator:{_secrets.token_hex(6)}"
+    gateway_image = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))["services"]["operator-gateway"]["image"]
+    build = subprocess.run(
+        ["docker", "build", "-q", "-f", str(REPO_ROOT / "backend" / "Dockerfile.operator"), "-t", run_image, str(REPO_ROOT / "backend")],
+        capture_output=True, text=True, timeout=1800,
+    )
+    if build.returncode != 0:
+        record("NEW-RTE-004", False, f"HARNESS_ERROR: HEAD backend-operator image build failed: {build.stderr[-1000:]!r}")
+        return
+
     with tempfile.TemporaryDirectory(prefix="new-rte-004-") as td:
         tmp_dir = Path(td)
         for sub in ("data_runtime/logs", "data_runtime/cache", "data", "data_lake", "scripts", "osrm", "railways"):
@@ -1243,7 +1262,7 @@ def case_new_rte_004() -> None:
         compose = {
             "services": {
                 "backend-operator": {
-                    "image": "onhighground2-backend-operator:latest",
+                    "image": run_image,
                     "user": "10002:10002",
                     "ports": ["127.0.0.1:18904:8100"],
                     "volumes": [
@@ -1259,7 +1278,7 @@ def case_new_rte_004() -> None:
                     "environment": ["API_HOST=0.0.0.0", "API_PORT=8100"],
                 },
                 "operator-gateway": {
-                    "image": "nginx:alpine",
+                    "image": gateway_image,
                     "ports": ["127.0.0.1:18905:8100"],
                     "volumes": [
                         f"{REPO_ROOT / 'operator' / 'frontend-admin'}:/usr/share/nginx/html/admin:ro",
@@ -1287,16 +1306,36 @@ def case_new_rte_004() -> None:
                 if line.startswith(marker):
                     payload = json.loads(line[len(marker):])
             if payload is None:
-                record("NEW-RTE-004", False, f"HARNESS_ERROR: no result JSON. exit={proc.returncode} stdout={proc.stdout[-1000:]!r} stderr={proc.stderr[-1000:]!r} up_rc={up.returncode}")
+                record("NEW-RTE-004", False, _redact(f"HARNESS_ERROR: no result JSON. exit={proc.returncode} stdout={proc.stdout[-1000:]!r} stderr={proc.stderr[-1000:]!r} up_rc={up.returncode}"))
             else:
-                ok = (
-                    payload.get("postAuthFetchStatus") == 200
-                    and payload.get("postReloadStatus") == 401
-                    and payload.get("findings") == []
-                )
-                record("NEW-RTE-004", ok, f"{payload}")
+                # OWNER 承認済み契約（Operator Authentication Persistence / Credential Non-Leakage、1〜10）。各項目は
+                # 1 つの期待値に固定する（401 か login 要求かを選べるのは 1 の管理ページ遷移のみで、API は 401 固定）。
+                cookie = payload.get("sessionCookie") or {}
+                checks = {
+                    "1_unauth_api_401": payload.get("unauthStatus") == 401,
+                    "1_unauth_page_to_login": payload.get("unauthRedirectedToLogin") is True,
+                    "2_login_issues_session": payload.get("postAuthFetchStatus") == 200 and payload.get("postLoginPath") == "/admin/",
+                    "3_4_no_credential_leak": payload.get("findings") == [],
+                    "4_login_body_observed": payload.get("allowedLoginRequestBodies") == 1,
+                    "5_reload_keeps_session": payload.get("postReloadStatus") == 200 and payload.get("postReloadPath") != "/admin/login.html",
+                    "6_logout_invalidates": payload.get("postLogoutStatus") == 401 and payload.get("postLogoutPath") == "/admin/login.html",
+                    "6_replayed_cookie_rejected": payload.get("replayedCookieAfterLogoutStatus") == 401,
+                    "6_cleared_cookie_rejected": payload.get("clearedCookieStatus") == 401,
+                    "7_query_token_rejected": payload.get("queryTokenStatus") == 401 and payload.get("accessTokenQueryStatus") == 401,
+                    "8_forged_cookie_rejected": payload.get("forgedCookieStatus") == 401 and payload.get("tokenAsCookieStatus") == 401,
+                    "9_invalid_bearer_401": payload.get("invalidBearerStatus") == 401,
+                    "10_cookie_attributes": (
+                        cookie.get("count") == 1 and cookie.get("httpOnly") is True and cookie.get("secure") is True
+                        and cookie.get("sameSite") == "Strict" and cookie.get("path") == "/admin"
+                        and cookie.get("hostOnly") is True and cookie.get("valueDiffersFromToken") is True
+                    ),
+                }
+                ok = all(checks.values())
+                failed_checks = [k for k, v in checks.items() if not v]
+                record("NEW-RTE-004", ok, _redact(f"failed_checks={failed_checks} payload={payload}"))
         finally:
             _compose_down(project, [compose_file])
+            subprocess.run(["docker", "image", "rm", "-f", run_image], capture_output=True, text=True, timeout=120)
 
     neg_fixture = RUNTIME_FIXTURES_DIR / "rte004_regressed_negative_control.html"
     proc = subprocess.run(
@@ -1309,7 +1348,7 @@ def case_new_rte_004() -> None:
         if line.startswith(marker):
             payload = json.loads(line[len(marker):])
     if payload is None:
-        record("NEW-RTE-004-NEGATIVE-CONTROL", False, f"HARNESS_ERROR: no result JSON. exit={proc.returncode} stdout={proc.stdout[-500:]!r} stderr={proc.stderr[-500:]!r}")
+        record("NEW-RTE-004-NEGATIVE-CONTROL", False, _redact(f"HARNESS_ERROR: no result JSON. exit={proc.returncode} stdout={proc.stdout[-500:]!r} stderr={proc.stderr[-500:]!r}"))
     else:
         nc_ok = len(payload.get("findings") or []) > 0
         record("NEW-RTE-004-NEGATIVE-CONTROL", nc_ok, f"regressed localStorage-storing fixture -> correctly detected: {payload}")
