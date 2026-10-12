@@ -489,6 +489,16 @@ def compare_completeness(
     return result
 
 
+def _new_run_evidence_dir(repo_root: Path) -> Path:
+    """tasks/public-release/evidence/phase2d/runs/<UTC>-<HEAD12>/（既にあれば中止。過去の evidence を上書きしない）。"""
+    from datetime import datetime, timezone
+    head = _run(["git", "rev-parse", "HEAD"], repo_root).stdout.strip()[:12]
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    d = repo_root / "tasks" / "public-release" / "evidence" / "phase2d" / "runs" / f"{stamp}-{head}-at17"
+    d.mkdir(parents=True, exist_ok=False)
+    return d
+
+
 def _ls_tree(repo: Path, rev: str) -> dict:
     """path -> (mode, object id)。"""
     out = _run(["git", "ls-tree", "-r", "-z", "--full-tree", rev], repo).stdout
@@ -785,17 +795,20 @@ def main() -> int:
         print("\nSNAPSHOT COMPLETENESS RESULT:", result["overall_snapshot_completeness_result"])
         return 0 if result["overall_snapshot_completeness_result"] == "PASS" else 1
 
-    evidence_dir = repo_root / "tasks" / "public-release" / "evidence" / "phase2d"
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    # 実行ごとの directory へ書く（既存の evidence は上書きしない）。旧実装は固定名
+    # phase2d_round5c_release_delta_manifest.json / phase2d_round5c_at17_snapshot_result.json へ上書きしており、
+    # 2026-10-12 の再実行で Round 5C（baseline d3eeb99）の記録を失った。
+    evidence_dir = _new_run_evidence_dir(repo_root)
 
     manifest_sha256 = manifest_mod.write_manifest(
-        manifest, evidence_dir / "phase2d_round5c_release_delta_manifest.json"
+        manifest, evidence_dir / "release_delta_manifest.json"
     )
     result["manifest_sha256"] = manifest_sha256
     result["approved_untracked_policy_applied"] = approved_untracked is not None
     result["approved_vbf_waiver_applied"] = approved_vbf is not None
 
-    (evidence_dir / "phase2d_round5c_at17_snapshot_result.json").write_text(
+    print(f"evidence: {evidence_dir}")
+    (evidence_dir / "at17_snapshot_result.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 

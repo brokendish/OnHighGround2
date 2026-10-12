@@ -12,7 +12,20 @@ F テスト基盤の不具合 / G 意図した挙動 / H 公開対象外（opera
 
 ## 未解消（2026-10-12 時点）
 
-（なし）
+### KTF-003 `tests/test_public_release_dem_fixture.py::test_12_historical_release_record_is_preserved`
+
+| 項目 | 内容 |
+|---|---|
+| 失敗 | `tasks/public-release/evidence/phase2d/phase2d_round5c_release_delta_manifest.json` に demo DEM の entry が無い（StopIteration） |
+| 原因 | Round 5C の release delta manifest（2026-08-22、baseline d3eeb99、674 entry）を、2026-10-12 の Phase 2-D formal 再実行で AT-17 tool が同じ固定 file 名へ上書きした（0 entry の現在の manifest）。同時に `phase2d_round5c_at17_snapshot_result.json` と `phase2d_at14_results.json` も上書きされた。いずれも gitignore の作業記録で、写し（approval package・Time Machine・Spotlight）は見つからず復元できない。テストの判定（記録が保たれていない）は事実どおり |
+| 分類 | F（tool が過去の evidence を上書きする設計）。製品・公開物への影響なし |
+| 判定 | NON_BLOCKER・P3 |
+| 残っている事実 | baseline d3eeb99・674 entry・うち 213 entry が 2026-10-12 時点で現在と異なること・demo DEM の entry が旧 sha 0641f39c… だったことは、commit ee944e9 のメッセージと本テストの docstring に記録済み |
+| 再発防止 | AT-14 / AT-17 tool は実行ごとの `evidence/phase2d/runs/<UTC>-<HEAD>-at14|at17/` へ書き、既存なら中止する（上書きしない） |
+| first_seen / last_verified | 2026-10-12 |
+| 受け入れる理由 | 記録は失われ、テストを通すための記録の再作成（捏造）はしない |
+| 期限 | 次の public-release gate（Phase 2-E）の前 |
+| 閉じる条件 | OWNER 判断: (a) 失われた記録の受け入れを記録し、本テストを「ee944e9 の記録を正とする」形に改める、または (b) CODEX 等が保持する写しから復元する |
 
 補足: この matrix を使う Phase 2-B.5 の正式 tool（`tools/public_release/phase2b5_atomic_publish.py`）は今も素の
 `python:3.11-slim` で matrix を実行するため、現在の HEAD では ijson の import で stream 系 2 項目も失敗する

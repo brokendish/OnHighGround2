@@ -822,8 +822,13 @@ def main() -> int:
         status = "PASS" if r.passed else "FAIL"
         print(f"[{r.check_id}] {status} — {r.name}: {r.detail}")
 
-    evidence_dir = REPO_ROOT / "tasks" / "public-release" / "evidence" / "phase2d"
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    # 実行ごとの directory へ書く（既存の evidence は上書きしない。旧実装は固定名 phase2d_at14_results.json へ上書きした）
+    from datetime import datetime, timezone
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True).stdout.strip()[:12]
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    evidence_dir = REPO_ROOT / "tasks" / "public-release" / "evidence" / "phase2d" / "runs" / f"{stamp}-{head}-at14"
+    evidence_dir.mkdir(parents=True, exist_ok=False)
+    print(f"evidence: {evidence_dir}")
     (evidence_dir / "phase2d_at14_results.json").write_text(
         json.dumps({"results": results_json, "all_passed": report.all_passed}, ensure_ascii=False, indent=2),
         encoding="utf-8",
