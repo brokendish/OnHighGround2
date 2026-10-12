@@ -138,3 +138,22 @@ backend の再起動と PSEUDO の再生成が必要なため、この phase で
 この監査の結論（値は DEM5A と一致し、誤りは読み取り位置）には公式原本 zip は不要。
 source provenance を確定する目的では引き続き必要（基盤地図情報 数値標高モデル 5m・1 次メッシュ 5339 の
 全 3 次メッシュ、DEM5A を優先し欠ける tile は DEM5B / 5C。取得後 convert_dem 修正版で再変換して比較する）。
+
+## 修正（DEM-RUNTIME-REPAIR、2026-10-12）
+
+- `data_processing/convert_dem.py`: lowerCorner / upperCorner を緯度経度として解釈し、標準配置で結合する。
+  nodata = -9999（原本 tile の無い範囲を 0 で埋めない）、入力は path 昇順、同じ範囲の XML が複数あれば中止（exit 2）。
+- 原本 GML が無いため、`scripts/derive/relayout_fgd_dem_pinned.sh`（linux/amd64・GDAL 3.9.3）で旧 artifact を
+  画素値を変えずに標準配置へ並べ替えた: sha256 `837bb7042c15c9b5ccefebaaaae55d269616fc0ae8acc850f190b246a18d31d7`
+  （画素値 checksum `e289fae5…`、2 回実行でバイト一致）。修正版 convert_dem.py の出力と同じ並べ替えであることを
+  `tests/test_dem_elevation_integrity.py` で確認した。
+- `ElevationService`: geotransform どおりに読む（緯度経度を入れ替える fallback を廃止）。入れ替わった旧 DEM は
+  読み込まない（fail closed）。補間は画素中心を標本点とする双線形補間。
+- PSEUDO generator: 全体転置の補正を廃止し、旧 DEM なら中止する。修正版 DEM から再生成した canonical
+  `b2b378177a7f…`（62,769 feature、旧 66,565、IoU 0.514。旧版は海を標高 0 m として扱い、羽田沖の海上が medium だった）。
+- 結果（Local）: 300 点で新 backend の差は中央値 0.09 m・p95 1.94 m・最大 5.65 m（補間は 0.05 / 1.71 m）。
+  10 m 判定は 14 地点・895 組で正しい読み方と全件一致（false include 0、false exclude 0）。`/api/evacuation` の
+  返す 47 件も DEM を独立に読んだ標高差で 10 m 以上（false-safe 0）。
+- 配備: DEM は atomic version 外（VPS は flat runtime）にあるため `scripts/publish/deploy_dem_runtime.sh` で
+  staging → sha256 照合 → 旧 file を `elevation.tif.superseded-<sha12>` で保持 → rename で切替し、backend-public を再起動する。
+  rollback は同 script の `rollback`。

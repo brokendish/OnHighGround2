@@ -30,8 +30,12 @@ from app.services.dataset_definition_service import get_definition_service  # no
 
 DEM = "TOKYO-DEM-001"
 PSEUDO = "TOKYO-PSEUDO-INLAND-FLOOD-001"
-DEM_SHA = "fdd8e3b37b53cec7587e863ee37c4f7bf4aeaf41a4f1c279cead88356226a77f"
-PSEUDO_SHA = "fffc6041be74bdc53e0f89ce6b9735c4385bbcc1576b9cd3227837d468b5a33e"
+DEM_SHA = "fdd8e3b37b53cec7587e863ee37c4f7bf4aeaf41a4f1c279cead88356226a77f"  # 旧 artifact（convert_dem 由来の証跡）
+PSEUDO_SHA = "fffc6041be74bdc53e0f89ce6b9735c4385bbcc1576b9cd3227837d468b5a33e"  # 旧 PSEUDO
+# DEM-RUNTIME-REPAIR（2026-10-12）: 標準配置へ並べ替えた DEM と、そこから再生成した PSEUDO
+NEW_DEM_SHA = "837bb7042c15c9b5ccefebaaaae55d269616fc0ae8acc850f190b246a18d31d7"
+NEW_PSEUDO_SHA = "b2b378177a7f945fc045806bfe0bc46f9760478517d899a4dc47c0cf5cb17252"
+LEGACY_DEM_FILE = ROOT / "data_lake/_backup/dem_superseded_20261012/elevation.tif"
 DEM_FILE = ROOT / "data_lake/validated/tokyo/dem/elevation.tif"
 
 
@@ -62,8 +66,10 @@ def test_01_11_dem_source_stays_unknown_with_facts_recorded():
 def test_02_dem_artifact_sha_matches_registry():
     if not DEM_FILE.is_file():
         pytest.skip("DEM が無い環境")
-    assert _sha(DEM_FILE) == DEM_SHA
-    assert [i.sha256 for i in _d(PSEUDO).derived_from] == [DEM_SHA]
+    assert _sha(DEM_FILE) == NEW_DEM_SHA == _d(DEM).artifact_sha256
+    assert [i.sha256 for i in _d(PSEUDO).derived_from] == [NEW_DEM_SHA]
+    if LEGACY_DEM_FILE.is_file():
+        assert _sha(LEGACY_DEM_FILE) == DEM_SHA  # 旧 artifact は削除せず保管
 
 
 # ── 3-7. raster metadata と生成経路の署名 ────────────────────────────────────────
@@ -84,32 +90,36 @@ def test_03_04_raster_metadata_and_crs(raster):
 
 
 def test_05_06_resolution_and_bounds(raster):
-    assert raster.res == pytest.approx((2 / 3 / 18000, 1 / 12000), rel=1e-6)
-    b = raster.bounds  # 緯度経度が入れ替わった配置（x=緯度 35°20′–36°、y=経度 139°–140°）
-    assert (b.left, b.bottom, b.right, b.top) == pytest.approx((35 + 1 / 3, 139.0, 36.0, 140.0), abs=1e-6)
+    """修正版 DEM は標準配置（x = 経度 139°–140°、y = 緯度 35°20′–36°、画素 0.2″）。"""
+    assert raster.res == pytest.approx((1 / 18000, 1 / 18000), rel=1e-6)
+    b = raster.bounds
+    assert (b.left, b.bottom, b.right, b.top) == pytest.approx((139.0, 35 + 1 / 3, 140.0, 36.0), abs=1e-6)
+    assert raster.nodata == -9999.0
 
 
-def test_07_geotransform_is_the_convert_dem_signature(raster):
-    """convert_dem.py は FGD GML の lowerCorner/upperCorner（緯度 経度）を west/south に渡す。メッシュ 5339 の
-    5m 格子（18000×12000）でその式を使うと、現 artifact の geotransform と一致する。"""
+def test_07_legacy_geotransform_is_the_old_convert_dem_signature():
+    """旧 convert_dem.py は lowerCorner/upperCorner（緯度 経度）を west/south に渡していた。メッシュ 5339 の
+    5m 格子でその式を使うと、旧 artifact の geotransform と一致する（convert_dem 由来の証跡）。"""
+    rasterio = pytest.importorskip("rasterio")
+    if not LEGACY_DEM_FILE.is_file():
+        pytest.skip("旧 DEM が無い環境")
     from rasterio.transform import from_bounds
-    lower, upper = (35 + 1 / 3, 139.0), (36.0, 140.0)  # FGD GML の lowerCorner / upperCorner（緯度 経度）
-    expected = from_bounds(min(lower[0], upper[0]), min(lower[1], upper[1]), max(lower[0], upper[0]),
-                           max(lower[1], upper[1]), 18000, 12000)
-    assert tuple(raster.transform)[:6] == pytest.approx(tuple(expected)[:6], abs=1e-9)
+    expected = from_bounds(35 + 1 / 3, 139.0, 36.0, 140.0, 18000, 12000)
+    with rasterio.open(LEGACY_DEM_FILE) as src:
+        assert tuple(src.transform)[:6] == pytest.approx(tuple(expected)[:6], abs=1e-7)
     src = (ROOT / "data_processing/convert_dem.py").read_text(encoding="utf-8")
-    assert "FGD_GMLSchema" in src and "west, south = min(lower[0], upper[0]), min(lower[1], upper[1])" in src
+    assert "FGD_GMLSchema" in src and "south, west = min(lower[0], upper[0]), min(lower[1], upper[1])" in src
 
 
 # ── 8, 12. PSEUDO の派生元・生成器 ────────────────────────────────────────────────
 
 def test_08_pseudo_dependency_and_output_sha():
     p = _d(PSEUDO)
-    assert p.derived_from == [DerivedInput(dataset_id=DEM, artifact="validated", sha256=DEM_SHA)]
-    assert p.generator["output_sha256"] == PSEUDO_SHA and sg.definition_problems(p) == []
+    assert p.derived_from == [DerivedInput(dataset_id=DEM, artifact="validated", sha256=NEW_DEM_SHA)]
+    assert p.generator["output_sha256"] == NEW_PSEUDO_SHA and sg.definition_problems(p) == []
     canon = ROOT / p.validated_storage_path / "pseudo_inland_flood.geojson"
     if canon.is_file():
-        assert _sha(canon) == PSEUDO_SHA
+        assert _sha(canon) == NEW_PSEUDO_SHA
 
 
 def test_12_toolchain_record_matches_pinned_script():

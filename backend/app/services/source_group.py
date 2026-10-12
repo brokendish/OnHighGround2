@@ -108,6 +108,11 @@ def definition_problems(defn: DatasetDefinition) -> List[str]:
             out.append(f"{defn.dataset_id}: derived_from に自分自身を指定できない")
     if defn.derived_from and not (defn.generator or {}).get("script"):
         out.append(f"{defn.dataset_id}: derived_from には generator（script）が必要")
+    for sha in [defn.artifact_sha256] + [s.get("sha256") for s in defn.superseded_artifacts or []]:
+        if sha is not None and not re.fullmatch(r"[0-9a-f]{64}", sha or ""):
+            out.append(f"{defn.dataset_id}: artifact の sha256 は 64 桁の sha256（小文字 hex）")
+    if defn.artifact_sha256 and defn.artifact_sha256 in {s.get("sha256") for s in defn.superseded_artifacts or []}:
+        out.append(f"{defn.dataset_id}: artifact_sha256 が superseded_artifacts にも含まれている")
     out_sha = (defn.generator or {}).get("output_sha256")
     if out_sha and not re.fullmatch(r"[0-9a-f]{64}", out_sha):
         out.append(f"{defn.dataset_id}: generator.output_sha256 は 64 桁の sha256（小文字 hex）")

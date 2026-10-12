@@ -935,6 +935,9 @@ LABEL_SEVERITY = {
     "DERIVED_INPUT_MISMATCH": ERROR, "DERIVED_OUTPUT_MISMATCH": ERROR,
     "DERIVED_INPUT_UNVERIFIED": WARNING, "DERIVED_OUTPUT_UNVERIFIED": WARNING, "UPSTREAM_SOURCE_UNVERIFIED": WARNING,
     "DERIVED_FROM_VERIFIED": "INFO",
+    # atomic version 外の artifact（artifact_section）
+    "ARTIFACT_VERIFIED": "INFO", "ARTIFACT_UNVERIFIED": WARNING, "ARTIFACT_MISMATCH": ERROR,
+    "ARTIFACT_SUPERSEDED_IN_USE": ERROR,
 }
 
 
@@ -1060,6 +1063,33 @@ def derived_section(defn: DatasetDefinition, state: Optional[DatasetState], rows
             "status": output}, "labels": labels, "reasons": reasons, "status": status}
 
 
+def artifact_section(defn: DatasetDefinition, state: Optional[DatasetState], allow_hash: bool) -> Dict[str, Any]:
+    """atomic version 外の artifact（definition.artifact_sha256）を照合する。使っている file（build node は validated、
+    runtime node は flat runtime）の sha256 が登録値なら VERIFIED、置き換え済みの旧 artifact なら SUPERSEDED（ERROR）。"""
+    path = _artifact_path(defn, state, "validated")
+    actual = drr.get_source_sha_cache().get(path, allow_hash) if path else None
+    superseded = {s.get("sha256"): s.get("reason") for s in defn.superseded_artifacts or []}
+    if actual and actual == defn.artifact_sha256:
+        status, label, comp = DERIVED_VERIFIED, "ARTIFACT_VERIFIED", OK
+    elif actual and actual in superseded:
+        status, label, comp = "SUPERSEDED", "ARTIFACT_SUPERSEDED_IN_USE", ERROR
+    elif actual:
+        status, label, comp = DERIVED_MISMATCH, "ARTIFACT_MISMATCH", ERROR
+    else:
+        status, label, comp = DERIVED_UNVERIFIED, "ARTIFACT_UNVERIFIED", WARNING
+    return {"path": str(path) if path else None, "expected_sha256": defn.artifact_sha256, "actual_sha256": actual,
+            "layout": defn.artifact_layout, "status": status, "label": label, "component_status": comp,
+            "superseded_reason": superseded.get(actual) if actual in superseded else None}
+
+
+def _apply_artifact(row: Dict[str, Any], section: Dict[str, Any]) -> None:
+    row["artifact"] = section
+    row["integrity"]["components"]["artifact"] = {"status": section["component_status"], "reason": (
+        f"{section['status']}: {section['superseded_reason']}" if section["superseded_reason"] else section["status"])}
+    row["integrity"]["labels"].append({"label": section["label"], "severity": LABEL_SEVERITY[section["label"]]})
+    row["integrity"]["overall"] = _overall(row["integrity"]["components"])
+
+
 def _apply_derived(row: Dict[str, Any], defn: DatasetDefinition, section: Dict[str, Any]) -> None:
     """派生 dataset の source 判定を、外部 source の要件（取得元組織・取得履歴）から派生契約の照合へ置き換える。"""
     acq = row["acquisition"]
@@ -1106,6 +1136,10 @@ def build_console(ds=None, ss=None, *, dataset_id: Optional[str] = None, allow_h
     # 派生 dataset は上流 dataset の判定を使う（単一 dataset 表示でも上流の行を作って照合する）
     rows_by_id = {r["dataset_id"]: r for r in rows}
     defs_by_id = {d.dataset_id: d for d in ds.list_all()}
+    for row in rows:
+        defn = defs_by_id.get(row["dataset_id"])
+        if defn is not None and defn.artifact_sha256:
+            _apply_artifact(row, artifact_section(defn, ss.init_from_definition(defn), allow_hash))
     for row in rows:
         defn = defs_by_id.get(row["dataset_id"])
         if defn is None or not defn.derived_from:

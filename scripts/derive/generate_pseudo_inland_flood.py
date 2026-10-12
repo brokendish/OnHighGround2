@@ -104,27 +104,6 @@ def _is_axis_swapped_geographic(bounds) -> bool:
     )
 
 
-def _canonicalize_swapped_geographic(src) -> tuple[np.ndarray, object, CRS]:
-    """
-    GSI DEM 変換由来の軸入れ替わりラスタを通常の lon/lat 配列へ補正する。
-
-    元データは x=lat, y=lon として保存されているため、配列を転置し、
-    north-up / west-east の通常配置に反転してから lon/lat bounds を付け直す。
-    """
-    arr = src.read(1)
-    canonical = np.flip(arr.T, axis=(0, 1)).astype(np.float32, copy=False)
-    b = src.bounds
-    transform = from_bounds(
-        b.bottom,  # west  (lon min)
-        b.left,    # south (lat min)
-        b.top,     # east  (lon max)
-        b.right,   # north (lat max)
-        canonical.shape[1],
-        canonical.shape[0],
-    )
-    return canonical, transform, CRS.from_epsg(OUTPUT_EPSG)
-
-
 # ── スコア計算（ベクタライズ） ───────────────────────────────────────────────
 
 def _elevation_scores(elev: np.ndarray, valid: np.ndarray) -> np.ndarray:
@@ -213,13 +192,11 @@ def main() -> int:
         src_transform = src.transform
         source_data = rasterio.band(src, 1)
         if src_crs and src_crs.is_geographic and _is_axis_swapped_geographic(src.bounds):
-            print("DEM axis     : swapped lat/lon detected; canonicalizing to lon/lat")
-            source_data, src_transform, src_crs = _canonicalize_swapped_geographic(src)
-            src_bounds = rasterio.transform.array_bounds(
-                source_data.shape[0], source_data.shape[1], src_transform
-            )
-            src_width = source_data.shape[1]
-            src_height = source_data.shape[0]
+            # DEM-RUNTIME-REPAIR（2026-10-12）: 旧 convert_dem.py の DEM は 3 次メッシュの配置が転置されており、
+            # 配列全体の転置では直らない（tile 内で最大約 1 km ずれる）。補正せず中止する（fail closed）。
+            print("ERROR: 緯度経度が入れ替わった旧 DEM は使えない。scripts/derive/relayout_fgd_dem.py で"
+                  "標準配置に並べ替えた DEM を指定すること", file=sys.stderr)
+            return 2
         else:
             src_bounds = src.bounds
             src_width = src.width

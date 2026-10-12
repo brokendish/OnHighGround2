@@ -1,0 +1,2427 @@
+{
+ "description": "DEM-ELEVATION-INTEGRITY-AUDIT（2026-10-12）の標本。dem5a = 地理院 DEM5A 標高タイル z15 の値（補助基準）。pairs = 旧 backend と正しい読み方で 10 m 判定が逆になった（現在地, 避難所）。correct_gain は旧 DEM を正しい読み方で読んだ最近傍の標高差（判定境界 ±0.5 m の組は除外）",
+ "samples": [
+  {
+   "name": null,
+   "lat": 35.350276,
+   "lon": 139.039453,
+   "dem5a": 560.92
+  },
+  {
+   "name": null,
+   "lat": 35.333393,
+   "lon": 139.052157,
+   "dem5a": 330.84000000000003
+  },
+  {
+   "name": null,
+   "lat": 35.367369,
+   "lon": 139.126555,
+   "dem5a": 470.32
+  },
+  {
+   "name": null,
+   "lat": 35.336193,
+   "lon": 139.161129,
+   "dem5a": 92.98
+  },
+  {
+   "name": null,
+   "lat": 35.335426,
+   "lon": 139.211496,
+   "dem5a": 83.29
+  },
+  {
+   "name": null,
+   "lat": 35.37036,
+   "lon": 139.277988,
+   "dem5a": 20.17
+  },
+  {
+   "name": null,
+   "lat": 35.336445,
+   "lon": 139.327332,
+   "dem5a": 6.42
+  },
+  {
+   "name": null,
+   "lat": 35.360663,
+   "lon": 139.371872,
+   "dem5a": 1.79
+  },
+  {
+   "name": null,
+   "lat": 35.363988,
+   "lon": 139.406388,
+   "dem5a": 9.700000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.369888,
+   "lon": 139.492575,
+   "dem5a": 16.93
+  },
+  {
+   "name": null,
+   "lat": 35.35812,
+   "lon": 139.535423,
+   "dem5a": 10.14
+  },
+  {
+   "name": null,
+   "lat": 35.352122,
+   "lon": 139.553128,
+   "dem5a": 84.04
+  },
+  {
+   "name": null,
+   "lat": 35.362603,
+   "lon": 139.604744,
+   "dem5a": 61.4
+  },
+  {
+   "name": null,
+   "lat": 35.346718,
+   "lon": 139.876423,
+   "dem5a": 2.56
+  },
+  {
+   "name": null,
+   "lat": 35.350442,
+   "lon": 139.935383,
+   "dem5a": 21.14
+  },
+  {
+   "name": null,
+   "lat": 35.376682,
+   "lon": 139.020032,
+   "dem5a": 292.43
+  },
+  {
+   "name": null,
+   "lat": 35.414091,
+   "lon": 139.084755,
+   "dem5a": 604.95
+  },
+  {
+   "name": null,
+   "lat": 35.378263,
+   "lon": 139.115832,
+   "dem5a": 419.46000000000004
+  },
+  {
+   "name": null,
+   "lat": 35.409357,
+   "lon": 139.153039,
+   "dem5a": 371.98
+  },
+  {
+   "name": null,
+   "lat": 35.390097,
+   "lon": 139.226475,
+   "dem5a": 149.95000000000002
+  },
+  {
+   "name": null,
+   "lat": 35.404332,
+   "lon": 139.259252,
+   "dem5a": 357.09000000000003
+  },
+  {
+   "name": null,
+   "lat": 35.411186,
+   "lon": 139.320608,
+   "dem5a": 19.19
+  },
+  {
+   "name": null,
+   "lat": 35.405176,
+   "lon": 139.37415,
+   "dem5a": 14.71
+  },
+  {
+   "name": null,
+   "lat": 35.382955,
+   "lon": 139.404057,
+   "dem5a": 11.46
+  },
+  {
+   "name": null,
+   "lat": 35.378621,
+   "lon": 139.475506,
+   "dem5a": 37.64
+  },
+  {
+   "name": null,
+   "lat": 35.376141,
+   "lon": 139.542885,
+   "dem5a": 34.93
+  },
+  {
+   "name": null,
+   "lat": 35.415884,
+   "lon": 139.557063,
+   "dem5a": 39.61
+  },
+  {
+   "name": null,
+   "lat": 35.394627,
+   "lon": 139.6128,
+   "dem5a": 3.84
+  },
+  {
+   "name": null,
+   "lat": 35.414724,
+   "lon": 139.657625,
+   "dem5a": 5.76
+  },
+  {
+   "name": null,
+   "lat": 35.414907,
+   "lon": 139.937709,
+   "dem5a": 3.83
+  },
+  {
+   "name": null,
+   "lat": 35.406992,
+   "lon": 139.995042,
+   "dem5a": 8.86
+  },
+  {
+   "name": null,
+   "lat": 35.437371,
+   "lon": 139.045793,
+   "dem5a": 343.26
+  },
+  {
+   "name": null,
+   "lat": 35.442359,
+   "lon": 139.079626,
+   "dem5a": 477.65000000000003
+  },
+  {
+   "name": null,
+   "lat": 35.423873,
+   "lon": 139.133215,
+   "dem5a": 467.85
+  },
+  {
+   "name": null,
+   "lat": 35.441938,
+   "lon": 139.190939,
+   "dem5a": 1026.6200000000001
+  },
+  {
+   "name": null,
+   "lat": 35.438543,
+   "lon": 139.212628,
+   "dem5a": 655.61
+  },
+  {
+   "name": null,
+   "lat": 35.453544,
+   "lon": 139.272434,
+   "dem5a": 297.67
+  },
+  {
+   "name": null,
+   "lat": 35.457406,
+   "lon": 139.317187,
+   "dem5a": 73.29
+  },
+  {
+   "name": null,
+   "lat": 35.420716,
+   "lon": 139.389593,
+   "dem5a": 15.17
+  },
+  {
+   "name": null,
+   "lat": 35.440764,
+   "lon": 139.43993,
+   "dem5a": 48.85
+  },
+  {
+   "name": null,
+   "lat": 35.445114,
+   "lon": 139.488548,
+   "dem5a": 56.76
+  },
+  {
+   "name": null,
+   "lat": 35.450529,
+   "lon": 139.516227,
+   "dem5a": 64.97
+  },
+  {
+   "name": null,
+   "lat": 35.447834,
+   "lon": 139.595208,
+   "dem5a": 44.93
+  },
+  {
+   "name": null,
+   "lat": 35.421517,
+   "lon": 139.920036,
+   "dem5a": 5.93
+  },
+  {
+   "name": null,
+   "lat": 35.462189,
+   "lon": 139.030085,
+   "dem5a": 928.85
+  },
+  {
+   "name": null,
+   "lat": 35.465417,
+   "lon": 139.05337,
+   "dem5a": 807.83
+  },
+  {
+   "name": null,
+   "lat": 35.463719,
+   "lon": 139.130199,
+   "dem5a": 904.21
+  },
+  {
+   "name": null,
+   "lat": 35.472829,
+   "lon": 139.174637,
+   "dem5a": 1086.59
+  },
+  {
+   "name": null,
+   "lat": 35.459756,
+   "lon": 139.228219,
+   "dem5a": 870.28
+  },
+  {
+   "name": null,
+   "lat": 35.473394,
+   "lon": 139.260611,
+   "dem5a": 411.64
+  },
+  {
+   "name": null,
+   "lat": 35.487094,
+   "lon": 139.318583,
+   "dem5a": 67.88
+  },
+  {
+   "name": null,
+   "lat": 35.481628,
+   "lon": 139.363899,
+   "dem5a": 55.620000000000005
+  },
+  {
+   "name": null,
+   "lat": 35.479685,
+   "lon": 139.434994,
+   "dem5a": 69.58
+  },
+  {
+   "name": null,
+   "lat": 35.498996,
+   "lon": 139.466868,
+   "dem5a": 64.8
+  },
+  {
+   "name": null,
+   "lat": 35.46515,
+   "lon": 139.516799,
+   "dem5a": 70.55
+  },
+  {
+   "name": null,
+   "lat": 35.499358,
+   "lon": 139.592045,
+   "dem5a": 36.06
+  },
+  {
+   "name": null,
+   "lat": 35.495101,
+   "lon": 139.64113,
+   "dem5a": 37.08
+  },
+  {
+   "name": null,
+   "lat": 35.463492,
+   "lon": 139.683755,
+   "dem5a": 3.6
+  },
+  {
+   "name": null,
+   "lat": 35.51113,
+   "lon": 139.036584,
+   "dem5a": 973.13
+  },
+  {
+   "name": null,
+   "lat": 35.50287,
+   "lon": 139.056185,
+   "dem5a": 1056.27
+  },
+  {
+   "name": null,
+   "lat": 35.518747,
+   "lon": 139.135509,
+   "dem5a": 1032.23
+  },
+  {
+   "name": null,
+   "lat": 35.505921,
+   "lon": 139.176898,
+   "dem5a": 850.21
+  },
+  {
+   "name": null,
+   "lat": 35.517245,
+   "lon": 139.225011,
+   "dem5a": 322.26
+  },
+  {
+   "name": null,
+   "lat": 35.521012,
+   "lon": 139.287147,
+   "dem5a": 171.31
+  },
+  {
+   "name": null,
+   "lat": 35.511106,
+   "lon": 139.303717,
+   "dem5a": 127.79
+  },
+  {
+   "name": null,
+   "lat": 35.534057,
+   "lon": 139.366348,
+   "dem5a": 80.16
+  },
+  {
+   "name": null,
+   "lat": 35.533903,
+   "lon": 139.42014,
+   "dem5a": 96.3
+  },
+  {
+   "name": null,
+   "lat": 35.520356,
+   "lon": 139.478952,
+   "dem5a": 50.64
+  },
+  {
+   "name": null,
+   "lat": 35.505558,
+   "lon": 139.515378,
+   "dem5a": 54.21
+  },
+  {
+   "name": null,
+   "lat": 35.526713,
+   "lon": 139.56576,
+   "dem5a": 46.99
+  },
+  {
+   "name": null,
+   "lat": 35.519161,
+   "lon": 139.642907,
+   "dem5a": 17.43
+  },
+  {
+   "name": null,
+   "lat": 35.536014,
+   "lon": 139.673948,
+   "dem5a": 3.44
+  },
+  {
+   "name": null,
+   "lat": 35.523398,
+   "lon": 139.747233,
+   "dem5a": 2.77
+  },
+  {
+   "name": null,
+   "lat": 35.580776,
+   "lon": 139.032191,
+   "dem5a": 716.48
+  },
+  {
+   "name": null,
+   "lat": 35.566544,
+   "lon": 139.06651,
+   "dem5a": 454.02
+  },
+  {
+   "name": null,
+   "lat": 35.555391,
+   "lon": 139.118153,
+   "dem5a": 683.9300000000001
+  },
+  {
+   "name": null,
+   "lat": 35.545246,
+   "lon": 139.176342,
+   "dem5a": 513.85
+  },
+  {
+   "name": null,
+   "lat": 35.576574,
+   "lon": 139.206374,
+   "dem5a": 479.51
+  },
+  {
+   "name": null,
+   "lat": 35.58152,
+   "lon": 139.298061,
+   "dem5a": 71.39
+  },
+  {
+   "name": null,
+   "lat": 35.566937,
+   "lon": 139.333449,
+   "dem5a": 111.25
+  },
+  {
+   "name": null,
+   "lat": 35.579743,
+   "lon": 139.360601,
+   "dem5a": 133.16
+  },
+  {
+   "name": null,
+   "lat": 35.567006,
+   "lon": 139.414301,
+   "dem5a": 93.62
+  },
+  {
+   "name": null,
+   "lat": 35.577527,
+   "lon": 139.480459,
+   "dem5a": 45.93
+  },
+  {
+   "name": null,
+   "lat": 35.571458,
+   "lon": 139.53778,
+   "dem5a": 54.49
+  },
+  {
+   "name": null,
+   "lat": 35.581433,
+   "lon": 139.554334,
+   "dem5a": 63.59
+  },
+  {
+   "name": null,
+   "lat": 35.548443,
+   "lon": 139.606684,
+   "dem5a": 26.77
+  },
+  {
+   "name": null,
+   "lat": 35.567001,
+   "lon": 139.680036,
+   "dem5a": 5.08
+  },
+  {
+   "name": null,
+   "lat": 35.578253,
+   "lon": 139.737833,
+   "dem5a": 1.53
+  },
+  {
+   "name": null,
+   "lat": 35.569706,
+   "lon": 139.769226,
+   "dem5a": 4.51
+  },
+  {
+   "name": null,
+   "lat": 35.624088,
+   "lon": 139.026098,
+   "dem5a": 500.31
+  },
+  {
+   "name": null,
+   "lat": 35.583366,
+   "lon": 139.071827,
+   "dem5a": 637.45
+  },
+  {
+   "name": null,
+   "lat": 35.624621,
+   "lon": 139.133458,
+   "dem5a": 297.11
+  },
+  {
+   "name": null,
+   "lat": 35.590443,
+   "lon": 139.171983,
+   "dem5a": 280.73
+  },
+  {
+   "name": null,
+   "lat": 35.606348,
+   "lon": 139.21506,
+   "dem5a": 216.86
+  },
+  {
+   "name": null,
+   "lat": 35.621732,
+   "lon": 139.260894,
+   "dem5a": 311.43
+  },
+  {
+   "name": null,
+   "lat": 35.587559,
+   "lon": 139.31044,
+   "dem5a": 133.91
+  },
+  {
+   "name": null,
+   "lat": 35.615877,
+   "lon": 139.350935,
+   "dem5a": 139.79
+  },
+  {
+   "name": null,
+   "lat": 35.623388,
+   "lon": 139.432736,
+   "dem5a": 103.07000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.6045,
+   "lon": 139.482221,
+   "dem5a": 73.60000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.621222,
+   "lon": 139.504834,
+   "dem5a": 123.24000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.614436,
+   "lon": 139.588937,
+   "dem5a": 16.38
+  },
+  {
+   "name": null,
+   "lat": 35.62095,
+   "lon": 139.60807,
+   "dem5a": 14.25
+  },
+  {
+   "name": null,
+   "lat": 35.615694,
+   "lon": 139.687116,
+   "dem5a": 30.970000000000002
+  },
+  {
+   "name": null,
+   "lat": 35.644928,
+   "lon": 139.020643,
+   "dem5a": 700.91
+  },
+  {
+   "name": null,
+   "lat": 35.62541,
+   "lon": 139.07773,
+   "dem5a": 283.90000000000003
+  },
+  {
+   "name": null,
+   "lat": 35.646663,
+   "lon": 139.102197,
+   "dem5a": 287.12
+  },
+  {
+   "name": null,
+   "lat": 35.6497,
+   "lon": 139.168112,
+   "dem5a": 748.69
+  },
+  {
+   "name": null,
+   "lat": 35.63211,
+   "lon": 139.240413,
+   "dem5a": 310.36
+  },
+  {
+   "name": null,
+   "lat": 35.649983,
+   "lon": 139.28576,
+   "dem5a": 167.76
+  },
+  {
+   "name": null,
+   "lat": 35.629511,
+   "lon": 139.303371,
+   "dem5a": 163.8
+  },
+  {
+   "name": null,
+   "lat": 35.652901,
+   "lon": 139.368302,
+   "dem5a": 107.46000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.629743,
+   "lon": 139.403115,
+   "dem5a": 81.01
+  },
+  {
+   "name": null,
+   "lat": 35.662585,
+   "lon": 139.453071,
+   "dem5a": 52.84
+  },
+  {
+   "name": null,
+   "lat": 35.665084,
+   "lon": 139.542076,
+   "dem5a": 38.79
+  },
+  {
+   "name": null,
+   "lat": 35.661369,
+   "lon": 139.595617,
+   "dem5a": 46.18
+  },
+  {
+   "name": null,
+   "lat": 35.627542,
+   "lon": 139.607928,
+   "dem5a": 32.160000000000004
+  },
+  {
+   "name": null,
+   "lat": 35.661964,
+   "lon": 139.67222,
+   "dem5a": 41.550000000000004
+  },
+  {
+   "name": null,
+   "lat": 35.66379,
+   "lon": 139.729766,
+   "dem5a": 29.12
+  },
+  {
+   "name": null,
+   "lat": 35.656899,
+   "lon": 139.829685,
+   "dem5a": 2.05
+  },
+  {
+   "name": null,
+   "lat": 35.67514,
+   "lon": 139.029375,
+   "dem5a": 835.82
+  },
+  {
+   "name": null,
+   "lat": 35.698567,
+   "lon": 139.09752,
+   "dem5a": 612.14
+  },
+  {
+   "name": null,
+   "lat": 35.685974,
+   "lon": 139.148811,
+   "dem5a": 633.74
+  },
+  {
+   "name": null,
+   "lat": 35.690202,
+   "lon": 139.185408,
+   "dem5a": 633.22
+  },
+  {
+   "name": null,
+   "lat": 35.672484,
+   "lon": 139.24243,
+   "dem5a": 274.71
+  },
+  {
+   "name": null,
+   "lat": 35.698486,
+   "lon": 139.276567,
+   "dem5a": 195.86
+  },
+  {
+   "name": null,
+   "lat": 35.68904,
+   "lon": 139.346721,
+   "dem5a": 144.92000000000002
+  },
+  {
+   "name": null,
+   "lat": 35.672303,
+   "lon": 139.370704,
+   "dem5a": 114.11
+  },
+  {
+   "name": null,
+   "lat": 35.692667,
+   "lon": 139.417277,
+   "dem5a": 81.16
+  },
+  {
+   "name": null,
+   "lat": 35.685485,
+   "lon": 139.499913,
+   "dem5a": 52.61
+  },
+  {
+   "name": null,
+   "lat": 35.683266,
+   "lon": 139.51049,
+   "dem5a": 49.96
+  },
+  {
+   "name": null,
+   "lat": 35.703524,
+   "lon": 139.577091,
+   "dem5a": 55.230000000000004
+  },
+  {
+   "name": null,
+   "lat": 35.671444,
+   "lon": 139.616899,
+   "dem5a": 45.36
+  },
+  {
+   "name": null,
+   "lat": 35.686399,
+   "lon": 139.69653,
+   "dem5a": 36.03
+  },
+  {
+   "name": null,
+   "lat": 35.666999,
+   "lon": 139.749853,
+   "dem5a": 4.75
+  },
+  {
+   "name": null,
+   "lat": 35.693148,
+   "lon": 139.766708,
+   "dem5a": 5.37
+  },
+  {
+   "name": null,
+   "lat": 35.686927,
+   "lon": 139.8201,
+   "dem5a": 0.7000000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.667945,
+   "lon": 139.875462,
+   "dem5a": -0.5
+  },
+  {
+   "name": null,
+   "lat": 35.696087,
+   "lon": 139.904013,
+   "dem5a": 0.17
+  },
+  {
+   "name": null,
+   "lat": 35.695266,
+   "lon": 139.985284,
+   "dem5a": 1.37
+  },
+  {
+   "name": null,
+   "lat": 35.726313,
+   "lon": 139.040457,
+   "dem5a": 782.13
+  },
+  {
+   "name": null,
+   "lat": 35.72151,
+   "lon": 139.085913,
+   "dem5a": 793.38
+  },
+  {
+   "name": null,
+   "lat": 35.72381,
+   "lon": 139.137384,
+   "dem5a": 478.68
+  },
+  {
+   "name": null,
+   "lat": 35.728376,
+   "lon": 139.163057,
+   "dem5a": 373.51
+  },
+  {
+   "name": null,
+   "lat": 35.708879,
+   "lon": 139.207151,
+   "dem5a": 462.24
+  },
+  {
+   "name": null,
+   "lat": 35.709957,
+   "lon": 139.29133,
+   "dem5a": 180.24
+  },
+  {
+   "name": null,
+   "lat": 35.712416,
+   "lon": 139.306913,
+   "dem5a": 174.54
+  },
+  {
+   "name": null,
+   "lat": 35.729829,
+   "lon": 139.359051,
+   "dem5a": 118.9
+  },
+  {
+   "name": null,
+   "lat": 35.738988,
+   "lon": 139.444711,
+   "dem5a": 88.84
+  },
+  {
+   "name": null,
+   "lat": 35.714494,
+   "lon": 139.450174,
+   "dem5a": 85.64
+  },
+  {
+   "name": null,
+   "lat": 35.724639,
+   "lon": 139.533433,
+   "dem5a": 63.01
+  },
+  {
+   "name": null,
+   "lat": 35.741747,
+   "lon": 139.580436,
+   "dem5a": 50.99
+  },
+  {
+   "name": null,
+   "lat": 35.735302,
+   "lon": 139.613206,
+   "dem5a": 45.02
+  },
+  {
+   "name": null,
+   "lat": 35.738896,
+   "lon": 139.662926,
+   "dem5a": 38.88
+  },
+  {
+   "name": null,
+   "lat": 35.733235,
+   "lon": 139.736315,
+   "dem5a": 25.92
+  },
+  {
+   "name": null,
+   "lat": 35.712896,
+   "lon": 139.768336,
+   "dem5a": 5.34
+  },
+  {
+   "name": null,
+   "lat": 35.739941,
+   "lon": 139.844858,
+   "dem5a": -0.74
+  },
+  {
+   "name": null,
+   "lat": 35.729148,
+   "lon": 139.884475,
+   "dem5a": 1.75
+  },
+  {
+   "name": null,
+   "lat": 35.737632,
+   "lon": 139.910876,
+   "dem5a": 3.47
+  },
+  {
+   "name": null,
+   "lat": 35.746113,
+   "lon": 139.980025,
+   "dem5a": 26.12
+  },
+  {
+   "name": null,
+   "lat": 35.770522,
+   "lon": 139.011278,
+   "dem5a": 734.11
+  },
+  {
+   "name": null,
+   "lat": 35.784948,
+   "lon": 139.052497,
+   "dem5a": 634.1800000000001
+  },
+  {
+   "name": null,
+   "lat": 35.766244,
+   "lon": 139.134974,
+   "dem5a": 1076.04
+  },
+  {
+   "name": null,
+   "lat": 35.789433,
+   "lon": 139.196228,
+   "dem5a": 548.85
+  },
+  {
+   "name": null,
+   "lat": 35.765701,
+   "lon": 139.202877,
+   "dem5a": 340.67
+  },
+  {
+   "name": null,
+   "lat": 35.757494,
+   "lon": 139.264167,
+   "dem5a": 262.91
+  },
+  {
+   "name": null,
+   "lat": 35.791239,
+   "lon": 139.32059,
+   "dem5a": 156.55
+  },
+  {
+   "name": null,
+   "lat": 35.772331,
+   "lon": 139.387938,
+   "dem5a": 138.54
+  },
+  {
+   "name": null,
+   "lat": 35.787601,
+   "lon": 139.419494,
+   "dem5a": 106.92
+  },
+  {
+   "name": null,
+   "lat": 35.756029,
+   "lon": 139.462467,
+   "dem5a": 78.31
+  },
+  {
+   "name": null,
+   "lat": 35.773317,
+   "lon": 139.514292,
+   "dem5a": 55.79
+  },
+  {
+   "name": null,
+   "lat": 35.75274,
+   "lon": 139.556724,
+   "dem5a": 50.1
+  },
+  {
+   "name": null,
+   "lat": 35.783812,
+   "lon": 139.631701,
+   "dem5a": 24.8
+  },
+  {
+   "name": null,
+   "lat": 35.777481,
+   "lon": 139.664889,
+   "dem5a": 6.65
+  },
+  {
+   "name": null,
+   "lat": 35.784102,
+   "lon": 139.74777,
+   "dem5a": 2.3000000000000003
+  },
+  {
+   "name": null,
+   "lat": 35.752495,
+   "lon": 139.763251,
+   "dem5a": 2.35
+  },
+  {
+   "name": null,
+   "lat": 35.781813,
+   "lon": 139.836224,
+   "dem5a": 1.12
+  },
+  {
+   "name": null,
+   "lat": 35.773306,
+   "lon": 139.893034,
+   "dem5a": 3.29
+  },
+  {
+   "name": null,
+   "lat": 35.754393,
+   "lon": 139.935205,
+   "dem5a": 23.47
+  },
+  {
+   "name": null,
+   "lat": 35.785336,
+   "lon": 139.986907,
+   "dem5a": 28.3
+  },
+  {
+   "name": null,
+   "lat": 35.813596,
+   "lon": 139.046549,
+   "dem5a": 1393.31
+  },
+  {
+   "name": null,
+   "lat": 35.800199,
+   "lon": 139.076219,
+   "dem5a": 475.57
+  },
+  {
+   "name": null,
+   "lat": 35.824647,
+   "lon": 139.10521,
+   "dem5a": 978.83
+  },
+  {
+   "name": null,
+   "lat": 35.823272,
+   "lon": 139.167008,
+   "dem5a": 451.88
+  },
+  {
+   "name": null,
+   "lat": 35.824664,
+   "lon": 139.208343,
+   "dem5a": 361.06
+  },
+  {
+   "name": null,
+   "lat": 35.832653,
+   "lon": 139.294768,
+   "dem5a": 113.96000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.797804,
+   "lon": 139.314888,
+   "dem5a": 166.49
+  },
+  {
+   "name": null,
+   "lat": 35.822901,
+   "lon": 139.387179,
+   "dem5a": 116.72
+  },
+  {
+   "name": null,
+   "lat": 35.803809,
+   "lon": 139.444531,
+   "dem5a": 81.77
+  },
+  {
+   "name": null,
+   "lat": 35.804895,
+   "lon": 139.465143,
+   "dem5a": 69.68
+  },
+  {
+   "name": null,
+   "lat": 35.808306,
+   "lon": 139.53579,
+   "dem5a": 32.84
+  },
+  {
+   "name": null,
+   "lat": 35.821374,
+   "lon": 139.557728,
+   "dem5a": 9.92
+  },
+  {
+   "name": null,
+   "lat": 35.830899,
+   "lon": 139.619084,
+   "dem5a": 5.94
+  },
+  {
+   "name": null,
+   "lat": 35.829353,
+   "lon": 139.661874,
+   "dem5a": 4.64
+  },
+  {
+   "name": null,
+   "lat": 35.828173,
+   "lon": 139.705506,
+   "dem5a": 2.97
+  },
+  {
+   "name": null,
+   "lat": 35.795674,
+   "lon": 139.759326,
+   "dem5a": 2.44
+  },
+  {
+   "name": null,
+   "lat": 35.798703,
+   "lon": 139.832344,
+   "dem5a": 2.81
+  },
+  {
+   "name": null,
+   "lat": 35.792871,
+   "lon": 139.861057,
+   "dem5a": 1.6300000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.81587,
+   "lon": 139.928466,
+   "dem5a": 12.75
+  },
+  {
+   "name": null,
+   "lat": 35.810483,
+   "lon": 139.958343,
+   "dem5a": 28.87
+  },
+  {
+   "name": null,
+   "lat": 35.834217,
+   "lon": 139.010447,
+   "dem5a": 1375.47
+  },
+  {
+   "name": null,
+   "lat": 35.851186,
+   "lon": 139.092823,
+   "dem5a": 755.12
+  },
+  {
+   "name": null,
+   "lat": 35.870695,
+   "lon": 139.113292,
+   "dem5a": 913.63
+  },
+  {
+   "name": null,
+   "lat": 35.866842,
+   "lon": 139.173968,
+   "dem5a": 526.6
+  },
+  {
+   "name": null,
+   "lat": 35.870461,
+   "lon": 139.232163,
+   "dem5a": 188.96
+  },
+  {
+   "name": null,
+   "lat": 35.835317,
+   "lon": 139.293194,
+   "dem5a": 112.4
+  },
+  {
+   "name": null,
+   "lat": 35.851197,
+   "lon": 139.329057,
+   "dem5a": 103.54
+  },
+  {
+   "name": null,
+   "lat": 35.845315,
+   "lon": 139.372841,
+   "dem5a": 64.28
+  },
+  {
+   "name": null,
+   "lat": 35.84609,
+   "lon": 139.438102,
+   "dem5a": 60.52
+  },
+  {
+   "name": null,
+   "lat": 35.853661,
+   "lon": 139.49537,
+   "dem5a": 33.35
+  },
+  {
+   "name": null,
+   "lat": 35.864499,
+   "lon": 139.505274,
+   "dem5a": 26.150000000000002
+  },
+  {
+   "name": null,
+   "lat": 35.84708,
+   "lon": 139.580951,
+   "dem5a": 6.01
+  },
+  {
+   "name": null,
+   "lat": 35.871535,
+   "lon": 139.641618,
+   "dem5a": 13.38
+  },
+  {
+   "name": null,
+   "lat": 35.83599,
+   "lon": 139.670158,
+   "dem5a": 4.84
+  },
+  {
+   "name": null,
+   "lat": 35.856162,
+   "lon": 139.715216,
+   "dem5a": 4.53
+  },
+  {
+   "name": null,
+   "lat": 35.864282,
+   "lon": 139.772289,
+   "dem5a": 3.08
+  },
+  {
+   "name": null,
+   "lat": 35.860898,
+   "lon": 139.805951,
+   "dem5a": 3.77
+  },
+  {
+   "name": null,
+   "lat": 35.833574,
+   "lon": 139.887416,
+   "dem5a": 3.17
+  },
+  {
+   "name": null,
+   "lat": 35.836658,
+   "lon": 139.910548,
+   "dem5a": 3.84
+  },
+  {
+   "name": null,
+   "lat": 35.865141,
+   "lon": 139.959327,
+   "dem5a": 18.92
+  },
+  {
+   "name": null,
+   "lat": 35.8775,
+   "lon": 139.029947,
+   "dem5a": 1040.32
+  },
+  {
+   "name": null,
+   "lat": 35.897854,
+   "lon": 139.065809,
+   "dem5a": 1150.6000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.904758,
+   "lon": 139.1277,
+   "dem5a": 605.53
+  },
+  {
+   "name": null,
+   "lat": 35.903376,
+   "lon": 139.156741,
+   "dem5a": 356.74
+  },
+  {
+   "name": null,
+   "lat": 35.911648,
+   "lon": 139.227143,
+   "dem5a": 244.48000000000002
+  },
+  {
+   "name": null,
+   "lat": 35.898282,
+   "lon": 139.294519,
+   "dem5a": 234.89000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.906003,
+   "lon": 139.349928,
+   "dem5a": 71.32000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.916315,
+   "lon": 139.370433,
+   "dem5a": 54.050000000000004
+  },
+  {
+   "name": null,
+   "lat": 35.896478,
+   "lon": 139.425288,
+   "dem5a": 33.42
+  },
+  {
+   "name": null,
+   "lat": 35.896498,
+   "lon": 139.475764,
+   "dem5a": 24.64
+  },
+  {
+   "name": null,
+   "lat": 35.913048,
+   "lon": 139.538783,
+   "dem5a": 14.86
+  },
+  {
+   "name": null,
+   "lat": 35.899397,
+   "lon": 139.594682,
+   "dem5a": 8.700000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.87742,
+   "lon": 139.649026,
+   "dem5a": 9.540000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.887283,
+   "lon": 139.689936,
+   "dem5a": 7.45
+  },
+  {
+   "name": null,
+   "lat": 35.899862,
+   "lon": 139.720796,
+   "dem5a": 10.63
+  },
+  {
+   "name": null,
+   "lat": 35.889312,
+   "lon": 139.780976,
+   "dem5a": 4.53
+  },
+  {
+   "name": null,
+   "lat": 35.906614,
+   "lon": 139.845533,
+   "dem5a": 2.66
+  },
+  {
+   "name": null,
+   "lat": 35.888088,
+   "lon": 139.899623,
+   "dem5a": 18.54
+  },
+  {
+   "name": null,
+   "lat": 35.881835,
+   "lon": 139.907754,
+   "dem5a": 16.65
+  },
+  {
+   "name": null,
+   "lat": 35.878629,
+   "lon": 139.961241,
+   "dem5a": 19.91
+  },
+  {
+   "name": null,
+   "lat": 35.927199,
+   "lon": 139.049699,
+   "dem5a": 505.90000000000003
+  },
+  {
+   "name": null,
+   "lat": 35.935199,
+   "lon": 139.056171,
+   "dem5a": 467.66
+  },
+  {
+   "name": null,
+   "lat": 35.94498,
+   "lon": 139.10214,
+   "dem5a": 836.5
+  },
+  {
+   "name": null,
+   "lat": 35.932178,
+   "lon": 139.170231,
+   "dem5a": 529.75
+  },
+  {
+   "name": null,
+   "lat": 35.94377,
+   "lon": 139.220214,
+   "dem5a": 656.47
+  },
+  {
+   "name": null,
+   "lat": 35.921126,
+   "lon": 139.297361,
+   "dem5a": 140.65
+  },
+  {
+   "name": null,
+   "lat": 35.939557,
+   "lon": 139.342975,
+   "dem5a": 49.480000000000004
+  },
+  {
+   "name": null,
+   "lat": 35.951385,
+   "lon": 139.371985,
+   "dem5a": 33.86
+  },
+  {
+   "name": null,
+   "lat": 35.933551,
+   "lon": 139.437508,
+   "dem5a": 20.07
+  },
+  {
+   "name": null,
+   "lat": 35.941937,
+   "lon": 139.456178,
+   "dem5a": 14.72
+  },
+  {
+   "name": null,
+   "lat": 35.951278,
+   "lon": 139.523111,
+   "dem5a": 7.5600000000000005
+  },
+  {
+   "name": null,
+   "lat": 35.919592,
+   "lon": 139.580993,
+   "dem5a": 17.490000000000002
+  },
+  {
+   "name": null,
+   "lat": 35.935761,
+   "lon": 139.633475,
+   "dem5a": 14.56
+  },
+  {
+   "name": null,
+   "lat": 35.928088,
+   "lon": 139.671793,
+   "dem5a": 8.74
+  },
+  {
+   "name": null,
+   "lat": 35.934534,
+   "lon": 139.728479,
+   "dem5a": 6.2700000000000005
+  },
+  {
+   "name": null,
+   "lat": 35.941453,
+   "lon": 139.784066,
+   "dem5a": 4.61
+  },
+  {
+   "name": null,
+   "lat": 35.932476,
+   "lon": 139.819668,
+   "dem5a": 5.3100000000000005
+  },
+  {
+   "name": null,
+   "lat": 35.934325,
+   "lon": 139.853769,
+   "dem5a": 4.73
+  },
+  {
+   "name": null,
+   "lat": 35.941969,
+   "lon": 139.942463,
+   "dem5a": 6.7700000000000005
+  },
+  {
+   "name": null,
+   "lat": 35.923219,
+   "lon": 139.955324,
+   "dem5a": 5.57
+  },
+  {
+   "name": null,
+   "lat": 35.963501,
+   "lon": 139.007537,
+   "dem5a": 394.98
+  },
+  {
+   "name": null,
+   "lat": 35.961232,
+   "lon": 139.063397,
+   "dem5a": 360.15000000000003
+  },
+  {
+   "name": null,
+   "lat": 35.960573,
+   "lon": 139.114352,
+   "dem5a": 338.3
+  },
+  {
+   "name": null,
+   "lat": 35.993507,
+   "lon": 139.175813,
+   "dem5a": 825.1700000000001
+  },
+  {
+   "name": null,
+   "lat": 35.988826,
+   "lon": 139.205964,
+   "dem5a": 276.14
+  },
+  {
+   "name": null,
+   "lat": 35.99059,
+   "lon": 139.280554,
+   "dem5a": 103.21000000000001
+  },
+  {
+   "name": null,
+   "lat": 35.99613,
+   "lon": 139.307571,
+   "dem5a": 85.09
+  },
+  {
+   "name": null,
+   "lat": 35.97066,
+   "lon": 139.373456,
+   "dem5a": 26.79
+  },
+  {
+   "name": null,
+   "lat": 35.977737,
+   "lon": 139.4064,
+   "dem5a": 19.39
+  },
+  {
+   "name": null,
+   "lat": 35.971122,
+   "lon": 139.482352,
+   "dem5a": 10.36
+  },
+  {
+   "name": null,
+   "lat": 35.958548,
+   "lon": 139.530288,
+   "dem5a": 9.86
+  },
+  {
+   "name": null,
+   "lat": 35.977461,
+   "lon": 139.572871,
+   "dem5a": 14.43
+  },
+  {
+   "name": null,
+   "lat": 35.963438,
+   "lon": 139.630957,
+   "dem5a": 13.19
+  },
+  {
+   "name": null,
+   "lat": 35.969716,
+   "lon": 139.689865,
+   "dem5a": 8.38
+  },
+  {
+   "name": null,
+   "lat": 35.984929,
+   "lon": 139.731752,
+   "dem5a": 6.95
+  },
+  {
+   "name": null,
+   "lat": 35.965711,
+   "lon": 139.779256,
+   "dem5a": 4.5200000000000005
+  },
+  {
+   "name": null,
+   "lat": 35.972395,
+   "lon": 139.834855,
+   "dem5a": 11.01
+  },
+  {
+   "name": null,
+   "lat": 35.965627,
+   "lon": 139.873855,
+   "dem5a": 13.4
+  },
+  {
+   "name": null,
+   "lat": 35.991167,
+   "lon": 139.924776,
+   "dem5a": 5.95
+  },
+  {
+   "name": null,
+   "lat": 35.987797,
+   "lon": 139.993351,
+   "dem5a": 12.21
+  },
+  {
+   "name": "新宿駅",
+   "lat": 35.6896,
+   "lon": 139.7006,
+   "dem5a": 37.38
+  },
+  {
+   "name": "東京駅",
+   "lat": 35.6812,
+   "lon": 139.7671,
+   "dem5a": 3.6
+  },
+  {
+   "name": "羽田空港",
+   "lat": 35.5494,
+   "lon": 139.7798,
+   "dem5a": 3.69
+  },
+  {
+   "name": "高尾山山頂",
+   "lat": 35.6251,
+   "lon": 139.2436,
+   "dem5a": 598.03
+  },
+  {
+   "name": "奥多摩駅",
+   "lat": 35.8094,
+   "lon": 139.0965,
+   "dem5a": 339.37
+  },
+  {
+   "name": "雲取山付近",
+   "lat": 35.8553,
+   "lon": 139.0012,
+   "dem5a": 1067.41
+  },
+  {
+   "name": "二子玉川",
+   "lat": 35.6115,
+   "lon": 139.6266,
+   "dem5a": 12.9
+  },
+  {
+   "name": "八王子駅",
+   "lat": 35.6556,
+   "lon": 139.3389,
+   "dem5a": 110.61
+  },
+  {
+   "name": "立川駅",
+   "lat": 35.698,
+   "lon": 139.4138,
+   "dem5a": 83.29
+  },
+  {
+   "name": "皇居",
+   "lat": 35.6852,
+   "lon": 139.7528,
+   "dem5a": 23.27
+  },
+  {
+   "name": "葛西臨海公園",
+   "lat": 35.6413,
+   "lon": 139.8612,
+   "dem5a": 10.01
+  },
+  {
+   "name": "江戸川区役所",
+   "lat": 35.7066,
+   "lon": 139.8683,
+   "dem5a": -1.43
+  },
+  {
+   "name": "足立区役所",
+   "lat": 35.775,
+   "lon": 139.804,
+   "dem5a": 1.37
+  },
+  {
+   "name": "板橋区役所",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "dem5a": 28.990000000000002
+  },
+  {
+   "name": "大田区役所",
+   "lat": 35.5613,
+   "lon": 139.716,
+   "dem5a": 3.58
+  },
+  {
+   "name": "青梅駅",
+   "lat": 35.7903,
+   "lon": 139.2588,
+   "dem5a": 197.45000000000002
+  },
+  {
+   "name": "御岳山",
+   "lat": 35.781,
+   "lon": 139.149,
+   "dem5a": 768.97
+  },
+  {
+   "name": "横浜駅",
+   "lat": 35.4657,
+   "lon": 139.6223,
+   "dem5a": 3.58
+  },
+  {
+   "name": "川崎駅",
+   "lat": 35.5308,
+   "lon": 139.697,
+   "dem5a": 2.57
+  },
+  {
+   "name": "相模湖",
+   "lat": 35.615,
+   "lon": 139.188,
+   "dem5a": 192.58
+  },
+  {
+   "name": "飯能駅",
+   "lat": 35.8558,
+   "lon": 139.3275,
+   "dem5a": 108.17
+  }
+ ],
+ "pairs": [
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.736047,
+   "shelter_lon": 139.700262,
+   "correct_gain": -0.5,
+   "old_backend_gain": 14.3,
+   "kind": "false_include"
+  },
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.73957,
+   "shelter_lon": 139.697171,
+   "correct_gain": 4.8,
+   "old_backend_gain": 13.6,
+   "kind": "false_include"
+  },
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.740894,
+   "shelter_lon": 139.714692,
+   "correct_gain": -2.4,
+   "old_backend_gain": 10.4,
+   "kind": "false_include"
+  },
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.745615,
+   "shelter_lon": 139.697371,
+   "correct_gain": 3.3,
+   "old_backend_gain": 16.5,
+   "kind": "false_include"
+  },
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.747648,
+   "shelter_lon": 139.692583,
+   "correct_gain": 6.5,
+   "old_backend_gain": 15.2,
+   "kind": "false_include"
+  },
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.741643,
+   "shelter_lon": 139.70482,
+   "correct_gain": 0.6,
+   "old_backend_gain": 13.2,
+   "kind": "false_include"
+  },
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.736047,
+   "shelter_lon": 139.700262,
+   "correct_gain": -0.5,
+   "old_backend_gain": 14.3,
+   "kind": "false_include"
+  },
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.73957,
+   "shelter_lon": 139.697171,
+   "correct_gain": 4.8,
+   "old_backend_gain": 13.6,
+   "kind": "false_include"
+  },
+  {
+   "from": "itabashi",
+   "lat": 35.7512,
+   "lon": 139.7093,
+   "shelter_lat": 35.740642,
+   "shelter_lon": 139.714709,
+   "correct_gain": -2.4,
+   "old_backend_gain": 11.4,
+   "kind": "false_include"
+  },
+  {
+   "from": "sumida",
+   "lat": 35.7107,
+   "lon": 139.8015,
+   "shelter_lat": 35.717272,
+   "shelter_lon": 139.784313,
+   "correct_gain": -0.21,
+   "old_backend_gain": 15.98,
+   "kind": "false_include"
+  },
+  {
+   "from": "sumida",
+   "lat": 35.7107,
+   "lon": 139.8015,
+   "shelter_lat": 35.717291,
+   "shelter_lon": 139.784295,
+   "correct_gain": -0.21,
+   "old_backend_gain": 15.98,
+   "kind": "false_include"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.592137,
+   "shelter_lon": 139.725503,
+   "correct_gain": 12.5,
+   "old_backend_gain": 9.5,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.607346,
+   "shelter_lon": 139.716197,
+   "correct_gain": 15.09,
+   "old_backend_gain": 5.4,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.622187,
+   "shelter_lon": 139.716134,
+   "correct_gain": 5.19,
+   "old_backend_gain": 11.6,
+   "kind": "false_include"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.599921,
+   "shelter_lon": 139.722545,
+   "correct_gain": 11.6,
+   "old_backend_gain": 8.1,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.599277,
+   "shelter_lon": 139.721886,
+   "correct_gain": 11.1,
+   "old_backend_gain": 6.6,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.598379,
+   "shelter_lon": 139.715229,
+   "correct_gain": 15.99,
+   "old_backend_gain": 7.7,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.598707,
+   "shelter_lon": 139.717359,
+   "correct_gain": 11.89,
+   "old_backend_gain": 8.6,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.600145,
+   "shelter_lon": 139.726053,
+   "correct_gain": 11.6,
+   "old_backend_gain": 8.4,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.603505,
+   "shelter_lon": 139.711898,
+   "correct_gain": 10.79,
+   "old_backend_gain": 9.29,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.607051,
+   "shelter_lon": 139.725622,
+   "correct_gain": 11.6,
+   "old_backend_gain": -7.2,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.603157,
+   "shelter_lon": 139.715059,
+   "correct_gain": 10.69,
+   "old_backend_gain": 4.59,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.615079,
+   "shelter_lon": 139.713357,
+   "correct_gain": 17.59,
+   "old_backend_gain": 6.6,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.610832,
+   "shelter_lon": 139.720964,
+   "correct_gain": 12.0,
+   "old_backend_gain": 8.69,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.60601,
+   "shelter_lon": 139.722722,
+   "correct_gain": 12.4,
+   "old_backend_gain": 9.5,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.591976,
+   "shelter_lon": 139.725679,
+   "correct_gain": 12.8,
+   "old_backend_gain": 9.1,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "shinagawa",
+   "lat": 35.6092,
+   "lon": 139.7302,
+   "shelter_lat": 35.622047,
+   "shelter_lon": 139.715668,
+   "correct_gain": 6.09,
+   "old_backend_gain": 12.09,
+   "kind": "false_include"
+  },
+  {
+   "from": "hachioji",
+   "lat": 35.6664,
+   "lon": 139.316,
+   "shelter_lat": 35.667533,
+   "shelter_lon": 139.307316,
+   "correct_gain": 8.8,
+   "old_backend_gain": 13.7,
+   "kind": "false_include"
+  },
+  {
+   "from": "hachioji",
+   "lat": 35.6664,
+   "lon": 139.316,
+   "shelter_lat": 35.676073,
+   "shelter_lon": 139.320387,
+   "correct_gain": 4.2,
+   "old_backend_gain": 11.3,
+   "kind": "false_include"
+  },
+  {
+   "from": "hachioji",
+   "lat": 35.6664,
+   "lon": 139.316,
+   "shelter_lat": 35.666865,
+   "shelter_lon": 139.307463,
+   "correct_gain": 7.9,
+   "old_backend_gain": 16.4,
+   "kind": "false_include"
+  },
+  {
+   "from": "hachioji",
+   "lat": 35.6664,
+   "lon": 139.316,
+   "shelter_lat": 35.676464,
+   "shelter_lon": 139.319678,
+   "correct_gain": 3.8,
+   "old_backend_gain": 10.9,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.453083,
+   "shelter_lon": 139.6219,
+   "correct_gain": 16.8,
+   "old_backend_gain": 1.1,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.451786,
+   "shelter_lon": 139.61855,
+   "correct_gain": 25.9,
+   "old_backend_gain": 1.8,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.442791,
+   "shelter_lon": 139.632808,
+   "correct_gain": -0.1,
+   "old_backend_gain": 19.5,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.450525,
+   "shelter_lon": 139.628669,
+   "correct_gain": 1.7,
+   "old_backend_gain": 25.6,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.441252,
+   "shelter_lon": 139.643179,
+   "correct_gain": 0.4,
+   "old_backend_gain": 26.0,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.435984,
+   "shelter_lon": 139.649067,
+   "correct_gain": 29.3,
+   "old_backend_gain": 0.4,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.44097,
+   "shelter_lon": 139.617538,
+   "correct_gain": 42.6,
+   "old_backend_gain": 0.1,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.434217,
+   "shelter_lon": 139.635711,
+   "correct_gain": 34.1,
+   "old_backend_gain": 0.0,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.432952,
+   "shelter_lon": 139.625773,
+   "correct_gain": 2.9,
+   "old_backend_gain": 49.2,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.453166,
+   "shelter_lon": 139.62136,
+   "correct_gain": 16.6,
+   "old_backend_gain": 1.6,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.453118,
+   "shelter_lon": 139.621913,
+   "correct_gain": 16.8,
+   "old_backend_gain": 1.3,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.451991,
+   "shelter_lon": 139.618407,
+   "correct_gain": 26.0,
+   "old_backend_gain": 4.2,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.451816,
+   "shelter_lon": 139.618541,
+   "correct_gain": 25.9,
+   "old_backend_gain": 3.5,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.442598,
+   "shelter_lon": 139.633384,
+   "correct_gain": -0.2,
+   "old_backend_gain": 17.2,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.442865,
+   "shelter_lon": 139.632912,
+   "correct_gain": -0.2,
+   "old_backend_gain": 14.0,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.44262,
+   "shelter_lon": 139.633519,
+   "correct_gain": -0.3,
+   "old_backend_gain": 17.2,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.450634,
+   "shelter_lon": 139.628677,
+   "correct_gain": 1.7,
+   "old_backend_gain": 23.1,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.451071,
+   "shelter_lon": 139.628794,
+   "correct_gain": 1.8,
+   "old_backend_gain": 20.4,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.44143,
+   "shelter_lon": 139.643455,
+   "correct_gain": 0.5,
+   "old_backend_gain": 34.7,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.441534,
+   "shelter_lon": 139.642961,
+   "correct_gain": 0.5,
+   "old_backend_gain": 32.9,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.43632,
+   "shelter_lon": 139.648715,
+   "correct_gain": 29.1,
+   "old_backend_gain": 0.9,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.436057,
+   "shelter_lon": 139.649085,
+   "correct_gain": 29.7,
+   "old_backend_gain": -0.4,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.440871,
+   "shelter_lon": 139.617742,
+   "correct_gain": 42.7,
+   "old_backend_gain": 0.2,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.441156,
+   "shelter_lon": 139.617302,
+   "correct_gain": 42.6,
+   "old_backend_gain": 0.1,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.441265,
+   "shelter_lon": 139.617146,
+   "correct_gain": 42.7,
+   "old_backend_gain": -0.2,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.44067,
+   "shelter_lon": 139.61757,
+   "correct_gain": 43.1,
+   "old_backend_gain": 0.0,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.434513,
+   "shelter_lon": 139.635981,
+   "correct_gain": 33.0,
+   "old_backend_gain": 0.1,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.43419,
+   "shelter_lon": 139.635772,
+   "correct_gain": 34.1,
+   "old_backend_gain": -0.1,
+   "kind": "false_exclude"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.432941,
+   "shelter_lon": 139.625783,
+   "correct_gain": 3.0,
+   "old_backend_gain": 49.2,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.432495,
+   "shelter_lon": 139.62553,
+   "correct_gain": 2.6,
+   "old_backend_gain": 49.8,
+   "kind": "false_include"
+  },
+  {
+   "from": "yokohama",
+   "lat": 35.4437,
+   "lon": 139.638,
+   "shelter_lat": 35.432382,
+   "shelter_lon": 139.625938,
+   "correct_gain": 3.1,
+   "old_backend_gain": 38.3,
+   "kind": "false_include"
+  }
+ ]
+}

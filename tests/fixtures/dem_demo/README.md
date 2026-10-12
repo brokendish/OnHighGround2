@@ -16,7 +16,8 @@ decisions.
 ## Files
 
 - `elevation_demo.tif` — the generated single-band float32 GeoTIFF (CRS
-  `EPSG:6668`, same axis-swap layout as the real production DEM).
+  `EPSG:6668`, standard north-up layout: x = longitude, y = latitude — the
+  same contract backend/elevation_service.py reads since DEM-RUNTIME-REPAIR).
 - `generate_synthetic_dem.py` — deterministic generator (Python + rasterio
   only, no network, no RNG). Running it twice on the same rasterio/GDAL
   version produces a byte-identical file.

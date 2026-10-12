@@ -1,6 +1,12 @@
 """
 標高データ処理サービス
 基盤地図情報（数値標高モデル）から標高を取得し、避難目的地を検索
+
+座標契約（DEM-RUNTIME-REPAIR、2026-10-12）: DEM は標準的な GeoTIFF（x = 経度、y = 緯度、north-up）として
+geotransform どおりに読む。緯度経度を入れ替えて読む fallback は廃止した。旧 convert_dem.py の DEM（x = 緯度）は
+3 次メッシュの配置が転置されており、geotransform どおりに読むと最大約 1 km ずれた画素になる
+（docs/audits/dem_elevation_integrity_20261012.md）。そのような DEM は読み込まず（fail closed）、標高を返さない。
+補間は画素中心を標本点とする双線形補間（AREA_OR_POINT=Area）。
 """
 import numpy as np
 import rasterio
@@ -30,10 +36,25 @@ class ElevationService:
         """DEM がロード済みか返す"""
         return self.dataset is not None and self.elevation_data is not None
     
+    @staticmethod
+    def _is_axis_swapped_geographic(dataset) -> bool:
+        """地理座標系なのに y（緯度）の範囲が ±90° を超える = x と y が入れ替わった旧 DEM。"""
+        crs = dataset.crs
+        if crs is None or not crs.is_geographic:
+            return False
+        b = dataset.bounds
+        return abs(b.bottom) > 90 or abs(b.top) > 90
+
     def _load_dem(self):
         """標高データを読み込む"""
         try:
-            self.dataset = rasterio.open(self.dem_path)
+            dataset = rasterio.open(self.dem_path)
+            if self._is_axis_swapped_geographic(dataset):
+                print(f"標高データ読み込みエラー: 緯度経度が入れ替わった旧 DEM は使わない（{self.dem_path}、"
+                      f"bounds={dataset.bounds}）。標準配置に並べ替えた DEM を配備すること")
+                dataset.close()
+                return
+            self.dataset = dataset
             self.elevation_data = self.dataset.read(1)  # 最初のバンドを読み込み
             self.transform_matrix = self.dataset.transform
             print(f"標高データ読み込み完了: {self.dem_path}")
@@ -75,7 +96,7 @@ class ElevationService:
 
     def _to_dataset_xy(self, lat: float, lon: float) -> Tuple[float, float]:
         """
-        WGS84緯度経度をDEMの座標系に変換し、必要に応じて軸入れ替えを補正
+        WGS84 緯度経度を DEM の座標系（x = 経度、y = 緯度）に変換する。軸の入れ替えはしない。
         """
         if self.dataset is None:
             return lon, lat
@@ -88,12 +109,6 @@ class ElevationService:
         except Exception:
             # 変換に失敗した場合は入力値をそのまま使う
             pass
-
-        candidates = [(x, y), (y, x)]
-        for cx, cy in candidates:
-            if self._coord_in_bounds(cx, cy):
-                return cx, cy
-
         return x, y
     
     def get_elevation(self, lat: float, lon: float) -> Optional[float]:
@@ -153,8 +168,10 @@ class ElevationService:
         try:
             x, y = self._to_dataset_xy(lat, lon)
 
-            # 座標を浮動小数点のピクセル位置に変換
+            # 座標を浮動小数点のピクセル位置に変換し、画素中心を標本点とする（-0.5）
             px_float, py_float = ~self.transform_matrix * (x, y)
+            px_float -= 0.5
+            py_float -= 0.5
             
             # 整数部分と小数部分を取得
             py = int(math.floor(py_float))

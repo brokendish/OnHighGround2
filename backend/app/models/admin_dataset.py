@@ -236,6 +236,11 @@ class DatasetDefinition(BaseModel):
     # 出力 sha を照合し、上流が未確認なら派生側も未確認のまま扱う（下流で上流の不明を隠さない）。
     derived_from: List["DerivedInput"] = Field(default_factory=list)
     generator: Dict[str, str] = Field(default_factory=dict)  # script / program / toolchain / output_sha256
+    # atomic version の外で使う artifact（DEM 等）の整合性（DEM-RUNTIME-REPAIR、2026-10-12）。source の出典とは別軸で、
+    # 実際に使っている file が登録した artifact か（sha256）、置き換え済みの旧 artifact ではないかを Data Ops が照合する。
+    artifact_sha256: Optional[str] = None
+    artifact_layout: Optional[str] = None
+    superseded_artifacts: List[Dict[str, str]] = Field(default_factory=list)  # [{"sha256", "reason"}]
     # True: 取込で既存 canonical を置き換える（部分投入は canonical を壊すため hard guard 対象）
     ingest_replaces_canonical: bool = False
     ingest_notes: List[str] = Field(default_factory=list)

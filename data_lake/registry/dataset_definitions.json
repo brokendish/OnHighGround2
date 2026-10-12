@@ -30,6 +30,11 @@
     "runtime_path": "data_runtime/backend/elevation",
     "transformer_name": null,
     "validator_name": null,
+    "artifact_sha256": "837bb7042c15c9b5ccefebaaaae55d269616fc0ae8acc850f190b246a18d31d7",
+    "artifact_layout": "standard north-up GeoTIFF; x=longitude y=latitude; row north->south, col west->east; pixel 1/18000 deg; EPSG:6668; nodata -9999",
+    "superseded_artifacts": [
+      {"sha256": "fdd8e3b37b53cec7587e863ee37c4f7bf4aeaf41a4f1c279cead88356226a77f", "reason": "旧 convert_dem.py の配置（3 次メッシュの配置が転置、x=緯度）。画素値は正しいが geotransform どおりに読むと最大約 1 km ずれた画素になる（docs/audits/dem_elevation_integrity_20261012.md）。原本 tile の無い範囲は 0.0 埋め"}
+    ],
     "ingest_notes": [
       "artifact: elevation.tif（sha256 fdd8e3b37b53cec7587e863ee37c4f7bf4aeaf41a4f1c279cead88356226a77f、446,837,744 bytes、2026-02-15）。Local の raw・validated・data/ と VPS の flat runtime（/data_runtime/backend/elevation/）は同一 sha（2026-10-12 確認）",
       "raster: GeoTIFF Float32 1 band、LZW、18000×12000、EPSG:6668（JGD2011）、nodata 相当 -9999、範囲は 1 次メッシュ 5339（北緯 35°20′–36°00′・東経 139°–140°）、有効 99.33%、最大 1735.9 m",
@@ -37,7 +42,8 @@
       "出典として確定できないこと: 原本（基盤地図情報の GML zip）が Local・VPS のどこにも残っていない。5m DEM の種別（DEM5A / 5B / 5C の混在の有無）、取得日・版は不明。基盤地図情報のダウンロードはログインが必要で、自動取得は 403（2026-10-12、service.gsi.go.jp/kiban/）。旧 URL fgd.gsi.go.jp は名前解決できない",
       "地理院標高タイル（dem5a_png / dem5b_png、z15）との標本比較（2026-10-12、36 点中 30 点）: 一致する点（差 0.03–0.16 m）もあるが、差の中央値 4.67 m、最大 196.75 m（山地）。一様な位置ずれでは説明できず原因は未確定。DEM の精度は別途監査が必要",
       "source を確定するには: 基盤地図情報（数値標高モデル 5m、メッシュ 5339）の原本 zip を取得し、convert_dem.py で再変換して artifact と比較する（OWNER のアカウントでの取得が必要）",
-      "整合性監査（2026-10-12、docs/audits/dem_elevation_integrity_20261012.md）: 画素値は地理院 DEM5A と一致（正しい読み方で差の中央値 0.09 m）。ただし convert_dem.py が 3 次メッシュ tile の配置だけを転置しており、geotransform のまま読む backend・PSEUDO generator は tile 内で別の画素を読む（差の中央値 4.40 m、最大 459 m）。現在の backend の読み方では避難判断に使うべきでない（UNSAFE_FOR_ELEVATION_DECISION）。修正は別 phase"
+      "整合性監査（2026-10-12、docs/audits/dem_elevation_integrity_20261012.md）: 画素値は地理院 DEM5A と一致（正しい読み方で差の中央値 0.09 m）。ただし convert_dem.py が 3 次メッシュ tile の配置だけを転置しており、geotransform のまま読む backend・PSEUDO generator は tile 内で別の画素を読む（差の中央値 4.40 m、最大 459 m）。現在の backend の読み方では避難判断に使うべきでない（UNSAFE_FOR_ELEVATION_DECISION）。修正は別 phase",
+      "修正（2026-10-12、DEM-RUNTIME-REPAIR）: 旧 artifact（fdd8e3b3…）を scripts/derive/relayout_fgd_dem_pinned.sh（linux/amd64、GDAL 3.9.3、rasterio 1.4.3）で画素値を変えずに標準配置へ並べ替えた artifact（sha256 837bb7042c15c9b5ccefebaaaae55d269616fc0ae8acc850f190b246a18d31d7、画素値 checksum e289fae568a248463cc6ad5a1992de083d314bf99601645cb403aa5e067769b9）を validated と runtime に使う。原本 tile の無い 531 tile と NaN は nodata -9999。2 回実行でバイト一致。地理院 DEM5A 300 点で新 backend の差は中央値 0.09 m。raw（data_lake/raw/tokyo/dem/elevation.tif）は旧 artifact のまま（並べ替えの入力）。旧 validated は data_lake/_backup/dem_superseded_20261012/ に保管。source は引き続き UNKNOWN"
     ]
   },
   {
@@ -1212,18 +1218,19 @@
       "frontend は tile のみで表示（apiUrl なし）。/api/hazards/<type>/<region> は 422 で全量応答を拒否（2026-10-11 VPS 確認）"
     ],
     "derived_from": [
-      {"dataset_id": "TOKYO-DEM-001", "artifact": "validated", "sha256": "fdd8e3b37b53cec7587e863ee37c4f7bf4aeaf41a4f1c279cead88356226a77f"}
+      {"dataset_id": "TOKYO-DEM-001", "artifact": "validated", "sha256": "837bb7042c15c9b5ccefebaaaae55d269616fc0ae8acc850f190b246a18d31d7"}
     ],
     "generator": {
       "script": "scripts/derive/generate_pseudo_inland_flood_pinned.sh",
       "program": "scripts/derive/generate_pseudo_inland_flood.py",
       "toolchain": "linux/amd64, python 3.11, rasterio 1.4.3 (GDAL 3.9.3), shapely 2.1.2, numpy 1.26.4, pyproj 3.7.2, affine 3.0.1",
-      "output_sha256": "fffc6041be74bdc53e0f89ce6b9735c4385bbcc1576b9cd3227837d468b5a33e"
+      "output_sha256": "b2b378177a7f945fc045806bfe0bc46f9760478517d899a4dc47c0cf5cb17252"
     },
     "ingest_notes": [
       "生成結果は GDAL の版に依存する（2026-10-12 確認）: 本番 canonical fffc6041… は x86_64 / GDAL 3.9.3（rasterio 1.4.3）で再現でき、aarch64 / GDAL 3.10.3 では別の結果になる",
       "build node で再生成するときは scripts/derive/generate_pseudo_inland_flood_pinned.sh（linux/amd64・本番と同じ library 版）を使う",
-      "派生元の確認（2026-10-12）: generator を TOKYO-DEM-001 の elevation.tif（sha256 fdd8e3b3…）に対して実行すると canonical fffc6041…（66,565 feature）とバイト一致。派生元 DEM 自体の出典は未確定（TOKYO-DEM-001 の notes）"
+      "派生元の確認（2026-10-12）: generator を TOKYO-DEM-001 の elevation.tif（sha256 fdd8e3b3…）に対して実行すると canonical fffc6041…（66,565 feature）とバイト一致。派生元 DEM 自体の出典は未確定（TOKYO-DEM-001 の notes）",
+      "再生成（2026-10-12、DEM-RUNTIME-REPAIR）: 旧 canonical fffc6041…（66,565 feature）は配置の誤った DEM（tile 内で最大約 1 km ずれ・海を 0 m として扱う）から作られていた。標準配置の DEM 837bb704… から pinned generator で再生成した canonical b2b378177a7f945fc045806bfe0bc46f9760478517d899a4dc47c0cf5cb17252（62,769 feature、2 回実行でバイト一致）。旧との IoU 0.514。generator の軸入れ替わり補正は廃止（旧 DEM は fail closed）。旧 canonical / tile は data_lake/_backup/dem_superseded_20261012/"
     ]
   },
   {

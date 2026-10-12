@@ -108,9 +108,13 @@ def test_pseudo_generation_uses_production_toolchain():
     assert any("fffc6041" in n for n in d.ingest_notes)
 
 
-def test_local_pseudo_canonical_matches_production():
+def test_local_pseudo_canonical_matches_registered_generator_output():
+    """DEM-RUNTIME-REPAIR（2026-10-12）以降、canonical は標準配置の DEM から作った b2b37817…（registry の
+    generator.output_sha256）。旧 fffc6041… は配置の誤った DEM 由来で置き換え済み。"""
     p = ROOT / "data_lake/validated/tokyo/pseudo_inland_flood/pseudo_inland_flood.geojson"
     if not p.is_file():
         pytest.skip("canonical が無い環境（data_lake は gitignore）")
     import hashlib
-    assert hashlib.sha256(p.read_bytes()).hexdigest().startswith("fffc6041be74bdc5")
+    d = get_definition_service().get("TOKYO-PSEUDO-INLAND-FLOOD-001")
+    assert d.generator["output_sha256"].startswith("b2b378177a7f945f")
+    assert hashlib.sha256(p.read_bytes()).hexdigest() == d.generator["output_sha256"]

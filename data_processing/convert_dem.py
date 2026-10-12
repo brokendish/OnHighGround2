@@ -1,6 +1,15 @@
 """
 基盤地図情報（数値標高モデル）変換スクリプト
 JPGIS形式のXMLファイルをGeoTIFF形式に変換
+
+座標契約（DEM-RUNTIME-REPAIR、2026-10-12）:
+  - gml:lowerCorner / upperCorner は「緯度 経度」の順。west/east = 経度、south/north = 緯度として
+    標準的な GeoTIFF（x = 経度、y = 緯度、行 = 北→南、列 = 西→東）を作る。
+    以前は緯度を west/east に渡していたため、merge で 3 次メッシュの配置だけが転置されていた
+    （docs/audits/dem_elevation_integrity_20261012.md）。
+  - 3 次メッシュ内の配列（sequenceRule +x-y、行 = 北→南、列 = 西→東）は以前から正しい。
+  - データの無い cell・原本 tile の無い範囲は NODATA（-9999）。以前は merge が 0 で埋めていた（海 ≠ 標高 0 m）。
+  - 入力 XML は path の昇順で処理する。同じ範囲の XML が複数あれば結合しない（fail closed）。
 """
 import xml.etree.ElementTree as ET
 import numpy as np
@@ -10,6 +19,7 @@ from pathlib import Path
 import sys
 from typing import List, Tuple
 
+NODATA = -9999.0  # 基盤地図情報 DEM の欠測値と同じ。backend（elevation_service）も -9999 以下を欠測として扱う
 
 class DEMConverter:
     """数値標高モデル変換クラス"""
@@ -62,9 +72,9 @@ class DEMConverter:
             lower = [float(x) for x in lower_corner.text.split()]
             upper = [float(x) for x in upper_corner.text.split()]
             
-            # 低い座標と高い座標から境界を設定
-            west, south = min(lower[0], upper[0]), min(lower[1], upper[1])
-            east, north = max(lower[0], upper[0]), max(lower[1], upper[1])
+            # lowerCorner / upperCorner は「緯度 経度」の順（JPGIS 2008 / FGD GML）
+            south, west = min(lower[0], upper[0]), min(lower[1], upper[1])
+            north, east = max(lower[0], upper[0]), max(lower[1], upper[1])
             
             if bounds is None:
                 bounds = [west, south, east, north]
@@ -136,7 +146,8 @@ class DEMConverter:
                 for i, val in enumerate(data_values):
                     flat[(start_index + i) % expected_size] = val
 
-                elevation_array = flat.reshape(height, width)
+                # 行 = 北→南（緯度）、列 = 西→東（経度）。読めなかった cell・tupleList に無い cell は NODATA
+                elevation_array = np.where(np.isnan(flat), NODATA, flat).astype(np.float32).reshape(height, width)
                 break
         
         if elevation_array is None or bounds is None or mesh_size is None:
@@ -188,6 +199,7 @@ class DEMConverter:
             dtype=elevation_data.dtype,
             crs=metadata['crs'],
             transform=transform,
+            nodata=NODATA,
             compress='lzw'  # 圧縮を有効化
         ) as dst:
             dst.write(elevation_data, 1)
@@ -210,7 +222,7 @@ class DEMConverter:
         
         # 統計情報を表示
         valid_data = elevation_data[
-            (~np.isnan(elevation_data)) & (elevation_data > -9999)
+            (~np.isnan(elevation_data)) & (elevation_data > NODATA)
         ]
         print("\n=== 統計情報 ===")
         if valid_data.size == 0:
@@ -230,13 +242,15 @@ def _merge_group(input_files: List[str], output_file: str):
     src_files = []
     try:
         src_files = [rasterio.open(f) for f in input_files]
-        mosaic, transform = merge(src_files)
+        # 原本 tile の無い範囲は NODATA で埋める（nodata 未指定だと 0 で埋まり、海が標高 0 m になる）
+        mosaic, transform = merge(src_files, nodata=NODATA)
 
         meta = src_files[0].meta.copy()
         meta.update({
             'height': mosaic.shape[1],
             'width': mosaic.shape[2],
             'transform': transform,
+            'nodata': NODATA,
             'compress': 'lzw'
         })
 
@@ -331,7 +345,8 @@ def main():
     if input_path.is_dir() or args.merge:
         # ディレクトリ内の全XMLファイルを変換して結合
         if input_path.is_dir():
-            xml_files = list(input_path.glob('*.xml'))
+            # 決定的な順序（file system の列挙順に依存しない）
+            xml_files = sorted(input_path.glob('*.xml'))
         else:
             xml_files = [input_path]
         
@@ -344,6 +359,7 @@ def main():
         # 一時ファイルに変換
         temp_tiffs = []
         failed_files = []
+        seen_bounds = {}
         for i, xml_file in enumerate(xml_files):
             temp_tif = output_path.parent / f"temp_{i}.tif"
             print(f"\n[{i+1}/{len(xml_files)}] {xml_file.name}")
@@ -354,6 +370,16 @@ def main():
                 print(f"警告: {xml_file.name} をスキップします ({e})", file=sys.stderr)
                 failed_files.append(xml_file.name)
                 continue
+            with rasterio.open(temp_tif) as src:
+                key = tuple(round(v, 9) for v in src.bounds)
+            if key in seen_bounds:
+                # 同じメッシュの XML が複数ある（DEM5A と 5B 等）。どちらを使うかを黙って決めない
+                for t in temp_tiffs:
+                    Path(t).unlink(missing_ok=True)
+                print(f"エラー: 同じ範囲の XML が複数あります: {seen_bounds[key]} と {xml_file.name}"
+                      "（どちらを使うか決めてから入力を 1 つにしてください）", file=sys.stderr)
+                sys.exit(2)
+            seen_bounds[key] = xml_file.name
         
         if not temp_tiffs:
             print("変換に成功したXMLファイルがありません", file=sys.stderr)
