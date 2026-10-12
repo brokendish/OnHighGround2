@@ -4,7 +4,9 @@ Acquisition backfill safety / provenance validity。
 active（現在採用中）と validity（provenance の健全性: valid / provenance_mismatch /
 provenance_suspect / unknown）を別軸で記録・表示し、不明・不整合を正常扱いしない。
 世界は実データの構成を縮約したもの（tmp 上）:
-  TOKYO-RIVER-001     A31a-25_13_* + A31b-25_*（東京 13）                  → valid
+  TOKYO-RIVER-001     A31a-25_13_* + A31b-25_*（東京 13、registry の sha256 と一致）→ valid
+ACQUISITION-SOURCE-CONTRACT（2026-10-12）以降、履歴の復元（migrate_all）は valid のものだけを書く。
+mismatch / suspect / unknown は判定結果を返すだけで書かない（action=not_written）。
   KANAGAWA-RIVER-001  A31a-25_13_*（東京原本と同一 bytes、定義は 14）       → provenance_mismatch
   KANAGAWA-SHELTER/EVAC 同一原本 14000_2.zip                                 → provenance_suspect
   TOKYO-DEM-001       raw のみ（job 記録なし = legacy_unknown）              → unknown
@@ -13,6 +15,7 @@ provenance_suspect / unknown）を別軸で記録・表示し、不明・不整�
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import subprocess
@@ -36,6 +39,7 @@ from app.services import provenance_validity as pv  # noqa: E402
 A31 = ["A31a-25_13_10_GML.zip", "A31a-25_13_20_GML.zip", "A31b-25_10_5339_GML.zip", "A31b-25_20_5339_GML.zip"]
 PATTERNS = ["A31a-*_13_10_GML.zip", "A31a-*_13_20_GML.zip", "A31b-*_10_5339_GML.zip", "A31b-*_20_5339_GML.zip"]
 REGION_RX = r"^A31a-\d+_(\d{2})_"
+A31_SHA = {n: hashlib.sha256(f"bytes-{n}".encode()).hexdigest() for n in A31}  # world の原本 bytes の sha256
 
 
 def _defn(dataset_id, layer_type, region, **kw):
@@ -51,7 +55,8 @@ def _defn(dataset_id, layer_type, region, **kw):
 DEFNS = [
     _defn("TOKYO-RIVER-001", "flood", "tokyo", source_group_mode="all_required", required_source_count=4,
           source_file_patterns=PATTERNS, expected_source_region_code="13", source_region_code_regex=REGION_RX,
-          source_provider="国土交通省 国土数値情報", source_dataset_name="洪水浸水想定区域 A31a/A31b"),
+          source_provider="国土交通省 国土数値情報", source_dataset_name="洪水浸水想定区域 A31a/A31b",
+          expected_source_files=A31, expected_source_sha256=A31_SHA, expected_source_sha256_basis="official_zip"),
     _defn("KANAGAWA-RIVER-001", "flood", "kanagawa", expected_source_region_code="14", source_region_code_regex=REGION_RX),
     _defn("KANAGAWA-SHELTER-001", "shelter", "kanagawa"),
     _defn("KANAGAWA-EVAC-001", "shelter", "kanagawa"),
@@ -123,7 +128,8 @@ def test_01_single_dataset_writes_only_that_dataset(world):
 def test_02_multiple_datasets(world):
     out = _run(world, ["TOKYO-RIVER-001", "KANAGAWA-EVAC-001"])
     assert sorted(out) == ["KANAGAWA-EVAC-001", "TOKYO-RIVER-001"]
-    assert sorted(p.name for p in world["store"].root.glob("*.json")) == ["KANAGAWA-EVAC-001.json", "TOKYO-RIVER-001.json"]
+    assert out["KANAGAWA-EVAC-001"]["action"] == "not_written"  # suspect は書かない
+    assert sorted(p.name for p in world["store"].root.glob("*.json")) == ["TOKYO-RIVER-001.json"]
 
 
 def test_11_dry_run_shows_validity_and_writes_nothing(world):
@@ -161,24 +167,31 @@ def test_04_17_tokyo_river_valid_and_sorted(world):
 
 
 def test_05_06_10_kanagawa_river_mismatch_while_active(world):
-    _run(world, ["KANAGAWA-RIVER-001"])
-    rec = world["store"].active("KANAGAWA-RIVER-001")
-    assert rec.active is True  # 6. active=false へ勝手に変えない
-    assert rec.validity == ah.AcquisitionValidity.provenance_mismatch
-    assert rec.validity_flags == [pv.REGION_MISMATCH]
-    assert "region code 13" in rec.validity_reason and "expects region code 14" in rec.validity_reason
-    assert "A31a-25_13_10_GML.zip" in rec.validity_reason  # 10. 確認できた事実（原本名）を保存
+    out = _run(world, ["KANAGAWA-RIVER-001"])
+    row = out["KANAGAWA-RIVER-001"]
+    assert row["action"] == "not_written" and world["store"].list("KANAGAWA-RIVER-001") == []  # 復元では書かない
+    assert row["validity"] == "provenance_mismatch" and row["validity_flags"] == [pv.REGION_MISMATCH]
+    assert "region code 13" in row["validity_reason"] and "expects region code 14" in row["validity_reason"]
+    assert "A31a-25_13_10_GML.zip" in row["validity_reason"]  # 10. 確認できた事実（原本名）を返す
+    # 既に履歴として在る record は再検証で mismatch に再分類し、active は勝手に変えない（6）
+    rec = am.build_migrated_record(DEFNS[1], DatasetState(**json.loads(
+        (world["admin"] / "state" / "KANAGAWA-RIVER-001.json").read_text())), admin_dir=world["admin"])
+    rec.validity = ah.AcquisitionValidity.valid
+    world["store"].add(rec)
+    am.reverify_all(world["ds"], world["store"], apply=True, dataset_ids=["KANAGAWA-RIVER-001"])
+    after = world["store"].active("KANAGAWA-RIVER-001")
+    assert after.active is True and after.validity == ah.AcquisitionValidity.provenance_mismatch
     persisted = json.loads((world["store"].root / "KANAGAWA-RIVER-001.json").read_text())["acquisitions"][0]
-    assert persisted["validity"] == "provenance_mismatch" and persisted["validity_reason"] == rec.validity_reason
+    assert persisted["validity"] == "provenance_mismatch" and persisted["validity_reason"] == after.validity_reason
 
 
 def test_07_kanagawa_evac_suspect_not_rewritten(world):
-    _run(world, ["KANAGAWA-EVAC-001"])
-    rec = world["store"].active("KANAGAWA-EVAC-001")
-    assert rec.validity == ah.AcquisitionValidity.provenance_suspect and rec.validity_flags == [pv.SHARED_SOURCE]
-    assert rec.validity_reason == ("KANAGAWA-EVAC-001 and KANAGAWA-SHELTER-001 reference the same source file "
-                                   "14000_2.zip; requires verification")
-    assert [f.name for f in rec.source_files] == ["14000_2.zip"]  # 推測で 14000_1.zip に書き換えない
+    row = _run(world, ["KANAGAWA-EVAC-001"])["KANAGAWA-EVAC-001"]
+    assert row["action"] == "not_written" and world["store"].list("KANAGAWA-EVAC-001") == []
+    assert row["validity"] == "provenance_suspect" and row["validity_flags"] == [pv.SHARED_SOURCE]
+    assert row["validity_reason"] == ("KANAGAWA-EVAC-001 and KANAGAWA-SHELTER-001 reference the same source file "
+                                      "14000_2.zip; requires verification")
+    assert row["source_files"] == ["14000_2.zip"]  # 推測で 14000_1.zip に書き換えない
 
 
 def test_07b_suspect_applies_even_when_method_unknown(world):
@@ -205,10 +218,12 @@ def test_tokyo_river_not_suspect_despite_sharing_with_kanagawa(world):
 
 
 def test_08_16_legacy_unknown_never_valid(world):
-    _run(world, ["TOKYO-DEM-001"])
-    rec = world["store"].active("TOKYO-DEM-001")
+    row = _run(world, ["TOKYO-DEM-001"])["TOKYO-DEM-001"]
+    assert row["action"] == "not_written" and row["method"] == "legacy_unknown" and row["validity"] == "unknown"
+    assert world["store"].list("TOKYO-DEM-001") == []
+    rec = am.build_migrated_record(DEFNS[4], DatasetState(**json.loads(
+        (world["admin"] / "state" / "TOKYO-DEM-001.json").read_text())), admin_dir=world["admin"])
     assert rec.acquisition_method == ah.AcquisitionMethod.legacy_unknown and rec.active is True
-    assert rec.validity == ah.AcquisitionValidity.unknown
     # 原本名・sha256 が揃っていても legacy_unknown は valid にしない
     assert rec.source_files[0].sha256
     assert pv.assess(DEFNS[4], rec)[0] == ah.AcquisitionValidity.unknown
@@ -217,7 +232,11 @@ def test_08_16_legacy_unknown_never_valid(world):
 def test_16_no_auto_promotion_on_rerun(world):
     _run(world, ["KANAGAWA-RIVER-001"])
     out = _run(world, ["KANAGAWA-RIVER-001"])
-    assert out["KANAGAWA-RIVER-001"]["action"] == "skip_existing"
+    assert out["KANAGAWA-RIVER-001"]["action"] == "not_written"  # 何度実行しても書かない（昇格しない）
+    assert world["store"].list("KANAGAWA-RIVER-001") == []
+    world["store"].add(ah.AcquisitionRecord(dataset_id="KANAGAWA-RIVER-001", acquisition_method="upload", active=True,
+                                            validity="provenance_mismatch", validity_flags=[pv.REGION_MISMATCH]))
+    assert _run(world, ["KANAGAWA-RIVER-001"])["KANAGAWA-RIVER-001"]["action"] == "skip_existing"
     assert world["store"].active("KANAGAWA-RIVER-001").validity == ah.AcquisitionValidity.provenance_mismatch
 
 
@@ -226,7 +245,7 @@ def test_15_backfill_warns_for_non_valid(world, caplog):
     with caplog.at_level(logging.WARNING):
         _run(world, ["KANAGAWA-RIVER-001", "TOKYO-RIVER-001"])
     msgs = [r.getMessage() for r in caplog.records]
-    assert any("validity=provenance_mismatch: KANAGAWA-RIVER-001" in m for m in msgs)
+    assert any("not backfilled (validity=provenance_mismatch" in m and "KANAGAWA-RIVER-001" in m for m in msgs)
     assert not any("TOKYO-RIVER-001" in m for m in msgs)
 
 
@@ -269,7 +288,10 @@ def ops(world, tmp_path, monkeypatch):
     drr._view_cache.clear()
     _run(world)
     ss = Mock()
-    ss.init_from_definition.side_effect = lambda d: DatasetState(dataset_id=d.dataset_id)
+    def _state(d):  # 実際の Data Ops と同じく state（current_raw_path）を読む
+        f = world["admin"] / "state" / f"{d.dataset_id}.json"
+        return DatasetState(**json.loads(f.read_text())) if f.exists() else DatasetState(dataset_id=d.dataset_id)
+    ss.init_from_definition.side_effect = _state
     console = dos.build_console(world["ds"], ss, store=world["store"])
     return {r["dataset_id"]: r for r in console["datasets"]}
 
@@ -279,8 +301,9 @@ def test_12_14_list_shows_active_and_validity_separately(ops):
     assert tr["active"]["active"] is True and tr["validity"] == "valid"
     assert ops["TOKYO-RIVER-001"]["integrity"]["components"]["source"]["status"] == dos.OK
     kr = ops["KANAGAWA-RIVER-001"]
-    assert kr["acquisition"]["active"]["active"] is True and kr["acquisition"]["validity"] == "provenance_mismatch"
-    assert kr["acquisition"]["validity_flags"] == ["REGION_MISMATCH"]
+    # 履歴は書かれないが、現在の raw の地域コード照合で mismatch を示す（履歴が無いことで不一致を隠さない）
+    assert kr["acquisition"]["active"] is None and kr["acquisition"]["validity"] == "provenance_mismatch"
+    assert kr["acquisition"]["validity_flags"] == ["REGION_MISMATCH"] and kr["acquisition"]["validity_source"] == "current_raw_check"
     assert kr["integrity"]["components"]["source"]["status"] == dos.ERROR
     assert kr["integrity"]["overall"] == dos.ERROR  # 14. mismatch は overall OK にしない
     assert "provenance_mismatch" in kr["integrity"]["components"]["source"]["reason"]
@@ -290,7 +313,7 @@ def test_12_14_list_shows_active_and_validity_separately(ops):
 
 
 def test_15_suspect_and_unknown_are_warning(ops):
-    assert ops["KANAGAWA-EVAC-001"]["acquisition"]["validity"] == "provenance_suspect"
+    assert ops["KANAGAWA-EVAC-001"]["acquisition"]["validity"] == "unknown"  # suspect の履歴は書かれない
     assert ops["KANAGAWA-EVAC-001"]["integrity"]["components"]["source"]["status"] == dos.WARNING
     assert ops["TOKYO-DEM-001"]["acquisition"]["validity"] == "unknown"
     assert ops["TOKYO-DEM-001"]["integrity"]["components"]["source"]["status"] == dos.WARNING

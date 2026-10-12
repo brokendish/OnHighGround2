@@ -91,6 +91,16 @@ def definition_problems(defn: DatasetDefinition) -> List[str]:
         out.append(f"{defn.dataset_id}: required_source_count と source_file_patterns の件数が不一致")
     if mode == SourceGroupMode.optional_addons and (defn.required_source_count or 0) > len(defn.source_file_patterns):
         out.append(f"{defn.dataset_id}: optional_addons の required_source_count が pattern 数を超える")
+    sha = defn.expected_source_sha256 or {}
+    if sha:
+        if set(sha) != set(defn.expected_source_files):
+            out.append(f"{defn.dataset_id}: expected_source_sha256 の原本名が expected_source_files と一致しない")
+        if any(not re.fullmatch(r"[0-9a-f]{64}", v or "") for v in sha.values()):
+            out.append(f"{defn.dataset_id}: expected_source_sha256 は 64 桁の sha256（小文字 hex）")
+        if not defn.expected_source_sha256_basis:
+            out.append(f"{defn.dataset_id}: expected_source_sha256 には根拠（expected_source_sha256_basis）が必要")
+    elif defn.expected_source_sha256_basis:
+        out.append(f"{defn.dataset_id}: expected_source_sha256_basis だけがあり sha256 が無い")
     return out
 
 

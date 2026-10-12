@@ -43,6 +43,12 @@ def _k():
     return get_definition_service().get("KANAGAWA-RIVER-001")
 
 
+def _k_matching():
+    """source identity が test の原本 bytes（bytes-of-<name>）と一致する定義（ACQUISITION-SOURCE-CONTRACT）。"""
+    return get_definition_service().get("KANAGAWA-RIVER-001").model_copy(update={"expected_source_sha256": {
+        n: hashlib.sha256(f"bytes-of-{n}".encode()).hexdigest() for n in OFFICIAL}})
+
+
 def _bundle(path: Path, names) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as zf:
@@ -158,6 +164,7 @@ def test_old_wrong_bundle_members_still_recorded_under_new_patterns(tmp_path):
 def test_11_12_13_new_acquisition_valid_old_kept_inactive_mismatch(tmp_path, monkeypatch):
     store = ah.AcquisitionStore(tmp_path / "acq")
     store.add(_old_wrong_record(tmp_path))
+    monkeypatch.setattr(sys.modules[__name__], "_k", _k_matching)
     job, state = _ingest(tmp_path, monkeypatch, store, OFFICIAL)
     assert job.status == JobStatus.success and state.current_raw_path.endswith("KANAGAWA-RIVER-001_2025_bundle.zip")
     recs = store.list("KANAGAWA-RIVER-001")
@@ -213,7 +220,8 @@ def test_16_tokyo_river_regression():
     assert sg.evaluate_source_set(t, t.expected_source_files).ok
     # 東京と A31b 5339 を共有しても KANAGAWA 正式取得は A31a コード 14 で地域確認済み → suspect にしない
     peer = ah.AcquisitionRecord(dataset_id="TOKYO-RIVER-001", acquisition_method="upload", active=True,
-                                source_files=[ah.SourceFile(name=n, sha256=n) for n in t.expected_source_files])
+                                source_files=[ah.SourceFile(name=n, sha256=t.expected_source_sha256[n])
+                                              for n in t.expected_source_files])
     rec = ah.AcquisitionRecord(dataset_id="KANAGAWA-RIVER-001", acquisition_method="upload",
-                               source_files=[ah.SourceFile(name=n, sha256=n) for n in OFFICIAL])
+                               source_files=[ah.SourceFile(name=n, sha256=_k().expected_source_sha256[n]) for n in OFFICIAL])
     assert pv.assess(_k(), rec, [peer])[0] == ah.AcquisitionValidity.valid

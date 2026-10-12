@@ -9,6 +9,8 @@ acquisition_migration.py — 既存 dataset の取得履歴を「事実から復
 
 どれかが欠ければその項目は None / legacy_unknown のまま残す。既に取得履歴がある dataset は変更しない
 （冪等）。active は「current_raw_path の raw から normalize / validation が成功している」場合だけ付ける。
+記録するのは registry の source identity と sha256 まで一致した場合だけ（ACQUISITION-SOURCE-CONTRACT、
+2026-10-12）。それ以外は dry-run と同じ結果を返し、action=not_written とする。
 """
 from __future__ import annotations
 
@@ -203,6 +205,7 @@ def migrate_all(ds=None, ss=None, store: Optional[AcquisitionStore] = None, *, d
             "source_files": [f.name for f in rec.source_files],
             "bundle": rec.bundle.name if rec.bundle else None,
             "acquired_at": rec.acquired_at.isoformat() if rec.acquired_at else None,
+            "source_identity": rec.source_identity,
         }
 
     out = []
@@ -212,11 +215,57 @@ def migrate_all(ds=None, ss=None, store: Optional[AcquisitionStore] = None, *, d
         row = results[defn.dataset_id]
         rec = candidates.get(defn.dataset_id)
         if rec is not None and not dry_run:
-            store.add(rec)
-            if rec.validity != rec.validity.valid:
-                log.warning("acquisition backfilled with validity=%s: %s (%s)",
-                            rec.validity.value, defn.dataset_id, rec.validity_reason)
+            # ACQUISITION-SOURCE-CONTRACT: 復元した記録は「この node に在った raw」の事実で、取得の事実ではない。
+            # registry の source identity と sha256 まで一致した（validity=valid）場合だけ書く。
+            # 一致しない・確認できない raw（旧版・別 dataset・identity 未登録）は結果を表示するだけで書かない。
+            if rec.validity == rec.validity.valid:
+                store.add(rec)
+            else:
+                row["action"] = "not_written"
+                log.warning("acquisition not backfilled (validity=%s, identity=%s): %s (%s)",
+                            rec.validity.value, (rec.source_identity or {}).get("status"),
+                            defn.dataset_id, rec.validity_reason)
         out.append(row)
     for dataset_id in unknown_ids:
         out.append({"dataset_id": dataset_id, "action": "error", "error": "dataset definition がありません"})
+    return out
+
+
+def reverify_all(ds=None, store: Optional[AcquisitionStore] = None, *, apply: bool = False,
+                 dataset_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """既存の取得履歴を registry の source identity で再検証する（ACQUISITION-SOURCE-CONTRACT、2026-10-12）。
+
+    旧来の validity=valid は期待する原本との一致を見ていない。記録された原本の事実（原本名・sha256）を
+    provenance_validity.assess（source identity を含む）で判定し直す。一括で書き換えず、record ごとに
+    旧 / 新の判定を返す。apply=True のときだけ、判定が変わった record と照合結果が未記録の record を更新する
+    （原本の事実・取得方法・active は変えない）。"""
+    from app.services import provenance_validity
+
+    if ds is None:
+        from app.services.dataset_definition_service import get_definition_service
+        ds = get_definition_service()
+    store = store or AcquisitionStore()
+    selected = set(dataset_ids or [])
+    peers = store.all_active()
+    out: List[Dict[str, Any]] = []
+    for defn in ds.list_all():
+        if selected and defn.dataset_id not in selected:
+            continue
+        for rec in store.list(defn.dataset_id):
+            old = (rec.validity.value, rec.validity_reason, list(rec.validity_flags))
+            checked = provenance_validity.apply(defn, rec.model_copy(deep=True), peers)
+            new = (checked.validity.value, checked.validity_reason, list(checked.validity_flags))
+            changed = old != new
+            row = {"dataset_id": defn.dataset_id, "acquisition_id": rec.acquisition_id, "active": rec.active,
+                   "old_validity": old[0], "new_validity": new[0], "new_flags": new[2],
+                   "identity": (checked.source_identity or {}).get("status"),
+                   "action": "unchanged" if not changed else "reclassify"}
+            if apply and (changed or rec.source_identity is None):
+                note = (f"reverified {datetime.now(timezone.utc).date().isoformat()}: validity {old[0]} → {new[0]}"
+                        f"（source identity {row['identity']}）" if changed else None)
+                store.update(defn.dataset_id, rec.acquisition_id, note=note, validity=checked.validity,
+                             validity_reason=checked.validity_reason, validity_flags=checked.validity_flags,
+                             source_identity=checked.source_identity)
+                row["action"] = "reclassified" if changed else "identity_recorded"
+            out.append(row)
     return out

@@ -459,6 +459,26 @@ def _raw_cache_status(state: Optional[DatasetState], active, runtime_record) -> 
     return {"status": "STALE", "path": raw, "reason": "現在の source（runtime / 取得履歴）と一致しない raw（NOT CURRENT SOURCE）"}
 
 
+def _raw_identity(defn: DatasetDefinition, state: Optional[DatasetState]) -> Optional[Dict[str, Any]]:
+    """この node の raw を原本名だけで registry の source identity と照合する（hash しない・情報表示）。
+    bundle（<dataset_id>_bundle_*.zip）は zip 内の原本名、それ以外は raw の file 名を原本名とみなす。
+    sha256 を見ないので一致しても SOURCE_READABLE 止まり（EXPECTED_SOURCE_MATCH にはしない）。"""
+    from app.services import source_group
+    from app.services import source_identity as si
+    raw = state.current_raw_path if state else None
+    if not raw or not Path(raw).is_file() or not os.access(raw, os.R_OK):
+        return None
+    path = Path(raw)
+    names = [path.name]
+    if path.name.startswith(f"{defn.dataset_id}_bundle_"):
+        try:
+            names = [Path(n).name for n in source_group.list_zip_members(path)]
+        except Exception:  # noqa: BLE001 — 読めない bundle は照合しない
+            return None
+    res = si.verify(defn, [{"name": n, "sha256": None} for n in names])
+    return {"status": res.status, "reasons": res.reasons, "names": names, "hashed": False}
+
+
 def acquisition_section(defn: DatasetDefinition, store=None, state: Optional[DatasetState] = None,
                         runtime_prov: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     store = store or get_acquisition_store()
@@ -497,7 +517,29 @@ def acquisition_section(defn: DatasetDefinition, store=None, state: Optional[Dat
     else:
         validity, validity_reason = AcquisitionValidity.unknown.value, "no acquisition history"
         validity_flags, validity_source = [], None
+    # ACQUISITION-SOURCE-CONTRACT（2026-10-12）: 記録に保存された validity をそのまま信用せず、記録の原本
+    # （原本名・sha256 の事実）を registry の source identity とその場で照合する。runtime node でも build node の
+    # record が持つ原本の事実で照合する（上位の runtime VERIFIED で source の未確認を隠さない）。
+    from app.services import source_identity as si
+    from app.services import provenance_validity as pv
+    if active is not None:
+        identity = si.verify(defn, active.source_files)
+    elif rt_source is not None:
+        identity = si.verify(defn, rt_source.get("source_files") or [])
+    else:
+        identity = None
+    if identity is not None and validity != AcquisitionValidity.provenance_mismatch.value:
+        if identity.status == si.SOURCE_MISMATCH:
+            validity = AcquisitionValidity.provenance_mismatch.value
+            validity_reason = "source files do not match the expected source: " + "; ".join(identity.reasons)
+            validity_flags = validity_flags + [pv.SOURCE_MISMATCH]
+        elif identity.status != si.EXPECTED_SOURCE_MATCH and validity == AcquisitionValidity.valid.value:
+            validity = AcquisitionValidity.unknown.value
+            validity_reason = "source identity is not verified: " + "; ".join(identity.reasons)
+            validity_flags = validity_flags + [pv.IDENTITY_UNVERIFIED if identity.status == si.SOURCE_READABLE
+                                               else pv.SOURCE_UNKNOWN]
     raw_cache = _raw_cache_status(state, active, rt_record)
+    raw_cache["identity"] = _raw_identity(defn, state)
     # 現在の raw の地域コード照合: 取得履歴も検証済み runtime record も無い場合だけ source 判定に使う
     # （runtime node の旧 raw cache で、正しい runtime を MISMATCH にしない）。
     from app.services import provenance_validity
@@ -547,6 +589,10 @@ def acquisition_section(defn: DatasetDefinition, store=None, state: Optional[Dat
         "acquisition_history": "PRESENT" if active is not None else (
             "NOT PRESENT ON THIS NODE" if rt_source is not None else "ABSENT"),
         "source_validated_on": (rt_record or {}).get("build_node") if active is None and rt_source else None,
+        # 採用中の source（取得履歴 / 検証済み runtime record）の原本と registry の source identity の照合結果
+        "source_identity": identity.to_dict() if identity is not None else {
+            "status": si.SOURCE_UNKNOWN, "reasons": ["採用中の取得履歴・runtime record が無い"],
+            "basis": defn.expected_source_sha256_basis, "validator_version": si.VALIDATOR_VERSION},
         "raw_cache": raw_cache,
         "error": error,
         "status": status,
@@ -881,6 +927,10 @@ LABEL_SEVERITY = {
     "RUNTIME_PROVENANCE_UNKNOWN": WARNING, "RUNTIME_PROVENANCE_MISMATCH": ERROR,
     "ACQUISITION_NOT_PRESENT_ON_THIS_NODE": "INFO", "OBSERVABILITY_LIMITED": "INFO",
     "LEGACY_HISTORY": "INFO", "TILE_NOT_IN_RUNTIME_RECORD": "INFO",
+    # ACQUISITION-SOURCE-CONTRACT: registry の source identity との照合（判定は acquisition_section の validity）
+    "SOURCE_IDENTITY_MISMATCH": ERROR, "SOURCE_IDENTITY_UNVERIFIED": WARNING,
+    # この node に現在の source ではない旧 raw が在る（runtime の provenance ではない・情報表示）
+    "LEGACY_SOURCE_PRESENT": "INFO",
 }
 
 
@@ -896,12 +946,17 @@ def integrity_labels(acq: Dict[str, Any], rt_prov: Dict[str, Any], components: D
     if acq.get("acquisition_history") == "NOT PRESENT ON THIS NODE":
         labels.append("ACQUISITION_NOT_PRESENT_ON_THIS_NODE")
     validity = acq.get("validity")
+    flags = acq.get("validity_flags") or []
     if validity == "provenance_mismatch":
-        labels.append("PROVENANCE_MISMATCH")
+        labels.append("SOURCE_IDENTITY_MISMATCH" if "SOURCE_MISMATCH" in flags else "PROVENANCE_MISMATCH")
     elif validity == "provenance_suspect":
         labels.append("PROVENANCE_SUSPECT")
+    elif validity == "unknown" and "IDENTITY_UNVERIFIED" in flags:
+        labels.append("SOURCE_IDENTITY_UNVERIFIED")
     elif validity == "unknown" and "acquisition history" not in missing:
         labels.append("PROVENANCE_UNKNOWN")
+    if (acq.get("raw_cache") or {}).get("status") == "STALE":
+        labels.append("LEGACY_SOURCE_PRESENT")
     if rt_prov.get("status") in (rp.MISMATCH, rp.INVALID):
         labels.append("RUNTIME_PROVENANCE_MISMATCH")
     elif rt_prov.get("status") == rp.ABSENT:

@@ -27,7 +27,17 @@
     provenance_suspect: ["WARNING", "PROVENANCE SUSPECT"],
     unknown: ["UNKNOWN", "UNKNOWN"],
   };
-  const FLAG_LABELS = { REGION_MISMATCH: "REGION MISMATCH", SHARED_SOURCE: "SHARED SOURCE" };
+  const FLAG_LABELS = { REGION_MISMATCH: "REGION MISMATCH", SHARED_SOURCE: "SHARED SOURCE",
+    SOURCE_MISMATCH: "SOURCE MISMATCH", IDENTITY_UNVERIFIED: "IDENTITY UNVERIFIED", SOURCE_UNKNOWN: "SOURCE UNKNOWN" };
+  // registry の source identity との照合（ACQUISITION-SOURCE-CONTRACT）: [badge status, 表示]
+  const IDENTITY_LABELS = {
+    EXPECTED_SOURCE_MATCH: ["OK", "SOURCE VERIFIED"],
+    SOURCE_READABLE: ["WARNING", "SOURCE READABLE / IDENTITY UNVERIFIED"],
+    SOURCE_MISMATCH: ["ERROR", "SOURCE MISMATCH"],
+    SOURCE_UNKNOWN: ["WARNING", "SOURCE UNKNOWN"],
+  };
+  const IDENTITY_BASIS = { official_zip: "公式 zip と照合", verified_raw: "raw の内容を照合（公式 zip は照合不能）",
+    build_node_acquisition: "build node の取得記録（公式 zip とは未照合）" };
   function validityBadge(v) {
     const [st, label] = VALIDITY[v] || VALIDITY.unknown;
     return badge(st, label);
@@ -392,10 +402,17 @@
         ["Reason", acq.validity_reason || "—"],
         ["判定の根拠", acq.validity_source === "runtime_provenance" ? `runtime provenance record（build node: ${acq.source_validated_on || "?"}）`
           : acq.validity_source === "acquisition_history" ? "この node の取得履歴" : acq.validity_source || "—"],
+        ["Source identity", (() => {
+          const si = acq.source_identity || { status: "SOURCE_UNKNOWN", reasons: [] };
+          const [st, label] = IDENTITY_LABELS[si.status] || ["UNKNOWN", si.status];
+          return withSub(badge(st, label), [si.basis ? `根拠: ${IDENTITY_BASIS[si.basis] || si.basis}` : null,
+            ...(si.reasons || [])].filter(Boolean).join(" / ") || null);
+        })()],
         ["取得履歴（この node）", acq.acquisition_history],
         ["Raw cache", acq.raw_cache ? withSub(badge(acq.raw_cache.status === "CURRENT" ? "OK" : acq.raw_cache.status === "STALE" ? "WARNING" : "UNKNOWN",
-          acq.raw_cache.status === "STALE" ? "STALE / NOT CURRENT SOURCE" : acq.raw_cache.status),
-          [acq.raw_cache.path, acq.raw_cache.reason, acq.raw_cache.region_check].filter(Boolean).join(" / ") || null) : "—"],
+          acq.raw_cache.status === "STALE" ? "LEGACY SOURCE PRESENT / NOT CURRENT SOURCE" : acq.raw_cache.status),
+          [acq.raw_cache.path, acq.raw_cache.reason, acq.raw_cache.region_check,
+           acq.raw_cache.identity ? `原本名の照合: ${acq.raw_cache.identity.status}（hash なし）` : null].filter(Boolean).join(" / ") || null) : "—"],
         ["取得元組織", acq.source_provider || "UNKNOWN"],
         ["取得データ名", acq.source_dataset_name || "UNKNOWN"],
         ["公式URL", link(acq.official_source_url)],

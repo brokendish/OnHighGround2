@@ -89,7 +89,11 @@ class AcquisitionRecord(BaseModel):
     # validity 欄の無い既存 record は unknown として読む（valid へ自動昇格しない）。
     validity: AcquisitionValidity = AcquisitionValidity.unknown
     validity_reason: Optional[str] = None
-    validity_flags: List[str] = Field(default_factory=list)  # 例: REGION_MISMATCH, SHARED_SOURCE
+    validity_flags: List[str] = Field(default_factory=list)  # 例: REGION_MISMATCH, SHARED_SOURCE, SOURCE_MISMATCH
+    # registry の source identity との照合結果（source_identity.IdentityResult.to_dict: status / expected・actual
+    # sha256 / basis / validator_version / validated_at / node）。record_origin と合わせて読む:
+    # recorded = この node で取得した原本 / migrated = この node に在った raw から復元（取得した node とは限らない）
+    source_identity: Optional[dict] = None
 
     @property
     def source_sha256(self) -> List[Optional[str]]:

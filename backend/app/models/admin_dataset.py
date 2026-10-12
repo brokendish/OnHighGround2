@@ -215,6 +215,14 @@ class DatasetDefinition(BaseModel):
     # 原本ファイル名の glob（fnmatchcase）。"re:" 接頭辞は正規表現（fullmatch）。
     source_file_patterns: List[str] = Field(default_factory=list)
     expected_source_files: List[str] = Field(default_factory=list)  # 参考表示用の現行原本名
+    # 現行原本の source identity（ACQUISITION-SOURCE-CONTRACT、2026-10-12）。原本名 → sha256。
+    # 取得履歴の validity=valid は、記録した原本がこれと一致した場合だけ（source_identity.verify）。
+    # 確認できた事実だけを登録する（未登録の dataset は identity 未確認のまま、推測で埋めない）。
+    expected_source_sha256: Dict[str, str] = Field(default_factory=dict)
+    # 上の sha256 の根拠: official_zip（公式 zip を取得して照合）/ verified_raw（公式 zip は組み立て配布で
+    # 照合不能、raw の内容を canonical と照合済み）/ build_node_acquisition（OWNER 承認の原本セットを
+    # build node で取り込んだ記録の sha、公式 zip との照合は未実施）
+    expected_source_sha256_basis: Optional[Literal["official_zip", "verified_raw", "build_node_acquisition"]] = None
     # True: 取込で既存 canonical を置き換える（部分投入は canonical を壊すため hard guard 対象）
     ingest_replaces_canonical: bool = False
     ingest_notes: List[str] = Field(default_factory=list)

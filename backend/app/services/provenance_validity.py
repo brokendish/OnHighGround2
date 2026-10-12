@@ -9,7 +9,13 @@ provenance_validity.py — acquisition record の provenance 健全性判定（a
   2. 他 dataset の active 取得と同一原本（sha256 一致。sha256 が無ければ名前 + size 一致）を共有し、
      かつ 1 で自 dataset の地域コード一致が確認できていない         → provenance_suspect（SHARED_SOURCE）
   3. 取得方法が legacy_unknown、または原本が記録されていない       → unknown
-  4. 上記に該当しない                                              → valid
+  4. source identity（source_identity.verify）が EXPECTED_SOURCE_MATCH でない → unknown（IDENTITY_UNVERIFIED /
+     SOURCE_UNKNOWN）。ただし原本名・sha256 が registry と食い違えば 1 の直後（2 より前）に
+     provenance_mismatch（SOURCE_MISMATCH）
+  5. 上記に該当しない（期待する原本と sha256 まで一致）               → valid
+
+ACQUISITION-SOURCE-CONTRACT（2026-10-12）: 4 を追加。読める・地域コードが合う・取得方法が分かるだけでは
+valid にしない（旧来は VPS の 2024 年版 bundle でも valid になった）。
 
 1・2 は原本そのものの事実（ファイル名・sha256）に基づくため、取得方法が不明（legacy_unknown）でも判定する。
 
@@ -26,6 +32,9 @@ from app.services.acquisition_history import AcquisitionMethod, AcquisitionRecor
 
 REGION_MISMATCH = "REGION_MISMATCH"
 SHARED_SOURCE = "SHARED_SOURCE"
+SOURCE_MISMATCH = "SOURCE_MISMATCH"
+IDENTITY_UNVERIFIED = "IDENTITY_UNVERIFIED"
+SOURCE_UNKNOWN = "SOURCE_UNKNOWN"
 
 
 def extract_region_codes(defn: DatasetDefinition, files: Iterable[SourceFile]) -> List[Tuple[str, str]]:
@@ -71,8 +80,12 @@ def _same_file(a: SourceFile, b: SourceFile) -> bool:
 
 def assess(defn: DatasetDefinition, record: AcquisitionRecord,
            peers: Iterable[AcquisitionRecord] = ()) -> Tuple[AcquisitionValidity, Optional[str], List[str]]:
+    from app.services import source_identity as si
+
     if not record.source_files:
-        return AcquisitionValidity.unknown, "no source files recorded", []
+        return AcquisitionValidity.unknown, "no source files recorded", [SOURCE_UNKNOWN]
+
+    identity = si.verify(defn, record.source_files)
 
     region_confirmed = False
     if defn.expected_source_region_code and defn.source_region_code_regex:
@@ -86,6 +99,12 @@ def assess(defn: DatasetDefinition, record: AcquisitionRecord,
                     f"(region={defn.region}) expects region code {defn.expected_source_region_code}",
                     [REGION_MISMATCH])
         region_confirmed = bool(codes)
+
+    # 地域コードの不一致（より具体的な理由）を先に返し、その次に registry の原本名・sha256 との不一致
+    if identity.status == si.SOURCE_MISMATCH:
+        return (AcquisitionValidity.provenance_mismatch,
+                f"source files do not match the expected source of {defn.dataset_id}: {'; '.join(identity.reasons)}",
+                [SOURCE_MISMATCH])
 
     if not region_confirmed:
         for peer in peers:
@@ -101,6 +120,12 @@ def assess(defn: DatasetDefinition, record: AcquisitionRecord,
         return (AcquisitionValidity.unknown,
                 "acquisition method / source are not recorded (legacy_unknown); source file names alone are not "
                 "sufficient to confirm provenance", [])
+    if identity.status == si.SOURCE_UNKNOWN:
+        return (AcquisitionValidity.unknown,
+                f"source identity is not defined for {defn.dataset_id}: {'; '.join(identity.reasons)}", [SOURCE_UNKNOWN])
+    if identity.status != si.EXPECTED_SOURCE_MATCH:
+        return (AcquisitionValidity.unknown,
+                f"source identity is not verified: {'; '.join(identity.reasons)}", [IDENTITY_UNVERIFIED])
     return AcquisitionValidity.valid, None, []
 
 
@@ -139,5 +164,12 @@ def assess_raw_region(defn: DatasetDefinition, raw_path) -> Optional[Tuple[Acqui
 
 
 def apply(defn: DatasetDefinition, record: AcquisitionRecord, peers: Iterable[AcquisitionRecord] = ()) -> AcquisitionRecord:
+    import os
+    import socket
+    from app.services import source_identity as si
+
     record.validity, record.validity_reason, record.validity_flags = assess(defn, record, peers)
+    # 期待値と実値を両方残す（どの registry identity と照合した結果か、後から確認できるように）
+    record.source_identity = si.verify(defn, record.source_files).to_dict(
+        node=os.environ.get("OHG2_NODE_NAME") or socket.gethostname())
     return record

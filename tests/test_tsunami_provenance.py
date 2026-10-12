@@ -195,7 +195,8 @@ def _record(runtime: bytes, canonical_sha=None, tile=b"TILE", acquisition=True):
     sha = _sha(runtime)
     return {"schema": rp.SCHEMA, "dataset_id": "KANAGAWA-TSUNAMI-001", "layer_type": "tsunami", "region": "kanagawa",
             "source": {"acquisition_id": "a", "acquisition_method": "upload", "validity": "valid", "validity_reason": None,
-                       "validity_flags": [], "source_files": [{"name": "A40-20_14_GML.zip"}], "bundle": None}
+                       "validity_flags": [], "bundle": None,
+                       "source_files": [{"name": "A40-20_14_GML.zip", "sha256": SOURCES["KANAGAWA-TSUNAMI-001"][4]}]}
             if acquisition else None,
             "canonical": {"sha256": canonical_sha or sha, "feature_count": None},
             "runtime_artifact": {"rel": REL, "sha256": sha, "feature_count": None},

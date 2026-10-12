@@ -81,12 +81,20 @@
       "A31b-25_10_5339_GML.zip",
       "A31b-25_20_5339_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A31a-25_13_10_GML.zip": "9f777c08e7c22718f6717cf90a6e5267eb673388faaebfb8f128e4b68064095b",
+      "A31a-25_13_20_GML.zip": "3ee0d369f544f2d610e1860f10f1161fd8d21da193b120c235a86d874ae42215",
+      "A31b-25_10_5339_GML.zip": "9adb475675b06c1e3fea2db4ee278f5be1ede6d2234bd1c58b87c1ac0f4b42d9",
+      "A31b-25_20_5339_GML.zip": "0ba279834c4935df1e9f5e099a941252b8b2f3e584bd448ab5246a5db46486c9"
+    },
+    "expected_source_sha256_basis": "build_node_acquisition",
     "ingest_replaces_canonical": true,
     "ingest_notes": [
       "4ファイルを同一取込処理で投入すること",
       "個別投入すると前回canonicalを置き換えるため禁止",
       "2025版はA31a/A31b両方必要",
-      "publish前にrouting validation必須"
+      "publish前にrouting validation必須",
+      "source identity（expected_source_sha256、2026-10-12）: OWNER 承認の原本セットを build node（Local）で取り込んだ記録（ingest job 10000d4e-a7b8-43f3-b2e6-1089b20a1834）の sha256。公式 zip を取得しての照合は未実施（根拠 build_node_acquisition）"
     ],
     "expected_source_region_code": "13",
     "source_region_code_regex": "^A31a-\\d+_(\\d{2})_",
@@ -150,6 +158,10 @@
     "expected_source_files": [
       "A40-23_13_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A40-23_13_GML.zip": "b8e24973e5f9b885d481c28211f107587d14597cb3d9674d26c1aa591dacdc5c"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "13",
     "source_region_code_regex": "^A40-\\d+_(\\d{2})_",
     "ingest_replaces_canonical": true,
@@ -158,7 +170,8 @@
       "公式 zip の sha256 = b8e24973e5f9b885d481c28211f107587d14597cb3d9674d26c1aa591dacdc5c（2026-10-11 取得、raw と一致）",
       "KS-META: 国土数値情報 津波浸水想定 東京都 A40-23_13、citation 日付 2024-03-25。データの版は記載なし（version 3.2.1 は GML 配布形式の版）",
       "現行 canonical d952540d…（2026-10-11、深さ表記の解釈修正後に公式 pipeline で再取込）。旧 canonical a93df109… は superseded_canonicals",
-      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む"
+      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ],
     "superseded_canonicals": [
       {
@@ -226,6 +239,10 @@
     "expected_source_files": [
       "A49-20_13_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A49-20_13_GML.zip": "cec46df37c0d8cabc660fc85f8ec6f0cac78b6754a5387f7be21b7a599810390"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "13",
     "source_region_code_regex": "^A49-\\d+_(\\d{2})",
     "ingest_replaces_canonical": true,
@@ -234,7 +251,8 @@
       "公式 zip の sha256 = cec46df37c0d8cabc660fc85f8ec6f0cac78b6754a5387f7be21b7a599810390（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報 高潮浸水想定区域 東京都 A49-20_13、version 1.0、2021-03-26（2024 年度版の掲載表でも東京は 2020 年が最新）",
       "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -288,6 +306,10 @@
     "expected_source_files": [
       "A51-24_13_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A51-24_13_GML.zip": "8c82c0b438f9da0b52bd64fdd889d24d0fb924a68ac3da14822b40c5d8a7d0b7"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "13",
     "source_region_code_regex": "^A51-\\d+_(\\d{2})",
     "ingest_replaces_canonical": true,
@@ -296,7 +318,8 @@
       "公式 zip の sha256 = 8c82c0b438f9da0b52bd64fdd889d24d0fb924a68ac3da14822b40c5d8a7d0b7（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報（雨水出水浸水想定区域）A51、2025-03-26。データの版は記載なし（3.2.1 は GML 形式の版）",
       "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -337,11 +360,16 @@
     "expected_source_files": [
       "13000_2.zip"
     ],
+    "expected_source_sha256": {
+      "13000_2.zip": "23a87d2e6cd120edd077b6d625c262825d6de1b095f9040176c930b687658065"
+    },
+    "expected_source_sha256_basis": "verified_raw",
     "ingest_notes": [
       "国土地理院「指定緊急避難場所・指定避難所データ」の配布ページで、都道府県別 zip の _2 は「指定緊急避難場所データ」列（2026-10-12 確認。ページの列定義と 13000_2.csv の列見出し（洪水・津波 等の災害種別、指定避難所との住所同一）が一致）",
       "raw 13000_2.zip の sha256 = 23a87d2e6cd120edd077b6d625c262825d6de1b095f9040176c930b687658065。配布 zip はページの JavaScript がその場で組み立てるため、公式 zip との sha 照合はできない",
       "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）",
-      "2026-10-12 定義を中身に合わせて訂正（OWNER 承認）: 旧定義は layer_type evacuation_shelter・名称「指定避難場所」で中身（指定緊急避難場所）と逆だった。dataset_id と保管 path（shelters/）は互換のため維持。canonical は訂正後の定義で正式 pipeline から再生成し、designation を「指定緊急避難場所」に是正"
+      "2026-10-12 定義を中身に合わせて訂正（OWNER 承認）: 旧定義は layer_type evacuation_shelter・名称「指定避難場所」で中身（指定緊急避難場所）と逆だった。dataset_id と保管 path（shelters/）は互換のため維持。canonical は訂正後の定義で正式 pipeline から再生成し、designation を「指定緊急避難場所」に是正",
+      "source identity（expected_source_sha256、2026-10-12）: raw の sha256（配布 zip はページの JavaScript が組み立てるため公式 zip とは照合できない。raw の内容を canonical と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -382,11 +410,16 @@
     "expected_source_files": [
       "13000_1.zip"
     ],
+    "expected_source_sha256": {
+      "13000_1.zip": "53928e38326b31f3b1ee2e1faab90b0b24d3c4885751330e5eb3b767d4995df7"
+    },
+    "expected_source_sha256_basis": "verified_raw",
     "ingest_notes": [
       "国土地理院「指定緊急避難場所・指定避難所データ」の配布ページで、都道府県別 zip の _1 は「指定避難所データ」列（2026-10-12 確認。ページの列定義と 13000_1.csv の列見出し（受入対象者・指定緊急避難場所との住所同一）が一致）",
       "raw 13000_1.zip の sha256 = 53928e38326b31f3b1ee2e1faab90b0b24d3c4885751330e5eb3b767d4995df7。配布 zip はページの JavaScript がその場で組み立てるため、公式 zip との sha 照合はできない",
       "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）",
-      "2026-10-12 定義を中身に合わせて訂正（OWNER 承認）: 旧定義は layer_type emergency_shelter・名称「指定緊急避難場所」で中身（指定避難所）と逆だった。dataset_id と保管 path（emergency_shelters/）は互換のため維持。canonical は訂正後の定義で正式 pipeline から再生成し、designation を「指定避難所」に是正"
+      "2026-10-12 定義を中身に合わせて訂正（OWNER 承認）: 旧定義は layer_type emergency_shelter・名称「指定緊急避難場所」で中身（指定避難所）と逆だった。dataset_id と保管 path（emergency_shelters/）は互換のため維持。canonical は訂正後の定義で正式 pipeline から再生成し、designation を「指定避難所」に是正",
+      "source identity（expected_source_sha256、2026-10-12）: raw の sha256（配布 zip はページの JavaScript が組み立てるため公式 zip とは照合できない。raw の内容を canonical と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -470,6 +503,10 @@
     "expected_source_files": [
       "A33-24_13_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A33-24_13_GML.zip": "bf02d48cd4dad6e429d7f1cc86388cd7c78c593a7e15bd287dd70b0169998789"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "13",
     "source_region_code_regex": "^A33-\\d+_(\\d{2})",
     "ingest_replaces_canonical": true,
@@ -478,7 +515,8 @@
       "公式 zip の sha256 = bf02d48cd4dad6e429d7f1cc86388cd7c78c593a7e15bd287dd70b0169998789（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報（土砂災害警戒区域）A33-24、version 1.0、2025-03-26（原典資料の整備時点は都道府県で異なる）",
       "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -589,10 +627,15 @@
     "expected_source_files": [
       "14000_2.zip"
     ],
+    "expected_source_sha256": {
+      "14000_2.zip": "41583fe7490d4bcb35cd5aa5f82e815daab959a5cb512014a96a4f4a9db61dcf"
+    },
+    "expected_source_sha256_basis": "verified_raw",
     "ingest_notes": [
       "国土地理院「指定緊急避難場所・指定避難所データ」の配布ページで、都道府県別 zip の _2 は「指定緊急避難場所データ」列（2026-10-12 確認。ページの列定義と 14000_2.csv の列見出し（洪水・津波 等の災害種別）が一致）",
       "raw 14000_2.zip の sha256 = 41583fe7490d4bcb35cd5aa5f82e815daab959a5cb512014a96a4f4a9db61dcf。配布 zip はページの JavaScript がその場で組み立てるため、公式 zip との sha 照合はできない",
-      "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）"
+      "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）",
+      "source identity（expected_source_sha256、2026-10-12）: raw の sha256（配布 zip はページの JavaScript が組み立てるため公式 zip とは照合できない。raw の内容を canonical と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -650,6 +693,10 @@
     "expected_source_files": [
       "A40-20_14_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A40-20_14_GML.zip": "6b3192e4ed4f8f28d057e4738ecc0d2e7bef232d6adc3022f2d6aec8375f7479"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "14",
     "source_region_code_regex": "^A40-\\d+_(\\d{2})_",
     "ingest_replaces_canonical": true,
@@ -659,7 +706,8 @@
       "KS-META: 国土数値情報 津波浸水想定 神奈川県 A40-20_14、令和2年4月時点、version 1.0、2021-03-26",
       "canonical f3890b67… は raw を現行 normalizer で再正規化した結果とバイト一致（2026-10-11 確認）",
       "A40-16_14（2016 年）も掲載されているが旧版。current source として扱わない（tile は tile_dispositions.json で RETIRED）",
-      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む"
+      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -716,13 +764,18 @@
     "expected_source_files": [
       "A40-18_12_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A40-18_12_GML.zip": "becf21ab28d686cef622e3b26cf56b6782c6fb868dc0ca98d38e7bdb6875689b"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "12",
     "source_region_code_regex": "^A40-\\d+_(\\d{2})_",
     "ingest_replaces_canonical": true,
     "ingest_notes": [
       "国土数値情報の最新版ページ（2024 年度版、2025-05 更新）でも千葉県は A40-18_12（2018 年、v1.0）が最新（2026-10-11 確認）",
       "千葉県の津波浸水想定は 2018-11-13 公表のものが現行（県 web で確認）",
-      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む"
+      "source_file_patterns は現行の公式ファイル名に固定（旧版の取込を防ぐ）。新しい版が公開されたら、原本・年・版を確認して定義を更新してから取り込む",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ],
     "api_exposure": "disabled"
   },
@@ -790,13 +843,27 @@
       "A31b-25_10_5339_GML.zip",
       "A31b-25_20_5339_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A31a-25_14_10_GML.zip": "381b97998c28f359b980e1dcb5e94c7cd5217f6bb185acaed32131fd5b1b5fa0",
+      "A31a-25_14_20_GML.zip": "2223947b3a335e7c492797fd637b9101d2ed39a2dac4d02e7643106b91357e08",
+      "A31b-25_10_5238_GML.zip": "fb116aae8954cb434e57c1a0c40ae45535089aa45ee0001dab59e1be1affd750",
+      "A31b-25_20_5238_GML.zip": "2954d6deb0827d40fc62e2bf351626999ff1046d94cb6982634ac0c797954f05",
+      "A31b-25_10_5239_GML.zip": "d4248b8c12a81eb518a3ff6dd55c0bcb8e8614ef361c58fb1fc38febcb130965",
+      "A31b-25_20_5239_GML.zip": "aafd65530c2fa4f34b8c75247508a2fde559162d54de292b5535f707ba683b7c",
+      "A31b-25_10_5338_GML.zip": "623bec73586053ab64010c9893a5d5c544b6fd6ed01782bee71d5a4fe0d33864",
+      "A31b-25_20_5338_GML.zip": "c84c47b794d42a5452aea4776c88206a517f18d03b2950df6c7a02f66c22f7d4",
+      "A31b-25_10_5339_GML.zip": "9adb475675b06c1e3fea2db4ee278f5be1ede6d2234bd1c58b87c1ac0f4b42d9",
+      "A31b-25_20_5339_GML.zip": "0ba279834c4935df1e9f5e099a941252b8b2f3e584bd448ab5246a5db46486c9"
+    },
+    "expected_source_sha256_basis": "build_node_acquisition",
     "ingest_replaces_canonical": true,
     "ingest_notes": [
       "10原本を1回の取込処理で投入すること",
       "個別投入禁止",
       "東京コード13のA31aは投入禁止",
       "publish前にregion coverage確認必須",
-      "routing validation FN=0必須"
+      "routing validation FN=0必須",
+      "source identity（expected_source_sha256、2026-10-12）: OWNER 承認の原本セットを build node（Local）で取り込んだ記録（ingest job a5e5e832-de17-4534-b4a1-31937144851f）の sha256。公式 zip を取得しての照合は未実施（根拠 build_node_acquisition）"
     ],
     "coverage_required_meshes": [
       "5238",
@@ -868,6 +935,10 @@
     "expected_source_files": [
       "A49-24_14_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A49-24_14_GML.zip": "aef39816fa3dc6e473cf70f3153f1b60b7adb0aec7ec36696a97afab19bfdc00"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "14",
     "source_region_code_regex": "^A49-\\d+_(\\d{2})",
     "ingest_replaces_canonical": true,
@@ -876,7 +947,8 @@
       "公式 zip の sha256 = aef39816fa3dc6e473cf70f3153f1b60b7adb0aec7ec36696a97afab19bfdc00（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報 高潮浸水想定区域 神奈川県 A49-24_14、2025-03-26。データの版は記載なし（3.2.1 は GML 形式の版）",
       "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -930,6 +1002,10 @@
     "expected_source_files": [
       "A51-24_14_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A51-24_14_GML.zip": "a648ba89ab5aaab431155a7e414c2a811e50c6c29da7ff78a984cbc2ff4be935"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "14",
     "source_region_code_regex": "^A51-\\d+_(\\d{2})",
     "ingest_replaces_canonical": true,
@@ -938,7 +1014,8 @@
       "公式 zip の sha256 = a648ba89ab5aaab431155a7e414c2a811e50c6c29da7ff78a984cbc2ff4be935（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報（雨水出水浸水想定区域）A51、2025-03-26。データの版は記載なし（3.2.1 は GML 形式の版）",
       "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -988,6 +1065,10 @@
     "expected_source_files": [
       "A33-24_14_GML.zip"
     ],
+    "expected_source_sha256": {
+      "A33-24_14_GML.zip": "35c10f5dadadea095ab5ac3604100ffc3b901b3b9a579c77049ba5c453bfd497"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "14",
     "source_region_code_regex": "^A33-\\d+_(\\d{2})",
     "ingest_replaces_canonical": true,
@@ -996,7 +1077,8 @@
       "公式 zip の sha256 = 35c10f5dadadea095ab5ac3604100ffc3b901b3b9a579c77049ba5c453bfd497（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報（土砂災害警戒区域）A33-24、version 1.0、2025-03-26（原典資料の整備時点は都道府県で異なる）",
       "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -1045,6 +1127,10 @@
     "expected_source_files": [
       "N03-20250101_14_GML.zip"
     ],
+    "expected_source_sha256": {
+      "N03-20250101_14_GML.zip": "1cf3c1ee08686de1e2685e5f81b9f0eaf6abb94bfffcd0811cc109c84b2e9fb4"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "ingest_replaces_canonical": true,
     "ingest_notes": [
       "国土数値情報の掲載表（KsjTmplt-N03-2025.html）で N03-20250101_14_GML.zip（2025年）を確認（2026-10-12）",
@@ -1053,7 +1139,8 @@
       "canonical は raw を現行 normalizer（pipeline と同じ引数）で再正規化した結果とバイト一致（2026-10-12 確認）",
       "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
       "canonical の sha256 = 92348caf7bcf9a674dec36c30c5653c0fba159a70d0d164070b86b96c4c0ffef（1,247 feature、source_dataset=KANAGAWA-BOUNDARY-001、normalized_region_code=14）。build node（Local）で正式 pipeline が生成したこの canonical を runtime node（VPS）へ転送し、両 node で一致させる（2026-10-12）",
-      "VPS に残っていた旧 canonical（sha256 c19d78c0…、2026-04-17 生成）は同じ raw を normalize_boundary.py a4c56c8 版で正規化したもの（再現で確認）。geometry・N03 属性は同一で、metadata だけが東京固定値（TOKYO-BOUNDARY-001 / 13）だった。VPS ~/backups/kanagawa-boundary-canonical-20261012/ に保管"
+      "VPS に残っていた旧 canonical（sha256 c19d78c0…、2026-04-17 生成）は同じ raw を normalize_boundary.py a4c56c8 版で正規化したもの（再現で確認）。geometry・N03 属性は同一で、metadata だけが東京固定値（TOKYO-BOUNDARY-001 / 13）だった。VPS ~/backups/kanagawa-boundary-canonical-20261012/ に保管",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -1145,6 +1232,10 @@
     "expected_source_files": [
       "G08-15_13_GML.zip"
     ],
+    "expected_source_sha256": {
+      "G08-15_13_GML.zip": "c1cce92038905c556042fe94a8feff3cbf3092eb9a6cdda032a7f0e1258a80bb"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "13",
     "source_region_code_regex": "^G08-\\d+_(\\d{2})",
     "ingest_replaces_canonical": true,
@@ -1153,7 +1244,8 @@
       "公式 zip の sha256 = c1cce92038905c556042fe94a8feff3cbf3092eb9a6cdda032a7f0e1258a80bb（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報低位地帯データ G08-15_13、version 1.0、2016-03-23",
       "canonical は raw を公式 pipeline で再取込した結果と一致（2026-10-12 Local 再構築時に確認、VPS と同一 sha）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -1207,6 +1299,10 @@
     "expected_source_files": [
       "G08-15_14_GML.zip"
     ],
+    "expected_source_sha256": {
+      "G08-15_14_GML.zip": "57af4b08db9fe3eca4a343601a538431b02a5617964b3a1e74a545e5b434a664"
+    },
+    "expected_source_sha256_basis": "official_zip",
     "expected_source_region_code": "14",
     "source_region_code_regex": "^G08-\\d+_(\\d{2})",
     "ingest_replaces_canonical": true,
@@ -1215,7 +1311,8 @@
       "公式 zip の sha256 = 57af4b08db9fe3eca4a343601a538431b02a5617964b3a1e74a545e5b434a664（2026-10-12 取得、raw と一致）",
       "KS-META: 国土数値情報低位地帯データ G08-15_14、version 1.0、2016-03-23",
       "canonical は raw を公式 pipeline で再取込した結果と一致（2026-10-12 Local 再構築時に確認、VPS と同一 sha）",
-      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）"
+      "source_file_patterns は現行の公式ファイル名に固定（新しい版が公開されたら原本・年・版を確認して定義を更新してから取り込む）",
+      "source identity（expected_source_sha256、2026-10-12）: 公式 zip の sha256（取得して raw と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {
@@ -1256,11 +1353,16 @@
     "expected_source_files": [
       "14000_1.zip"
     ],
+    "expected_source_sha256": {
+      "14000_1.zip": "c57de19b7f64b6e48eb90d89ac93ce301a96cf36feacfb7588b70341b3e4ddce"
+    },
+    "expected_source_sha256_basis": "verified_raw",
     "ingest_notes": [
       "国土地理院「指定緊急避難場所・指定避難所データ」の配布ページで、都道府県別 zip の _1 は「指定避難所データ」列（2026-10-12 確認。ページの列定義と 14000_1.csv の列見出し（受入対象者・指定緊急避難場所との住所同一）が一致）",
       "raw 14000_1.zip の sha256 = c57de19b7f64b6e48eb90d89ac93ce301a96cf36feacfb7588b70341b3e4ddce。配布 zip はページの JavaScript がその場で組み立てるため、公式 zip との sha 照合はできない",
       "canonical の全 feature の共通 ID が raw の CSV と全件一致（2026-10-12 確認）",
-      "DatasetState の current_raw_path が 14000_2.zip（KANAGAWA-SHELTER-001 の原本）を指していたが、canonical（1,576 件）は 14000_1.zip と全件一致し 14000_2.zip とは別物。誤っていたのは raw の記録だけ（2026-10-12 確認）"
+      "DatasetState の current_raw_path が 14000_2.zip（KANAGAWA-SHELTER-001 の原本）を指していたが、canonical（1,576 件）は 14000_1.zip と全件一致し 14000_2.zip とは別物。誤っていたのは raw の記録だけ（2026-10-12 確認）",
+      "source identity（expected_source_sha256、2026-10-12）: raw の sha256（配布 zip はページの JavaScript が組み立てるため公式 zip とは照合できない。raw の内容を canonical と照合済み）。取得履歴は記録した原本がこれと一致した場合だけ valid"
     ]
   },
   {

@@ -182,13 +182,21 @@ def test_pipeline_records_ten_originals_with_sha(tmp_path, monkeypatch):
         parts.append((n, p))
     bundle = up._build_group_bundle("KANAGAWA-RIVER-001", parts)
     job = Job(job_id="j", dataset_id="KANAGAWA-RIVER-001", job_type=JobType.ingest_upload)
-    ps._record_acquisition(job, defn, bundle, {"method": "upload", "original_files": OFFICIAL})
+    # registry の source identity がこの原本（test の bytes）と一致する場合だけ valid（ACQUISITION-SOURCE-CONTRACT）
+    matching = defn.model_copy(update={"expected_source_sha256": {
+        n: hashlib.sha256(_content(n)).hexdigest() for n in OFFICIAL}})
+    ps._record_acquisition(job, matching, bundle, {"method": "upload", "original_files": OFFICIAL})
     rec = store.list("KANAGAWA-RIVER-001")[0]
     assert [f.name for f in rec.source_files] == sorted(OFFICIAL)
     for f in rec.source_files:
         assert f.size == len(_content(f.name)) and f.sha256 == hashlib.sha256(_content(f.name)).hexdigest()
         assert f.container == bundle.name
     assert rec.validity == ah.AcquisitionValidity.valid
+    # 実 registry（正式原本の sha256）とは bytes が違うので、名前が合っていても valid にしない（取得の事実は記録する）
+    ps._record_acquisition(Job(job_id="j2", dataset_id="KANAGAWA-RIVER-001", job_type=JobType.ingest_upload),
+                           defn, bundle, {"method": "upload", "original_files": OFFICIAL})
+    latest = next(r for r in store.list("KANAGAWA-RIVER-001") if r.ingest_job_id == "j2")
+    assert latest.validity == ah.AcquisitionValidity.provenance_mismatch and latest.validity_flags == ["SOURCE_MISMATCH"]
 
 
 def test_ui_uses_group_upload_for_multiple_files():

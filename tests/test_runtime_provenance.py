@@ -92,7 +92,8 @@ class World:
             dataset_id="KANAGAWA-RIVER-001", acquisition_method="upload", active=True, status="processed",
             validity=validity, raw_path="/data_lake/raw/kanagawa/flood/KANAGAWA-RIVER-001_bundle_a2d47993.zip",
             bundle=ah.SourceFile(name="KANAGAWA-RIVER-001_bundle_a2d47993.zip"),
-            source_files=[ah.SourceFile(name=n, size=1, sha256="0" * 64) for n in OFFICIAL]))
+            source_files=[ah.SourceFile(name=n, size=1, sha256=self.defn.expected_source_sha256[n])  # registry の現行原本
+                          for n in OFFICIAL]))
 
     def build_record(self):
         return bp.generate(self.defn, self.state(), store=self.store, cache=self.cache, data_lake=self.lake)

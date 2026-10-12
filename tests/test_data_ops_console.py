@@ -66,7 +66,10 @@ def _river(**kw):
     return _defn(source_provider="国土交通省 国土数値情報", source_dataset_name="洪水浸水想定区域 A31a/A31b",
                  source_group_mode="all_required", ingest_mode="single_batch", required_source_count=4,
                  source_file_patterns=PATTERNS, ingest_replaces_canonical=True,
-                 ingest_notes=["4ファイルを同一取込処理で投入すること"], requires_tile_build=True, **kw)
+                 ingest_notes=["4ファイルを同一取込処理で投入すること"], requires_tile_build=True,
+                 # source identity（ACQUISITION-SOURCE-CONTRACT）: world の取得記録（sha256 "0"*64）と一致する定義
+                 **{"expected_source_files": A31, "expected_source_sha256": {n: "0" * 64 for n in A31},
+                    "expected_source_sha256_basis": "official_zip", **kw})
 
 
 def _zip(path: Path, members: dict) -> Path:
