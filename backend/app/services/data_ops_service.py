@@ -931,6 +931,10 @@ LABEL_SEVERITY = {
     "SOURCE_IDENTITY_MISMATCH": ERROR, "SOURCE_IDENTITY_UNVERIFIED": WARNING,
     # この node に現在の source ではない旧 raw が在る（runtime の provenance ではない・情報表示）
     "LEGACY_SOURCE_PRESENT": "INFO",
+    # 派生 dataset の照合（derived_section）
+    "DERIVED_INPUT_MISMATCH": ERROR, "DERIVED_OUTPUT_MISMATCH": ERROR,
+    "DERIVED_INPUT_UNVERIFIED": WARNING, "DERIVED_OUTPUT_UNVERIFIED": WARNING, "UPSTREAM_SOURCE_UNVERIFIED": WARNING,
+    "DERIVED_FROM_VERIFIED": "INFO",
 }
 
 
@@ -981,6 +985,99 @@ def unregistered_section(view: drr.RuntimeView, expected: "set[str]", props: Dic
     return out
 
 
+# ── 派生 dataset（DERIVED-DATASET-CONTRACT、2026-10-12）─────────────────────────────
+# 外部の原本ではなく registry の他 dataset の artifact から生成した dataset（definition.derived_from）は、
+# 「取得元組織・取得履歴」の代わりに次を照合する: 入力 artifact の sha256 が宣言どおりか / 上流 dataset の source が
+# OK か / 生成器の出力 sha256 が現在の canonical と一致するか。上流が未確認なら派生側も WARNING のまま（隠さない）。
+DERIVED_VERIFIED, DERIVED_MISMATCH, DERIVED_UNVERIFIED = "VERIFIED", "MISMATCH", "UNVERIFIED"
+
+
+def _artifact_path(defn: DatasetDefinition, state: Optional[DatasetState], artifact: str) -> Optional[Path]:
+    """上流 dataset の artifact（validated / raw / runtime）の file。runtime node（validated を置かない）では
+    flat runtime（definition.runtime_path、version 外）の同名 file を使う（同一性は sha256 で照合する）。"""
+    from app.services import runtime_version_access as rva
+    cands: List[Path] = []
+    if state and artifact == "validated" and state.current_validated_path:
+        cands.append(Path(state.current_validated_path))
+    if state and artifact == "raw" and state.current_raw_path:
+        cands.append(Path(state.current_raw_path))
+    name = cands[0].name if cands else (state.current_file_name if state else None)
+    if defn.runtime_path and defn.runtime_path.startswith("data_runtime/"):
+        rdir = rva.DATA_RUNTIME_ROOT / defn.runtime_path[len("data_runtime/"):]
+        if name:
+            cands.append(rdir / name)
+        elif rdir.is_dir():
+            files = [f for f in rdir.iterdir() if f.is_file() and not f.name.startswith(".")]
+            if len(files) == 1:
+                cands.append(files[0])
+    return next((c for c in cands if c.is_file()), None)
+
+
+def derived_section(defn: DatasetDefinition, state: Optional[DatasetState], rows_by_id: Dict[str, Dict[str, Any]],
+                    defs_by_id: Dict[str, DatasetDefinition], ss, allow_hash: bool) -> Dict[str, Any]:
+    cache = drr.get_source_sha_cache()
+    inputs = []
+    for inp in defn.derived_from:
+        up = defs_by_id.get(inp.dataset_id)
+        up_state = ss.init_from_definition(up) if up is not None else None
+        path = _artifact_path(up, up_state, inp.artifact) if up is not None else None
+        actual = cache.get(path, allow_hash) if path else None
+        dep = DERIVED_VERIFIED if actual == inp.sha256 else DERIVED_MISMATCH if actual else DERIVED_UNVERIFIED
+        up_row = rows_by_id.get(inp.dataset_id)
+        up_source = ((up_row or {}).get("integrity", {}).get("components", {}).get("source", {}) or {}).get("status", UNKNOWN)
+        inputs.append({"dataset_id": inp.dataset_id, "artifact": inp.artifact, "path": str(path) if path else None,
+                       "expected_sha256": inp.sha256, "actual_sha256": actual, "dependency": dep,
+                       "upstream_source_status": up_source if up is not None else UNKNOWN,
+                       "upstream_defined": up is not None})
+    gen = dict(defn.generator or {})
+    out_expected = gen.get("output_sha256")
+    out_path = Path(state.current_validated_path) if state and state.current_validated_path else None
+    out_actual = cache.get(out_path, allow_hash) if out_path and out_path.is_file() else None
+    output = (DERIVED_VERIFIED if out_expected and out_actual == out_expected else
+              DERIVED_MISMATCH if out_expected and out_actual else DERIVED_UNVERIFIED)
+    labels, reasons = [], []
+    if any(i["dependency"] == DERIVED_MISMATCH for i in inputs):
+        labels.append("DERIVED_INPUT_MISMATCH")
+        reasons.append("派生元 artifact の sha256 が宣言と異なる")
+    if any(i["dependency"] == DERIVED_UNVERIFIED for i in inputs):
+        labels.append("DERIVED_INPUT_UNVERIFIED")
+        reasons.append("派生元 artifact の sha256 を確認できない")
+    if any(i["upstream_source_status"] != OK for i in inputs):
+        labels.append("UPSTREAM_SOURCE_UNVERIFIED")
+        reasons.append("派生元 dataset の source が未確認: " + ", ".join(
+            f"{i['dataset_id']}={i['upstream_source_status']}" for i in inputs if i["upstream_source_status"] != OK))
+    if output == DERIVED_MISMATCH:
+        labels.append("DERIVED_OUTPUT_MISMATCH")
+        reasons.append("生成器の出力 sha256 が現在の canonical と異なる")
+    elif output == DERIVED_UNVERIFIED:
+        labels.append("DERIVED_OUTPUT_UNVERIFIED")
+        reasons.append("生成器の出力 sha256 を確認できない")
+    if not labels:
+        labels.append("DERIVED_FROM_VERIFIED")
+    status = ERROR if any(LABEL_SEVERITY[l] == ERROR for l in labels) else (
+        WARNING if any(LABEL_SEVERITY[l] == WARNING for l in labels) else OK)
+    return {"inputs": inputs, "generator": gen, "output": {"expected_sha256": out_expected, "actual_sha256": out_actual,
+            "status": output}, "labels": labels, "reasons": reasons, "status": status}
+
+
+def _apply_derived(row: Dict[str, Any], defn: DatasetDefinition, section: Dict[str, Any]) -> None:
+    """派生 dataset の source 判定を、外部 source の要件（取得元組織・取得履歴）から派生契約の照合へ置き換える。"""
+    acq = row["acquisition"]
+    acq["derived"] = section
+    acq["status"] = section["status"]
+    acq["provenance_missing"] = [m for m in acq.get("provenance_missing") or []
+                                 if "source_provider" not in m and "source_dataset_name" not in m
+                                 and "acquisition history" not in m]
+    comps = row["integrity"]["components"]
+    comps["source"] = {"status": section["status"], "reason": "; ".join(section["reasons"]) or None}
+    external = {"SOURCE_PROVENANCE_MISSING", "ACQUISITION_HISTORY_MISSING", "PROVENANCE_UNKNOWN",
+                "SOURCE_IDENTITY_UNVERIFIED"}
+    labels = [l for l in row["integrity"]["labels"] if l["label"] not in external]
+    labels += [{"label": l, "severity": LABEL_SEVERITY[l]} for l in section["labels"]]
+    row["integrity"]["labels"] = labels
+    row["integrity"]["overall"] = _overall(comps)
+
+
 def build_console(ds=None, ss=None, *, dataset_id: Optional[str] = None, allow_hash: bool = False,
                   allow_heavy: bool = False, root: Optional[Path] = None, store=None) -> Dict[str, Any]:
     if ds is None:
@@ -1006,6 +1103,22 @@ def build_console(ds=None, ss=None, *, dataset_id: Optional[str] = None, allow_h
         except Exception as exc:  # noqa: BLE001 — 1 dataset の失敗で一覧全体を止めない
             logger.warning("data-ops build failed: %s: %s", defn.dataset_id, exc)
             errors.append({"dataset_id": defn.dataset_id, "error": f"{type(exc).__name__}: {exc}"})
+    # 派生 dataset は上流 dataset の判定を使う（単一 dataset 表示でも上流の行を作って照合する）
+    rows_by_id = {r["dataset_id"]: r for r in rows}
+    defs_by_id = {d.dataset_id: d for d in ds.list_all()}
+    for row in rows:
+        defn = defs_by_id.get(row["dataset_id"])
+        if defn is None or not defn.derived_from:
+            continue
+        for inp in defn.derived_from:
+            up = defs_by_id.get(inp.dataset_id)
+            if inp.dataset_id not in rows_by_id and up is not None:
+                try:
+                    rows_by_id[inp.dataset_id] = build_dataset(up, ss.init_from_definition(up), view, allow_hash=allow_hash,
+                                                               allow_heavy=False, props=props, catalog=catalog, store=store)
+                except Exception as exc:  # noqa: BLE001 — 上流を評価できなければ UNKNOWN（未確認）として扱う
+                    logger.warning("data-ops upstream build failed: %s: %s", inp.dataset_id, exc)
+        _apply_derived(row, defn, derived_section(defn, ss.init_from_definition(defn), rows_by_id, defs_by_id, ss, allow_hash))
     return {
         "current_version": view.version_id,
         "runtime_error": view.error,

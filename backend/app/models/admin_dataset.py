@@ -134,6 +134,13 @@ class IngestMode(str, Enum):
 
 # ── DatasetDefinition ────────────────────────────────────────────────────────
 
+class DerivedInput(BaseModel):
+    """派生 dataset の入力: registry の dataset_id と、生成に使った artifact の sha256。"""
+    dataset_id: str
+    artifact: Literal["validated", "raw", "runtime"] = "validated"
+    sha256: str
+
+
 class DatasetDefinition(BaseModel):
     """データセットの静的定義。dataset_definitions.json から読み込む。"""
 
@@ -223,6 +230,12 @@ class DatasetDefinition(BaseModel):
     # 照合不能、raw の内容を canonical と照合済み）/ build_node_acquisition（OWNER 承認の原本セットを
     # build node で取り込んだ記録の sha、公式 zip との照合は未実施）
     expected_source_sha256_basis: Optional[Literal["official_zip", "verified_raw", "build_node_acquisition"]] = None
+    # 派生 dataset（DERIVED-DATASET-CONTRACT、2026-10-12）: 外部の原本ではなく、registry の他 dataset の artifact から
+    # 生成したもの（例: DEM から生成した raster 派生 hazard）。外部 source の代わりに、入力 artifact（dataset と
+    # sha256）と生成器（script・toolchain・出力 sha256）を宣言する。Data Ops は入力 sha・上流 dataset の source・
+    # 出力 sha を照合し、上流が未確認なら派生側も未確認のまま扱う（下流で上流の不明を隠さない）。
+    derived_from: List["DerivedInput"] = Field(default_factory=list)
+    generator: Dict[str, str] = Field(default_factory=dict)  # script / program / toolchain / output_sha256
     # True: 取込で既存 canonical を置き換える（部分投入は canonical を壊すため hard guard 対象）
     ingest_replaces_canonical: bool = False
     ingest_notes: List[str] = Field(default_factory=list)

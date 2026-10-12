@@ -408,6 +408,22 @@
           return withSub(badge(st, label), [si.basis ? `根拠: ${IDENTITY_BASIS[si.basis] || si.basis}` : null,
             ...(si.reasons || [])].filter(Boolean).join(" / ") || null);
         })()],
+        ...(acq.derived ? [
+          // 派生 dataset（DERIVED-DATASET-CONTRACT）: 外部 source の代わりに派生元・生成器を照合
+          ["派生元", (() => {
+            const box = el("span");
+            acq.derived.inputs.forEach(i => {
+              const dep = i.dependency === "VERIFIED" ? "OK" : i.dependency === "MISMATCH" ? "ERROR" : "WARNING";
+              box.appendChild(withSub(badge(dep, `${i.dataset_id}（${i.artifact}）sha ${i.dependency}`),
+                `上流 source: ${i.upstream_source_status} / 期待 ${i.expected_sha256} / 実際 ${i.actual_sha256 || "未確認"}`));
+            });
+            return box;
+          })()],
+          ["生成器", withSub(badge(acq.derived.output.status === "VERIFIED" ? "OK" : acq.derived.output.status === "MISMATCH" ? "ERROR" : "WARNING",
+            `出力 sha ${acq.derived.output.status}`),
+            [acq.derived.generator.script, acq.derived.generator.toolchain].filter(Boolean).join(" / ") || null)],
+          ["派生の判定", withSub(badge(acq.derived.status, acq.derived.labels.join(", ")), acq.derived.reasons.join(" / ") || null)],
+        ] : []),
         ["取得履歴（この node）", acq.acquisition_history],
         ["Raw cache", acq.raw_cache ? withSub(badge(acq.raw_cache.status === "CURRENT" ? "OK" : acq.raw_cache.status === "STALE" ? "WARNING" : "UNKNOWN",
           acq.raw_cache.status === "STALE" ? "LEGACY SOURCE PRESENT / NOT CURRENT SOURCE" : acq.raw_cache.status),

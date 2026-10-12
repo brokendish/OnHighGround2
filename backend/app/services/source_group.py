@@ -101,6 +101,16 @@ def definition_problems(defn: DatasetDefinition) -> List[str]:
             out.append(f"{defn.dataset_id}: expected_source_sha256 には根拠（expected_source_sha256_basis）が必要")
     elif defn.expected_source_sha256_basis:
         out.append(f"{defn.dataset_id}: expected_source_sha256_basis だけがあり sha256 が無い")
+    for inp in defn.derived_from or []:
+        if not re.fullmatch(r"[0-9a-f]{64}", inp.sha256 or ""):
+            out.append(f"{defn.dataset_id}: derived_from {inp.dataset_id} の sha256 は 64 桁の sha256（小文字 hex）")
+        if inp.dataset_id == defn.dataset_id:
+            out.append(f"{defn.dataset_id}: derived_from に自分自身を指定できない")
+    if defn.derived_from and not (defn.generator or {}).get("script"):
+        out.append(f"{defn.dataset_id}: derived_from には generator（script）が必要")
+    out_sha = (defn.generator or {}).get("output_sha256")
+    if out_sha and not re.fullmatch(r"[0-9a-f]{64}", out_sha):
+        out.append(f"{defn.dataset_id}: generator.output_sha256 は 64 桁の sha256（小文字 hex）")
     return out
 
 
