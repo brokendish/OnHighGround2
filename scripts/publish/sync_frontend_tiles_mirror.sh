@@ -39,6 +39,11 @@
 #   2 = 同期自体に失敗（publish自体は成功済みの前提。呼び出し側は warning 扱い）
 #   4 = 同期後の正規化・検証で契約を満たせない（backend-public が読めない状態）
 #   1 = --check で backend-public から読めないものが見つかった
+#       （同期モードでは契約外。予期しない失敗で set -e により止まった場合だけ現れる）
+#
+# 同期の結果（primary）と一時 file の後始末（cleanup）は分けて扱う（MIRROR-SYNC-EXIT-CODE）。
+# 後始末は EXIT trap が行い、失敗しても終了コードは同期の結果のまま（後始末の失敗は path と rc を
+# warning に残す）。同期が成功していて後始末だけが失敗した場合は成功扱いにせず 2 を返す。
 
 set -euo pipefail
 
@@ -95,9 +100,59 @@ _drop_cache_if_large() {
     (( size >= 16777216 )) || return 0
     dd if="$1" iflag=nocache count=0 status=none 2>/dev/null || true
 }
+# ── 一時 file の後始末（MIRROR-SYNC-EXIT-CODE、KTF-002）─────────────────────
+# 旧実装は cp / rename の失敗時に `rm -f -- "${tmp}"` を直接実行していた。operator が traverse できない
+# directory では rm も失敗し、set -e によりその場で exit 1 になっていた（契約の exit 2 と warning に届かない）。
+_inflight_tmp=""
+
+# $1 = 一時 file。この script が作る名前（dst 配下の .<name>.syncing-<pid>）以外・".." を含む path・
+# symlink は消さない（fail closed、rc 3）。rm の失敗は path と rc を warning に残して rm の rc を返す。
+_cleanup_tmp() {
+    local tmp="$1" err="" rc=0
+    case "/${tmp}/" in
+        */../*|*/./*)
+            log_warn "一時 file の後始末: 不正な path のため削除しない: ${tmp}"; return 3 ;;
+    esac
+    if [[ "$(dirname -- "${tmp}")/" != "${dst}/"* ]] || [[ "$(basename -- "${tmp}")" != .*".syncing-$$" ]]; then
+        log_warn "一時 file の後始末: この同期の一時 file ではないため削除しない: ${tmp}"; return 3
+    fi
+    if [[ -L "${tmp}" ]]; then
+        log_warn "一時 file の後始末: symlink のため削除しない: ${tmp}"; return 3
+    fi
+    err="$(rm -f -- "${tmp}" 2>&1)" || rc=$?
+    if (( rc != 0 )); then
+        log_warn "一時 file の後始末に失敗（rc=${rc}）: ${tmp}: ${err}"
+    fi
+    return "${rc}"
+}
+
+# 終了コード: 同期の結果（$1）が 0 以外ならそれを返す。同期が成功して後始末（$2）だけが失敗した場合は 2。
+_final_rc() {
+    if (( $1 != 0 )); then echo "$1"; elif (( $2 != 0 )); then echo 2; else echo 0; fi
+}
+
+_on_exit() {
+    local rc=$? crc=0 final
+    trap - EXIT
+    if [[ -n "${_inflight_tmp}" ]]; then
+        _cleanup_tmp "${_inflight_tmp}" || crc=$?
+        _inflight_tmp=""
+    fi
+    final="$(_final_rc "${rc}" "${crc}")"
+    if (( crc != 0 )); then
+        log_warn "一時 file の後始末に失敗（rc=${crc}）。終了コードは同期の結果 rc=${rc} から ${final} とする。"
+    fi
+    exit "${final}"
+}
+
 _report_violation() {
     log_error "VIOLATION $1 (actual='$(_gid_mode "$2" 2>/dev/null || echo '?')' expected='${LEASES_GID} $3' kind=$4)"
 }
+
+# test が関数だけを読み込むとき（source）はここで戻る
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    return 0
+fi
 
 # ── --check: READ ONLY 検証 ─────────────────────────────────────────────
 if [[ "${1:-}" == "--check" ]]; then
@@ -125,6 +180,7 @@ dst="${2:?usage: $0 <src_dir> <dst_dir>}"
 src="${src%/}"
 dst="${dst%/}"
 [[ -d "${src}" ]] || { log_error "同期元が存在しない: ${src}"; exit 2; }
+trap _on_exit EXIT
 
 mkdir -p "${dst}" || { log_error "同期先を作成できない: ${dst}"; exit 2; }
 
@@ -155,16 +211,18 @@ while IFS= read -r -d '' f; do
     fi
     _drop_cache_if_large "${f}"; [[ -f "${target}" ]] && _drop_cache_if_large "${target}"
     tmp="$(dirname "${target}")/.$(basename "${target}").syncing-$$"
+    _inflight_tmp="${tmp}"   # 以降の exit では EXIT trap が後始末する（rename 後は対象なし）
     # reflink 対応 fs では clone（data block 共有、page cache を増やさない）
     if ! { cp --reflink=auto -- "${f}" "${tmp}" 2>/dev/null || cp -- "${f}" "${tmp}"; }; then
-        rm -f -- "${tmp}"; log_warn "cp 同期に失敗: ${f} -> ${tmp}"; exit 2
+        log_warn "cp 同期に失敗: ${f} -> ${tmp}"; exit 2
     fi
     sync -- "${tmp}" 2>/dev/null || true
     chgrp "${LEASES_GID}" "${tmp}" 2>/dev/null || true
     chmod "${FILE_MODE}" "${tmp}" 2>/dev/null || true
     if ! mv -f -- "${tmp}" "${target}"; then
-        rm -f -- "${tmp}"; log_warn "rename に失敗: ${tmp} -> ${target}"; exit 2
+        log_warn "rename に失敗: ${tmp} -> ${target}"; exit 2
     fi
+    _inflight_tmp=""
     replaced=$((replaced + 1))
 done < <(find "${src}" -type f -print0)
 log_info "mirror sync: replaced=${replaced} unchanged=${unchanged}（atomic rename、同一内容は再配置しない）"
