@@ -55,6 +55,8 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import phase2_isolated_stack as isolated_stack  # noqa: E402
 # Phase 2-B.3限定修正（CODEX P2B3-CX-003再指摘対応）: evidence出力先は
 # repository外（システム一時領域）に限定する。実装報告書（本scriptの実行
 # 結果）自体はrepository内のreport markdownへ記載する（そちらは永続成果物
@@ -237,8 +239,19 @@ def build_override_compose(tmp_dir: Path, seeded: Dict[str, Path]) -> Path:
         ]
     )
 
+    _runtime_init = isolated_stack.runtime_init_service(CONTAINER_PREFIX, seeded)
     override = {
         "services": {
+            # HARNESS-MODERNIZATION（2026-10-12）: runtime-init（Phase 2-B.5 で追加、backend-public の依存）は
+            # container_name・lease volume が docker-compose.yml の固定名のままだと、実 Local stack の
+            # evacuation-navi-runtime-init / evacuation-navi-lease-coordination と衝突・共有する。
+            # phase2b4_frontend_boundary.py と同じく、seed 済みの一時 data_runtime と project 専用の
+            # lease volume へ差し替える。
+            # lease volume と全 init script を base compose から機械的に引き継ぐ（phase2_isolated_stack）。
+            "runtime-init": {
+                "container_name": _runtime_init["container_name"],
+                "volumes": _OverrideList(_runtime_init["volumes"]),
+            },
             "backend-public": {
                 "container_name": f"{CONTAINER_PREFIX}-backend-public",
                 "env_file": _OverrideList([]),
@@ -254,8 +267,10 @@ def build_override_compose(tmp_dir: Path, seeded: Dict[str, Path]) -> Path:
                     list(common_volumes) + ["/var/run/docker.sock:/var/run/docker.sock"]
                 ),
             },
-            "operator-publish-proxy": {
-                "container_name": f"{CONTAINER_PREFIX}-operator-publish-proxy",
+            # 旧 operator-publish-proxy（socat sidecar）は Phase 2-B.4 で operator-gateway へ改名・拡張された
+            # （loopback 127.0.0.1 の target 8100 を公開する役割は同じ）。
+            "operator-gateway": {
+                "container_name": f"{CONTAINER_PREFIX}-operator-gateway",
                 "ports": _OverrideList(
                     [
                         {
@@ -299,6 +314,7 @@ def build_override_compose(tmp_dir: Path, seeded: Dict[str, Path]) -> Path:
             "operator-internal": {"name": f"{NETWORK_PREFIX}-operator-internal", "internal": True},
             "operator-publish": {"name": f"{NETWORK_PREFIX}-operator-publish"},
         },
+        "volumes": isolated_stack.lease_volume_override(CONTAINER_PREFIX),
     }
     path = tmp_dir / "docker-compose.override.phase2b3.yml"
     path.write_text(yaml.dump(override, sort_keys=False), encoding="utf-8")
@@ -375,11 +391,19 @@ def cleanup_stack(override_file: Path) -> None:
 
     _cleanup_project_networks()
 
-    for tag in (f"{PROJECT_NAME}-backend-public:latest", f"{PROJECT_NAME}-backend-operator:latest"):
+    for tag in (f"{PROJECT_NAME}-backend-public:latest", f"{PROJECT_NAME}-backend-operator:latest",
+                f"{PROJECT_NAME}-runtime-init:latest"):
         _run(["docker", "rmi", "-f", tag])
     img_check = _run(["docker", "images", "-q", "--filter", f"reference={PROJECT_NAME}-*"])
     remaining_imgs = [l for l in img_check.stdout.splitlines() if l.strip()] if img_check.returncode == 0 else ["<query failed>"]
     record("cleanup: test project image残存 0件", len(remaining_imgs) == 0, f"remaining={remaining_imgs}")
+
+    # project 専用 lease volume（compose down は named volume を消さない）
+    lease_vol_name = f"{CONTAINER_PREFIX}-lease-coordination"
+    _run(["docker", "volume", "rm", "-f", lease_vol_name])
+    vol_check = _run(["docker", "volume", "ls", "-q", "--filter", f"name=^{lease_vol_name}$"])
+    remaining_vols = [l for l in vol_check.stdout.splitlines() if l.strip()] if vol_check.returncode == 0 else ["<query failed>"]
+    record("cleanup: test lease-coordination volume残存 0件", len(remaining_vols) == 0, f"remaining={remaining_vols}")
 
 
 def try_connect_tcp(host: str, port: int, timeout_s: float = 3.0) -> Tuple[bool, str]:
@@ -798,6 +822,23 @@ def env_isolation_negative_control() -> None:
         )
 
 
+def preflight_fixed_name_isolation_check(override_file: Path) -> bool:
+    """HARNESS-MODERNIZATION（2026-10-12）: 起動対象の container_name・named volume・network の名前が、
+    実 Local stack（docker-compose.yml の固定名）と 1 件も一致しないことを up 前に fail-closed で確認する。
+    2b2 / 2b3 の override が Phase 2-B.5 で追加された runtime-init・lease-coordination を上書きしておらず、
+    実 stack の evacuation-navi-runtime-init と衝突していた（2026-10-12 formal）ことへの再発防止。"""
+    data = _rendered_config(override_file, [])
+    if data is None:
+        record("preflight: 固定名 inventory 用 rendered config取得 succeeds", False)
+        return False
+    fixed = isolated_stack.base_fixed_names(COMPOSE_FILE)
+    hits = [f"container {s}" for s, v in data.get("services", {}).items() if v.get("container_name") in fixed["container_name"]]
+    hits += [f"volume {k}" for k, v in (data.get("volumes") or {}).items() if (v or {}).get("name") in fixed["volume"]]
+    hits += [f"network {k}" for k, v in (data.get("networks") or {}).items() if (v or {}).get("name") in fixed["network"]]
+    record("preflight: 起動対象の container / volume / network 名が実 stack の固定名と一致しない", not hits, f"hits={hits}")
+    return not hits
+
+
 def preflight_rw_mount_isolation_check(
     override_file: Path, run_tmp_path: Path, compose_file: Path = COMPOSE_FILE
 ) -> bool:
@@ -955,7 +996,8 @@ def main() -> int:
             override_file.read_text(encoding="utf-8"), encoding="utf-8"
         )
         try:
-            if preflight_env_isolation_check(override_file) and preflight_rw_mount_isolation_check(override_file, run_tmp_path):
+            if (preflight_env_isolation_check(override_file) and preflight_rw_mount_isolation_check(override_file, run_tmp_path)
+                    and preflight_fixed_name_isolation_check(override_file)):
                 up_cmd = ["--profile", "operator", "up", "-d", "--build"]
                 proc = _run(compose_cmd(override_file, up_cmd), timeout=600)
                 record(
@@ -968,7 +1010,7 @@ def main() -> int:
                     ready_ok, ready_detail = wait_backend_public_ready(override_file)
                     record("backend-publicがhealthyになる", ready_ok, ready_detail)
 
-                    published = get_host_published_port(override_file, "operator-publish-proxy", OPERATOR_TARGET_PORT)
+                    published = get_host_published_port(override_file, "operator-gateway", OPERATOR_TARGET_PORT)
                     operator_host_port = int(published) if published else OPERATOR_HOST_PORT
                     op_ready_ok, op_ready_detail = wait_operator_ready(operator_host_port)
                     record("operator (/operator/health)がhealthyになる", op_ready_ok, op_ready_detail)

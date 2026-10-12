@@ -472,10 +472,20 @@ def test_21_pre_existing_gitlink_deletion_applied(tmp_path):
     assert entry["state"] == "DELETED"
     assert entry["object_type"] == "GITLINK"
 
+    # HARNESS-MODERNIZATION（2026-10-12、OWNER 承認 B7）: 公開候補の正本は current HEAD の clean clone。
+    # 削除が staged のまま（未 commit）では HEAD に gitlink が残るため FAIL（旧 model は delta で取り除いて PASS
+    # としたため、実 repo の gitlink が未除去のまま残った）。削除を commit した HEAD は PASS。
     result = snapshot_mod.run(repo, manifest, required_spot_check_paths=[], required_absent_paths=[])
-    assert result["overall_snapshot_completeness_result"] == "PASS"
+    assert result["overall_snapshot_completeness_result"] == "FAIL"
+    assert result["completeness"]["tree_inventory"]["prohibited"] == ["worktrees/fake"]
     assert not result["completeness"]["deleted_but_resurrected"]
-    assert result["secret_boundary_scan"]["typed_findings_raw"]["PROHIBITED_FILE"] == []
+
+    _git(repo, "commit", "-q", "-m", "remove fake gitlink")
+    manifest2 = manifest_mod.generate_manifest(repo)
+    result2 = snapshot_mod.run(repo, manifest2, required_spot_check_paths=[], required_absent_paths=[])
+    assert result2["overall_snapshot_completeness_result"] == "PASS"
+    assert result2["completeness"]["tree_inventory"]["prohibited"] == []
+    assert result2["secret_boundary_scan"]["typed_findings_raw"]["PROHIBITED_FILE"] == []
 
 
 # ---------------------------------------------------------------------------

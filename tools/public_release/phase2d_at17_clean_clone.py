@@ -417,15 +417,53 @@ def compare_completeness(
     unexpected_paths = set(second_diff.keys()) - expected_paths
     result["unexpected"] = sorted(unexpected_paths)
 
+    # HARNESS-MODERNIZATION（2026-10-12、OWNER 承認 B7）: 公開候補の正本は current HEAD の clean clone。
+    # release delta は補助情報で、delta = 0（公開対象が全て commit 済み）は正常状態。delta の有無に関わらず
+    # clean clone の追跡 file 一覧（path・mode・blob）が「HEAD + delta」と完全一致し、公開禁止物（gitlink・
+    # .env 系）が 0 件であることを検査する。spot check は delta に含まれない path でも、clean clone に HEAD と
+    # 同一 blob で存在すれば合格（delta に含まれる path は従来どおり release hash と照合）。
+    second_tree = _ls_tree(second, second_head)
+    head_tree = _ls_tree(repo_root, baseline)  # 公開候補の正本（current HEAD）。禁止物はここで判定する
+    expected_tree = dict(head_tree)
+    for entry in relevant_entries:
+        if entry["state"] in ("DELETED", "RENAMED_FROM"):
+            expected_tree.pop(entry["path"], None)
+    delta_paths = {e["path"] for e in relevant_entries if e["state"] in ("MODIFIED", "ADDED", "RENAMED_TO")}
+    tree_mismatch = sorted(
+        p for p in set(second_tree) | set(expected_tree)
+        if p not in delta_paths and second_tree.get(p) != expected_tree.get(p)
+    )
+    # 旧 model は gitlink を release delta の DELETED entry として snapshot 内で取り除いたため、HEAD に gitlink が
+    # 残っていても PASS した（実 repo の .claude/worktrees gitlink が未除去のまま残った原因）。HEAD と clean clone の
+    # 両方で判定する。
+    prohibited = sorted(
+        p for p, (mode, _oid) in {**head_tree, **second_tree}.items()
+        if mode == "160000" or Path(p).name in (".env", ".env.operator", ".env.stream")
+    )
+    result["tree_inventory"] = {
+        "candidate_head_tracked_files": len(head_tree),
+        "clean_clone_tracked_files": len(second_tree),
+        "delta_entry_count": len(relevant_entries),
+        "tree_mismatch": tree_mismatch[:50],
+        "tree_mismatch_count": len(tree_mismatch),
+        "prohibited": prohibited,
+    }
+
     for path in required_spot_check_paths:
         entry = next((e for e in relevant_entries if e["path"] == path), None)
         actual = second_diff.get(path)
-        ok = entry is not None and actual is not None
-        detail = {"in_manifest": entry is not None, "in_second_clone_diff": actual is not None}
-        if ok and entry["state"] in ("MODIFIED", "ADDED"):
-            actual_sha256 = _git_blob_sha256(second, actual["hash_b"])
-            detail["hash_match"] = actual_sha256 == entry["release_sha256"]
-            ok = ok and detail["hash_match"]
+        if entry is not None:
+            ok = actual is not None
+            detail = {"in_manifest": True, "in_second_clone_diff": actual is not None}
+            if ok and entry["state"] in ("MODIFIED", "ADDED"):
+                actual_sha256 = _git_blob_sha256(second, actual["hash_b"])
+                detail["hash_match"] = actual_sha256 == entry["release_sha256"]
+                ok = ok and detail["hash_match"]
+        else:
+            in_tree = path in second_tree
+            matches_head = in_tree and second_tree[path] == expected_tree.get(path)
+            ok = matches_head and actual is None
+            detail = {"in_manifest": False, "in_clean_clone_tree": in_tree, "matches_candidate_head": matches_head}
         result["spot_check"][path] = {"ok": ok, **detail}
 
     for path in required_absent_paths:
@@ -444,8 +482,24 @@ def compare_completeness(
         and result["seed_second_diff_identical"]
         and all(v["ok"] for v in result["spot_check"].values())
         and all(v["absent_in_second_clone"] for v in result["tombstone_check"].values())
+        and result["tree_inventory"]["clean_clone_tracked_files"] > 0
+        and result["tree_inventory"]["tree_mismatch_count"] == 0
+        and not result["tree_inventory"]["prohibited"]
     )
     return result
+
+
+def _ls_tree(repo: Path, rev: str) -> dict:
+    """path -> (mode, object id)。"""
+    out = _run(["git", "ls-tree", "-r", "-z", "--full-tree", rev], repo).stdout
+    tree = {}
+    for rec in out.split("\x00"):
+        if not rec:
+            continue
+        meta, path = rec.split("\t", 1)
+        mode, _type, oid = meta.split()
+        tree[path] = (mode, oid)
+    return tree
 
 
 # ---------------------------------------------------------------------------

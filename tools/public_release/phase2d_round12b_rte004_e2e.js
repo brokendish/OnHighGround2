@@ -62,8 +62,13 @@ async function main() {
 
   let postAuthFetchStatus = null;
   if (mode === 'real') {
-    await page.fill('#operator-auth-bar input[type=password]', token);
-    await page.click('#operator-auth-bar button:has-text("接続")');
+    // HARNESS-MODERNIZATION（2026-10-12、OWNER 承認 B6: selector のみ更新）: 3fb1ead（2026-09-12）以降、未認証で
+    // /admin/ 配下を開くと gateway が /admin/login.html へ転送し、token 入力は login form（#token / #submit-btn）に
+    // なった。旧 selector の #operator-auth-bar（operator-auth.js が描画する入力欄）は表示されないため timeout していた。
+    // assertion・期待挙動・case の意味は変更しない。
+    await page.fill('#login-form input#token', token);
+    await page.click('#login-form button#submit-btn');
+    await page.waitForLoadState('load');
     postAuthFetchStatus = await page.evaluate(async () => {
       try {
         const r = await fetch('/api/admin/datasets');

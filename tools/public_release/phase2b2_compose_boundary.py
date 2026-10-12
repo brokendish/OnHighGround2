@@ -69,6 +69,8 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import phase2_isolated_stack as isolated_stack  # noqa: E402
 NGINX_CONF = REPO_ROOT / "nginx.conf"
 EVIDENCE_DIR = REPO_ROOT / "tasks" / "public-release" / "evidence" / "phase2b2"
 
@@ -568,6 +570,48 @@ def _override_list_representer(dumper: "yaml.Dumper", data: "_OverrideList"):
 yaml.add_representer(_OverrideList, _override_list_representer)
 
 
+def seed_temp_data_dirs(tmp_dir: Path) -> Dict[str, Path]:
+    """HARNESS-MODERNIZATION（2026-10-12）: test stack が rw で使う repository の directory を、scenario 固有の
+    一時 directory へ複製する（phase2b3 / phase2b4 と同じ対象）。旧実装は複製せず、runtime-init・backend が
+    実 ./data_runtime・./data_lake・./data_lake/admin へ rw bind したまま起動しようとしていた。
+    APFS（macOS）は clone（cp -c）、Linux は reflink（cp --reflink=auto）で複製する（内容は同一、書込は複製側だけ）。"""
+    mapping = {
+        "data_lake": REPO_ROOT / "data_lake",
+        "data_runtime": REPO_ROOT / "data_runtime",
+        "railways": REPO_ROOT / "frontend" / "layers" / "railways",
+        "osrm": REPO_ROOT / "osrm",
+    }
+    clone_flag = ["-c"] if sys.platform == "darwin" else ["--reflink=auto"]
+    seeded: Dict[str, Path] = {}
+    for key, src in mapping.items():
+        dest = tmp_dir / f"seed_{key}"
+        proc = _run(["cp", *clone_flag, "-R", str(src), str(dest)], timeout=1800)
+        record(
+            f"seed: {key}を実repositoryから一意な書込可能一時ディレクトリへcopy succeeds",
+            proc.returncode == 0 and dest.exists(),
+            (proc.stdout + proc.stderr)[-500:],
+        )
+        seeded[key] = dest
+    return seeded
+
+
+def preflight_isolation_check(override_file: Path, project_name: str, tmp_dir: Path, profiles: List[str]) -> bool:
+    """HARNESS-MODERNIZATION（2026-10-12）: up の前に、描画済み config に隔離違反（実 repository への rw bind・
+    実 stack と同じ固定名・実 .env の読込）が 1 件も無いことを fail-closed で確認する。違反があれば up しない。"""
+    try:
+        rendered = isolated_stack.render_config(compose_cmd(override_file, [], project_name), profiles)
+    except Exception as exc:  # noqa: BLE001
+        record(f"preflight[{project_name}]: rendered config取得 succeeds", False, repr(exc)[-500:])
+        return False
+    hits = isolated_stack.isolation_violations(rendered, [tmp_dir])
+    record(
+        f"preflight[{project_name}]: 隔離違反 0件（実repository rw bind・実stack固定名・実.env 読込なし）",
+        not hits,
+        f"hits={hits}",
+    )
+    return not hits
+
+
 def build_override_compose(tmp_dir: Path, project_name: str, scenario: str) -> Path:
     """既存ユーザーstack（container_name・host port・network名固定）と衝突しない
     よう、今回のtest実行だけに適用するoverride compose fileを生成する
@@ -585,17 +629,41 @@ def build_override_compose(tmp_dir: Path, project_name: str, scenario: str) -> P
     """
     container_prefix = _container_prefix(scenario)
     network_prefix = _network_prefix(scenario)
+    seeded = seed_temp_data_dirs(tmp_dir)
+    common_volumes = _OverrideList(
+        [
+            f"{seeded['data_runtime'].resolve()}:/data_runtime",
+            f"{seeded['data_lake'].resolve()}:/data_lake",
+            "./data:/app/data:ro",
+            "./data:/data:ro",
+            "./国土地理院避難所データ:/app/shelter_data:ro",
+            "./scripts:/scripts:ro",
+            f"{seeded['railways'].resolve()}:/frontend/layers/railways",
+            f"{seeded['osrm'].resolve()}:/osrm",
+        ]
+    )
+    runtime_init = isolated_stack.runtime_init_service(container_prefix, seeded)
 
     override = {
         "services": {
+            # runtime-init（Phase 2-B.5 で追加、backend-public の依存）: 固定 container_name・実 lease volume・
+            # 実 data_runtime / data_lake/admin への rw bind を、scenario 専用の名前と seed 先へ差し替える。
+            "runtime-init": {
+                "container_name": runtime_init["container_name"],
+                "volumes": _OverrideList(runtime_init["volumes"]),
+            },
             "backend-public": {
                 "container_name": f"{container_prefix}-backend-public",
+                "env_file": _OverrideList([]),
+                "volumes": common_volumes,
             },
             "backend-operator": {
                 "container_name": f"{container_prefix}-backend-operator",
+                "env_file": _OverrideList([]),
                 "environment": {
                     "OPERATOR_AUTH_SECRET": DUMMY_OPERATOR_SECRET,
                 },
+                "volumes": _OverrideList(list(common_volumes) + ["/var/run/docker.sock:/var/run/docker.sock"]),
             },
             OPERATOR_PROXY_SERVICE_NAME: {
                 "container_name": f"{container_prefix}-operator-gateway",
@@ -620,6 +688,7 @@ def build_override_compose(tmp_dir: Path, project_name: str, scenario: str) -> P
             "osrm-walking": {
                 "container_name": f"{container_prefix}-osrm-walking",
                 "ports": _OverrideList(["0:5001"]),
+                "volumes": _OverrideList(isolated_stack.service_volumes("osrm-walking", seeded)),
             },
             "martin": {
                 "container_name": f"{container_prefix}-martin",
@@ -630,6 +699,7 @@ def build_override_compose(tmp_dir: Path, project_name: str, scenario: str) -> P
             OPERATOR_INTERNAL_NETWORK_NAME: {"name": f"{network_prefix}-operator-internal", "internal": True},
             OPERATOR_PUBLISH_NETWORK_NAME: {"name": f"{network_prefix}-operator-publish"},
         },
+        "volumes": isolated_stack.lease_volume_override(container_prefix),
     }
     path = tmp_dir / f"docker-compose.override.phase2b2.{scenario}.yml"
     path.write_text(yaml.dump(override, sort_keys=False), encoding="utf-8")
@@ -637,8 +707,9 @@ def build_override_compose(tmp_dir: Path, project_name: str, scenario: str) -> P
 
 
 def compose_cmd(override_file: Path, extra: List[str], project_name: str) -> List[str]:
+    # --env-file /dev/null: 実 .env を compose の変数展開に使わない（phase2b3 と同じ）
     return [
-        "docker", "compose",
+        "docker", "compose", "--env-file", "/dev/null",
         "-f", str(COMPOSE_FILE),
         "-f", str(override_file),
         "-p", project_name,
@@ -811,6 +882,14 @@ def cleanup_stack(override_file: Path, project_name: str) -> None:
     img_check = _run(["docker", "images", "-q", "--filter", f"reference={project_name}-*"])
     remaining_imgs = [l for l in img_check.stdout.splitlines() if l.strip()] if img_check.returncode == 0 else ["<query failed>"]
     record(f"cleanup[{project_name}]: test project image残存 0件", len(remaining_imgs) == 0, f"remaining={remaining_imgs}")
+
+    # scenario 専用の lease-coordination volume（compose down は named volume を消さない）
+    scenario = "ind" if project_name == PROJECT_NAME_DEFAULT else "op"
+    lease_vol_name = f"{_container_prefix(scenario)}-lease-coordination"
+    _run(["docker", "volume", "rm", "-f", lease_vol_name])
+    vol_check = _run(["docker", "volume", "ls", "-q", "--filter", f"name=^{lease_vol_name}$"])
+    remaining_vols = [l for l in vol_check.stdout.splitlines() if l.strip()] if vol_check.returncode == 0 else ["<query failed>"]
+    record(f"cleanup[{project_name}]: test lease-coordination volume残存 0件", len(remaining_vols) == 0, f"remaining={remaining_vols}")
 
 
 # ------------------------------------------------------------------
@@ -1635,7 +1714,8 @@ def main() -> int:
             override_ind.read_text(encoding="utf-8"), encoding="utf-8"
         )
         try:
-            at03_default_start_check(override_ind, PROJECT_NAME_DEFAULT)
+            if preflight_isolation_check(override_ind, PROJECT_NAME_DEFAULT, Path(tmp_ind), []):
+                at03_default_start_check(override_ind, PROJECT_NAME_DEFAULT)
         finally:
             cleanup_stack(override_ind, PROJECT_NAME_DEFAULT)
 
@@ -1647,7 +1727,8 @@ def main() -> int:
             override_op.read_text(encoding="utf-8"), encoding="utf-8"
         )
         try:
-            if operator_stack_up_check(override_op, PROJECT_NAME_OPERATOR):
+            if (preflight_isolation_check(override_op, PROJECT_NAME_OPERATOR, Path(tmp_op), ["operator"])
+                    and operator_stack_up_check(override_op, PROJECT_NAME_OPERATOR)):
                 ready_ok, ready_detail = wait_backend_public_ready(override_op, PROJECT_NAME_OPERATOR)
                 record(
                     "AT-05/AT-09-BIND stack: backend-publicが以後の検査開始前にhealthyになる",

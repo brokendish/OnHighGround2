@@ -48,6 +48,8 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import phase2_isolated_stack as isolated_stack  # noqa: E402
 PUBLIC_NGINX_CONF = REPO_ROOT / "nginx.conf"
 OPERATOR_NGINX_CONF = REPO_ROOT / "operator" / "nginx.conf"
 FRONTEND_DIR = REPO_ROOT / "frontend"
@@ -221,48 +223,78 @@ OPERATOR_ONLY_NEW_FILES = {"index.html", "js/operator-auth.js"}
 
 
 def build_deny_manifest(operator_dir: Path) -> Dict[str, Any]:
-    """git HEAD時点（本phase開始時点、未commit）で実際に
-    `frontend/admin/`・`frontend/js/navigation-debug-layer.js`として
-    存在していたfileの集合を、git履歴から機械的に再構成する。
-    固定listを唯一の根拠にせず、実repositoryのgit treeから生成する
-    （第5節「開始時inventoryからmachine-readable deny manifestを生成」）。
+    """HARNESS-MODERNIZATION（2026-10-12、OWNER 承認 B4）: deny 対象 = current HEAD で operator_dir 配下に
+    git 追跡されている operator 専用資産（Phase 2-B.4 で public から移した admin / simulation / debug-layer と、
+    その後追加された operator 専用資産）。
+
+    旧実装は `git ls-tree HEAD frontend/admin`（移動が未 commit の時点の HEAD）から作っていたため、移動が
+    commit された後（265dd12 以降）は entry 0 になり検証が成立しなかった。release delta / 移動前の commit には
+    依存しない。operator_dir は clean clone 内の directory を渡す（main）か、検証用の working tree を渡す（FB-N）。
     """
-    proc = _run(
-        [
-            "git", "ls-tree", "-r", "--name-only", "HEAD",
-            "--", "frontend/admin", "frontend/js/navigation-debug-layer.js",
-        ]
-    )
-    entries = []
+    top = _run(["git", "-C", str(operator_dir), "rev-parse", "--show-toplevel"])
+    if top.returncode != 0:
+        return {"entries": []}
+    repo = Path(top.stdout.strip())
+    rel_dir = operator_dir.resolve().relative_to(repo.resolve())
+    proc = _run(["git", "-C", str(repo), "ls-files", "-z", "--", str(rel_dir)])
     if proc.returncode != 0:
-        return {"entries": entries}
-    for git_path in proc.stdout.splitlines():
-        git_path = git_path.strip()
-        if not git_path:
-            continue
-        p = Path(git_path)
-        if p.parent.name == "admin":
-            operator_relpath = p.name
-        else:
-            # frontend/js/navigation-debug-layer.js -> js/navigation-debug-layer.js
-            operator_relpath = f"js/{p.name}"
-        operator_path = operator_dir / operator_relpath
-        if not operator_path.exists():
-            # 移動先に実際に存在しない場合はmanifestに含めない
-            # （別途 check_source_zero_hit の admin_dir_exists/debug_layer_exists
-            # で「移動元に残っていないか」を独立に確認する）。
-            continue
-        data = operator_path.read_bytes()
+        return {"entries": []}
+    entries = []
+    for git_path in sorted(x for x in proc.stdout.split("\0") if x):
+        operator_relpath = str(Path(git_path).relative_to(rel_dir))
+        if operator_relpath in OPERATOR_ONLY_NEW_FILES:
+            continue  # public 側の一般的な同名 file（index.html 等）と衝突するため basename deny に含めない
+        data = (repo / git_path).read_bytes()
         entries.append(
             {
                 "git_head_path": git_path,
                 "relpath": operator_relpath,
-                "basename": p.name,
+                "basename": Path(git_path).name,
                 "sha256": hashlib.sha256(data).hexdigest(),
                 "size": len(data),
             }
         )
     return {"entries": entries}
+
+
+# public boundary policy（B4）: clean clone の追跡 surface を 3 分類する。
+PUBLIC_SURFACE_ROOT = "frontend/"
+PRIVATE_SURFACE_ROOTS = ("operator/frontend-admin/", "operator/nginx.conf")
+PUBLIC_DENIED_PREFIXES = ("frontend/admin/",)
+PUBLIC_DENIED_PATHS = {"frontend/js/navigation-debug-layer.js"}
+
+
+def make_clean_clone(dest: Path, repo_root: Path = REPO_ROOT) -> Tuple[bool, str]:
+    """current HEAD の clean clone（未追跡 file・ローカル cache を含まない公開候補そのもの）。"""
+    head = _run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).stdout.strip()
+    c = _run(["git", "clone", "--quiet", "--no-local", "--no-checkout", str(repo_root), str(dest)])
+    if c.returncode != 0:
+        return False, f"clone failed: {c.stderr[-300:]}"
+    co = _run(["git", "-C", str(dest), "checkout", "--quiet", head])
+    got = _run(["git", "-C", str(dest), "rev-parse", "HEAD"]).stdout.strip()
+    return co.returncode == 0 and got == head, f"head={head} clone_head={got}"
+
+
+def classify_public_surface(clone_root: Path, manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """clean clone の追跡 file のうち public / operator の配信面を PUBLIC_ALLOWED / PUBLIC_DENIED / PRIVATE_ONLY に
+    分類する。PUBLIC_DENIED = public 配信面（frontend/）にある operator 専用資産（移動元 path・deny manifest の
+    basename・同一内容）と不要 metadata。"""
+    files = [x for x in _run(["git", "-C", str(clone_root), "ls-files", "-z"]).stdout.split("\0") if x]
+    deny_basenames = {e["basename"] for e in manifest["entries"]}
+    deny_hashes = {e["sha256"] for e in manifest["entries"]}
+    classes: Dict[str, List[str]] = {"PUBLIC_ALLOWED": [], "PUBLIC_DENIED": [], "PRIVATE_ONLY": []}
+    for f in files:
+        if f.startswith(PRIVATE_SURFACE_ROOTS):
+            classes["PRIVATE_ONLY"].append(f)
+        elif f.startswith(PUBLIC_SURFACE_ROOT):
+            name = Path(f).name
+            digest = hashlib.sha256((clone_root / f).read_bytes()).hexdigest()
+            denied = (f.startswith(PUBLIC_DENIED_PREFIXES) or f in PUBLIC_DENIED_PATHS or name in deny_basenames
+                      or digest in deny_hashes or name in UNWANTED_METADATA_BASENAMES)
+            classes["PUBLIC_DENIED" if denied else "PUBLIC_ALLOWED"].append(f)
+    counts = {k: len(v) for k, v in classes.items()}
+    ok = counts["PUBLIC_DENIED"] == 0 and counts["PUBLIC_ALLOWED"] > 0 and counts["PRIVATE_ONLY"] > 0
+    return {"ok": ok, "counts": counts, "denied": classes["PUBLIC_DENIED"]}
 
 
 def build_operator_asset_inventory(operator_dir: Path) -> List[str]:
@@ -620,15 +652,12 @@ def build_override_compose(tmp_dir: Path, seeded: Dict[str, Path]) -> Path:
 
     override = {
         "services": {
+            # HARNESS-MODERNIZATION（2026-10-12）: 旧 override は init_lease_volume.py だけを mount しており、
+            # runtime-init の entrypoint が使う他の 3 init script と /data_lake/admin が欠けていた。
+            # base compose から機械的に引き継ぐ（phase2_isolated_stack）。
             "runtime-init": {
                 "container_name": f"{CONTAINER_PREFIX}-runtime-init",
-                "volumes": _OverrideList(
-                    [
-                        "lease-coordination:/run/onhighground2/leases:rw",
-                        f"{seeded['data_runtime'].resolve()}:/data_runtime:rw",
-                        "./scripts/publish/init_lease_volume.py:/init_lease_volume.py:ro",
-                    ]
-                ),
+                "volumes": _OverrideList(isolated_stack.service_volumes("runtime-init", seeded)),
             },
             "backend-public": {
                 "container_name": f"{CONTAINER_PREFIX}-backend-public",
@@ -668,12 +697,7 @@ def build_override_compose(tmp_dir: Path, seeded: Dict[str, Path]) -> Path:
             "osrm-walking": {
                 "container_name": f"{CONTAINER_PREFIX}-osrm-walking",
                 "ports": _OverrideList(["0:5001"]),
-                "volumes": _OverrideList(
-                    [
-                        f"{seeded['data_lake'].resolve()}:/data_lake",
-                        f"{seeded['osrm'].resolve()}/foot.lua:/opt/foot.lua",
-                    ]
-                ),
+                "volumes": _OverrideList(isolated_stack.service_volumes("osrm-walking", seeded)),
             },
             "martin": {
                 "container_name": f"{CONTAINER_PREFIX}-martin",
@@ -684,9 +708,7 @@ def build_override_compose(tmp_dir: Path, seeded: Dict[str, Path]) -> Path:
             "operator-internal": {"name": f"{NETWORK_PREFIX}-operator-internal", "internal": True},
             "operator-publish": {"name": f"{NETWORK_PREFIX}-operator-publish"},
         },
-        "volumes": {
-            "lease-coordination": {"name": f"{CONTAINER_PREFIX}-lease-coordination"},
-        },
+        "volumes": isolated_stack.lease_volume_override(CONTAINER_PREFIX),
     }
     path = tmp_dir / "docker-compose.override.phase2b4.yml"
     path.write_text(yaml.dump(override, sort_keys=False), encoding="utf-8")
@@ -1518,20 +1540,31 @@ def main() -> int:
     print(f"project name: {PROJECT_NAME}")
     print(f"operator host port: {OPERATOR_HOST_PORT}")
 
-    manifest = build_deny_manifest(OPERATOR_FRONTEND_DIR)
-    record("deny manifest 生成", len(manifest["entries"]) > 0, f"entries={len(manifest['entries'])}")
+    # HARNESS-MODERNIZATION（OWNER 承認 B4）: 公開候補 = current HEAD の clean clone。deny manifest・public
+    # boundary policy の分類・source / reference graph の検査は clean clone に対して行う（release delta に依存しない）。
+    with tempfile.TemporaryDirectory(prefix="ohg2_phase2b4_clone_") as clone_tmp:
+        clone_root = Path(clone_tmp) / "candidate"
+        clone_ok, clone_detail = make_clean_clone(clone_root)
+        manifest = build_deny_manifest(clone_root / "operator" / "frontend-admin") if clone_ok else {"entries": []}
+        surface = classify_public_surface(clone_root, manifest) if clone_ok else {"ok": False, "counts": {}, "denied": []}
+        record(
+            "deny manifest 生成（current HEAD clean clone の operator 専用資産・public boundary policy 分類）",
+            clone_ok and len(manifest["entries"]) > 0 and surface["ok"],
+            f"{clone_detail} entries={len(manifest['entries'])} surface={surface['counts']} public_denied={surface['denied'][:20]}",
+        )
+        clone_frontend = clone_root / "frontend"
 
-    # check 1
-    ok, detail = check_source_zero_hit(FRONTEND_DIR, manifest)
-    record("AT-06-SOURCE (check 1): public source document rootにdeny対象0件", ok, detail)
+        # check 1
+        ok, detail = check_source_zero_hit(clone_frontend, manifest)
+        record("AT-06-SOURCE (check 1): public source document rootにdeny対象0件", ok, detail)
 
-    # check 1b (CODEX P2B4-CX-004対応)
-    ok, detail = check_public_root_metadata_hygiene(FRONTEND_DIR)
-    record("AT-06-SOURCE (check 1b): public document rootに不要metadata(.DS_Store等)0件", ok, detail)
+        # check 1b (CODEX P2B4-CX-004対応)
+        ok, detail = check_public_root_metadata_hygiene(clone_frontend)
+        record("AT-06-SOURCE (check 1b): public document rootに不要metadata(.DS_Store等)0件", ok, detail)
 
-    # check 3
-    ok, detail = check_reference_graph(FRONTEND_DIR, manifest)
-    record("AT-06-REFGRAPH (check 3): public HTML/JS/CSS参照0件", ok, detail)
+        # check 3
+        ok, detail = check_reference_graph(clone_frontend, manifest)
+        record("AT-06-REFGRAPH (check 3): public HTML/JS/CSS参照0件", ok, detail)
 
     # check 4 (raw)
     ok, detail = check_public_nginx_raw(PUBLIC_NGINX_CONF)
@@ -1574,7 +1607,17 @@ def main() -> int:
         try:
             up_cmd = ["--profile", "operator", "up", "-d", "--build"]
             os.environ["OHG2_PHASE2B4_COMPOSE_STARTED_AT"] = datetime.now(timezone.utc).isoformat()
-            proc = _run(compose_cmd(override_file, up_cmd), timeout=600)
+            # HARNESS-MODERNIZATION: 実 Local stack の固定名・実 repository への rw bind・実 .env があれば up しない
+            # （fail closed。下の「stack起動」case が FAIL になり、以降の必須 case は collection contract が FAIL を合成する）
+            try:
+                violations = isolated_stack.isolation_violations(
+                    isolated_stack.render_config(compose_cmd(override_file, []), ["operator"]), [run_tmp_path])
+            except Exception as exc:  # noqa: BLE001
+                violations = [f"rendered config取得失敗: {exc!r}"[:300]]
+            if violations:
+                proc = subprocess.CompletedProcess(up_cmd, 97, "", f"isolation guard: up しない: {violations}")
+            else:
+                proc = _run(compose_cmd(override_file, up_cmd), timeout=600)
             # This runs before record() truncates detail and before TemporaryDirectory cleanup.
             persist_compose_subprocess_evidence(override_file, compose_cmd(override_file, up_cmd), proc)
             record(
