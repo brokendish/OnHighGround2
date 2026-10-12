@@ -12,26 +12,30 @@ F テスト基盤の不具合 / G 意図した挙動 / H 公開対象外（opera
 
 ## 未解消（2026-10-12 時点）
 
-### KTF-001 `backend/tests/test_phase2b6_rollback.py::test_rollback_isolated_setup_and_reader_observation`
+（なし）
+
+補足: この matrix を使う Phase 2-B.5 の正式 tool（`tools/public_release/phase2b5_atomic_publish.py`）は今も素の
+`python:3.11-slim` で matrix を実行するため、現在の HEAD では ijson の import で stream 系 2 項目も失敗する
+（テスト側は 2026-10-12 に backend-public image へ変更済み）。Phase 2-B.5 の evidence を取り直すときは同じ変更が要る。
+`scripts/test/run_linux_contract.sh` と同じく backend-public image（+ named volume）を使えば足りる（別 phase）。
+
+## 解消済み
+
+### KTF-001（CLOSED）`backend/tests/test_phase2b6_rollback.py::test_rollback_isolated_setup_and_reader_observation`
 
 | 項目 | 内容 |
 |---|---|
+| 状態 | **CLOSED**（2026-10-12、修正 commit 68a08e5） |
 | 失敗 | macOS で `RuntimeAtomicError: renameat2はこのplatformで利用不能（platform=darwin）` |
 | 原因 | atomic publish / rollback は Linux の `renameat2(RENAME_NOREPLACE)` を使う（`runtime_atomic.py`）。macOS には無い。同種のテスト（`test_tile_retirement.py` 等）は Linux 専用の marker を持つが、このテストには無い |
 | 分類 | E（platform 依存）。F（Linux 専用 marker の欠落） |
 | 判定 | NON_BLOCKER・P3 |
 | 公開への影響 | なし。Linux（backend-public image、arm64）では PASS。本番 VPS（amd64）は publish のたびにこの経路を使っている |
 | first_seen | Phase 2-B.6（2026-08-15、「既知の Linux 専用 rollback test」として deselect されていた） |
-| last_verified | 2026-10-12（macOS: FAIL、Linux container: PASS） |
-| 受け入れる理由 | 製品の挙動は正しく、失敗は実行 platform の制約だけ |
-| 期限 | 次の public-release gate（Phase 2-E）の再実行前 |
-| 閉じる条件 | (a) 同種テストと同じ Linux 専用 marker を付け、Linux での PASS を release gate の証跡に含める、または (b) macOS では Linux container 内で実行する。どちらにするかは skip 追加の扱いを含めて別 phase で決める |
-
-補足: この matrix を使う Phase 2-B.5 の正式 tool（`tools/public_release/phase2b5_atomic_publish.py`）は今も素の
-`python:3.11-slim` で matrix を実行するため、現在の HEAD では ijson の import で stream 系 2 項目も失敗する
-（テスト側は 2026-10-12 に backend-public image へ変更済み）。Phase 2-B.5 の evidence を取り直すときは同じ変更が要る。
-
-## 解消済み
+| platform 契約 | atomic publish は Linux kernel の renameat2(RENAME_NOREPLACE) で既存 version を上書きしない（確認と rename の間の TOCTOU なし、fallback 禁止）。current の切替は一時 symlink の rename(2)。macOS 用の代替実装は作らない |
+| 修正 | ROLLBACK-PORTABILITY-LINUX-CONTRACT phase。`scripts/test/run_linux_contract.sh` が Linux container（backend-public image + 固定版 pytest、Docker named volume 上、uid 10002・supplemental gid 20001、network none）でテストを実行する。`tests/linux_contract.py` はその場で renameat2 を実際に呼んで判定し、使えなければ同じテストを container へ委譲する（container 内の失敗・skip は委譲元の失敗。`OHG2_LINUX_CONTRACT_INNER=1` で再委譲しない。Docker が無ければ失敗）。skip / xfail は追加していない |
+| closure evidence | Linux 7.0.12-linuxkit aarch64、named volume ext4（/dev/vda1 rw,relatime,discard）、renameat2 NOREPLACE の実動作を qualification で確認。Linux 契約一式（rollback・atomic publish・preflight / required tile guard・mirror 整合・退役・tile path 移行）127 passed・skip 0。Mac の full regression では委譲で PASS（既知の失敗として残らない） |
+| closed_at | 2026-10-12 |
 
 ### KTF-002（CLOSED）`tests/test_runtime_mbtiles_group_contract.py::test_C_permission_matrix_flat_mirror_backend_public_can_read_all_mbtiles`
 
@@ -58,7 +62,7 @@ Linux（backend-public image、arm64）では #2 だけが PASS し、残りは�
 | # | テスト | 原因 | first-bad | 分類 | 判定 | 優先度 | 結果 |
 |---|---|---|---|---|---|---|---|
 | 1 | `test_phase2b1_entrypoint_boundary.py::test_all_public_routes_match_exact_allowlist` | storm_surge / tsunami の GeoJSON を catch-all から専用 streaming route へ移した（URL の範囲は同じ）のに allowlist が未更新 | 765f4f7・564ea02（2026-09-12） | C | NON_BLOCKER | P1 | 修正（45 → 47 件、完全一致の検査は維持） |
-| 2 | `test_phase2b6_rollback.py::test_rollback_isolated_setup_and_reader_observation` | renameat2 は Linux 専用 | — | E・F | NON_BLOCKER | P3 | 未解消（KTF-001） |
+| 2 | `test_phase2b6_rollback.py::test_rollback_isolated_setup_and_reader_observation` | renameat2 は Linux 専用 | — | E・F | NON_BLOCKER | P3 | KTF-001 として記録 → 同日 CLOSED（Linux container 委譲） |
 | 3 | `navigation/test_interaction.py::test_interaction_matrix` | sweep から閾値 100 を外したのに、テストが rt=100 を探して StopIteration。後続の assertion は実行されていなかった | b0a044f（2026-04-23） | F・C | NON_BLOCKER | P2 | 修正（sweep の最大値を使い、全 cell の存在も検査。後続の assertion も PASS） |
 | 4 | `test_hazard_layers_source_guards.py::test_hazard_layer_source_routing` | storm_surge は vector tile へ移行（preferApi 削除）、旧 tile `tokyo_storm_surge` は退役、tileset ID は /meta から解決 | b9b43c0（2026-04-12）・4e4af1e・88ce04d（2026-09-05） | C | NON_BLOCKER | P2 | 修正（現行の契約を検査し、旧 tile ID・旧解決方式が戻らないことも検査） |
 | 5 | `test_hazard_layers_source_guards.py::test_set_visibility_has_simple_on_off_branches` | 表示 ON の追加処理が zoom 帯の `_applyZoomBandToLayer` へ移った（二重追加の guard は維持） | 5d78030（2026-05-01） | C | NON_BLOCKER | P2 | 修正 |
