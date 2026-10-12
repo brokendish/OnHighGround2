@@ -126,6 +126,9 @@ def test_05_digest_format_is_valid_sha256():
 # ---------------------------------------------------------------------------
 
 def test_06_osrm_images_unchanged_out_of_scope():
+    # Round 9 の Martin pin では OSRM は対象外だった。OSRM は bf31f50（2026-08-30、OSRM provenance）で
+    # v5.25.0 の digest に固定された。Martin pin の変更が OSRM を巻き込まないこと・:latest に戻らないことを見る。
     compose = _load_compose(REPO_ROOT / "docker-compose.yml")
-    assert compose["services"]["osrm-driving"]["image"] == "osrm/osrm-backend:latest"
-    assert compose["services"]["osrm-walking"]["image"] == "osrm/osrm-backend:latest"
+    pinned = "osrm/osrm-backend:v5.25.0@sha256:bdfa60e64ae1376bff6ff5605991be50600132a27469a4a9e77c23afd3a6d555"
+    assert compose["services"]["osrm-driving"]["image"] == pinned
+    assert compose["services"]["osrm-walking"]["image"] == pinned
